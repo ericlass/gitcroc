@@ -1,0 +1,25 @@
+# Rust
+/target/
+
+# Node
+node_modules/
+ui/dist/
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*
+
+# Playwright
+ui/test-results/
+ui/playwright-report/
+ui/blob-report/
+ui/playwright/.cache/
+
+# Tauri
+crates/gitcroc-app/gen/schemas/
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

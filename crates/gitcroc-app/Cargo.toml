@@ -1,0 +1,16 @@
+[package]
+name = "gitcroc-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+gitcroc-git.workspace = true
+gitcroc-core.workspace = true
+gitcroc-ai.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,37 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/gitcroc-git",
+    "crates/gitcroc-core",
+    "crates/gitcroc-ai",
+    "crates/gitcroc-app",
+    "crates/gitcroc-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+gitcroc-git = { path = "crates/gitcroc-git" }
+gitcroc-core = { path = "crates/gitcroc-core" }
+gitcroc-ai = { path = "crates/gitcroc-ai" }
+
+thiserror = "2.0.21"
+
+# Test-only
+cargo_metadata = "0.23.1"
+toml = "1.1.8"
+
+# QA-4: no unsafe anywhere; no unwrap/expect outside tests. The tests' allowance
+# lives in clippy.toml. Every crate opts in with `[lints] workspace = true`;
+# qa_4_workspace_lints_forbid_unsafe_and_unwrap checks this block.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
