@@ -24,7 +24,7 @@ Respects: QA-1, QA-2, D14
   - Prints the IDs with no match and exits non-zero if there are any.
   - A task file can mark an ID as proven without a test by listing it on a "No test needed:" line with a reason; the script then skips it and prints the reason.
 - Unit tests for the script: ID extraction from a task file, both name forms matched, missing ID reported.
-- `CONTRIBUTING.md`, short: how to run `just check`, the test naming rule (QA-3), and that fixture repos are built in code, never checked in as archives (QA-2).
+- `CONTRIBUTING.md`, short: how to run `just check`, the test naming rule (QA-3), that fixture repos are built in code, never checked in as archives (QA-2), and that each integration test file (`tests/*.rs`) starts with `#![allow(clippy::unwrap_used, clippy::expect_used)]`, because clippy's `allow-unwrap-in-tests` does not cover helper functions there (QA-4).
 - Update `CLAUDE.md`: remove the sentence saying the commands do not exist yet for `just check`; keep it for `dev` and `bench`.
 
 ## Out of scope
