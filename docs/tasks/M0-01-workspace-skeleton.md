@@ -21,7 +21,7 @@ Respects: D1, D14, section 4 "Crates" table
 - `.gitignore` for Rust, Node and Tauri build output.
 - Test `arch_5_core_crates_do_not_depend_on_tauri`: reads `cargo metadata` and fails if `gitcroc-git`, `gitcroc-core` or `gitcroc-ai` has any crate named `tauri*` or `wry` in its dependency tree.
 - Test `arch_5_internal_dependencies_match_spec`: fails if any internal dependency edge is not in the allowed list above.
-- Test or lint proof `qa_4_...`: a comment in the workspace `Cargo.toml` naming QA-4 next to the lint block is enough; the lints themselves are the test.
+- Test `qa_4_workspace_lints_forbid_unsafe_and_unwrap`: fails unless the workspace `Cargo.toml` sets the QA-4 lints above, `clippy.toml` allows `unwrap` and `expect` in tests, and every crate sets `[lints] workspace = true`. It lives under `crates/` so the requirement coverage script (M0-02) finds it.
 
 ## Out of scope
 - Any git, AI, Tauri or UI code.
