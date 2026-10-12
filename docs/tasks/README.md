@@ -97,6 +97,13 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Renames in diffs | As `diff.renames` says, git's default when unset; `copies` is treated as renames, and a copy is listed as an added file | M1-03 |
 | Diff attributes | `binary` and `-diff` are read from the working tree's `.gitattributes`, then the index, as git does; a bare repo uses `HEAD`'s tree | M1-03 |
 | Diff bench | `select-commit`: of the first history page of the largest repo, the commit with the most changed lines under 5,000; header, file list and the first file's diff against the first parent, the repo already open. `select-commit-large`: the root commit of the largest repo, which adds 30% of its files. `select-commit` is also reported on `big-history` | M1-03 |
+| Working copy lists | Untracked files are in the unstaged list with status `untracked`; a folder git lists as one entry has a path ending in `/` and a `directory` diff. Unmerged paths are a third list, in neither of the others, as in `git status`. The lists have no line counts | M1-04, M1-09 |
+| Renames in status | Between `HEAD` and the index as `status.renames`, then `diff.renames`, says; on when unset; copies are treated as renames | M1-04 |
+| Status fallback | `git --no-optional-locks status --porcelain=v2 -z` runs instead of `gix` when `core.fsmonitor` is set, the repo is untrusted (`safe.directory`), the index is sparse, the untracked cache is on, or the index has unmerged paths. A file's diff is always read with `gix`: none of these cases changes what a file contains | M1-04 |
+| Conflict operation | Read from the git directory in this order: `rebase-merge` or `rebase-apply` is a rebase (`rebase-apply/applying` is `git am`), then `MERGE_HEAD`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`. Unmerged paths are counted from the index | M1-04 |
+| Repo summary | The upstream as git shortens it (`origin/main`), marked gone when configured but missing; dirty includes untracked files; a detached `HEAD` has no upstream | M1-04 |
+| Repo config | Read when the repo is opened; a refresh reopens the repo to see changes | M1-04, M1-11 |
+| Status bench | `status-60k`: the largest `target-project` repo, already open. `status-big-tree`: the bench turns on `core.untrackedCache` (and `core.fsmonitor` on macOS and Windows) in the `big-tree` repo and fills the cache with one `git status` first | M1-04 |
 | Text that is not UTF-8 | Decoded lossily for display; no encoding detection | M1-02, M1-03 |
 | Tree filter | Done in the core, like history search, so the UI holds no filtering logic | M1-07 |
 | Graph drawing | Lanes computed in the core, drawn per row as inline SVG | M1-02, M1-08 |

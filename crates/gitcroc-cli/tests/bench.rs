@@ -26,7 +26,7 @@ fn small_target_project() -> SetSpec {
 }
 
 #[test]
-fn perf_8_harness_prints_json_with_the_open_repo_history_and_diff_scenarios() {
+fn perf_8_harness_prints_json_with_the_open_repo_history_diff_and_status_scenarios() {
     let data = tempfile::tempdir().unwrap();
     repo_gen::generate_set(&small_target_project(), data.path(), &|_| {}).unwrap();
 
@@ -70,6 +70,7 @@ fn perf_8_harness_prints_json_with_the_open_repo_history_and_diff_scenarios() {
     };
     assert_eq!(budget("select-commit"), 150.0);
     assert!(budget("select-commit-large").is_null());
+    assert_eq!(budget("status-60k"), 500.0);
 }
 
 #[test]

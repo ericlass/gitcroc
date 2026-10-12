@@ -76,6 +76,28 @@ impl GitRunner {
         command
     }
 
+    /// Like [`run`](Self::run), for a thread that may block: the read API
+    /// runs on blocking threads, and its git fallback (ARCH-2) waits here.
+    pub fn run_blocking(&self, args: &[OsString], cwd: Option<&Path>) -> Result<Output, GitError> {
+        let mut command = std::process::Command::new(&self.git);
+        command
+            .args(args)
+            .envs(GIT_ENV)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut command, CREATE_NO_WINDOW);
+        let output = command.output().map_err(|source| GitError::Spawn {
+            path: self.git.clone(),
+            source,
+        })?;
+        finish(output)
+    }
+
     /// Runs git with `args` in `cwd` (or the current directory) and captures
     /// stdout and stderr as bytes.
     pub async fn run(&self, args: &[OsString], cwd: Option<&Path>) -> Result<Output, GitError> {
@@ -87,16 +109,20 @@ impl GitRunner {
                 path: self.git.clone(),
                 source,
             })?;
-        if output.status.success() {
-            Ok(Output {
-                stdout: output.stdout,
-                stderr: output.stderr,
-            })
-        } else {
-            Err(GitError::Failed {
-                code: output.status.code(),
-                stderr: output.stderr,
-            })
-        }
+        finish(output)
+    }
+}
+
+fn finish(output: std::process::Output) -> Result<Output, GitError> {
+    if output.status.success() {
+        Ok(Output {
+            stdout: output.stdout,
+            stderr: output.stderr,
+        })
+    } else {
+        Err(GitError::Failed {
+            code: output.status.code(),
+            stderr: output.stderr,
+        })
     }
 }

@@ -5,6 +5,7 @@ mod diff;
 mod history;
 mod read;
 mod runner;
+mod status;
 
 pub use detect::{
     DetectError, GitInstall, GitVersion, MIN_GIT, SearchEnv, candidates, detect, parse_version,
@@ -20,6 +21,10 @@ pub use history::{
 };
 pub use read::{GitRepo, OpenError};
 pub use runner::{GIT_ENV, GitError, GitRunner, Output};
+pub use status::{
+    Conflict, Engine, Fallback, Head, Operation, RepoState, RepoSummary, StatusError, StatusRead,
+    StatusReader, UnmergedFile, Upstream, WorkingCopy,
+};
 
 /// Errors returned by `gitcroc-git`.
 #[derive(Debug, thiserror::Error)]

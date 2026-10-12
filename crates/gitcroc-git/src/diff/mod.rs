@@ -7,6 +7,8 @@
 
 mod text;
 
+use std::path::Path;
+
 use gix::bstr::{BString, ByteSlice};
 use gix::diff::blob::platform::prepare_diff::Operation;
 use gix::diff::blob::platform::resource::Data;
@@ -50,12 +52,18 @@ pub struct CommitDetails {
     pub parents: Vec<String>,
 }
 
-/// What a diff compares. M1-04 adds the working copy and the index.
+/// What a diff compares.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiffSource {
     /// A commit against one of its parents, 0 being the first (UI-16). A
     /// root commit is compared with the empty tree.
     Commit { hash: String, parent: usize },
+    /// The index against `HEAD`, for a file of [`WorkingCopy::staged`](crate::WorkingCopy).
+    Staged,
+    /// The working tree against the index, for a file of
+    /// [`WorkingCopy::unstaged`](crate::WorkingCopy); an untracked file is
+    /// compared with nothing.
+    Unstaged,
 }
 
 /// How a file changed.
@@ -68,6 +76,9 @@ pub enum FileStatus {
     Renamed,
     /// File, symbolic link and submodule turned into one another.
     TypeChanged,
+    /// In the working tree but not in the index. A folder git lists as one
+    /// entry has a path ending in `/`.
+    Untracked,
 }
 
 /// Both modes, as git writes them (`100644`), when they differ.
@@ -78,7 +89,7 @@ pub struct ModeChange {
 }
 
 /// One entry of a changed-file list. It holds no content (ARCH-8).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ChangedFile {
     /// The index in the list it came from.
     pub id: usize,
@@ -96,9 +107,9 @@ pub struct ChangedFile {
     old: Option<Side>,
     #[serde(skip)]
     new: Option<Side>,
-    /// The commit and parent the list was made for.
+    /// What the list compared.
     #[serde(skip)]
-    origin: (ObjectId, usize),
+    origin: Origin,
 }
 
 impl ChangedFile {
@@ -109,14 +120,70 @@ impl ChangedFile {
             .or(self.old.as_ref())
             .map_or(&[], |side| side.path.as_slice())
     }
+
+    /// The entry for a change from `old` to `new`; `None` for a directory
+    /// of a tree diff.
+    pub(crate) fn new(
+        status: FileStatus,
+        old: Option<Side>,
+        new: Option<Side>,
+        origin: Origin,
+    ) -> Option<Self> {
+        let mode = |side: &Option<Side>| side.as_ref().map(|s| s.mode);
+        if status != FileStatus::Untracked && mode(&old).or(mode(&new)).is_none_or(|m| m.is_tree())
+        {
+            return None;
+        }
+        let display = |side: &Side| String::from_utf8_lossy(&side.path).into_owned();
+        let path = new.as_ref().or(old.as_ref()).map(display)?;
+        let old_path = (status == FileStatus::Renamed)
+            .then(|| old.as_ref().map(display))
+            .flatten();
+        let mode_change = match (mode(&old), mode(&new)) {
+            (Some(before), Some(after)) if before != after => Some(ModeChange {
+                old: before.kind().as_octal_str().to_string(),
+                new: after.kind().as_octal_str().to_string(),
+            }),
+            _ => None,
+        };
+        Some(Self {
+            id: 0,
+            path,
+            old_path,
+            status,
+            mode_change,
+            added: None,
+            removed: None,
+            old,
+            new,
+            origin,
+        })
+    }
 }
 
-/// One side of a changed file.
-#[derive(Debug, Clone)]
-struct Side {
-    id: ObjectId,
-    mode: EntryMode,
-    path: BString,
+/// Sorts `files` by git path and numbers them.
+pub(crate) fn sort_and_number(files: &mut [ChangedFile]) {
+    files.sort_by(|a, b| a.git_path().cmp(b.git_path()));
+    for (index, file) in files.iter_mut().enumerate() {
+        file.id = index;
+    }
+}
+
+/// What a changed-file list compared.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Origin {
+    /// A commit and the index of its parent.
+    Commit(ObjectId, usize),
+    Staged,
+    Unstaged,
+}
+
+/// One side of a changed file. A working tree side has the null id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Side {
+    pub(crate) id: ObjectId,
+    pub(crate) mode: EntryMode,
+    pub(crate) path: BString,
 }
 
 /// Options of a file diff (UI-17, UI-18).
@@ -188,6 +255,8 @@ pub enum FileDiff {
         added: u32,
         removed: u32,
     },
+    /// An untracked folder git lists as one entry; its files are not read.
+    Directory,
     /// The submodule's commit on each side.
     Submodule {
         old: Option<String>,
@@ -206,8 +275,10 @@ pub enum DiffError {
     },
     #[error("{commit} has no parent {index}")]
     NoParent { commit: String, index: usize },
-    #[error("the file belongs to a different commit or parent")]
+    #[error("the file belongs to a different list")]
     FileMismatch,
+    #[error("the repo has no working tree")]
+    NoWorkTree,
     #[error("cannot read the repo: {0}")]
     Read(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
 }
@@ -229,8 +300,9 @@ pub trait DiffRead {
     /// first), sorted by path, renames detected as `diff.renames` says.
     fn changed_files(&self, hash: &str, parent: usize) -> Result<Vec<ChangedFile>, DiffError>;
 
-    /// The diff of `file`, which must come from `changed_files` for the
-    /// same commit and parent as `source`.
+    /// The diff of `file`, which must come from the list `source` names:
+    /// `changed_files` for the same commit and parent, or the staged or
+    /// unstaged list of a working copy.
     fn file_diff(
         &self,
         source: &DiffSource,
@@ -295,14 +367,11 @@ impl DiffRead for GitRepo {
         let changes = repo.diff_tree_to_tree(old_tree.as_ref(), &new_tree, options)?;
         let mut files: Vec<ChangedFile> = changes
             .into_iter()
-            .filter_map(|change| changed_file(change, (id, parent)))
+            .filter_map(|change| changed_file(change, Origin::Commit(id, parent)))
             .collect();
-        files.sort_by(|a, b| a.git_path().cmp(b.git_path()));
-        for (index, file) in files.iter_mut().enumerate() {
-            file.id = index;
-        }
+        sort_and_number(&mut files);
         if files.len() <= MAX_COUNTED_FILES {
-            let mut cache = resource_cache(&repo)?;
+            let mut cache = resource_cache(&repo, None)?;
             for file in &mut files {
                 if let Some((added, removed)) = count_lines(&repo, &mut cache, file)? {
                     file.added = Some(added);
@@ -320,14 +389,25 @@ impl DiffRead for GitRepo {
         options: DiffOptions,
     ) -> Result<FileDiff, DiffError> {
         let repo = self.thread_local();
-        let DiffSource::Commit { hash, parent } = source;
-        if (resolve(&repo, hash)?, *parent) != file.origin {
+        let origin = match source {
+            DiffSource::Commit { hash, parent } => Origin::Commit(resolve(&repo, hash)?, *parent),
+            DiffSource::Staged => Origin::Staged,
+            DiffSource::Unstaged => Origin::Unstaged,
+        };
+        if origin != file.origin {
             return Err(DiffError::FileMismatch);
         }
-        if let Some(diff) = submodule(file) {
+        let work_dir = match origin {
+            Origin::Unstaged => Some(repo.workdir().ok_or(DiffError::NoWorkTree)?.to_owned()),
+            Origin::Commit(..) | Origin::Staged => None,
+        };
+        if file.new.as_ref().is_some_and(|side| side.mode.is_tree()) {
+            return Ok(FileDiff::Directory);
+        }
+        if let Some(diff) = submodule(file, work_dir.as_deref()) {
             return Ok(diff);
         }
-        let mut cache = resource_cache(&repo)?;
+        let mut cache = resource_cache(&repo, work_dir.as_deref())?;
         set_sides(&repo, &mut cache, file)?;
         let prepared = cache
             .prepare_diff()
@@ -336,7 +416,13 @@ impl DiffRead for GitRepo {
             Operation::InternalDiff { algorithm } => algorithm,
             Operation::ExternalCommand { .. } => repo.diff_algorithm()?,
             Operation::SourceOrDestinationIsBinary => {
-                return binary(&repo, file, prepared.old.data, prepared.new.data);
+                return binary(
+                    &repo,
+                    file,
+                    work_dir.as_deref(),
+                    prepared.old.data,
+                    prepared.new.data,
+                );
             }
         };
         let old = prepared.old.data.as_slice().unwrap_or_default();
@@ -367,10 +453,11 @@ fn resolve(repo: &gix::Repository, name: &str) -> Result<ObjectId, DiffError> {
         })
 }
 
-/// The blob cache for diffs between trees. Attributes come from the
-/// working tree's `.gitattributes` files, then the index, as git reads
-/// them; a bare repo has only the index (`HEAD`'s tree).
-fn resource_cache(repo: &gix::Repository) -> Result<Platform, DiffError> {
+/// The blob cache for diffs. Attributes come from the working tree's
+/// `.gitattributes` files, then the index, as git reads them; a bare repo
+/// has only the index (`HEAD`'s tree). With `work_dir`, the new side of a
+/// diff is read from the working tree, converted as `git add` would.
+fn resource_cache(repo: &gix::Repository, work_dir: Option<&Path>) -> Result<Platform, DiffError> {
     use gix::worktree::stack::state::attributes::Source;
 
     let index = repo.index_or_load_from_head_or_empty()?;
@@ -384,7 +471,10 @@ fn resource_cache(repo: &gix::Repository) -> Result<Platform, DiffError> {
         repo,
         gix::diff::blob::pipeline::Mode::ToGit,
         attributes,
-        gix::diff::blob::pipeline::WorktreeRoots::default(),
+        gix::diff::blob::pipeline::WorktreeRoots {
+            old_root: None,
+            new_root: work_dir.map(Path::to_owned),
+        },
     )?)
 }
 
@@ -405,7 +495,7 @@ fn rewrites(repo: &gix::Repository) -> Result<Option<gix::diff::Rewrites>, DiffE
 }
 
 /// The list entry of a tree change; `None` for a directory.
-fn changed_file(change: ChangeDetached, origin: (ObjectId, usize)) -> Option<ChangedFile> {
+fn changed_file(change: ChangeDetached, origin: Origin) -> Option<ChangedFile> {
     let side = |id, mode, path| Some(Side { id, mode, path });
     let (status, old, new) = match change {
         ChangeDetached::Addition {
@@ -459,48 +549,30 @@ fn changed_file(change: ChangeDetached, origin: (ObjectId, usize)) -> Option<Cha
             }
         }
     };
-    let mode = |side: &Option<Side>| side.as_ref().map(|s| s.mode);
-    if mode(&old).or(mode(&new)).is_none_or(|m| m.is_tree()) {
-        return None;
-    }
-    let display = |side: &Side| String::from_utf8_lossy(&side.path).into_owned();
-    let path = new.as_ref().or(old.as_ref()).map(display)?;
-    let old_path = (status == FileStatus::Renamed)
-        .then(|| old.as_ref().map(display))
-        .flatten();
-    let mode_change = match (mode(&old), mode(&new)) {
-        (Some(before), Some(after)) if before != after => Some(ModeChange {
-            old: before.kind().as_octal_str().to_string(),
-            new: after.kind().as_octal_str().to_string(),
-        }),
-        _ => None,
-    };
-    Some(ChangedFile {
-        id: 0,
-        path,
-        old_path,
-        status,
-        mode_change,
-        added: None,
-        removed: None,
-        old,
-        new,
-        origin,
-    })
+    ChangedFile::new(status, old, new, origin)
 }
 
 /// Files, links and submodules are different types; the executable bit is
 /// not.
-fn same_type(a: EntryMode, b: EntryMode) -> bool {
+pub(crate) fn same_type(a: EntryMode, b: EntryMode) -> bool {
     let kind = |mode: EntryMode| (mode.is_link(), mode.is_commit(), mode.is_tree());
     kind(a) == kind(b)
 }
 
-fn submodule(file: &ChangedFile) -> Option<FileDiff> {
+/// The commits of a submodule. In the working tree (`work_dir`) it is the
+/// submodule's checked-out commit, `None` when it is not checked out.
+fn submodule(file: &ChangedFile, work_dir: Option<&Path>) -> Option<FileDiff> {
     let commit = |side: &Option<Side>| {
-        side.as_ref()
-            .filter(|s| s.mode.is_commit())
-            .map(|s| s.id.to_string())
+        let side = side.as_ref().filter(|s| s.mode.is_commit())?;
+        match work_dir {
+            Some(work_dir) if side.id.is_null() => {
+                let path = work_dir.join(gix::path::from_bstr(side.path.as_bstr()).ok()?);
+                let submodule = gix::open(path).ok()?;
+                let head = submodule.head_id().ok()?.detach();
+                Some(head.to_string())
+            }
+            _ => Some(side.id.to_string()),
+        }
     };
     let (old, new) = (commit(&file.old), commit(&file.new));
     (old.is_some() || new.is_some()).then_some(FileDiff::Submodule { old, new })
@@ -537,7 +609,7 @@ fn count_lines(
     cache: &mut Platform,
     file: &ChangedFile,
 ) -> Result<Option<(u32, u32)>, DiffError> {
-    if submodule(file).is_some() {
+    if submodule(file, None).is_some() {
         return Ok(None);
     }
     set_sides(repo, cache, file)?;
@@ -557,10 +629,11 @@ fn count_lines(
 }
 
 /// A binary diff: images up to [`MAX_IMAGE_BYTES`] per side, sizes
-/// otherwise.
+/// otherwise. A working tree side is read from `work_dir`.
 fn binary(
     repo: &gix::Repository,
     file: &ChangedFile,
+    work_dir: Option<&Path>,
     old: Data<'_>,
     new: Data<'_>,
 ) -> Result<FileDiff, DiffError> {
@@ -577,7 +650,13 @@ fn binary(
         if size > MAX_IMAGE_BYTES {
             return Ok(None);
         }
-        let bytes = repo.find_object(side.id)?.detach().data;
+        let bytes = match work_dir {
+            Some(work_dir) if side.id.is_null() => {
+                let path = work_dir.join(gix::path::from_bstr(side.path.as_bstr())?);
+                std::fs::read(path).map_err(|e| DiffError::Read(e.into()))?
+            }
+            _ => repo.find_object(side.id)?.detach().data,
+        };
         Ok(ImageFormat::sniff(&bytes).map(|format| Image {
             format,
             size,
