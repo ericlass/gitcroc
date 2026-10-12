@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use gitcroc_core::GitRepo;
+use gitcroc_core::{GitRepo, HistoryStart, RepoRead};
 use serde_json::{Value, json};
 
 /// The set every budget is measured on (section 9).
@@ -32,33 +32,96 @@ pub const USAGE: &str = "bench [--data <dir>] [--runs <n>] [--stretch]";
 type Measured = Box<dyn FnMut() -> Result<(), String>>;
 
 /// A named scenario. `prepare` does the untimed setup and returns the
-/// operation to time.
+/// operation to time, or `None` when the set is too small for it.
 struct Scenario {
     name: &'static str,
-    /// The section 9 budget, if the scenario has one.
-    budget_ms: Option<f64>,
-    sets: &'static [&'static str],
-    prepare: fn(&DataSet) -> Result<Measured, String>,
+    /// The sets it runs on, with the section 9 budget on each, if any.
+    sets: &'static [(&'static str, Option<f64>)],
+    prepare: fn(&DataSet) -> Result<Option<Measured>, String>,
 }
 
-const ALL_SETS: &[&str] = &["target-project", "big-history", "big-tree", "many-repos"];
-
-/// Later tasks add their scenarios here (M1-02 to M1-06).
-const SCENARIOS: &[Scenario] = &[Scenario {
-    name: "open-repo",
-    budget_ms: None,
-    sets: ALL_SETS,
-    prepare: open_repo,
-}];
+/// Later tasks add their scenarios here (M1-03 to M1-06).
+const SCENARIOS: &[Scenario] = &[
+    Scenario {
+        name: "open-repo",
+        sets: &[
+            ("target-project", None),
+            ("big-history", None),
+            ("big-tree", None),
+            ("many-repos", None),
+        ],
+        prepare: open_repo,
+    },
+    // Select the largest repo: first page of history (the core part; M1-12
+    // measures the UI part).
+    Scenario {
+        name: "history-first-page",
+        sets: &[
+            ("target-project", Some(200.0)),
+            ("big-history", Some(300.0)),
+            ("many-repos", None),
+        ],
+        prepare: history_first_page,
+    },
+    // Later pages cost no more than the first: page 100 needs 50,000 commits,
+    // so target-project shows its last page, the 10th.
+    Scenario {
+        name: "history-page-10",
+        sets: &[("target-project", None)],
+        prepare: |set| history_later_page(set, 10),
+    },
+    Scenario {
+        name: "history-page-100",
+        sets: &[("big-history", None)],
+        prepare: |set| history_later_page(set, 100),
+    },
+];
 
 /// Opens the set's largest repo with `gix`; proves the plumbing.
-fn open_repo(set: &DataSet) -> Result<Measured, String> {
+fn open_repo(set: &DataSet) -> Result<Option<Measured>, String> {
     let path = set.largest()?.path.clone();
-    Ok(Box::new(move || {
+    Ok(Some(Box::new(move || {
         let repo = GitRepo::open(&path).map_err(|error| error.to_string())?;
         black_box(repo);
         Ok(())
-    }))
+    })))
+}
+
+/// Opens the largest repo and reads its first page of history.
+fn history_first_page(set: &DataSet) -> Result<Option<Measured>, String> {
+    let path = set.largest()?.path.clone();
+    Ok(Some(Box::new(move || {
+        let repo = GitRepo::open(&path).map_err(|error| error.to_string())?;
+        let page = repo
+            .history(HistoryStart::All, None, None)
+            .map_err(|error| error.to_string())?;
+        black_box(page);
+        Ok(())
+    })))
+}
+
+/// Reads page `number` of the largest repo, continuing from page
+/// `number - 1`, which is read untimed. `None` when the history is shorter.
+fn history_later_page(set: &DataSet, number: usize) -> Result<Option<Measured>, String> {
+    let repo = GitRepo::open(&set.largest()?.path).map_err(|error| error.to_string())?;
+    let mut cursor = None;
+    for page in 1..number {
+        cursor = repo
+            .history(HistoryStart::All, cursor, None)
+            .map_err(|error| error.to_string())?
+            .next;
+        if cursor.is_none() {
+            eprintln!("{} has only {page} pages of history", set.name);
+            return Ok(None);
+        }
+    }
+    Ok(Some(Box::new(move || {
+        let page = repo
+            .history(HistoryStart::All, cursor.clone(), None)
+            .map_err(|error| error.to_string())?;
+        black_box(page);
+        Ok(())
+    })))
 }
 
 /// A data set as its manifest describes it.
@@ -161,9 +224,17 @@ pub fn summarize(samples: &[f64]) -> Option<(f64, f64)> {
     Some((median, sorted[rank - 1]))
 }
 
-/// Runs a scenario on a set and returns its JSON result.
-fn measure(scenario: &Scenario, set: &DataSet, runs: usize) -> Result<Value, String> {
-    let mut operation = (scenario.prepare)(set)?;
+/// Runs a scenario on a set and returns its JSON result, or `None` when the
+/// set is too small for it.
+fn measure(
+    scenario: &Scenario,
+    budget_ms: Option<f64>,
+    set: &DataSet,
+    runs: usize,
+) -> Result<Option<Value>, String> {
+    let Some(mut operation) = (scenario.prepare)(set)? else {
+        return Ok(None);
+    };
     operation()?; // warm-up
     let mut samples = Vec::with_capacity(runs);
     for _ in 0..runs {
@@ -173,23 +244,27 @@ fn measure(scenario: &Scenario, set: &DataSet, runs: usize) -> Result<Value, Str
     }
     let (median, p95) = summarize(&samples).ok_or("no samples")?;
     let round = |ms: f64| (ms * 1000.0).round() / 1000.0;
-    Ok(json!({
+    Ok(Some(json!({
         "scenario": scenario.name,
         "data_set": set.name,
         "runs": runs,
         "median_ms": round(median),
         "p95_ms": round(p95),
-        "budget_ms": scenario.budget_ms,
-        "pass": scenario.budget_ms.is_none_or(|budget| median <= budget),
-    }))
+        "budget_ms": budget_ms,
+        "pass": budget_ms.is_none_or(|budget| median <= budget),
+    })))
 }
 
-/// Exits 0 when every scenario is within its budget, 1 when one is not, and 2
-/// when the gating set is missing or a scenario fails to run.
+/// Exits 0 when every scenario on the gating set is within its budget, 1
+/// when one is not, and 2 when the gating set is missing or a scenario fails
+/// to run. Stretch budgets are reported but do not fail the run (section 9).
 pub fn run(options: &Options) -> ExitCode {
     match run_all(options) {
         Ok(results) => {
-            let pass = results.iter().all(|result| result["pass"] == true);
+            let pass = results
+                .iter()
+                .filter(|result| result["data_set"] == GATING_SET)
+                .all(|result| result["pass"] == true);
             match serde_json::to_string_pretty(&results) {
                 Ok(json) => println!("{json}"),
                 Err(error) => {
@@ -227,14 +302,15 @@ fn run_all(options: &Options) -> Result<Vec<Value>, String> {
     }
     let mut results = Vec::new();
     for set in &sets {
-        for scenario in SCENARIOS
-            .iter()
-            .filter(|s| s.sets.contains(&set.name.as_str()))
-        {
+        for scenario in SCENARIOS {
+            let Some(&(_, budget_ms)) = scenario.sets.iter().find(|(name, _)| *name == set.name)
+            else {
+                continue;
+            };
             eprintln!("{} on {}", scenario.name, set.name);
-            let result = measure(scenario, set, options.runs)
+            let result = measure(scenario, budget_ms, set, options.runs)
                 .map_err(|error| format!("{} on {}: {error}", scenario.name, set.name))?;
-            results.push(result);
+            results.extend(result);
         }
     }
     Ok(results)

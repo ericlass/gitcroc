@@ -83,6 +83,11 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | History order | Newest first by commit date, never a parent above its child (`git log --date-order`) | M1-02 |
 | Whole-repo history | Starts from `HEAD`, local and remote branches; tags only label commits | M1-02 |
 | Filtered history | A filtered list has no graph lines | M1-02, M1-08 |
+| History without a commit-graph file | Same order, but the first page explores the whole history first, as `git log --date-order` does. With the file, a page reads only a little past its last row | M1-02 |
+| History matching | Author matches name or email; the hash prefix may be any length; the stash start gives one row with no lines | M1-02 |
+| Ref labels | `HEAD` is shown only when detached; the checked-out branch is marked as current; `refs/remotes/*/HEAD` is not shown; short hashes use git's abbreviation length | M1-02, M1-08 |
+| Lane layout | Lanes never shift sideways; a freed lane is reused by the next new line. Colors are a running index per line; the UI maps it onto its palette | M1-02, M1-08 |
+| History bench | `history-first-page` on `target-project` (200 ms) and `big-history` (300 ms); later pages as `history-page-10` on `target-project` (its last page) and `history-page-100` on `big-history`. Stretch budgets are reported but do not fail `just bench` | M1-02 |
 | Date column | Author date in local time, `YYYY-MM-DD HH:MM`; committer date in the tooltip | M1-08 |
 | "Uncommitted changes (n)" | n is the number of distinct changed paths: staged, unstaged, untracked or unmerged | M1-08 |
 | Paths over IPC | Files cross IPC as a display string plus an id; the UI never sends a path string back (PLAT-2) | M1-03 |

@@ -5,9 +5,14 @@ use std::process::ExitCode;
 use gitcroc_core::GitSetup;
 
 mod bench;
+mod history;
 
 fn usage() -> ExitCode {
-    eprintln!("usage: gitcroc-cli --version | git-info | {}", bench::USAGE);
+    eprintln!(
+        "usage: gitcroc-cli --version | git-info | {} | {}",
+        history::USAGE,
+        bench::USAGE
+    );
     ExitCode::from(2)
 }
 
@@ -19,6 +24,10 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         [command] if command == "git-info" => git_info(),
+        [command, rest @ ..] if command == "history" => match history::parse_args(rest) {
+            Some(options) => history::run(options),
+            None => usage(),
+        },
         [command, rest @ ..] if command == "bench" => match bench::parse_args(rest) {
             Some(options) => bench::run(&options),
             None => usage(),

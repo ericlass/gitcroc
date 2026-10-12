@@ -1,10 +1,10 @@
-//! The read API (ARCH-2): repos opened with `gix`. M1 adds history, diffs and
-//! status on top of [`GitRepo`].
+//! The read API (ARCH-2): repos opened with `gix`. History is in
+//! [`crate::history`]; M1 adds diffs and status on top of [`GitRepo`].
 
 use std::path::Path;
 
 /// A repo opened for reading.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GitRepo {
     repo: gix::ThreadSafeRepository,
 }
@@ -33,6 +33,11 @@ impl GitRepo {
     /// The git directory.
     pub fn git_dir(&self) -> &Path {
         self.repo.git_dir()
+    }
+
+    /// A handle for reading on the current thread.
+    pub(crate) fn thread_local(&self) -> gix::Repository {
+        self.repo.to_thread_local()
     }
 
     /// The working tree, or `None` for a bare repo.

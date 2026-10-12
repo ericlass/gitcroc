@@ -26,7 +26,7 @@ fn small_target_project() -> SetSpec {
 }
 
 #[test]
-fn perf_8_harness_prints_json_with_the_open_repo_scenario() {
+fn perf_8_harness_prints_json_with_the_open_repo_and_history_scenarios() {
     let data = tempfile::tempdir().unwrap();
     repo_gen::generate_set(&small_target_project(), data.path(), &|_| {}).unwrap();
 
@@ -52,6 +52,14 @@ fn perf_8_harness_prints_json_with_the_open_repo_scenario() {
     assert!(open["p95_ms"].as_f64().unwrap() >= open["median_ms"].as_f64().unwrap());
     assert!(open["budget_ms"].is_null());
     assert_eq!(open["pass"], true);
+
+    let history = results
+        .iter()
+        .find(|r| r["scenario"] == "history-first-page")
+        .unwrap_or_else(|| panic!("no history-first-page result in {results:?}"));
+    assert_eq!(history["budget_ms"], 200.0);
+    // 40 commits have no 10th page; the scenario is skipped, not failed.
+    assert!(!results.iter().any(|r| r["scenario"] == "history-page-10"));
 }
 
 #[test]
