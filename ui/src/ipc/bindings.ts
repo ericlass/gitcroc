@@ -8,6 +8,13 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	/**  The name, version, OS and architecture of the running build. */
 	appInfo: () => typedError<AppInfo, IpcError>(__TAURI_INVOKE("app_info")),
+	/**  The latest git detection result; `checking` until the first one is done. */
+	gitStatus: () => typedError<GitStatus, IpcError>(__TAURI_INVOKE("git_status")),
+	/**
+	 *  Starts detecting git again and returns at once; the result arrives as a
+	 *  `git_status` event.
+	 */
+	gitRecheck: () => typedError<null, IpcError>(__TAURI_INVOKE("git_recheck")),
 	/**
 	 *  Starts a fake job that reports three steps 100 ms apart, and returns
 	 *  its id without waiting for it.
@@ -17,6 +24,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	gitStatus: makeEvent<GitStatusEvent>("git_status"),
 	jobProgress: makeEvent<JobProgressEvent>("job_progress"),
 };
 
@@ -30,6 +38,31 @@ export type AppInfo = {
 	/**  `std::env::consts::ARCH`, e.g. `x86_64`, `aarch64`. */
 	arch: string,
 };
+
+/**
+ *  Whether a usable git was found, as shown to the user. Paths and versions
+ *  are converted to text here, for display only (PLAT-2).
+ */
+export type GitStatus = 
+/**  Detection has not finished yet. */
+{ kind: "checking" } | 
+/**  git at `path` is new enough. */
+{ kind: "usable"; path: string; version: string } | 
+/**  No git at any of the `searched` paths. */
+{ kind: "not_found"; searched: string[] } | 
+/**  git at `path` is version `found`; `required` or newer is needed. */
+{ kind: "too_old"; path: string; found: string; required: string } | 
+/**
+ *  git at `path` did not report a version; `output` is what it printed or
+ *  why it did not run.
+ */
+{ kind: "unparseable"; path: string; output: string };
+
+/**
+ *  The result of git detection, sent as event `git_status` whenever it
+ *  changes: `checking` when detection starts, then the result (PLAT-3).
+ */
+export type GitStatusEvent = GitStatus;
 
 /**  The error every command returns. */
 export type IpcError = {

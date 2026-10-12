@@ -2,6 +2,8 @@
 
 pub mod ipc;
 
+use gitcroc_core::GitSetup;
+
 /// Errors returned by `gitcroc-app`.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -16,8 +18,10 @@ pub fn run() -> Result<(), Error> {
     let ipc = ipc::builder();
     tauri::Builder::default()
         .invoke_handler(ipc.invoke_handler())
+        .manage(GitSetup::new())
         .setup(move |app| {
             ipc.mount_events(app);
+            ipc::spawn_git_detection(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())?;

@@ -20,7 +20,7 @@ serde.workspace = true
 specta.workspace = true
 specta-typescript.workspace = true
 tauri-specta.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["time"] }
 gitcroc-git.workspace = true
 gitcroc-core.workspace = true
 gitcroc-ai.workspace = true

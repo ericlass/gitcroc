@@ -7,11 +7,12 @@
 
 use std::path::Path;
 
-use gitcroc_core::{AppInfo, JobProgress};
+use gitcroc_core::{AppInfo, GitSetup, GitStatus, JobProgress};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use specta::function::collect_functions;
 use specta_typescript::Typescript;
+use tauri::{AppHandle, Manager, State};
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
 
 /// Where `just ipc` writes the bindings, relative to the workspace root.
@@ -54,11 +55,46 @@ impl From<tauri::Error> for IpcError {
 #[tauri_specta(event_name = "job_progress")]
 pub struct JobProgressEvent(pub JobProgress);
 
+/// The result of git detection, sent as event `git_status` whenever it
+/// changes: `checking` when detection starts, then the result (PLAT-3).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "git_status")]
+pub struct GitStatusEvent(pub GitStatus);
+
 /// The name, version, OS and architecture of the running build.
 #[tauri::command]
 #[specta::specta]
 pub async fn app_info() -> Result<AppInfo, IpcError> {
     Ok(AppInfo::current())
+}
+
+/// The latest git detection result; `checking` until the first one is done.
+#[tauri::command]
+#[specta::specta]
+pub async fn git_status(git: State<'_, GitSetup>) -> Result<GitStatus, IpcError> {
+    Ok(git.git_status().await)
+}
+
+/// Starts detecting git again and returns at once; the result arrives as a
+/// `git_status` event.
+#[tauri::command]
+#[specta::specta]
+pub async fn git_recheck(app: AppHandle) -> Result<(), IpcError> {
+    spawn_git_detection(app);
+    Ok(())
+}
+
+/// Detects git in the background (ARCH-7), sending `git_status` events when it
+/// starts and when it is done. Window creation never waits for it.
+pub fn spawn_git_detection(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let git = app.state::<GitSetup>();
+        // An emit fails only while the app shuts down; the state is current
+        // either way and `git_status` reads it.
+        let _ = GitStatusEvent(GitStatus::Checking).emit(&app);
+        let status = git.detect().await;
+        let _ = GitStatusEvent(status).emit(&app);
+    });
 }
 
 /// Debug builds only: commands to exercise the IPC plumbing by hand.
@@ -110,11 +146,16 @@ macro_rules! with_commands {
     ($collect:ident) => {{
         #[cfg(debug_assertions)]
         {
-            $collect![app_info, debug::debug_emit_progress]
+            $collect![
+                app_info,
+                git_status,
+                git_recheck,
+                debug::debug_emit_progress
+            ]
         }
         #[cfg(not(debug_assertions))]
         {
-            $collect![app_info]
+            $collect![app_info, git_status, git_recheck]
         }
     }};
 }
@@ -123,7 +164,7 @@ macro_rules! with_commands {
 pub fn builder() -> Builder<tauri::Wry> {
     Builder::new()
         .commands(with_commands!(collect_commands))
-        .events(collect_events![JobProgressEvent])
+        .events(collect_events![JobProgressEvent, GitStatusEvent])
 }
 
 /// Specta's description of every registered command.
