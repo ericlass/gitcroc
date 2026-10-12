@@ -1,4 +1,15 @@
-import { createEffect, createResource, createSignal, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  Match,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+  Switch,
+  untrack,
+} from "solid-js";
 import DebugJobs from "./DebugJobs";
 import GitSetup from "./GitSetup";
 import { appInfo } from "./ipc";
@@ -9,8 +20,10 @@ import Toolbar from "./layout/Toolbar";
 import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
 import { createGitStore } from "./stores/git";
+import { createHistoryStore, sourceOf } from "./stores/history";
 import { createJobStore } from "./stores/jobs";
 import { createLayoutStore } from "./stores/layout";
+import { createSelectionStore } from "./stores/selection";
 import { createSettingsStore } from "./stores/settings";
 import { createSummaryStore } from "./stores/summaries";
 import { createTreeStore } from "./stores/tree";
@@ -26,6 +39,8 @@ export default function App() {
   const workspaces = createWorkspaceStore();
   const summaries = createSummaryStore();
   const tree = createTreeStore();
+  const selection = createSelectionStore();
+  const history = createHistoryStore(selection);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   // The open tab's workspace: the only one until tabs exist (M3). It is
@@ -42,7 +57,7 @@ export default function App() {
         if (id === undefined) {
           return;
         }
-        const unlisten = [tree.subscribe(id), summaries.subscribe(id)];
+        const unlisten = [tree.subscribe(id), summaries.subscribe(id), history.subscribe(id)];
         onCleanup(() => {
           for (const pending of unlisten) {
             void pending.then((stop) => stop());
@@ -51,6 +66,17 @@ export default function App() {
       },
     ),
   );
+
+  // The history pane follows the tree's selection (section 8).
+  createEffect(() => {
+    const id = workspace()?.id;
+    if (id === undefined) {
+      return;
+    }
+    const current = tree.tree(id);
+    const source = sourceOf(current.selected, current.selectedItem);
+    untrack(() => history.show(id, source));
+  });
 
   onMount(() => {
     void settings.load();
@@ -105,7 +131,14 @@ export default function App() {
             {(id) => (
               <>
                 <main class="main">
-                  <Panes workspace={id()} layout={layout} tree={tree} summaries={summaries} workspaces={workspaces} />
+                  <Panes
+                    workspace={id()}
+                    layout={layout}
+                    tree={tree}
+                    summaries={summaries}
+                    workspaces={workspaces}
+                    history={history}
+                  />
                 </main>
                 <StatusBar workspace={id()} jobs={jobs}>
                   <Show when={import.meta.env.DEV}>

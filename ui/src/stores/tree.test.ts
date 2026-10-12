@@ -113,8 +113,9 @@ test("ARCH-9 tree state is kept per workspace", async () => {
   withRepos();
   const store = createTreeStore();
   await store.subscribe(id());
-  store.select(id(), "repo:r2", "r2");
+  store.select(id(), node(store, "web"));
   expect(fakeState.selected[id()]).toBe("r2");
+  expect(store.tree(id()).selectedItem).toEqual({ kind: "repo", repo_id: "r2" });
   store.setExpanded(id(), node(store, "api"), true);
 
   await store.subscribe("elsewhere");

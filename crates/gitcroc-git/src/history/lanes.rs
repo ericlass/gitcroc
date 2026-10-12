@@ -11,7 +11,7 @@ use gix::hash::{ObjectId, oid};
 use serde::Serialize;
 
 /// The graph cell of one history row.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct GraphRow {
     /// The lane the commit sits on.
     pub lane: u32,
@@ -27,7 +27,7 @@ pub struct GraphRow {
 
 /// One line segment within half a row. A line keeps its color index from
 /// the row where it starts to the row where it ends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 pub struct Edge {
     pub from: u32,
     pub to: u32,

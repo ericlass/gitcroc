@@ -1,11 +1,12 @@
-// A vertical splitter that resizes the pane to its left. Drag it, or focus it
-// and use the arrow keys; double-click resets the pane.
-import type { ResizablePane } from "../stores/layout";
-
+// A vertical splitter that resizes the pane or column to its left. Drag it,
+// or focus it and use the arrow keys; double-click resets it.
 const KEY_STEP = 16;
 
 export default function Splitter(props: {
-  pane: ResizablePane;
+  /** What it resizes, for styling: a pane, or a history column. */
+  pane: string;
+  /** `splitter` (the default) between panes, `column-splitter` in a header. */
+  class?: string;
   label: string;
   width: number;
   min: number;
@@ -54,7 +55,7 @@ export default function Splitter(props: {
       aria-valuenow={props.width}
       aria-valuemin={props.min}
       tabindex="0"
-      class="splitter"
+      class={props.class ?? "splitter"}
       data-pane={props.pane}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

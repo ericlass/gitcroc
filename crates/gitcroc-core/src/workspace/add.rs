@@ -251,6 +251,7 @@ fn insert(
             id: next.next_id(),
             path: candidate.path,
             remote: candidate.remote,
+            commit_graph: None,
         };
         new.push(entry.view());
         next.repos.push(entry);

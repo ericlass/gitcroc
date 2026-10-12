@@ -28,6 +28,15 @@
   --success: #1a7f37;
   --focus-ring: #0969da;
   --backdrop: rgb(31 35 40 / 40%);
+  /* History graph lines (UI-9), by the core's color index modulo 8. */
+  --graph-0: #0969da;
+  --graph-1: #1a7f37;
+  --graph-2: #8250df;
+  --graph-3: #bc4c00;
+  --graph-4: #bf3989;
+  --graph-5: #1b7c83;
+  --graph-6: #cf222e;
+  --graph-7: #9a6700;
 }
 
 :root[data-theme="dark"] {
@@ -47,4 +56,12 @@
   --success: #3fb950;
   --focus-ring: #4493f8;
   --backdrop: rgb(1 4 9 / 60%);
+  --graph-0: #4493f8;
+  --graph-1: #3fb950;
+  --graph-2: #ab7df8;
+  --graph-3: #f0883e;
+  --graph-4: #f778ba;
+  --graph-5: #39c5cf;
+  --graph-6: #f85149;
+  --graph-7: #d29922;
 }

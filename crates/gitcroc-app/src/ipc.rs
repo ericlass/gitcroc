@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gitcroc_core::{
-    AddReport, AppInfo, GitRunner, GitSetup, GitStatus, JobId, JobIds, JobProgress, Refusal,
-    RepoId, SettingsError, SettingsStore, SettingsView, Summaries, SummaryView, Theme, TreeError,
-    TreeNode, Trees, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path,
+    AddReport, AppInfo, CommitGraphError, GitError, GitRunner, GitSetup, GitStatus, Histories,
+    HistoryTarget, HistoryView, HistoryViewError, JobId, JobIds, JobProgress, Refusal, RepoId,
+    SettingsError, SettingsStore, SettingsView, Summaries, SummaryView, Theme, TreeError, TreeNode,
+    Trees, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path, commit_graph_begin,
     refresh_summaries, tree_refs,
 };
 use serde::{Deserialize, Serialize};
@@ -111,6 +112,21 @@ impl From<TreeError> for IpcError {
     }
 }
 
+impl From<HistoryViewError> for IpcError {
+    fn from(error: HistoryViewError) -> Self {
+        match error {
+            HistoryViewError::Workspace(error) => error.into(),
+            HistoryViewError::Open(_) | HistoryViewError::Page(_) | HistoryViewError::NoPage => {
+                Self {
+                    code: IpcErrorCode::Internal,
+                    message: error.to_string(),
+                    git_stderr: None,
+                }
+            }
+        }
+    }
+}
+
 /// Progress of a running job, sent as event `job_progress` (ARCH-7).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "job_progress")]
@@ -152,6 +168,19 @@ pub struct RepoRef {
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "repo_refs_changed")]
 pub struct RepoRefsChangedEvent(pub RepoRef);
+
+/// A commit-graph write job ended, sent as event `commit_graph_written`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "commit_graph_written")]
+pub struct CommitGraphWrittenEvent {
+    pub workspace_id: WorkspaceId,
+    pub repo_id: RepoId,
+    pub job_id: JobId,
+    /// Why the write failed; `None` when the file was written.
+    pub error: Option<String>,
+    /// What git printed on stderr, when git ran and failed.
+    pub git_stderr: Option<String>,
+}
 
 /// The name, version, OS and architecture of the running build.
 #[tauri::command]
@@ -326,6 +355,111 @@ pub async fn tree_filter(
     Ok(gitcroc_core::tree_filter(trees, workspaces, workspace_id, text).await?)
 }
 
+/// The first page of `target`'s history in a repo (section 8 "History
+/// pane"), filtered by `text` when it is not empty (UI-12). It starts a new
+/// walk of the workspace; the previous one ends. `null` when a newer
+/// `history_get` of the workspace superseded this one.
+#[tauri::command]
+#[specta::specta]
+pub async fn history_get(
+    workspaces: State<'_, Arc<Workspaces>>,
+    histories: State<'_, Arc<Histories>>,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+    target: HistoryTarget,
+    text: String,
+) -> Result<Option<HistoryView>, IpcError> {
+    let (histories, workspaces) = (histories.inner().clone(), workspaces.inner().clone());
+    Ok(
+        gitcroc_core::history_get(histories, workspaces, workspace_id, repo_id, target, text)
+            .await?,
+    )
+}
+
+/// The next page of the walk `handle` returned by `history_get` (ARCH-8).
+/// `null` when a newer walk of the workspace replaced it.
+#[tauri::command]
+#[specta::specta]
+pub async fn history_more(
+    histories: State<'_, Arc<Histories>>,
+    workspace_id: WorkspaceId,
+    handle: u32,
+) -> Result<Option<HistoryView>, IpcError> {
+    let histories = histories.inner().clone();
+    Ok(gitcroc_core::history_more(histories, workspace_id, handle).await?)
+}
+
+/// Starts writing a repo's commit-graph file and returns the job id at
+/// once; a write already running for the repo returns its id. Progress
+/// arrives as `job_progress`, the result as `commit_graph_written`.
+#[tauri::command]
+#[specta::specta]
+pub async fn commit_graph_write(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+) -> Result<JobId, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    workspaces.repo_path(&workspace_id, &repo_id)?;
+    let git = usable_git(&app).await?;
+    let histories = app.state::<Arc<Histories>>().inner().clone();
+    let next = app.state::<JobIds>().next();
+    let (job_id, new) = commit_graph_begin(&histories, &workspace_id, &repo_id, next);
+    if new {
+        tauri::async_runtime::spawn(async move {
+            let progress = {
+                let app = app.clone();
+                // An emit fails only while the app shuts down.
+                move |progress| {
+                    let _ = JobProgressEvent(progress).emit(&app);
+                }
+            };
+            let result = gitcroc_core::commit_graph_write(
+                histories,
+                workspaces,
+                workspace_id.clone(),
+                repo_id.clone(),
+                git,
+                job_id,
+                progress,
+            )
+            .await;
+            let git_stderr = match &result {
+                Err(CommitGraphError::Git(GitError::Failed { stderr, .. })) => {
+                    Some(String::from_utf8_lossy(stderr).trim_end().to_owned())
+                }
+                _ => None,
+            };
+            let _ = CommitGraphWrittenEvent {
+                workspace_id,
+                repo_id,
+                job_id,
+                error: result.err().map(|error| error.to_string()),
+                git_stderr,
+            }
+            .emit(&app);
+        });
+    }
+    Ok(job_id)
+}
+
+/// Keeps "don't ask again" for a repo's commit-graph offer (PERF-2).
+#[tauri::command]
+#[specta::specta]
+pub async fn commit_graph_decline(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+) -> Result<(), IpcError> {
+    // Saving touches the disk; keep it off the async workers (ARCH-7).
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        workspaces.decline_commit_graph(&workspace_id, &repo_id)
+    })
+    .await??;
+    Ok(())
+}
+
 /// Removes a repo from the workspace; nothing on disk changes (GRP-3).
 #[tauri::command]
 #[specta::specta]
@@ -350,6 +484,11 @@ async fn prepare_add(app: &AppHandle, workspace_id: &WorkspaceId) -> Result<GitR
     if view.read_only {
         return Err(WorkspaceError::ReadOnly.into());
     }
+    usable_git(app).await
+}
+
+/// A runner for the detected git, or why there is none.
+async fn usable_git(app: &AppHandle) -> Result<GitRunner, IpcError> {
     let setup = app.state::<GitSetup>();
     match setup.git().await {
         Some(git) => Ok(GitRunner::new(git.path)),
@@ -518,6 +657,10 @@ macro_rules! with_commands {
                 tree_get,
                 refs_get,
                 tree_filter,
+                history_get,
+                history_more,
+                commit_graph_write,
+                commit_graph_decline,
                 debug::debug_emit_progress
             ]
         }
@@ -537,7 +680,11 @@ macro_rules! with_commands {
                 repo_select,
                 tree_get,
                 refs_get,
-                tree_filter
+                tree_filter,
+                history_get,
+                history_more,
+                commit_graph_write,
+                commit_graph_decline
             ]
         }
     }};
@@ -553,7 +700,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             WorkspaceChangedEvent,
             WorkspaceAddReportEvent,
             RepoSummaryEvent,
-            RepoRefsChangedEvent
+            RepoRefsChangedEvent,
+            CommitGraphWrittenEvent
         ])
 }
 

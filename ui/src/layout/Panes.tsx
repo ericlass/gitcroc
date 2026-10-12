@@ -1,6 +1,8 @@
 // The three panes of section 8. Sizes come from the layout store under the
 // given workspace id (ARCH-9).
+import HistoryPane from "../history/HistoryPane";
 import type { WorkspaceId } from "../ipc";
+import type { HistoryStore } from "../stores/history";
 import { type LayoutStore, MIN_PANE_WIDTH, type ResizablePane } from "../stores/layout";
 import type { SummaryStore } from "../stores/summaries";
 import type { TreeStore } from "../stores/tree";
@@ -14,6 +16,7 @@ export default function Panes(props: {
   tree: TreeStore;
   summaries: SummaryStore;
   workspaces: WorkspaceStore;
+  history: HistoryStore;
 }) {
   let changes: HTMLElement | undefined;
   const sizes = () => props.layout.paneSizes(props.workspace);
@@ -47,8 +50,13 @@ export default function Panes(props: {
         />
       </section>
       {splitter("tree", "Resize Tree")}
-      <section class="pane" aria-label="History" style={{ width: `${sizes().history}px` }}>
-        <p class="placeholder">History</p>
+      <section class="pane pane-history" aria-label="History" style={{ width: `${sizes().history}px` }}>
+        <HistoryPane
+          workspace={props.workspace}
+          history={props.history}
+          summaries={props.summaries}
+          layout={props.layout}
+        />
       </section>
       {splitter("history", "Resize History")}
       <section class="pane pane-fill" aria-label="Changes" ref={(element) => (changes = element)}>

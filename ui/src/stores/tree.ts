@@ -10,6 +10,7 @@ import {
   type RepoRef,
   refsGet,
   repoSelect,
+  type TreeItem,
   type TreeNode,
   treeFilter,
   treeGet,
@@ -32,6 +33,8 @@ export interface WorkspaceTree {
   /** The same while a filter is shown; cleared when the text changes. */
   filterExpanded: Record<string, boolean>;
   selected: string | null;
+  /** What the selected node is; the history pane follows it. */
+  selectedItem: TreeItem | null;
   filter: string;
   /** The core's answer to `filter`; `null` while the filter is empty. */
   filtered: TreeNode[] | null;
@@ -46,6 +49,7 @@ const empty = (): WorkspaceTree => ({
   expanded: {},
   filterExpanded: {},
   selected: null,
+  selectedItem: null,
   filter: "",
   filtered: null,
 });
@@ -169,13 +173,17 @@ export function createTreeStore() {
     }
   };
 
-  /** Selects the node `nodeId` and tells the core which repo it is in. */
-  const select = (id: WorkspaceId, nodeId: string | null, repo: RepoId | null) => {
+  /** Selects `node` and tells the core which repo it is in. */
+  const select = (id: WorkspaceId, node: TreeNode | null) => {
+    const nodeId = node?.id ?? null;
     if (tree(id).selected === nodeId) {
       return;
     }
-    update(id, (t) => (t.selected = nodeId));
-    void repoSelect(id, repo).catch(() => {
+    update(id, (t) => {
+      t.selected = nodeId;
+      t.selectedItem = node?.item ?? null;
+    });
+    void repoSelect(id, node === null ? null : repoOf(node)).catch(() => {
       // Only the refresh order depends on it.
     });
   };

@@ -76,6 +76,9 @@ pub struct RepoSummary {
     pub upstream: Option<Upstream>,
     /// Anything staged, unstaged, untracked or unmerged.
     pub dirty: bool,
+    /// How many distinct paths are staged, unstaged, untracked or unmerged
+    /// (UI-10); 0 exactly when not `dirty`.
+    pub changes: u32,
     pub state: RepoState,
 }
 
@@ -116,8 +119,9 @@ pub(super) fn repo_state(repo: &gix::Repository) -> Result<RepoState, StatusErro
     })
 }
 
-pub(super) fn summary(repo: &gix::Repository, dirty: bool) -> Result<RepoSummary, StatusError> {
+pub(super) fn summary(repo: &gix::Repository, changes: u32) -> Result<RepoSummary, StatusError> {
     let state = repo_state(repo)?;
+    let dirty = changes > 0;
     let id = repo.head_id().ok().map(|id| id.detach());
     let Some(branch) = repo.head_name()? else {
         let id = repo.head_id()?.detach();
@@ -127,6 +131,7 @@ pub(super) fn summary(repo: &gix::Repository, dirty: bool) -> Result<RepoSummary
             },
             upstream: None,
             dirty,
+            changes,
             state,
         });
     };
@@ -143,6 +148,7 @@ pub(super) fn summary(repo: &gix::Repository, dirty: bool) -> Result<RepoSummary
         },
         upstream,
         dirty,
+        changes,
         state,
     })
 }

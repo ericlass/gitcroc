@@ -56,16 +56,18 @@ impl Filter {
 }
 
 /// A point in time as git records it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 pub struct Time {
-    /// Seconds since the Unix epoch.
+    /// Seconds since the Unix epoch. A JavaScript number holds it exactly;
+    /// specta refuses `i64` because it would be a `bigint`.
+    #[specta(type = i32)]
     pub seconds: i64,
     /// The recorded time zone, in seconds east of UTC.
     pub offset: i32,
 }
 
 /// The kind of a ref label on a history row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum RefKind {
     /// `HEAD`, shown only when it is detached.
@@ -78,7 +80,7 @@ pub enum RefKind {
 }
 
 /// A ref pointing at a commit, by its short name.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct RefLabel {
     pub kind: RefKind,
     pub name: String,
@@ -86,7 +88,7 @@ pub struct RefLabel {
 
 /// One commit of a history page. Text from the repo is decoded lossily
 /// (SEC-3).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct CommitRow {
     pub hash: String,
     pub short_hash: String,
@@ -106,6 +108,10 @@ pub struct CommitRow {
 #[derive(Debug, Clone, Serialize)]
 pub struct Page {
     pub rows: Vec<CommitRow>,
+    /// The walk read commits from a commit-graph file. Without one, the
+    /// first page explores the whole history first (see `walk`), so a slow
+    /// first page without it is worth an offer to write the file (PERF-2).
+    pub commit_graph: bool,
     /// Continues the walk on the next page; `None` at the end of history.
     #[serde(skip)]
     pub next: Option<Cursor>,
@@ -209,6 +215,7 @@ fn page(
     mut cursor: Cursor,
 ) -> Result<Page, HistoryError> {
     let mut rows = Vec::new();
+    let commit_graph = source.graph.is_some();
     while rows.len() < PAGE_SIZE {
         let Some((id, parents)) = cursor.walk.next(source)? else {
             break;
@@ -228,7 +235,11 @@ fn page(
         }
     }
     let next = (!cursor.walk.is_done()).then_some(cursor);
-    Ok(Page { rows, next })
+    Ok(Page {
+        rows,
+        commit_graph,
+        next,
+    })
 }
 
 fn commit_row(
@@ -328,6 +339,7 @@ fn stash_page(
     };
     Ok(Page {
         rows: rows.into_iter().collect(),
+        commit_graph: source.graph.is_some(),
         next: None,
     })
 }

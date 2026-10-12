@@ -101,6 +101,18 @@ struct RepoEntry {
     path: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     remote: Option<String>,
+    /// The user's answer to the offer to write a commit-graph file
+    /// (PERF-2). Optional, so the schema stays 1: older builds ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    commit_graph: Option<CommitGraphAnswer>,
+}
+
+/// An answer to the commit-graph offer worth keeping. Accepting keeps
+/// nothing: once the file exists, there is nothing to offer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum CommitGraphAnswer {
+    Declined,
 }
 
 impl RepoEntry {
@@ -243,13 +255,7 @@ impl Workspaces {
     /// The path of repo `repo`, for reading it.
     pub fn repo_path(&self, id: &WorkspaceId, repo: &RepoId) -> Result<PathBuf, WorkspaceError> {
         self.with(id, |workspace| {
-            workspace
-                .file
-                .repos
-                .iter()
-                .find(|entry| entry.id == *repo)
-                .map(|entry| entry.path.clone())
-                .ok_or_else(|| WorkspaceError::UnknownRepo(repo.clone()))
+            Ok(entry(&workspace.file, repo)?.path.clone())
         })
     }
 
@@ -265,6 +271,37 @@ impl Workspaces {
                 .iter()
                 .map(|entry| (entry.id.clone(), entry.path.clone()))
                 .collect())
+        })
+    }
+
+    /// Whether the user declined the offer to write a commit-graph file for
+    /// `repo` (PERF-2).
+    pub fn commit_graph_declined(
+        &self,
+        id: &WorkspaceId,
+        repo: &RepoId,
+    ) -> Result<bool, WorkspaceError> {
+        self.with(id, |workspace| {
+            Ok(entry(&workspace.file, repo)?.commit_graph == Some(CommitGraphAnswer::Declined))
+        })
+    }
+
+    /// Keeps "don't ask again" for the commit-graph offer of `repo`.
+    pub fn decline_commit_graph(
+        &self,
+        id: &WorkspaceId,
+        repo: &RepoId,
+    ) -> Result<(), WorkspaceError> {
+        self.with(id, |workspace| {
+            workspace.update(|file| {
+                let found = file
+                    .repos
+                    .iter_mut()
+                    .find(|entry| entry.id == *repo)
+                    .ok_or_else(|| WorkspaceError::UnknownRepo(repo.clone()))?;
+                found.commit_graph = Some(CommitGraphAnswer::Declined);
+                Ok(())
+            })
         })
     }
 
@@ -309,6 +346,16 @@ impl Workspaces {
         // half-changed: its file is replaced only after a successful save.
         self.open.lock().unwrap_or_else(PoisonError::into_inner)
     }
+}
+
+fn entry<'file>(
+    file: &'file WorkspaceFile,
+    repo: &RepoId,
+) -> Result<&'file RepoEntry, WorkspaceError> {
+    file.repos
+        .iter()
+        .find(|entry| entry.id == *repo)
+        .ok_or_else(|| WorkspaceError::UnknownRepo(repo.clone()))
 }
 
 fn new_id() -> WorkspaceId {
@@ -432,11 +479,13 @@ mod tests {
                     id: RepoId("r1".to_owned()),
                     path: PathBuf::from("/home/eric/src/platform/api"),
                     remote: Some("git@example.com:platform/api.git".to_owned()),
+                    commit_graph: None,
                 },
                 RepoEntry {
                     id: RepoId("r2".to_owned()),
                     path: PathBuf::from("/home/eric/src/platform/web"),
                     remote: None,
+                    commit_graph: None,
                 },
             ],
             groups: vec![Group {
@@ -477,6 +526,7 @@ repos = ["r1"]
             id: RepoId("r2".to_owned()),
             path: PathBuf::from("/a"),
             remote: None,
+            commit_graph: None,
         });
         file.groups.push(Group {
             name: "G".to_owned(),
