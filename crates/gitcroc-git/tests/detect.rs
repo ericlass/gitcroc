@@ -141,6 +141,7 @@ fn plat_3_search_order() {
         program_files: Some("C:\\PF".into()),
         program_files_x86: Some("C:\\PF86".into()),
         local_app_data: Some(OsString::new()),
+        homebrew_prefixes: vec!["/brew".into()],
     };
     let exe = if cfg!(windows) { "git.exe" } else { "git" };
     let mut expected = vec![
@@ -153,5 +154,19 @@ fn plat_3_search_order() {
         expected.push(PathBuf::from("C:\\PF\\Git\\cmd\\git.exe"));
         expected.push(PathBuf::from("C:\\PF86\\Git\\cmd\\git.exe"));
     }
+    expected.push(Path::new("/brew").join("bin").join("git"));
     assert_eq!(candidates(Some(Path::new("/settings/git")), &env), expected);
+}
+
+#[test]
+fn plat_3_searches_homebrew_on_macos_only() {
+    let prefixes = SearchEnv::from_process().homebrew_prefixes;
+    if cfg!(target_os = "macos") {
+        assert_eq!(
+            prefixes,
+            [PathBuf::from("/opt/homebrew"), PathBuf::from("/usr/local")]
+        );
+    } else {
+        assert!(prefixes.is_empty(), "{prefixes:?}");
+    }
 }

@@ -11,6 +11,10 @@ pub type GitVersion = (u32, u32, u32);
 /// The oldest git gitcroc works with (D13).
 pub const MIN_GIT: GitVersion = (2, 40, 0);
 
+/// macOS: Homebrew's prefixes on Apple silicon and on Intel. An app started
+/// from Finder gets a `PATH` without them, which leaves only Apple's git.
+const HOMEBREW_PREFIXES: [&str; 2] = ["/opt/homebrew", "/usr/local"];
+
 #[cfg(windows)]
 const GIT_EXE: &str = "git.exe";
 #[cfg(not(windows))]
@@ -53,6 +57,9 @@ pub struct SearchEnv {
     pub program_files: Option<OsString>,
     pub program_files_x86: Option<OsString>,
     pub local_app_data: Option<OsString>,
+    /// Homebrew prefixes whose `bin/git` is searched after `PATH`; filled on
+    /// macOS only.
+    pub homebrew_prefixes: Vec<PathBuf>,
 }
 
 impl SearchEnv {
@@ -62,12 +69,18 @@ impl SearchEnv {
             program_files: std::env::var_os("ProgramFiles"),
             program_files_x86: std::env::var_os("ProgramFiles(x86)"),
             local_app_data: std::env::var_os("LocalAppData"),
+            homebrew_prefixes: if cfg!(target_os = "macos") {
+                HOMEBREW_PREFIXES.iter().map(PathBuf::from).collect()
+            } else {
+                Vec::new()
+            },
         }
     }
 }
 
 /// Where to look for git, in order: the explicit path from settings, every
-/// `PATH` entry, then on Windows the standard Git for Windows locations.
+/// `PATH` entry, then on Windows the standard Git for Windows locations, then
+/// on macOS Homebrew's `bin/git`.
 pub fn candidates(explicit: Option<&Path>, env: &SearchEnv) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = explicit.map(Path::to_path_buf).into_iter().collect();
     if let Some(path) = &env.path {
@@ -93,6 +106,11 @@ pub fn candidates(explicit: Option<&Path>, env: &SearchEnv) -> Vec<PathBuf> {
             .flatten(),
         );
     }
+    found.extend(
+        env.homebrew_prefixes
+            .iter()
+            .map(|prefix| prefix.join("bin").join("git")),
+    );
     found
 }
 
