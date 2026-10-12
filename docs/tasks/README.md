@@ -108,6 +108,11 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Tree filter | Done in the core, like history search, so the UI holds no filtering logic | M1-07 |
 | Graph drawing | Lanes computed in the core, drawn per row as inline SVG | M1-02, M1-08 |
 | Folder picker | Opened from Rust; the front end gets no dialog permission (SEC-2) | M1-05 |
+| Repo ids | One more than the highest number in use by a repo or a group, so a removed repo's id is never reused. Removing a repo also takes it out of its groups | M1-05 |
+| Same repo | Two paths are one repo when their canonical paths are equal or they are the same folder (device and inode; volume and file index on Windows), which covers case-insensitive file systems | M1-05 |
+| Add folder | A folder inside a repo, but not its top, is scanned like any other folder, not resolved up to the repo. A scan that finds nothing reports the folder as "no repo found". Scan progress has a `total` of 0 until the number of repos is known | M1-05 |
+| Workspace IPC | `workspace_get` returns the open workspaces in tab order. Adding returns a job id at once; the result arrives as `workspace_changed`, then `workspace_add_report`. `workspace_pick_and_add` returns at once; a cancelled dialog does nothing | M1-05 |
+| Workspace file problems | When the newest workspace file is unreadable or has a newer schema, it opens read-only and no other workspace is created beside it | M1-05 |
 | Diff settings | Mode, options and the file list toggle are global settings; dock position is per workspace | M1-09 |
 | Fonts | Default size 13 px, range 8 to 32 | M1-10 |
 | Watcher debounce | 200 ms per repo; lock files alone do not trigger a refresh | M1-11 |

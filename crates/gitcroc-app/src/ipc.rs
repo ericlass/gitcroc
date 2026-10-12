@@ -5,16 +5,20 @@
 //! `arch_7_commands_are_async` checks the first rule for everything listed in
 //! [`with_commands!`].
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use gitcroc_core::{
-    AppInfo, GitSetup, GitStatus, JobProgress, SettingsError, SettingsStore, SettingsView, Theme,
+    AddReport, AppInfo, GitRunner, GitSetup, GitStatus, JobId, JobIds, JobProgress, Refusal,
+    RepoId, SettingsError, SettingsStore, SettingsView, Theme, WorkspaceError, WorkspaceId,
+    WorkspaceView, Workspaces, add_path,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use specta::function::collect_functions;
 use specta_typescript::Typescript;
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
 
 /// Where `just ipc` writes the bindings, relative to the workspace root.
@@ -42,6 +46,12 @@ pub enum IpcErrorCode {
     Internal,
     /// The settings are read-only (DATA-1); `settings_get` says why.
     SettingsReadOnly,
+    /// The workspace is read-only (DATA-1); its view says why.
+    WorkspaceReadOnly,
+    /// No open workspace has the id, or the workspace has no such repo.
+    NotFound,
+    /// No usable git was found (PLAT-3); `git_status` says why.
+    GitUnavailable,
 }
 
 impl From<tauri::Error> for IpcError {
@@ -68,6 +78,25 @@ impl From<SettingsError> for IpcError {
     }
 }
 
+impl From<WorkspaceError> for IpcError {
+    fn from(error: WorkspaceError) -> Self {
+        let code = match error {
+            WorkspaceError::ReadOnly => IpcErrorCode::WorkspaceReadOnly,
+            WorkspaceError::UnknownWorkspace(_) | WorkspaceError::UnknownRepo(_) => {
+                IpcErrorCode::NotFound
+            }
+            WorkspaceError::Write { .. }
+            | WorkspaceError::Encode(_)
+            | WorkspaceError::Stopped(_) => IpcErrorCode::Internal,
+        };
+        Self {
+            code,
+            message: error.to_string(),
+            git_stderr: None,
+        }
+    }
+}
+
 /// Progress of a running job, sent as event `job_progress` (ARCH-7).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "job_progress")]
@@ -78,6 +107,18 @@ pub struct JobProgressEvent(pub JobProgress);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "git_status")]
 pub struct GitStatusEvent(pub GitStatus);
+
+/// A workspace's fresh state, sent as event `workspace_changed` after it
+/// changes (ARCH-6).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "workspace_changed")]
+pub struct WorkspaceChangedEvent(pub WorkspaceView);
+
+/// What an add job did, sent as event `workspace_add_report` when it ends,
+/// after its `workspace_changed`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "workspace_add_report")]
+pub struct WorkspaceAddReportEvent(pub AddReport);
 
 /// The name, version, OS and architecture of the running build.
 #[tauri::command]
@@ -120,6 +161,146 @@ pub async fn settings_set_theme(app: AppHandle, theme: Theme) -> Result<Settings
     Ok(saved?)
 }
 
+/// The open workspaces, in tab order. One until workspace tabs exist (M3).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_get(
+    workspaces: State<'_, Arc<Workspaces>>,
+) -> Result<Vec<WorkspaceView>, IpcError> {
+    Ok(workspaces.views())
+}
+
+/// Starts a job that adds the repo at `path`, or every repo found below it,
+/// and returns its id at once. Progress arrives as `job_progress` events,
+/// then `workspace_changed` and `workspace_add_report` (ARCH-7).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_add_path(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    path: PathBuf,
+) -> Result<JobId, IpcError> {
+    let git = prepare_add(&app, &workspace_id).await?;
+    Ok(spawn_add(app, workspace_id, path, git))
+}
+
+/// Opens the native folder dialog and returns at once. When the user picks
+/// a folder, an add job starts as for `workspace_add_path`; when they
+/// cancel, nothing happens. The dialog is opened from Rust: the front end
+/// has no dialog permission (SEC-2).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_pick_and_add(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+) -> Result<(), IpcError> {
+    let git = prepare_add(&app, &workspace_id).await?;
+    let picked = app.clone();
+    app.dialog()
+        .file()
+        .set_title("Add repositories")
+        .pick_folder(move |folder| {
+            let Some(folder) = folder else {
+                return;
+            };
+            match folder.into_path() {
+                Ok(path) => {
+                    spawn_add(picked, workspace_id, path, git);
+                }
+                Err(error) => {
+                    let job_id = picked.state::<JobIds>().next();
+                    let report = AddReport {
+                        workspace_id,
+                        job_id,
+                        added: Vec::new(),
+                        already_present: Vec::new(),
+                        refused: vec![Refusal {
+                            path: String::new(),
+                            reason: format!("the dialog returned no usable folder: {error}"),
+                        }],
+                    };
+                    let _ = WorkspaceAddReportEvent(report).emit(&picked);
+                }
+            }
+        });
+    Ok(())
+}
+
+/// Removes a repo from the workspace; nothing on disk changes (GRP-3).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_remove_repo(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+) -> Result<WorkspaceView, IpcError> {
+    // Saving touches the disk; keep it off the async workers (ARCH-7).
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let view = tauri::async_runtime::spawn_blocking(move || {
+        workspaces.remove_repo(&workspace_id, &repo_id)
+    })
+    .await??;
+    let _ = WorkspaceChangedEvent(view.clone()).emit(&app);
+    Ok(view)
+}
+
+/// Checks an add can start: the workspace takes changes and git is usable.
+async fn prepare_add(app: &AppHandle, workspace_id: &WorkspaceId) -> Result<GitRunner, IpcError> {
+    let view = app.state::<Arc<Workspaces>>().view(workspace_id)?;
+    if view.read_only {
+        return Err(WorkspaceError::ReadOnly.into());
+    }
+    let setup = app.state::<GitSetup>();
+    match setup.git().await {
+        Some(git) => Ok(GitRunner::new(git.path)),
+        None => Err(IpcError {
+            code: IpcErrorCode::GitUnavailable,
+            message: "no usable git was found".to_owned(),
+            git_stderr: None,
+        }),
+    }
+}
+
+/// Runs an add job in the background and returns its id.
+fn spawn_add(app: AppHandle, workspace_id: WorkspaceId, path: PathBuf, git: GitRunner) -> JobId {
+    let job_id = app.state::<JobIds>().next();
+    tauri::async_runtime::spawn(async move {
+        let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+        let progress = {
+            let app = app.clone();
+            // An emit fails only while the app shuts down.
+            move |progress| {
+                let _ = JobProgressEvent(progress).emit(&app);
+            }
+        };
+        let shown = path.display().to_string();
+        let result = add_path(
+            workspaces.clone(),
+            workspace_id.clone(),
+            path,
+            git,
+            job_id,
+            progress,
+        )
+        .await;
+        let report = result.unwrap_or_else(|error| AddReport {
+            workspace_id: workspace_id.clone(),
+            job_id,
+            added: Vec::new(),
+            already_present: Vec::new(),
+            refused: vec![Refusal {
+                path: shown,
+                reason: error.to_string(),
+            }],
+        });
+        if let Ok(view) = workspaces.view(&workspace_id) {
+            let _ = WorkspaceChangedEvent(view).emit(&app);
+        }
+        let _ = WorkspaceAddReportEvent(report).emit(&app);
+    });
+    job_id
+}
+
 /// Detects git in the background (ARCH-7), sending `git_status` events when it
 /// starts and when it is done. Window creation never waits for it.
 pub fn spawn_git_detection(app: AppHandle) {
@@ -136,16 +317,13 @@ pub fn spawn_git_detection(app: AppHandle) {
 /// Debug builds only: commands to exercise the IPC plumbing by hand.
 #[cfg(debug_assertions)]
 pub mod debug {
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
 
-    use gitcroc_core::{JobId, JobProgress, WorkspaceId};
-    use tauri::AppHandle;
+    use gitcroc_core::{JobId, JobIds, JobProgress, WorkspaceId};
+    use tauri::{AppHandle, Manager};
     use tauri_specta::Event;
 
     use super::{IpcError, JobProgressEvent};
-
-    static NEXT_JOB: AtomicU32 = AtomicU32::new(1);
 
     /// Starts a fake job that reports three steps 100 ms apart, and returns
     /// its id without waiting for it.
@@ -155,7 +333,7 @@ pub mod debug {
         app: AppHandle,
         workspace_id: WorkspaceId,
     ) -> Result<JobId, IpcError> {
-        let job_id = JobId(NEXT_JOB.fetch_add(1, Ordering::Relaxed));
+        let job_id = app.state::<JobIds>().next();
         tauri::async_runtime::spawn(async move {
             const TOTAL: u32 = 3;
             for done in 1..=TOTAL {
@@ -188,6 +366,10 @@ macro_rules! with_commands {
                 git_recheck,
                 settings_get,
                 settings_set_theme,
+                workspace_get,
+                workspace_add_path,
+                workspace_pick_and_add,
+                workspace_remove_repo,
                 debug::debug_emit_progress
             ]
         }
@@ -198,7 +380,11 @@ macro_rules! with_commands {
                 git_status,
                 git_recheck,
                 settings_get,
-                settings_set_theme
+                settings_set_theme,
+                workspace_get,
+                workspace_add_path,
+                workspace_pick_and_add,
+                workspace_remove_repo
             ]
         }
     }};
@@ -208,7 +394,12 @@ macro_rules! with_commands {
 pub fn builder() -> Builder<tauri::Wry> {
     Builder::new()
         .commands(with_commands!(collect_commands))
-        .events(collect_events![JobProgressEvent, GitStatusEvent])
+        .events(collect_events![
+            JobProgressEvent,
+            GitStatusEvent,
+            WorkspaceChangedEvent,
+            WorkspaceAddReportEvent
+        ])
 }
 
 /// Specta's description of every registered command.

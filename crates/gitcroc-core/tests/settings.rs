@@ -7,8 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use gitcroc_core::{
-    ConfigDir, SETTINGS_FILE, Settings, SettingsError, SettingsStore, SettingsView,
-    SettingsWarning, Theme,
+    ConfigDir, ConfigWarning, SETTINGS_FILE, Settings, SettingsError, SettingsStore, SettingsView,
+    Theme,
 };
 
 /// A config dir inside a temporary dir; it does not exist until a save.
@@ -95,7 +95,7 @@ fn data_1_newer_schema_is_read_only() {
     assert!(view.read_only);
     assert_eq!(
         view.warning,
-        Some(SettingsWarning::NewerSchema {
+        Some(ConfigWarning::NewerSchema {
             path: display(&config.file()),
             found: 99,
             supported: 1,
@@ -125,7 +125,7 @@ fn data_1_corrupt_file_is_not_overwritten() {
         assert_eq!(view.settings, Settings::default(), "{original:?}");
         assert!(view.read_only, "{original:?}");
         match &view.warning {
-            Some(SettingsWarning::Unreadable { path, reason }) => {
+            Some(ConfigWarning::Unreadable { path, reason }) => {
                 assert_eq!(path, &display(&config.file()));
                 assert!(!reason.is_empty());
             }
@@ -147,7 +147,7 @@ fn data_1_no_config_dir_is_read_only() {
     let view = store.view();
     assert_eq!(view.settings, Settings::default());
     assert!(view.read_only);
-    assert_eq!(view.warning, Some(SettingsWarning::NoConfigDir));
+    assert_eq!(view.warning, Some(ConfigWarning::NoConfigDir));
     assert!(matches!(
         store.set_theme(Theme::Light),
         Err(SettingsError::ReadOnly)

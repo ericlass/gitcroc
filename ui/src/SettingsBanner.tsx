@@ -1,8 +1,8 @@
 // Says why the settings are read-only (DATA-1). Paths and reasons are text.
 import { Match, Switch } from "solid-js";
-import type { SettingsWarning } from "./ipc";
+import type { ConfigWarning } from "./ipc";
 
-export default function SettingsBanner(props: { warning: SettingsWarning }) {
+export default function SettingsBanner(props: { warning: ConfigWarning }) {
   return (
     <div role="alert" class="banner">
       <Switch>
