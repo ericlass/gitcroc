@@ -1,6 +1,6 @@
-// The Settings dialog. For now it holds only the theme (UI-23).
+// The Settings dialog: the theme (UI-23), and which gitcroc and git are running.
 import { For, onMount, Show } from "solid-js";
-import type { AppInfo, Theme } from "./ipc";
+import type { AppInfo, GitStatus, Theme } from "./ipc";
 import type { SettingsStore } from "./stores/settings";
 
 const THEMES: { value: Theme; label: string }[] = [
@@ -12,6 +12,7 @@ const THEMES: { value: Theme; label: string }[] = [
 export default function SettingsDialog(props: {
   settings: SettingsStore;
   info: AppInfo | undefined;
+  git: GitStatus | null;
   onClose: () => void;
 }) {
   let dialog: HTMLDivElement | undefined;
@@ -59,6 +60,13 @@ export default function SettingsDialog(props: {
           {(info) => (
             <p class="about">
               {info().name} version {info().version} on {info().os} ({info().arch})
+            </p>
+          )}
+        </Show>
+        <Show when={props.git?.kind === "usable" && props.git}>
+          {(git) => (
+            <p class="about">
+              git version {git().version} at {git().path}
             </p>
           )}
         </Show>

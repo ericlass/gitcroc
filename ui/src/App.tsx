@@ -75,7 +75,7 @@ export default function App() {
             </Show>
           </StatusBar>
           <Show when={settingsOpen()}>
-            <SettingsDialog settings={settings} info={info()} onClose={() => setSettingsOpen(false)} />
+            <SettingsDialog settings={settings} info={info()} git={git.state.result} onClose={() => setSettingsOpen(false)} />
           </Show>
         </div>
       </Match>

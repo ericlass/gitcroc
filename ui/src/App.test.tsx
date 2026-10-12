@@ -15,6 +15,13 @@ test("arch_6_ui_state_comes_only_from_core", async () => {
   expect(await screen.findByText("gitcroc version 9.9.9 on plan9 (mips)")).toBeDefined();
 });
 
+test("PLAT-3: Settings shows the git that detection found", async () => {
+  fakeState.gitStatus = { kind: "usable", path: "/opt/git/bin/git", version: "2.51.1" };
+  render(() => <App />);
+  fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+  expect(await screen.findByText("git version 2.51.1 at /opt/git/bin/git")).toBeDefined();
+});
+
 test("UI-20 layout: tab bar, toolbar, three panes and status bar", async () => {
   render(() => <App />);
   const toolbar = await screen.findByRole("toolbar", { name: "Main" });

@@ -24,7 +24,7 @@ Run `just check` before you call a change done. It runs everything CI requires:
 - `cargo test --workspace`
 - `cargo deny check`
 - in `ui/`: `pnpm install --frozen-lockfile`, `tsc --noEmit`, ESLint, Vitest, and Playwright (Chromium, against `vite build --mode fake` and `vite preview`)
-- `just coverage M0 --report-only` (the requirement coverage report; it lists missing IDs without failing until M0-08 makes it enforcing)
+- `just coverage M0` (the requirement coverage report; it fails if an M0 requirement has no test)
 
 Run `just fmt` to format the workspace.
 
@@ -47,6 +47,18 @@ The app's settings live in `settings.toml` in the platform config dir under `git
 CI (`.github/workflows/ci.yml`) runs `just check` on Linux (ubuntu-22.04), Windows and macOS for every pull request and every push to `main`. It calls only `just check`, so local and CI checks cannot drift (QA-5). The repository owner must mark the three CI jobs (`check (ubuntu-22.04)`, `check (windows-latest)`, `check (macos-latest)`) as required status checks in the branch protection rule for `main`; this is a manual step in the GitHub settings.
 
 On Windows, `just` needs `sh` on PATH, which Git for Windows provides.
+
+## Builds
+
+`just bundle` builds the installable bundles with `tauri build`; pass Tauri's flags after it, for example `just bundle --bundles deb`. The Build workflow (`.github/workflows/build.yml`) runs it on every push to `main` and on demand (Actions, Build, "Run workflow"), and uploads one artifact per platform, named `gitcroc-<version>-<platform>`:
+
+- `windows-x64`: the NSIS installer and a portable zip
+- `macos-universal`: a `.dmg` with a universal (Apple silicon and Intel) app, ad-hoc signed
+- `linux-x86_64`: an AppImage, a `.deb` and an `.rpm`, built on Ubuntu 22.04 (glibc 2.35)
+
+Windows and macOS builds are not code-signed or notarized (SEC-7); [docs/install-unsigned.md](docs/install-unsigned.md) explains how to open them. There is no updater yet (PLAT-4 is M5).
+
+The version number lives only in the workspace `Cargo.toml`. Tauri reads it from there, and a test fails if `tauri.conf.json` sets its own or `ui/package.json` disagrees.
 
 ## Test naming (QA-3)
 
