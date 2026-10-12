@@ -1,7 +1,7 @@
 // Integration test crate: helpers outside #[test] fns are test code too (QA-4).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 const BIN: &str = env!("CARGO_BIN_EXE_gitcroc-cli");
@@ -49,29 +49,49 @@ fn plat_3_git_info_prints_the_usable_git() {
     );
 }
 
-#[test]
-fn plat_3_git_info_exits_1_without_git() {
-    let mut command = Command::new(BIN);
-    command
-        .env("PATH", "")
-        .env_remove("ProgramFiles")
-        .env_remove("ProgramFiles(x86)")
-        .env_remove("LocalAppData");
-    let (code, json) = git_info(&mut command);
-
-    // On macOS the Homebrew locations are searched even without PATH.
-    let homebrew: Vec<&str> = if cfg!(target_os = "macos") {
-        vec!["/opt/homebrew/bin/git", "/usr/local/bin/git"]
+/// Where detection looks besides PATH on this platform: the Git for Windows
+/// locations or Homebrew's. Windows gives every process `%ProgramFiles%`
+/// even when the parent removes it, so these cannot be hidden from the CLI.
+fn fallback_locations() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        let under = |var: &str, rest: &[&str]| {
+            std::env::var_os(var)
+                .filter(|root| !root.is_empty())
+                .map(|root| rest.iter().fold(PathBuf::from(root), |p, s| p.join(s)))
+        };
+        [
+            under("ProgramFiles", &["Git", "cmd", "git.exe"]),
+            under("ProgramFiles(x86)", &["Git", "cmd", "git.exe"]),
+            under("LocalAppData", &["Programs", "Git", "cmd", "git.exe"]),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    } else if cfg!(target_os = "macos") {
+        vec![
+            PathBuf::from("/opt/homebrew/bin/git"),
+            PathBuf::from("/usr/local/bin/git"),
+        ]
     } else {
         vec![]
-    };
-    if let Some(git) = homebrew.iter().find(|git| Path::new(git).is_file()) {
-        assert_eq!(json["path"], *git, "{json}");
+    }
+}
+
+#[test]
+fn plat_3_git_info_exits_1_without_git() {
+    let (code, json) = git_info(Command::new(BIN).env("PATH", ""));
+
+    // With PATH empty, only the platform's fallback locations are left.
+    let fallbacks = fallback_locations();
+    if let Some(git) = fallbacks.iter().find(|git| git.is_file()) {
+        assert_eq!(code, Some(0), "{json}");
+        assert_eq!(json["path"], git.to_str().unwrap(), "{json}");
         return;
     }
+    let searched: Vec<&str> = fallbacks.iter().map(|p| p.to_str().unwrap()).collect();
     assert_eq!(code, Some(1), "{json}");
     assert_eq!(
         json,
-        serde_json::json!({ "kind": "not_found", "searched": homebrew })
+        serde_json::json!({ "kind": "not_found", "searched": searched })
     );
 }
