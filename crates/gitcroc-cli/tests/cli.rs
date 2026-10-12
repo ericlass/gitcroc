@@ -1,3 +1,6 @@
+// Integration test crate: helpers outside #[test] fns are test code too (QA-4).
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::process::Command;
 
 const BIN: &str = env!("CARGO_BIN_EXE_gitcroc-cli");

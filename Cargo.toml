@@ -6,6 +6,7 @@ members = [
     "crates/gitcroc-ai",
     "crates/gitcroc-app",
     "crates/gitcroc-cli",
+    "tools/req-coverage",
 ]
 
 [workspace.package]

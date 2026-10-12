@@ -19,6 +19,10 @@ const MEMBERS: [&str; 5] = [
     "gitcroc-cli",
 ];
 
+/// Developer tools in the workspace. No crate may depend on them, and they
+/// depend on no workspace crate.
+const TOOLS: [&str; 1] = ["req-coverage"];
+
 /// Internal dependency edges allowed by the Crates table in spec section 4.
 const ALLOWED_EDGES: [(&str, &str); 6] = [
     ("gitcroc-core", "gitcroc-git"),
@@ -108,7 +112,8 @@ fn arch_5_internal_dependencies_match_spec() {
     let members: HashSet<&PackageId> = meta.workspace_members.iter().collect();
 
     let member_names: BTreeSet<&str> = members.iter().map(|id| names[id]).collect();
-    assert_eq!(member_names, BTreeSet::from(MEMBERS));
+    let expected: BTreeSet<&str> = MEMBERS.into_iter().chain(TOOLS).collect();
+    assert_eq!(member_names, expected);
 
     let allowed: BTreeSet<(&str, &str)> = ALLOWED_EDGES.into_iter().collect();
     let resolve = meta.resolve.as_ref().expect("metadata includes resolve");

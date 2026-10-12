@@ -1,0 +1,14 @@
+[package]
+name = "req-coverage"
+description = "Lists requirement IDs of a milestone that have no test (QA-3)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

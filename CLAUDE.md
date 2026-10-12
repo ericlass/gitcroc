@@ -8,7 +8,7 @@ Spec: docs/spec/ (source of truth). Decisions: docs/spec/01-decisions.md and doc
 - just dev          # run the app
 - just bench        # performance harness
 
-These commands are created in milestone M0 (docs/spec/13-milestones.md). Until then they do not exist.
+`just dev` and `just bench` do not exist yet: they arrive in M0-04 and M1 (docs/spec/13-milestones.md) and fail with a message until then.
 
 ## Invariants (never break; see spec IDs)
 - All repo writes and network operations go through the git CLI runner (ARCH-1).
