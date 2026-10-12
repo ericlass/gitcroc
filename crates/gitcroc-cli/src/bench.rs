@@ -13,7 +13,8 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use gitcroc_core::{
-    ChangedFile, DiffOptions, DiffRead, DiffSource, GitRepo, HistoryStart, RepoRead,
+    ChangedFile, DiffOptions, DiffRead, DiffSource, GitRepo, GitRunner, GitSetup, HistoryStart,
+    RepoRead, StatusRead, StatusReader,
 };
 use serde_json::{Value, json};
 
@@ -42,7 +43,7 @@ struct Scenario {
     prepare: fn(&DataSet) -> Result<Option<Measured>, String>,
 }
 
-/// Later tasks add their scenarios here (M1-04 to M1-06).
+/// Later tasks add their scenarios here (M1-05, M1-06).
 const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "open-repo",
@@ -91,7 +92,70 @@ const SCENARIOS: &[Scenario] = &[
         sets: &[("target-project", None)],
         prepare: select_root_commit,
     },
+    // Working copy status of the 60,000-file repo, git defaults, the repo
+    // already open.
+    Scenario {
+        name: "status-60k",
+        sets: &[("target-project", Some(500.0))],
+        prepare: |set| status(set, false),
+    },
+    // Stretch: big-tree with the untracked cache and, where git has a
+    // built-in one (macOS, Windows), the file system monitor on.
+    Scenario {
+        name: "status-big-tree",
+        sets: &[("big-tree", Some(1000.0))],
+        prepare: |set| status(set, true),
+    },
 ];
+
+/// Reads the working copy of the largest repo. With `caches`, the repo's
+/// config first turns on the untracked cache and, where git has one, the
+/// built-in file system monitor, and a plain `git status` fills them; this
+/// changes only the bench data.
+fn status(set: &DataSet, caches: bool) -> Result<Option<Measured>, String> {
+    let path = set.largest()?.path.clone();
+    let git = git_runner()?;
+    if caches {
+        let monitor = if cfg!(any(target_os = "macos", target_os = "windows")) {
+            "true"
+        } else {
+            "false"
+        };
+        for args in [
+            &["config", "core.untrackedCache", "true"][..],
+            &["config", "core.fsmonitor", monitor],
+            &["status", "--porcelain"],
+        ] {
+            let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+            git.run_blocking(&args, Some(&path))
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    let repo = GitRepo::open(&path).map_err(|error| error.to_string())?;
+    let reader = StatusReader::new(repo, git);
+    if let Some(fallback) = reader.fallback().map_err(|error| error.to_string())? {
+        eprintln!("status on {} runs git: {fallback:?}", set.name);
+    }
+    Ok(Some(Box::new(move || {
+        let working_copy = reader.status().map_err(|error| error.to_string())?;
+        black_box(working_copy);
+        Ok(())
+    })))
+}
+
+/// The git the app would use, found as at startup (PLAT-3).
+fn git_runner() -> Result<GitRunner, String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("cannot start the async runtime: {error}"))?;
+    let setup = GitSetup::new();
+    let status = runtime.block_on(setup.detect());
+    let git = runtime
+        .block_on(setup.git())
+        .ok_or_else(|| format!("no usable git: {status:?}"))?;
+    Ok(GitRunner::new(git.path))
+}
 
 /// Opens the set's largest repo with `gix`; proves the plumbing.
 fn open_repo(set: &DataSet) -> Result<Option<Measured>, String> {

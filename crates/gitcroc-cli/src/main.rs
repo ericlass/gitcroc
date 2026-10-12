@@ -7,12 +7,15 @@ use gitcroc_core::GitSetup;
 mod bench;
 mod diff;
 mod history;
+mod status;
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: gitcroc-cli --version | git-info | {} | {} | {}",
+        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {}",
         history::USAGE,
         diff::USAGE,
+        status::STATUS_USAGE,
+        status::SUMMARY_USAGE,
         bench::USAGE
     );
     ExitCode::from(2)
@@ -32,6 +35,14 @@ fn main() -> ExitCode {
         },
         [command, rest @ ..] if command == "diff" => match diff::parse_args(rest) {
             Some(options) => diff::run(options),
+            None => usage(),
+        },
+        [command, rest @ ..] if command == "status" => match status::parse_args(rest) {
+            Some(repo) => status::run(status::Report::Status, &repo),
+            None => usage(),
+        },
+        [command, rest @ ..] if command == "summary" => match status::parse_args(rest) {
+            Some(repo) => status::run(status::Report::Summary, &repo),
             None => usage(),
         },
         [command, rest @ ..] if command == "bench" => match bench::parse_args(rest) {
