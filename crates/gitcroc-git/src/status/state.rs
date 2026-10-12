@@ -2,13 +2,13 @@
 //! the repo itself: its files in the git directory, its index and its refs.
 
 use gix::hash::ObjectId;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::StatusError;
 
 /// An operation that stopped part way and waits to be continued or
 /// aborted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum Operation {
     /// `MERGE_HEAD`.
@@ -24,13 +24,13 @@ pub enum Operation {
 }
 
 /// Whether a repo is in conflict state (OPS-1).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct RepoState {
     /// The operation in progress, if any.
     pub operation: Option<Operation>,
     /// How many paths have conflict stages in the index. A stash applied
     /// with conflicts leaves these and no operation.
-    pub unmerged_paths: usize,
+    pub unmerged_paths: u32,
 }
 
 impl RepoState {
@@ -41,7 +41,7 @@ impl RepoState {
 }
 
 /// Where `HEAD` is.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Head {
     /// On a branch; `hash` is `None` while it has no commit yet.
@@ -55,7 +55,7 @@ pub enum Head {
 }
 
 /// The branch the current branch tracks.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct Upstream {
     /// As git shortens it, for example `origin/main`.
     pub name: String,
@@ -69,7 +69,7 @@ pub struct Upstream {
 }
 
 /// What a repo row shows (UI-3) and the cache keeps (PERF-3).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct RepoSummary {
     pub head: Head,
     /// `None` when the branch has no upstream or `HEAD` is detached.
@@ -99,13 +99,13 @@ pub(super) fn repo_state(repo: &gix::Repository) -> Result<RepoState, StatusErro
         None
     };
     let index = repo.index_or_empty()?;
-    let mut unmerged_paths = 0;
+    let mut unmerged_paths = 0u32;
     let mut last = None;
     for entry in index.entries() {
         if entry.stage() != gix::index::entry::Stage::Unconflicted {
             let path = entry.path(&index);
             if last != Some(path) {
-                unmerged_paths += 1;
+                unmerged_paths = unmerged_paths.saturating_add(1);
                 last = Some(path);
             }
         }

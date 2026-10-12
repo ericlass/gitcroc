@@ -10,15 +10,20 @@ export type {
   AppInfo,
   ConfigWarning,
   GitStatus,
+  Head,
   IpcError,
   JobId,
   JobProgress,
   Refusal,
   RepoId,
+  RepoState,
+  RepoSummary,
   RepoView,
   Settings,
   SettingsView,
+  SummaryView,
   Theme,
+  Upstream,
   WorkspaceId,
   WorkspaceView,
 } from "./bindings";
@@ -63,5 +68,10 @@ export const workspacePickAndAdd = (workspaceId: WorkspaceId) => unwrap(core.com
 
 export const workspaceRemoveRepo = (workspaceId: WorkspaceId, repoId: RepoId) =>
   unwrap(core.commands.workspaceRemoveRepo(workspaceId, repoId));
+
+export const workspaceSummaries = (workspaceId: WorkspaceId) => unwrap(core.commands.workspaceSummaries(workspaceId));
+
+export const repoSelect = (workspaceId: WorkspaceId, repoId: RepoId | null) =>
+  unwrap(core.commands.repoSelect(workspaceId, repoId));
 
 export const debugEmitProgress = (workspaceId: string) => unwrap(core.commands.debugEmitProgress(workspaceId));

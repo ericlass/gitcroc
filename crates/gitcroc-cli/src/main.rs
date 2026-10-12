@@ -8,16 +8,18 @@ mod bench;
 mod diff;
 mod history;
 mod status;
+mod summaries;
 mod workspace;
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {}",
+        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {} | {}",
         history::USAGE,
         diff::USAGE,
         status::STATUS_USAGE,
         status::SUMMARY_USAGE,
         workspace::USAGE,
+        summaries::USAGE,
         bench::USAGE
     );
     ExitCode::from(2)
@@ -49,6 +51,10 @@ fn main() -> ExitCode {
         },
         [command, rest @ ..] if command == "workspace" => match workspace::parse_args(rest) {
             Some(options) => workspace::run(options),
+            None => usage(),
+        },
+        [command, rest @ ..] if command == "summaries" => match summaries::parse_args(rest) {
+            Some(options) => summaries::run(options),
             None => usage(),
         },
         [command, rest @ ..] if command == "bench" => match bench::parse_args(rest) {

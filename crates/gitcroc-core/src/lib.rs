@@ -8,6 +8,7 @@ mod history;
 mod job;
 mod settings;
 mod status;
+mod summary;
 mod workspace;
 
 pub use app_info::AppInfo;
@@ -29,6 +30,10 @@ pub use settings::{
     SettingsStore, SettingsView, Theme,
 };
 pub use status::{StatusReadError, repo_state, repo_summary, working_copy};
+pub use summary::{
+    CACHE_FILE, CACHE_SCHEMA, CacheDir, MAX_REFRESHES, PlatformCacheDir, Summaries, SummaryCache,
+    SummaryView, refresh_summaries,
+};
 pub use workspace::{
     AddReport, DEFAULT_WORKSPACE_NAME, Refusal, RepoId, RepoView, SCAN_DEPTH, WORKSPACE_SCHEMA,
     WORKSPACES_DIR, WorkspaceError, WorkspaceView, Workspaces, add_path,

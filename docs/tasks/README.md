@@ -113,6 +113,11 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Add folder | A folder inside a repo, but not its top, is scanned like any other folder, not resolved up to the repo. A scan that finds nothing reports the folder as "no repo found". Scan progress has a `total` of 0 until the number of repos is known | M1-05 |
 | Workspace IPC | `workspace_get` returns the open workspaces in tab order. Adding returns a job id at once; the result arrives as `workspace_changed`, then `workspace_add_report`. `workspace_pick_and_add` returns at once; a cancelled dialog does nothing | M1-05 |
 | Workspace file problems | When the newest workspace file is unreadable or has a newer schema, it opens read-only and no other workspace is created beside it | M1-05 |
+| Selected repo for refresh | The core keeps each workspace's selected repo, set by `repo_select`; it is not saved, so a start refreshes in workspace order until the UI selects a repo | M1-06 |
+| Summary read failures | A repo that exists but cannot be read keeps its cached summary, stays stale and carries the error, git's own message when git refused it; its cache row is left as it was | M1-06 |
+| Added repos | The repos an add job adds have their summaries read at once, as at start | M1-06 |
+| Summary IPC types | The summary types in `gitcroc-git` derive specta's `Type` directly; specta is not Tauri, so ARCH-5 holds | M1-06 |
+| Summary cache | SQLite `user_version` holds the schema; the summary is stored as JSON, and a row this build cannot read counts as missing. The refresh starts once git detection finds a usable git | M1-06 |
 | Diff settings | Mode, options and the file list toggle are global settings; dock position is per workspace | M1-09 |
 | Fonts | Default size 13 px, range 8 to 32 | M1-10 |
 | Watcher debounce | 200 ms per repo; lock files alone do not trigger a refresh | M1-11 |

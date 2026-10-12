@@ -65,3 +65,45 @@ fn grp_1_cli_adds_every_repo_under_a_folder_and_shows_them() {
     assert_eq!(unknown.status.code(), Some(2));
     assert!(unknown.stdout.is_empty());
 }
+
+fn summaries(config: &Path, cache: &Path, args: &[&str]) -> Output {
+    Command::new(BIN)
+        .arg("summaries")
+        .arg("--config-dir")
+        .arg(config)
+        .arg("--cache-dir")
+        .arg(cache)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn perf_3_cli_prints_cached_then_fresh_summaries() {
+    let fixture = Fixture::new().unwrap();
+    let repo = Repo::init(fixture.path().join("one")).unwrap();
+    let first = repo.commit_file("a.txt", "a\n", "First").unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    json(&workspace(
+        config.path(),
+        &["add".as_ref(), repo.path().as_os_str()],
+    ));
+
+    // Nothing cached yet.
+    let cached = json(&summaries(config.path(), cache.path(), &["--cached-only"]));
+    assert_eq!(cached[0]["stale"], true);
+    assert_eq!(cached[0]["summary"], serde_json::Value::Null);
+
+    let fresh = json(&summaries(config.path(), cache.path(), &[]));
+    assert_eq!(fresh[0]["stale"], false);
+    assert_eq!(fresh[0]["repo_id"], "r1");
+    assert_eq!(fresh[0]["summary"]["head"]["hash"], first.as_str());
+
+    let second = repo.commit_file("b.txt", "b\n", "Second").unwrap();
+    let cached = json(&summaries(config.path(), cache.path(), &["--cached-only"]));
+    assert_eq!(cached[0]["stale"], true);
+    assert_eq!(cached[0]["summary"]["head"]["hash"], first.as_str());
+    let fresh = json(&summaries(config.path(), cache.path(), &[]));
+    assert_eq!(fresh[0]["summary"]["head"]["hash"], second.as_str());
+}

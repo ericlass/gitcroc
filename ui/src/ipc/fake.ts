@@ -2,7 +2,16 @@
 // vite.config.ts). It implements the generated interface, so a change to the
 // Rust commands breaks it at compile time like the real one.
 import type { Event, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
-import type { AddReport, AppInfo, GitStatus, JobProgress, SettingsView, WorkspaceView } from "./bindings";
+import type {
+  AddReport,
+  AppInfo,
+  GitStatus,
+  JobProgress,
+  RepoId,
+  SettingsView,
+  SummaryView,
+  WorkspaceView,
+} from "./bindings";
 import type { Core } from "./core";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch" };
@@ -41,6 +50,7 @@ const jobProgressListeners: Listeners<JobProgress> = new Set();
 const gitStatusListeners: Listeners<GitStatus> = new Set();
 const workspaceChangedListeners: Listeners<WorkspaceView> = new Set();
 const workspaceAddReportListeners: Listeners<AddReport> = new Set();
+const repoSummaryListeners: Listeners<SummaryView> = new Set();
 
 /** What the fake returns; tests change it and call `reset` afterwards. */
 export const fakeState: {
@@ -50,12 +60,18 @@ export const fakeState: {
   workspace: WorkspaceView;
   /** What the folder dialog returns; `null` is a cancel. */
   pickedFolder: string | null;
+  /** What `workspace_summaries` returns, of any workspace. */
+  summaries: SummaryView[];
+  /** The last `repo_select` of each workspace. */
+  selected: Record<string, RepoId | null>;
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
   settings: defaultSettings,
   workspace: defaultWorkspace,
   pickedFolder: null,
+  summaries: [],
+  selected: {},
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -80,16 +96,24 @@ export function emitWorkspaceChanged(payload: WorkspaceView): void {
   emit(workspaceChangedListeners, "workspace_changed", payload);
 }
 
+/** Delivers a `repo_summary` event to every listener, as the core would. */
+export function emitRepoSummary(payload: SummaryView): void {
+  emit(repoSummaryListeners, "repo_summary", payload);
+}
+
 export function reset(): void {
   fakeState.appInfo = defaultAppInfo;
   fakeState.gitStatus = defaultGitStatus;
   fakeState.settings = defaultSettings;
   fakeState.workspace = defaultWorkspace;
   fakeState.pickedFolder = null;
+  fakeState.summaries = [];
+  fakeState.selected = {};
   jobProgressListeners.clear();
   gitStatusListeners.clear();
   workspaceChangedListeners.clear();
   workspaceAddReportListeners.clear();
+  repoSummaryListeners.clear();
 }
 
 const notFound = (message: string) =>
@@ -181,6 +205,17 @@ export const fake: Core = {
       emitWorkspaceChanged(fakeState.workspace);
       return Promise.resolve({ status: "ok", data: fakeState.workspace });
     },
+    workspaceSummaries: (workspaceId) => {
+      if (workspaceId !== fakeState.workspace.id) {
+        return notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      const summaries = fakeState.summaries.filter((view) => view.workspace_id === workspaceId);
+      return Promise.resolve({ status: "ok", data: summaries });
+    },
+    repoSelect: (workspaceId, repoId) => {
+      fakeState.selected[workspaceId] = repoId;
+      return Promise.resolve({ status: "ok", data: null });
+    },
     debugEmitProgress: (workspaceId) => {
       const jobId = nextJobId++;
       const total = 3;
@@ -195,6 +230,7 @@ export const fake: Core = {
   events: {
     gitStatus: fakeEvent(gitStatusListeners),
     jobProgress: fakeEvent(jobProgressListeners),
+    repoSummary: fakeEvent(repoSummaryListeners),
     workspaceAddReport: fakeEvent(workspaceAddReportListeners),
     workspaceChanged: fakeEvent(workspaceChangedListeners),
   },

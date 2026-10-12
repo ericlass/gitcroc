@@ -253,6 +253,21 @@ impl Workspaces {
         })
     }
 
+    /// The ids and paths of the workspace's repos, in workspace order.
+    pub(crate) fn repo_paths(
+        &self,
+        id: &WorkspaceId,
+    ) -> Result<Vec<(RepoId, PathBuf)>, WorkspaceError> {
+        self.with(id, |workspace| {
+            Ok(workspace
+                .file
+                .repos
+                .iter()
+                .map(|entry| (entry.id.clone(), entry.path.clone()))
+                .collect())
+        })
+    }
+
     /// Removes a repo from the workspace and from its groups. Only the
     /// workspace file changes, never anything on disk (GRP-3).
     pub fn remove_repo(

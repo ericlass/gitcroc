@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use gitcroc_core::{
     AddReport, AppInfo, GitRunner, GitSetup, GitStatus, JobId, JobIds, JobProgress, Refusal,
-    RepoId, SettingsError, SettingsStore, SettingsView, Theme, WorkspaceError, WorkspaceId,
-    WorkspaceView, Workspaces, add_path,
+    RepoId, SettingsError, SettingsStore, SettingsView, Summaries, SummaryView, Theme,
+    WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path, refresh_summaries,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -120,6 +120,12 @@ pub struct WorkspaceChangedEvent(pub WorkspaceView);
 #[tauri_specta(event_name = "workspace_add_report")]
 pub struct WorkspaceAddReportEvent(pub AddReport);
 
+/// One repo's fresh summary, sent as event `repo_summary` each time a repo
+/// has been read (PERF-3).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "repo_summary")]
+pub struct RepoSummaryEvent(pub SummaryView);
+
 /// The name, version, OS and architecture of the running build.
 #[tauri::command]
 #[specta::specta]
@@ -226,6 +232,32 @@ pub async fn workspace_pick_and_add(
     Ok(())
 }
 
+/// The current summary of every repo of the workspace, in workspace order:
+/// at start the cached ones, marked stale; then each fresh one as it is
+/// read, which also arrives as a `repo_summary` event (PERF-3).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_summaries(
+    workspaces: State<'_, Arc<Workspaces>>,
+    summaries: State<'_, Arc<Summaries>>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<SummaryView>, IpcError> {
+    Ok(summaries.views(&workspaces, &workspace_id)?)
+}
+
+/// Tells the core which repo of the workspace is selected, so it is read
+/// first when its summary waits for a refresh (PERF-4). `None` clears it.
+#[tauri::command]
+#[specta::specta]
+pub async fn repo_select(
+    summaries: State<'_, Arc<Summaries>>,
+    workspace_id: WorkspaceId,
+    repo_id: Option<RepoId>,
+) -> Result<(), IpcError> {
+    summaries.select(&workspace_id, repo_id);
+    Ok(())
+}
+
 /// Removes a repo from the workspace; nothing on disk changes (GRP-3).
 #[tauri::command]
 #[specta::specta]
@@ -278,7 +310,7 @@ fn spawn_add(app: AppHandle, workspace_id: WorkspaceId, path: PathBuf, git: GitR
             workspaces.clone(),
             workspace_id.clone(),
             path,
-            git,
+            git.clone(),
             job_id,
             progress,
         )
@@ -296,21 +328,53 @@ fn spawn_add(app: AppHandle, workspace_id: WorkspaceId, path: PathBuf, git: GitR
         if let Ok(view) = workspaces.view(&workspace_id) {
             let _ = WorkspaceChangedEvent(view).emit(&app);
         }
+        let added = report.added.iter().map(|repo| repo.id.clone()).collect();
         let _ = WorkspaceAddReportEvent(report).emit(&app);
+        refresh(app, workspace_id, added, git).await;
     });
     job_id
 }
 
+/// Reads the summaries of `repos` again, sending each as `repo_summary`.
+async fn refresh(app: AppHandle, workspace_id: WorkspaceId, repos: Vec<RepoId>, git: GitRunner) {
+    if repos.is_empty() {
+        return;
+    }
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    refresh_summaries(
+        workspaces,
+        summaries,
+        workspace_id,
+        repos,
+        git,
+        move |view| {
+            // An emit fails only while the app shuts down.
+            let _ = RepoSummaryEvent(view).emit(&app);
+        },
+    )
+    .await;
+}
+
 /// Detects git in the background (ARCH-7), sending `git_status` events when it
-/// starts and when it is done. Window creation never waits for it.
+/// starts and when it is done. Window creation never waits for it. With a
+/// usable git, every repo's summary is then read again (PERF-3); until
+/// then the cached summaries stand.
 pub fn spawn_git_detection(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let git = app.state::<GitSetup>();
+        let setup = app.state::<GitSetup>();
         // An emit fails only while the app shuts down; the state is current
         // either way and `git_status` reads it.
         let _ = GitStatusEvent(GitStatus::Checking).emit(&app);
-        let status = git.detect().await;
+        let status = setup.detect().await;
         let _ = GitStatusEvent(status).emit(&app);
+        let Some(git) = setup.git().await.map(|git| GitRunner::new(git.path)) else {
+            return;
+        };
+        for workspace in app.state::<Arc<Workspaces>>().views() {
+            let repos = workspace.repos.into_iter().map(|repo| repo.id).collect();
+            tauri::async_runtime::spawn(refresh(app.clone(), workspace.id, repos, git.clone()));
+        }
     });
 }
 
@@ -370,6 +434,8 @@ macro_rules! with_commands {
                 workspace_add_path,
                 workspace_pick_and_add,
                 workspace_remove_repo,
+                workspace_summaries,
+                repo_select,
                 debug::debug_emit_progress
             ]
         }
@@ -384,7 +450,9 @@ macro_rules! with_commands {
                 workspace_get,
                 workspace_add_path,
                 workspace_pick_and_add,
-                workspace_remove_repo
+                workspace_remove_repo,
+                workspace_summaries,
+                repo_select
             ]
         }
     }};
@@ -398,7 +466,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             JobProgressEvent,
             GitStatusEvent,
             WorkspaceChangedEvent,
-            WorkspaceAddReportEvent
+            WorkspaceAddReportEvent,
+            RepoSummaryEvent
         ])
 }
 
