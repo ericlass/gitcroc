@@ -22,10 +22,20 @@ gitcroc-core = { path = "crates/gitcroc-core" }
 gitcroc-ai = { path = "crates/gitcroc-ai" }
 
 thiserror = "2.0.21"
+serde = { version = "1.0.229", features = ["derive"] }
+
+# IPC types (section 4 "Stack"). specta, tauri-specta and specta-typescript are
+# pinned together: tauri-specta requires this exact specta. The exact versions
+# are recorded in the M0-05 pull request.
+specta = { version = "=2.0.0-rc.25", features = ["derive"] }
+specta-typescript = "=0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 
 # Shell (D2). The exact versions are recorded in the M0-04 pull request.
 tauri = { version = "2.12.3", features = [] }
 tauri-build = { version = "2.7.2", features = [] }
+# Timers in async commands; the same tokio Tauri runs on.
+tokio = { version = "1.53.2", features = ["time"] }
 
 # Test-only
 cargo_metadata = "0.23.1"

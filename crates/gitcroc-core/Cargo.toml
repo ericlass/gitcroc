@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+serde.workspace = true
+specta.workspace = true
 gitcroc-git.workspace = true
 
 [lints]

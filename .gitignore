@@ -4,6 +4,7 @@
 # Node
 node_modules/
 ui/dist/
+ui/dist-fake/
 *.tsbuildinfo
 npm-debug.log*
 pnpm-debug.log*

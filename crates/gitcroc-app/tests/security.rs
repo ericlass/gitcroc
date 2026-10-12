@@ -181,9 +181,17 @@ fn granted_permissions() -> Vec<(String, String)> {
     granted
 }
 
+/// The only Tauri permissions the UI gets: subscribing to the core's events
+/// (ARCH-7). The app's own commands need no permission.
+const ALLOWED_PERMISSIONS: [&str; 2] = ["core:event:allow-listen", "core:event:allow-unlisten"];
+
 #[test]
 fn sec_2_capabilities_expose_no_shell_or_fs() {
     for (source, identifier) in granted_permissions() {
+        assert!(
+            ALLOWED_PERMISSIONS.contains(&identifier.as_str()),
+            "SEC-2: {source} grants {identifier}, which is not in ALLOWED_PERMISSIONS"
+        );
         for plugin in ["shell:", "fs:", "http:"] {
             assert!(
                 !identifier.starts_with(plugin),

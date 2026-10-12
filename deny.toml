@@ -11,6 +11,10 @@ ignore = [
     # pull in glib-macros, which uses this proc macro at build time. No
     # alternative exists until Tauri moves off GTK 3.
     { id = "RUSTSEC-2024-0370", reason = "build-time only, via glib-macros 0.18 under Tauri on Linux" },
+    # paste is unmaintained, not vulnerable. specta's `function` feature, which
+    # tauri-specta needs for typed commands (section 4 "Stack"), uses this proc
+    # macro at build time.
+    { id = "RUSTSEC-2024-0436", reason = "unmaintained build-time proc macro, via specta's function feature for tauri-specta" },
 ]
 
 [licenses]
