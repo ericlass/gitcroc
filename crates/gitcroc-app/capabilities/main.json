@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "SEC-2: the main window gets the app's own commands only. There are none until M0-05, and showing the window needs no core permission.",
+  "windows": ["main"],
+  "permissions": []
+}

@@ -6,11 +6,23 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "gitcroc"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build.workspace = true
+
 [dependencies]
 thiserror.workspace = true
+tauri.workspace = true
 gitcroc-git.workspace = true
 gitcroc-core.workspace = true
 gitcroc-ai.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true

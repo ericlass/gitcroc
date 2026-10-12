@@ -28,18 +28,23 @@ fn recipe(name: &str) -> Vec<String> {
         .collect()
 }
 
-/// The Rust commands QA-1 requires, as `just check` runs them.
-const QA_1_RUST: [&str; 4] = [
+/// The commands QA-1 requires, as `just check` runs them.
+const QA_1: [&str; 9] = [
     "cargo fmt --check",
     "cargo clippy --workspace --all-targets -- -D warnings",
     "cargo test --workspace",
     "cargo deny check",
+    "pnpm --dir ui install --frozen-lockfile",
+    "pnpm --dir ui exec tsc --noEmit",
+    "pnpm --dir ui exec eslint .",
+    "pnpm --dir ui exec vitest run",
+    "pnpm --dir ui exec playwright test",
 ];
 
 #[test]
-fn qa_5_check_recipe_runs_every_rust_command_of_qa_1() {
+fn qa_5_check_recipe_runs_every_command_of_qa_1() {
     let body = recipe("check");
-    for command in QA_1_RUST {
+    for command in QA_1 {
         assert!(
             body.iter().any(|line| line == command),
             "QA-5: `just check` does not run `{command}`; recipe: {body:?}"

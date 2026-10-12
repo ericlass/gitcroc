@@ -1,6 +1,18 @@
 # Contributing to gitcroc
 
-gitcroc is a Rust Cargo workspace. Crates live in `crates/`, and the future front end lives in `ui/`.
+gitcroc is a Rust Cargo workspace with a SolidJS front end. Crates live in `crates/`; `crates/gitcroc-app` is the Tauri app. The front end lives in `ui/`.
+
+## Setup
+
+You need:
+
+- the Rust toolchain pinned in `rust-toolchain.toml`, `just`, and `cargo-deny`;
+- Node (the version in `.nvmrc`) and pnpm (the version in `ui/package.json`'s `packageManager` field; `corepack enable pnpm` installs it);
+- on Linux, the WebKitGTK 4.1 build packages. On Debian and Ubuntu: `sudo apt install libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libdbus-1-dev build-essential`.
+
+After cloning, run `just setup` once. It installs the front-end packages and Playwright's Chromium.
+
+`just dev` runs the app with `tauri dev`, which serves `ui/` with Vite on port 1420.
 
 ## Running checks
 
@@ -10,13 +22,12 @@ Run `just check` before you call a change done. It runs everything CI requires:
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
 - `cargo deny check`
+- in `ui/`: `pnpm install --frozen-lockfile`, `tsc --noEmit`, ESLint, Vitest, and Playwright (Chromium, against `vite build` and `vite preview`)
 - `just coverage M0 --report-only` (the requirement coverage report; it lists missing IDs without failing until M0-08 makes it enforcing)
 
 Run `just fmt` to format the workspace.
 
 `just coverage <milestone>` (for example `just coverage M1`) lists requirement IDs from the `Implements:` lines of `docs/tasks/<milestone>-*.md` that have no test, and fails if there are any.
-
-You need the Rust toolchain pinned in `rust-toolchain.toml`, `just`, and `cargo-deny`.
 
 ## Continuous integration
 
