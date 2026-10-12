@@ -27,10 +27,36 @@ all three platforms from CI artifacts, and QA-1 is green.
 
 M0-06 and M0-07 are independent of each other and can run in parallel.
 
+## M1 Read-only single repo
+
+Milestone goal (docs/spec/13-milestones.md): the single-repo budgets of section 9
+are met on `target-project`, the stretch results for `big-history` and
+`big-tree` are reported, and no write operation exists yet.
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| [M1-01](M1-01-reference-data-and-bench.md) | Fixture helpers, reference data generator, `just bench` harness | M0 |
+| [M1-02](M1-02-history-spike.md) | Spike: paged history walk with graph lanes and search in the core | M1-01 |
+| [M1-03](M1-03-diff-spike.md) | Spike: commit header, changed files and one file's diff in the core | M1-01 |
+| [M1-04](M1-04-status-and-repo-state.md) | Working copy status, uncommitted diffs, conflict state, repo summary | M1-03 |
+| [M1-05](M1-05-workspace-and-add-repo.md) | Workspace file, add repo and scan a folder, remove repo | M1-01 |
+| [M1-06](M1-06-summary-cache.md) | `cache.db`, stale summaries at start, background refresh | M1-02, M1-04, M1-05 |
+| [M1-07](M1-07-tree-pane.md) | Tree pane with refs, repo rows, filter, add repository | M1-06 |
+| [M1-08](M1-08-history-pane.md) | History pane with graph, paging, uncommitted row, search | M1-02, M1-07 |
+| [M1-09](M1-09-changes-pane.md) | Changes pane: header, file list, inline and side-by-side diff, docking | M1-03, M1-04, M1-08 |
+| [M1-10](M1-10-code-themes-and-fonts.md) | Eight code themes with contrast test, fonts | M1-09 |
+| [M1-11](M1-11-file-watching.md) | File watching and refresh on change and focus | M1-07, M1-08, M1-09 |
+| [M1-12](M1-12-budgets-and-signoff.md) | Nightly bench with regression gate, UI-side measurement, M1 sign-off | M1-01 to M1-11 |
+
+M1-02 and M1-03 are the spikes of section 14 and run first: they carry the
+performance risk. If either misses its budget, M1 stops for a decision on D2
+and D3 (section 13) before the UI tasks start. M1-02, M1-03 and M1-05 can run in
+parallel after M1-01.
+
 ## Choices made in these tasks that the spec does not cover
 
-Each is a default so the tasks have no gaps. Veto any of them before M0-01
-starts; a change after that becomes an ADR (DEV-2).
+Each is a default so the tasks have no gaps. Veto any of them before the first
+task of its milestone starts; a change after that becomes an ADR (DEV-2).
 
 | Choice | Value | Used in |
 | --- | --- | --- |
@@ -42,3 +68,26 @@ starts; a change after that becomes an ADR (DEV-2).
 | Config directory name | `gitcroc` under the platform config, cache and log dirs | M0-07 |
 | CI service | GitHub Actions | M0-03 |
 | Task file headings | "Implements" and "Respects" inside the Spec section, so the coverage script knows which IDs a milestone must test | M0-02 |
+| What M1 completes | M1 implements UI-1, UI-3 and UI-8 for repos under Ungrouped. UI-2, UI-4, UI-5 and UI-6 (groups, multi-selection) wait for M3; UI-7 and the controls of UI-15 (writes) wait for M2; PERF-4's shared job pool waits for M2's job engine, with a minimal refresh scheduler until then. OPS-1 (conflict detection, read-only) is done in M1 although section 13 lists it with M2 | M1-04, M1-06, M1-07, M1-09 |
+| PERF-7 | Offering to enable `core.fsmonitor` changes git config, which is a write, so it is M2 | M1-04 |
+| One workspace until M3 | The app opens the most recently modified workspace file, or creates "My workspace"; repos are named after their folder and get ids `r1`, `r2` | M1-05 |
+| Budget rows in M1 | Single-repo rows: cold start, select the largest repo, scroll, select a commit, switch between two repos, status of the 60,000-file repo, input latency, memory. M3 rows: status of all 20 repos, tab switching, group history | M1-06, M1-12 |
+| Measuring machine | The developer's Linux machine pinned to 8 cores, with its specs recorded; Windows and macOS measurements deferred as for M0 | M1-12 |
+| Reference data generator | A tools crate `tools/repo-gen` that writes `git fast-import` streams with a fixed seed; it also holds the test fixture helpers, used as a dev-dependency. Data in `target/bench-data` or `$GITCROC_BENCH_DATA` | M1-01 |
+| `big-history` | A clone of the Linux kernel at a fixed release tag; measured locally, never in CI | M1-01, M1-12 |
+| Nightly benchmark | GitHub Actions on Linux; baseline committed in `bench/baseline-linux.json`, changed only by a pull request | M1-12 |
+| History order | Newest first by commit date, never a parent above its child (`git log --date-order`) | M1-02 |
+| Whole-repo history | Starts from `HEAD`, local and remote branches; tags only label commits | M1-02 |
+| Filtered history | A filtered list has no graph lines | M1-02, M1-08 |
+| Date column | Author date in local time, `YYYY-MM-DD HH:MM`; committer date in the tooltip | M1-08 |
+| "Uncommitted changes (n)" | n is the number of distinct changed paths: staged, unstaged, untracked or unmerged | M1-08 |
+| Paths over IPC | Files cross IPC as a display string plus an id; the UI never sends a path string back (PLAT-2) | M1-03 |
+| Image diffs | PNG, JPEG, GIF, WebP and BMP up to 10 MB per side, shown through `blob:` URLs; SVG is diffed as text | M1-03, M1-09 |
+| Text that is not UTF-8 | Decoded lossily for display; no encoding detection | M1-02, M1-03 |
+| Tree filter | Done in the core, like history search, so the UI holds no filtering logic | M1-07 |
+| Graph drawing | Lanes computed in the core, drawn per row as inline SVG | M1-02, M1-08 |
+| Folder picker | Opened from Rust; the front end gets no dialog permission (SEC-2) | M1-05 |
+| Diff settings | Mode, options and the file list toggle are global settings; dock position is per workspace | M1-09 |
+| Fonts | Default size 13 px, range 8 to 32 | M1-10 |
+| Watcher debounce | 200 ms per repo; lock files alone do not trigger a refresh | M1-11 |
+| Libraries | `gix`, `rusqlite` with bundled SQLite, `notify` with a debouncer, CodeMirror 6 with `@codemirror/merge`, TanStack Virtual; versions recorded in each pull request | M1-02 to M1-11 |
