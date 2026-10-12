@@ -5,7 +5,7 @@ import type { Core } from "./core";
 import { fake } from "./fake";
 import { real } from "./core";
 
-export type { AppInfo, IpcError, JobId, JobProgress, WorkspaceId } from "./bindings";
+export type { AppInfo, GitStatus, IpcError, JobId, JobProgress, WorkspaceId } from "./bindings";
 
 // A build-time constant, so production builds drop the fake.
 export const core: Core = __FAKE_CORE__ ? fake : real;
@@ -29,5 +29,9 @@ async function unwrap<T>(result: Promise<Result<T>>): Promise<T> {
 }
 
 export const appInfo = () => unwrap(core.commands.appInfo());
+
+export const gitStatus = () => unwrap(core.commands.gitStatus());
+
+export const gitRecheck = () => unwrap(core.commands.gitRecheck());
 
 export const debugEmitProgress = (workspaceId: string) => unwrap(core.commands.debugEmitProgress(workspaceId));

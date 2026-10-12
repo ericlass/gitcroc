@@ -8,6 +8,7 @@ You need:
 
 - the Rust toolchain pinned in `rust-toolchain.toml`, `just`, and `cargo-deny`;
 - Node (the version in `.nvmrc`) and pnpm (the version in `ui/package.json`'s `packageManager` field; `corepack enable pnpm` installs it);
+- git 2.40 or newer (D13). The app and the tests use the system git; `cargo run -p gitcroc-cli -- git-info` prints which one is found;
 - on Linux, the WebKitGTK 4.1 build packages. On Debian and Ubuntu: `sudo apt install libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libdbus-1-dev build-essential`.
 
 After cloning, run `just setup` once. It installs the front-end packages and Playwright's Chromium.
