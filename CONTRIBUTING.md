@@ -18,6 +18,12 @@ Run `just fmt` to format the workspace.
 
 You need the Rust toolchain pinned in `rust-toolchain.toml`, `just`, and `cargo-deny`.
 
+## Continuous integration
+
+CI (`.github/workflows/ci.yml`) runs `just check` on Linux (ubuntu-22.04), Windows and macOS for every pull request and every push to `main`. It calls only `just check`, so local and CI checks cannot drift (QA-5). The repository owner must mark the three CI jobs (`check (ubuntu-22.04)`, `check (windows-latest)`, `check (macos-latest)`) as required status checks in the branch protection rule for `main`; this is a manual step in the GitHub settings.
+
+On Windows, `just` needs `sh` on PATH, which Git for Windows provides.
+
 ## Test naming (QA-3)
 
 A test for requirement X carries X in its name or in a comment. For example, `grp_6_one_failure_does_not_stop_others` tests GRP-6. The coverage script accepts both `GRP-6` and `grp_6`. It searches test code under `crates/` and `ui/`, which means:
