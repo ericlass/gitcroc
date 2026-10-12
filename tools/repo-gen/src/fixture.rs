@@ -103,6 +103,12 @@ impl Repo {
         Ok(self.command(args).output()?)
     }
 
+    /// Sets the fixture clock to `minutes` after its start. Setting it back
+    /// gives commits older than their parents (clock skew).
+    pub fn set_clock(&self, minutes: u64) {
+        self.clock.store(minutes, Ordering::Relaxed);
+    }
+
     /// Every invocation advances the fixture clock by a minute, so commits
     /// made one after the other have increasing, reproducible dates.
     fn command<I, S>(&self, args: I) -> std::process::Command

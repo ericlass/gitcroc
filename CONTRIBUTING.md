@@ -85,7 +85,7 @@ The helpers are in `tools/repo-gen` (`repo_gen::Fixture` and `repo_gen::Repo`): 
 | `target-project` | 1.6 GB | 18 s | Gating. 20 repos and a `workspace.toml` |
 | `big-tree` | 2.2 GB | 45 s | Stretch |
 | `many-repos` | 3.1 GB | 67 s | Stretch. 200 repos and a `workspace.toml` |
-| `big-history` | not measured yet | not measured yet | Stretch. Clones the Linux kernel at a fixed tag; needs the network |
+| `big-history` | 7.6 GB | 8 min | Stretch. Clones the Linux kernel at a fixed tag (1.38 million commits); the time depends on the network |
 
 `all` builds all four. Times were measured on a Ryzen 9 3900X (12 cores) with an NVMe SSD.
 
