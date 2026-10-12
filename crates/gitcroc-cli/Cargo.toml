@@ -13,6 +13,8 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
+repo-gen.workspace = true
+tempfile.workspace = true
 cargo_metadata.workspace = true
 toml.workspace = true
 

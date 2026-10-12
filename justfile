@@ -39,6 +39,13 @@ dev:
 bundle *flags:
     TAURI_APP_PATH="{{justfile_directory()}}/crates/gitcroc-app" pnpm --dir ui exec tauri build {{flags}}
 
-# Performance harness.
-bench:
-    @echo "not available until M1" >&2; exit 1
+# Build a reference data set of spec section 9: target-project, big-tree,
+# many-repos, big-history or all. Data goes to target/bench-data, or to
+# $GITCROC_BENCH_DATA when set. A set that is up to date is not rebuilt.
+bench-data set:
+    cargo run --quiet --release -p repo-gen -- {{set}}
+
+# Performance harness (PERF-8) on target-project; `--stretch` adds the stretch
+# sets that exist locally. Prints JSON.
+bench *flags:
+    cargo run --quiet --release -p gitcroc-cli -- bench {{flags}}

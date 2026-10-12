@@ -23,8 +23,29 @@ fn fake_git(dir: &Path, output: &str) -> PathBuf {
         let path = dir.join("git");
         std::fs::write(&path, format!("#!/bin/sh\necho '{output}'\n")).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        wait_until_runnable(&path);
         path
     }
+}
+
+/// A child forked by another test thread while the script was open for
+/// writing holds that handle until it execs, and running the script fails
+/// with "Text file busy" meanwhile. Once one run succeeds, no such handle
+/// is left and none can appear, since ours is closed.
+#[cfg(not(windows))]
+fn wait_until_runnable(path: &Path) {
+    for _ in 0..1000 {
+        match std::process::Command::new(path).output() {
+            Err(error) if error.raw_os_error() == Some(26) => {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            result => {
+                result.unwrap();
+                return;
+            }
+        }
+    }
+    panic!("{} stays busy", path.display());
 }
 
 fn empty_env() -> SearchEnv {
