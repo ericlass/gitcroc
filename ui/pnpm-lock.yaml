@@ -166,6 +166,9 @@ importers:
 
   .:
     dependencies:
+      '@tauri-apps/api':
+        specifier: 2.12.3
+        version: 2.12.3
       solid-js:
         specifier: 1.9.17
         version: 1.9.17
@@ -563,6 +566,9 @@ packages:
     peerDependenciesMeta:
       '@solidjs/router':
         optional: true
+
+  '@tauri-apps/api@2.12.3':
+    resolution: {integrity: sha512-9s0PKw0p4r3kFq92jhpivYSp+cSht15o0gXpZxuQd0+dV9KCexEVkNaLELVoLdJWyoH4KlfQo5h3W2LIM8siJg==}
 
   '@tauri-apps/cli-darwin-arm64@2.12.2':
     resolution: {integrity: sha512-Lk3zaBTfzNvA7670Al5PNgo2M/95uaDPe1yp+ILJeDOmol87XiYuK5E5+FUbK5e6U6OORx9qpZdOo2U+5tETtQ==}
@@ -1855,6 +1861,8 @@ snapshots:
     dependencies:
       '@testing-library/dom': 10.4.2
       solid-js: 1.9.17
+
+  '@tauri-apps/api@2.12.3': {}
 
   '@tauri-apps/cli-darwin-arm64@2.12.2':
     optional: true

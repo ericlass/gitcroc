@@ -17,6 +17,11 @@ setup:
     pnpm --dir ui install --frozen-lockfile
     pnpm --dir ui exec playwright install chromium
 
+# Regenerate the TypeScript IPC bindings (ui/src/ipc/bindings.ts) from the
+# Rust commands and events. `just check` fails while they are out of date.
+ipc:
+    cargo run --quiet -p gitcroc-app --example ipc_bindings
+
 # Format the workspace.
 fmt:
     cargo fmt

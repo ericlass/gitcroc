@@ -1,2 +1,2 @@
-/** The workspace version from the root `Cargo.toml`, set by `vite.config.ts`. */
-declare const __APP_VERSION__: string;
+/** True in Vitest and in `vite build --mode fake`: use src/ipc/fake.ts. */
+declare const __FAKE_CORE__: boolean;

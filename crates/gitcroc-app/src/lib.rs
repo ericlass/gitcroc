@@ -1,5 +1,7 @@
 //! Application shell: the Tauri 2 app that wires core and AI together.
 
+pub mod ipc;
+
 /// Errors returned by `gitcroc-app`.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -11,6 +13,13 @@ pub enum Error {
 
 /// Opens the main window and runs the event loop until the app exits.
 pub fn run() -> Result<(), Error> {
-    tauri::Builder::default().run(tauri::generate_context!())?;
+    let ipc = ipc::builder();
+    tauri::Builder::default()
+        .invoke_handler(ipc.invoke_handler())
+        .setup(move |app| {
+            ipc.mount_events(app);
+            Ok(())
+        })
+        .run(tauri::generate_context!())?;
     Ok(())
 }
