@@ -42,9 +42,10 @@ tauri-build = { version = "2.7.2", features = [] }
 tokio = { version = "1.53.2", features = [] }
 
 # Git reads (ARCH-2, section 4 "Stack"). Features are added as the read API
-# grows: `revision` for rev-parse (M1-02). The exact version is recorded in
-# the M1-01 pull request.
-gix = { version = "0.89.0", default-features = false, features = ["sha1", "max-performance-safe", "revision"] }
+# grows: `revision` for rev-parse (M1-02), `blob-diff` for tree and file
+# diffs with rename detection and attributes (M1-03). The exact version is
+# recorded in the M1-01 pull request.
+gix = { version = "0.89.0", default-features = false, features = ["sha1", "max-performance-safe", "revision", "blob-diff"] }
 
 # Settings (DATA-1): the platform config dir, the file format and the
 # temporary file of the atomic write.

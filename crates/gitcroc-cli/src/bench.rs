@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use gitcroc_core::{GitRepo, HistoryStart, RepoRead};
+use gitcroc_core::{
+    ChangedFile, DiffOptions, DiffRead, DiffSource, GitRepo, HistoryStart, RepoRead,
+};
 use serde_json::{Value, json};
 
 /// The set every budget is measured on (section 9).
@@ -40,7 +42,7 @@ struct Scenario {
     prepare: fn(&DataSet) -> Result<Option<Measured>, String>,
 }
 
-/// Later tasks add their scenarios here (M1-03 to M1-06).
+/// Later tasks add their scenarios here (M1-04 to M1-06).
 const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "open-repo",
@@ -74,6 +76,20 @@ const SCENARIOS: &[Scenario] = &[
         name: "history-page-100",
         sets: &[("big-history", None)],
         prepare: |set| history_later_page(set, 100),
+    },
+    // Select a commit with under 5,000 changed lines: header, file list and
+    // the first file's diff (the core part; M1-12 measures the UI part).
+    Scenario {
+        name: "select-commit",
+        sets: &[("target-project", Some(150.0)), ("big-history", None)],
+        prepare: select_commit,
+    },
+    // The largest commit, reported only: in a generated set the root commit
+    // of the largest repo, which adds 30% of its files.
+    Scenario {
+        name: "select-commit-large",
+        sets: &[("target-project", None)],
+        prepare: select_root_commit,
     },
 ];
 
@@ -122,6 +138,87 @@ fn history_later_page(set: &DataSet, number: usize) -> Result<Option<Measured>, 
         black_box(page);
         Ok(())
     })))
+}
+
+/// Changed lines a commit may have for `select-commit` (section 9).
+const SELECT_COMMIT_LINES: u32 = 5_000;
+
+/// The commit with the most changed lines under [`SELECT_COMMIT_LINES`]
+/// among the first page of the largest repo's history.
+fn select_commit(set: &DataSet) -> Result<Option<Measured>, String> {
+    let repo = GitRepo::open(&set.largest()?.path).map_err(|error| error.to_string())?;
+    let page = repo
+        .history(HistoryStart::All, None, None)
+        .map_err(|error| error.to_string())?;
+    let mut best: Option<(u32, String)> = None;
+    for row in &page.rows {
+        let files = repo
+            .changed_files(&row.hash, 0)
+            .map_err(|error| error.to_string())?;
+        let Some(lines) = changed_lines(&files) else {
+            continue;
+        };
+        if lines < SELECT_COMMIT_LINES && best.as_ref().is_none_or(|(most, _)| lines > *most) {
+            best = Some((lines, row.hash.clone()));
+        }
+    }
+    let Some((lines, hash)) = best else {
+        eprintln!("{} has no commit with counted lines", set.name);
+        return Ok(None);
+    };
+    eprintln!(
+        "select-commit on {}: {hash}, {lines} changed lines",
+        set.name
+    );
+    Ok(Some(select(repo, hash)))
+}
+
+/// All changed lines of a list; `None` when a count is missing.
+fn changed_lines(files: &[ChangedFile]) -> Option<u32> {
+    files.iter().try_fold(0u32, |total, file| {
+        Some(
+            total
+                .saturating_add(file.added?)
+                .saturating_add(file.removed?),
+        )
+    })
+}
+
+/// The root commit of the largest repo.
+fn select_root_commit(set: &DataSet) -> Result<Option<Measured>, String> {
+    let repo = GitRepo::open(&set.largest()?.path).map_err(|error| error.to_string())?;
+    let mut cursor = None;
+    loop {
+        let page = repo
+            .history(HistoryStart::All, cursor, None)
+            .map_err(|error| error.to_string())?;
+        if let Some(root) = page.rows.iter().find(|row| row.parents.is_empty()) {
+            return Ok(Some(select(repo, root.hash.clone())));
+        }
+        cursor = page.next;
+        if cursor.is_none() {
+            return Err(format!("{} has no root commit", set.name));
+        }
+    }
+}
+
+/// Reads a commit's header, its changed files and the first file's diff.
+fn select(repo: GitRepo, hash: String) -> Measured {
+    Box::new(move || {
+        let text = |error: gitcroc_core::DiffError| error.to_string();
+        let commit = repo.commit(&hash).map_err(text)?;
+        let files = repo.changed_files(&hash, 0).map_err(text)?;
+        let file = files.first().ok_or("the commit changed no file")?;
+        let source = DiffSource::Commit {
+            hash: hash.clone(),
+            parent: 0,
+        };
+        let diff = repo
+            .file_diff(&source, file, DiffOptions::default())
+            .map_err(text)?;
+        black_box((commit, files, diff));
+        Ok(())
+    })
 }
 
 /// A data set as its manifest describes it.
