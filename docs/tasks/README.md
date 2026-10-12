@@ -83,7 +83,7 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | History order | Newest first by commit date, never a parent above its child (`git log --date-order`) | M1-02 |
 | Whole-repo history | Starts from `HEAD`, local and remote branches; tags only label commits | M1-02 |
 | Filtered history | A filtered list has no graph lines | M1-02, M1-08 |
-| History without a commit-graph file | Same order, but the first page explores the whole history first, as `git log --date-order` does. With the file, a page reads only a little past its last row | M1-02 |
+| History without a commit-graph file | Same order, but the first page explores the whole history first, as `git log --date-order` does. With the file, a page reads only a little past its last row. When a first page without the file takes longer than 200 ms, the app offers once per repo to write it with `git commit-graph write --reachable`, as a background job. It never writes the file without asking, never keeps it current, and never changes git config for it | M1-02, M1-08 |
 | History matching | Author matches name or email; the hash prefix may be any length; the stash start gives one row with no lines | M1-02 |
 | Ref labels | `HEAD` is shown only when detached; the checked-out branch is marked as current; `refs/remotes/*/HEAD` is not shown; short hashes use git's abbreviation length | M1-02, M1-08 |
 | Lane layout | Lanes never shift sideways; a freed lane is reused by the next new line. Colors are a running index per line; the UI maps it onto its palette | M1-02, M1-08 |
