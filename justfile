@@ -1,5 +1,5 @@
 # Everything CI requires (QA-1, QA-5); must pass before a task is done.
-# Coverage is report-only until M0-08 makes it enforcing.
+# Fails if a requirement of the current milestone has no test (QA-3).
 check:
     cargo fmt --check
     cargo clippy --workspace --all-targets -- -D warnings
@@ -10,7 +10,7 @@ check:
     pnpm --dir ui exec eslint .
     pnpm --dir ui exec vitest run
     pnpm --dir ui exec playwright test
-    just coverage M0 --report-only
+    just coverage M0
 
 # One-time setup after cloning: front-end packages and Playwright's Chromium.
 setup:
@@ -33,6 +33,11 @@ coverage milestone *flags:
 # Run the app.
 dev:
     TAURI_APP_PATH="{{justfile_directory()}}/crates/gitcroc-app" pnpm --dir ui exec tauri dev
+
+# Build the installable bundles, for example `just bundle --bundles deb`.
+# CI runs this in .github/workflows/build.yml.
+bundle *flags:
+    TAURI_APP_PATH="{{justfile_directory()}}/crates/gitcroc-app" pnpm --dir ui exec tauri build {{flags}}
 
 # Performance harness.
 bench:
