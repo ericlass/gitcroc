@@ -1,14 +1,17 @@
 //! Workspace, group and repo model, job engine, preflight, result reports, config and cache.
 
 mod app_info;
+mod config_file;
 mod diff;
 mod git;
 mod history;
 mod job;
 mod settings;
 mod status;
+mod workspace;
 
 pub use app_info::AppInfo;
+pub use config_file::ConfigWarning;
 pub use diff::{DiffReadError, changed_files, commit_details, file_diff};
 pub use git::{GitSetup, GitStatus};
 pub use gitcroc_git::{
@@ -20,12 +23,16 @@ pub use gitcroc_git::{
     StatusError, StatusRead, StatusReader, TextDiff, Time, UnmergedFile, Upstream, WorkingCopy,
 };
 pub use history::{HistoryPageError, history_page};
-pub use job::{JobId, JobProgress, WorkspaceId};
+pub use job::{JobId, JobIds, JobProgress, WorkspaceId};
 pub use settings::{
     ConfigDir, PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Settings, SettingsError,
-    SettingsStore, SettingsView, SettingsWarning, Theme,
+    SettingsStore, SettingsView, Theme,
 };
 pub use status::{StatusReadError, repo_state, repo_summary, working_copy};
+pub use workspace::{
+    AddReport, DEFAULT_WORKSPACE_NAME, Refusal, RepoId, RepoView, SCAN_DEPTH, WORKSPACE_SCHEMA,
+    WORKSPACES_DIR, WorkspaceError, WorkspaceView, Workspaces, add_path,
+};
 
 /// Errors returned by `gitcroc-core`.
 #[derive(Debug, thiserror::Error)]

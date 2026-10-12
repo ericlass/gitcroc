@@ -3,6 +3,7 @@
 mod detect;
 mod diff;
 mod history;
+mod probe;
 mod read;
 mod runner;
 mod status;
@@ -19,6 +20,7 @@ pub use history::{
     CommitRow, Cursor, Edge, Filter, GraphRow, HistoryError, HistoryStart, PAGE_SIZE, Page,
     RefKind, RefLabel, RepoRead, Time,
 };
+pub use probe::{InspectError, Inspected, Layout, inspect, layout};
 pub use read::{GitRepo, OpenError};
 pub use runner::{GIT_ENV, GitError, GitRunner, Output};
 pub use status::{

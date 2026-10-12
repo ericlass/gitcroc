@@ -19,6 +19,23 @@ export const commands = {
 	settingsGet: () => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_get")),
 	/**  Changes the app theme (UI-23) and saves the settings. */
 	settingsSetTheme: (theme: Theme) => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_set_theme", { theme })),
+	/**  The open workspaces, in tab order. One until workspace tabs exist (M3). */
+	workspaceGet: () => typedError<WorkspaceView[], IpcError>(__TAURI_INVOKE("workspace_get")),
+	/**
+	 *  Starts a job that adds the repo at `path`, or every repo found below it,
+	 *  and returns its id at once. Progress arrives as `job_progress` events,
+	 *  then `workspace_changed` and `workspace_add_report` (ARCH-7).
+	 */
+	workspaceAddPath: (workspaceId: WorkspaceId, path: string) => typedError<JobId, IpcError>(__TAURI_INVOKE("workspace_add_path", { workspaceId, path })),
+	/**
+	 *  Opens the native folder dialog and returns at once. When the user picks
+	 *  a folder, an add job starts as for `workspace_add_path`; when they
+	 *  cancel, nothing happens. The dialog is opened from Rust: the front end
+	 *  has no dialog permission (SEC-2).
+	 */
+	workspacePickAndAdd: (workspaceId: WorkspaceId) => typedError<null, IpcError>(__TAURI_INVOKE("workspace_pick_and_add", { workspaceId })),
+	/**  Removes a repo from the workspace; nothing on disk changes (GRP-3). */
+	workspaceRemoveRepo: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<WorkspaceView, IpcError>(__TAURI_INVOKE("workspace_remove_repo", { workspaceId, repoId })),
 	/**
 	 *  Starts a fake job that reports three steps 100 ms apart, and returns
 	 *  its id without waiting for it.
@@ -30,9 +47,23 @@ export const commands = {
 export const events = {
 	gitStatus: makeEvent<GitStatusEvent>("git_status"),
 	jobProgress: makeEvent<JobProgressEvent>("job_progress"),
+	workspaceAddReport: makeEvent<WorkspaceAddReportEvent>("workspace_add_report"),
+	workspaceChanged: makeEvent<WorkspaceChangedEvent>("workspace_changed"),
 };
 
 /* Types */
+/**  What an add job did. */
+export type AddReport = {
+	workspace_id: WorkspaceId,
+	job_id: JobId,
+	/**  New in the workspace, in path order. */
+	added: RepoView[],
+	/**  Found, and already in the workspace (GRP-1). */
+	already_present: RepoView[],
+	/**  Folders that were not added or could not be read. */
+	refused: Refusal[],
+};
+
 /**  What the running build is and where it runs. */
 export type AppInfo = {
 	name: string,
@@ -42,6 +73,24 @@ export type AppInfo = {
 	/**  `std::env::consts::ARCH`, e.g. `x86_64`, `aarch64`. */
 	arch: string,
 };
+
+/**
+ *  Why a config file is read-only, shown to the user as a banner. Paths are
+ *  text for display only (PLAT-2).
+ */
+export type ConfigWarning = 
+/**
+ *  The file at `path` has schema `found`, newer than the `supported` one.
+ *  What this build understands of it is used; it is not written.
+ */
+{ kind: "newer_schema"; path: string; found: number; supported: number } | 
+/**
+ *  The file at `path` could not be read or parsed, for `reason`. The
+ *  defaults are used; the file is not written.
+ */
+{ kind: "unreadable"; path: string; reason: string } | 
+/**  The platform has no config dir, so nothing can be saved. */
+{ kind: "no_config_dir" };
 
 /**
  *  Whether a usable git was found, as shown to the user. Paths and versions
@@ -81,12 +130,21 @@ export type IpcErrorCode =
 /**  A bug or an environment problem the user cannot fix from the UI. */
 "internal" | 
 /**  The settings are read-only (DATA-1); `settings_get` says why. */
-"settings_read_only";
+"settings_read_only" | 
+/**  The workspace is read-only (DATA-1); its view says why. */
+"workspace_read_only" | 
+/**  No open workspace has the id, or the workspace has no such repo. */
+"not_found" | 
+/**  No usable git was found (PLAT-3); `git_status` says why. */
+"git_unavailable";
 
 /**  Identifies a job, unique while the app runs. */
 export type JobId = number;
 
-/**  How far a job has come: `done` of `total` steps. */
+/**
+ *  How far a job has come: `done` of `total` steps. A `total` of 0 means
+ *  the number of steps is not known yet.
+ */
 export type JobProgress = {
 	job_id: JobId,
 	workspace_id: WorkspaceId,
@@ -97,6 +155,28 @@ export type JobProgress = {
 
 /**  Progress of a running job, sent as event `job_progress` (ARCH-7). */
 export type JobProgressEvent = JobProgress;
+
+/**
+ *  A folder that was not added, and why. Git's own refusals carry git's
+ *  message (SEC-6). The path is text for display only (PLAT-2).
+ */
+export type Refusal = {
+	path: string,
+	reason: string,
+};
+
+/**  Identifies a repo inside its workspace: `r1`, `r2` and so on. */
+export type RepoId = string;
+
+/**  A repo as the UI sees it. The path is text for display only (PLAT-2). */
+export type RepoView = {
+	id: RepoId,
+	/**  The repo's folder name. */
+	name: string,
+	path: string,
+	/**  The URL of `origin`, or of the only remote, when it was added. */
+	remote: string | null,
+};
 
 /**
  *  Every setting. A key missing from the file takes its default (see
@@ -111,34 +191,39 @@ export type SettingsView = {
 	settings: Settings,
 	/**  Changes are refused; `warning` says why. */
 	read_only: boolean,
-	warning: SettingsWarning | null,
+	warning: ConfigWarning | null,
 };
-
-/**
- *  Why the settings are read-only, shown to the user as a banner. Paths are
- *  text for display only (PLAT-2).
- */
-export type SettingsWarning = 
-/**
- *  The file at `path` has schema `found`, newer than the `supported` one.
- *  Its known settings are used; it is not written.
- */
-{ kind: "newer_schema"; path: string; found: number; supported: number } | 
-/**
- *  The file at `path` could not be read or parsed, for `reason`. The
- *  defaults are used; the file is not written.
- */
-{ kind: "unreadable"; path: string; reason: string } | 
-/**  The platform has no config dir, so nothing can be saved. */
-{ kind: "no_config_dir" };
 
 /**  The app theme (UI-23). */
 export type Theme = 
 /**  Follow the OS light or dark mode, live. */
 "system" | "light" | "dark";
 
+/**
+ *  What an add job did, sent as event `workspace_add_report` when it ends,
+ *  after its `workspace_changed`.
+ */
+export type WorkspaceAddReportEvent = AddReport;
+
+/**
+ *  A workspace's fresh state, sent as event `workspace_changed` after it
+ *  changes (ARCH-6).
+ */
+export type WorkspaceChangedEvent = WorkspaceView;
+
 /**  Identifies a workspace. All session state is keyed by it (ARCH-9). */
 export type WorkspaceId = string;
+
+/**  A workspace as the UI sees it. */
+export type WorkspaceView = {
+	id: WorkspaceId,
+	name: string,
+	/**  In the order they were added. */
+	repos: RepoView[],
+	/**  Changes are refused; `warning` says why. */
+	read_only: boolean,
+	warning: ConfigWarning | null,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

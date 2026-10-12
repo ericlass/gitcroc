@@ -1,7 +1,7 @@
 import { createResource, createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import DebugJobs from "./DebugJobs";
 import GitSetup from "./GitSetup";
-import { appInfo, type WorkspaceId } from "./ipc";
+import { appInfo } from "./ipc";
 import Panes from "./layout/Panes";
 import StatusBar from "./layout/StatusBar";
 import TabBar from "./layout/TabBar";
@@ -12,6 +12,7 @@ import { createGitStore } from "./stores/git";
 import { createJobStore } from "./stores/jobs";
 import { createLayoutStore } from "./stores/layout";
 import { createSettingsStore } from "./stores/settings";
+import { createWorkspaceStore } from "./stores/workspaces";
 import { followTheme } from "./theme/theme";
 
 export default function App() {
@@ -20,17 +21,18 @@ export default function App() {
   const git = createGitStore();
   const settings = createSettingsStore();
   const layout = createLayoutStore();
+  const workspaces = createWorkspaceStore();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
-  // Stands in for the open tab's workspace until workspaces exist (M3). It is
+  // The open tab's workspace: the only one until tabs exist (M3). It is
   // passed down, never read from a module, so tabs need no rework (ARCH-9).
-  const workspace: WorkspaceId = "placeholder";
+  const workspace = () => workspaces.state.views?.[0];
 
   followTheme(settings.theme);
 
   onMount(() => {
     void settings.load();
-    const unlisten = [jobs.subscribe(), git.subscribe()];
+    const unlisten = [jobs.subscribe(), git.subscribe(), workspaces.subscribe()];
     onCleanup(() => {
       for (const pending of unlisten) {
         void pending.then((stop) => stop());
@@ -58,7 +60,7 @@ export default function App() {
       </Match>
       <Match when={true}>
         <div class="app">
-          <TabBar />
+          <TabBar name={workspace()?.name} />
           <Toolbar onSettings={() => setSettingsOpen(true)} />
           <Show when={info.error as unknown}>
             <div role="alert" class="banner">
@@ -66,14 +68,31 @@ export default function App() {
             </div>
           </Show>
           <Show when={settings.state.view?.warning}>{(warning) => <SettingsBanner warning={warning()} />}</Show>
-          <main class="main">
-            <Panes workspace={workspace} layout={layout} />
-          </main>
-          <StatusBar workspace={workspace} jobs={jobs}>
-            <Show when={import.meta.env.DEV}>
-              <DebugJobs workspace={workspace} />
-            </Show>
-          </StatusBar>
+          <Show
+            when={workspace()?.id}
+            fallback={
+              <main class="main">
+                <p class="placeholder">
+                  {workspaces.state.error === null
+                    ? "Opening the workspace…"
+                    : `Cannot open the workspace: ${workspaces.state.error}`}
+                </p>
+              </main>
+            }
+          >
+            {(id) => (
+              <>
+                <main class="main">
+                  <Panes workspace={id()} layout={layout} />
+                </main>
+                <StatusBar workspace={id()} jobs={jobs}>
+                  <Show when={import.meta.env.DEV}>
+                    <DebugJobs workspace={id()} />
+                  </Show>
+                </StatusBar>
+              </>
+            )}
+          </Show>
           <Show when={settingsOpen()}>
             <SettingsDialog settings={settings} info={info()} git={git.state.result} onClose={() => setSettingsOpen(false)} />
           </Show>

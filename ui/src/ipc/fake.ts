@@ -2,12 +2,19 @@
 // vite.config.ts). It implements the generated interface, so a change to the
 // Rust commands breaks it at compile time like the real one.
 import type { Event, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
-import type { AppInfo, GitStatus, JobProgress, SettingsView } from "./bindings";
+import type { AddReport, AppInfo, GitStatus, JobProgress, SettingsView, WorkspaceView } from "./bindings";
 import type { Core } from "./core";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch" };
 const defaultGitStatus: GitStatus = { kind: "usable", path: "/fake/bin/git", version: "2.47.0" };
 const defaultSettings: SettingsView = { settings: { theme: "system" }, read_only: false, warning: null };
+const defaultWorkspace: WorkspaceView = {
+  id: "fake-workspace",
+  name: "My workspace",
+  repos: [],
+  read_only: false,
+  warning: null,
+};
 
 type Listeners<T> = Set<EventCallback<T>>;
 
@@ -32,12 +39,23 @@ let nextEventId = 1;
 let nextJobId = 1;
 const jobProgressListeners: Listeners<JobProgress> = new Set();
 const gitStatusListeners: Listeners<GitStatus> = new Set();
+const workspaceChangedListeners: Listeners<WorkspaceView> = new Set();
+const workspaceAddReportListeners: Listeners<AddReport> = new Set();
 
 /** What the fake returns; tests change it and call `reset` afterwards. */
-export const fakeState: { appInfo: AppInfo; gitStatus: GitStatus; settings: SettingsView } = {
+export const fakeState: {
+  appInfo: AppInfo;
+  gitStatus: GitStatus;
+  settings: SettingsView;
+  workspace: WorkspaceView;
+  /** What the folder dialog returns; `null` is a cancel. */
+  pickedFolder: string | null;
+} = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
   settings: defaultSettings,
+  workspace: defaultWorkspace,
+  pickedFolder: null,
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -57,12 +75,59 @@ export function emitGitStatus(payload: GitStatus): void {
   emit(gitStatusListeners, "git_status", payload);
 }
 
+/** Delivers a `workspace_changed` event to every listener, as the core would. */
+export function emitWorkspaceChanged(payload: WorkspaceView): void {
+  emit(workspaceChangedListeners, "workspace_changed", payload);
+}
+
 export function reset(): void {
   fakeState.appInfo = defaultAppInfo;
   fakeState.gitStatus = defaultGitStatus;
   fakeState.settings = defaultSettings;
+  fakeState.workspace = defaultWorkspace;
+  fakeState.pickedFolder = null;
   jobProgressListeners.clear();
   gitStatusListeners.clear();
+  workspaceChangedListeners.clear();
+  workspaceAddReportListeners.clear();
+}
+
+const notFound = (message: string) =>
+  Promise.resolve({ status: "error" as const, error: { code: "not_found" as const, message, git_stderr: null } });
+
+/**
+ * Like the core's add job, for one repo at `path`: progress, then the fresh
+ * workspace, then the report. A path already in the workspace is reported
+ * as present.
+ */
+function fakeAdd(workspaceId: string, path: string): number {
+  const jobId = nextJobId++;
+  setTimeout(() => {
+    emitJobProgress({ job_id: jobId, workspace_id: workspaceId, label: "Checking repos", done: 0, total: 2 });
+    const present = fakeState.workspace.repos.filter((repo) => repo.path === path);
+    const added =
+      present.length > 0
+        ? []
+        : [
+            {
+              id: `r${fakeState.workspace.repos.length + 1}`,
+              name: path.split("/").filter(Boolean).pop() ?? path,
+              path,
+              remote: null,
+            },
+          ];
+    fakeState.workspace = { ...fakeState.workspace, repos: [...fakeState.workspace.repos, ...added] };
+    emitJobProgress({ job_id: jobId, workspace_id: workspaceId, label: "Adding repos", done: 2, total: 2 });
+    emitWorkspaceChanged(fakeState.workspace);
+    emit(workspaceAddReportListeners, "workspace_add_report", {
+      workspace_id: workspaceId,
+      job_id: jobId,
+      added,
+      already_present: present,
+      refused: [],
+    });
+  }, 10);
+  return jobId;
 }
 
 export const fake: Core = {
@@ -91,6 +156,31 @@ export const fake: Core = {
       fakeState.settings = { ...fakeState.settings, settings: { ...fakeState.settings.settings, theme } };
       return Promise.resolve({ status: "ok", data: fakeState.settings });
     },
+    workspaceGet: () => Promise.resolve({ status: "ok", data: [fakeState.workspace] }),
+    workspaceAddPath: (workspaceId, path) => {
+      if (workspaceId !== fakeState.workspace.id) {
+        return notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      return Promise.resolve({ status: "ok", data: fakeAdd(workspaceId, path) });
+    },
+    workspacePickAndAdd: (workspaceId) => {
+      if (workspaceId !== fakeState.workspace.id) {
+        return notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      if (fakeState.pickedFolder !== null) {
+        fakeAdd(workspaceId, fakeState.pickedFolder);
+      }
+      return Promise.resolve({ status: "ok", data: null });
+    },
+    workspaceRemoveRepo: (workspaceId, repoId) => {
+      const workspace = fakeState.workspace;
+      if (workspaceId !== workspace.id || !workspace.repos.some((repo) => repo.id === repoId)) {
+        return notFound(`the workspace has no repo with the id ${repoId}`);
+      }
+      fakeState.workspace = { ...workspace, repos: workspace.repos.filter((repo) => repo.id !== repoId) };
+      emitWorkspaceChanged(fakeState.workspace);
+      return Promise.resolve({ status: "ok", data: fakeState.workspace });
+    },
     debugEmitProgress: (workspaceId) => {
       const jobId = nextJobId++;
       const total = 3;
@@ -105,5 +195,7 @@ export const fake: Core = {
   events: {
     gitStatus: fakeEvent(gitStatusListeners),
     jobProgress: fakeEvent(jobProgressListeners),
+    workspaceAddReport: fakeEvent(workspaceAddReportListeners),
+    workspaceChanged: fakeEvent(workspaceChangedListeners),
   },
 };

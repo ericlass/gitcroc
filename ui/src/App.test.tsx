@@ -38,23 +38,33 @@ test("UI-20 layout: tab bar, toolbar, three panes and status bar", async () => {
   ]);
   expect(buttons.filter((b) => !b.disabled).map((b) => b.textContent)).toEqual(["Settings"]);
 
-  expect(screen.getByRole("tab", { name: "No workspace" }).getAttribute("aria-selected")).toBe("true");
+  expect((await screen.findByRole("tab", { name: "My workspace" })).getAttribute("aria-selected")).toBe("true");
   expect((screen.getByRole("button", { name: "Open workspace" }) as HTMLButtonElement).disabled).toBe(true);
   for (const pane of ["Tree", "History", "Changes"]) {
-    expect(screen.getByRole("region", { name: pane })).toBeDefined();
+    expect(await screen.findByRole("region", { name: pane })).toBeDefined();
   }
-  expect(screen.getAllByRole("separator")).toHaveLength(2);
+  expect(await screen.findAllByRole("separator")).toHaveLength(2);
   expect(screen.getByRole("status").textContent).toBe("No jobs running");
 });
 
 test("UI-21 status bar shows running jobs of the workspace", async () => {
   render(() => <App />);
   const status = await screen.findByRole("status");
-  emitJobProgress({ job_id: 1, workspace_id: "placeholder", label: "Fetch", done: 1, total: 4 });
+  emitJobProgress({ job_id: 1, workspace_id: "fake-workspace", label: "Fetch", done: 1, total: 4 });
   emitJobProgress({ job_id: 2, workspace_id: "elsewhere", label: "Push", done: 1, total: 2 });
   expect(status.textContent).toBe("Fetch 1/4");
-  emitJobProgress({ job_id: 1, workspace_id: "placeholder", label: "Fetch", done: 4, total: 4 });
+  emitJobProgress({ job_id: 1, workspace_id: "fake-workspace", label: "Fetch", done: 4, total: 4 });
   expect(status.textContent).toBe("No jobs running");
+});
+
+test("ARCH-9 the workspace id comes from the core's workspace file", async () => {
+  fakeState.workspace = { ...fakeState.workspace, id: "0b7c6f2e-uuid", name: "Platform" };
+  render(() => <App />);
+  const status = await screen.findByRole("status");
+  expect(screen.getByRole("tab", { name: "Platform" })).toBeDefined();
+  emitJobProgress({ job_id: 1, workspace_id: "fake-workspace", label: "Old id", done: 1, total: 2 });
+  emitJobProgress({ job_id: 2, workspace_id: "0b7c6f2e-uuid", label: "Looking for repos", done: 5, total: 0 });
+  expect(status.textContent).toBe("Looking for repos 5");
 });
 
 test("settings dialog closes with Escape and the Close button", async () => {

@@ -5,7 +5,9 @@ import type { WorkspaceId } from "../ipc";
 import type { JobStore } from "../stores/jobs";
 
 export default function StatusBar(props: { workspace: WorkspaceId; jobs: JobStore; children?: JSX.Element }) {
-  const running = () => Object.values(props.jobs.jobs[props.workspace] ?? {}).filter((job) => job.done < job.total);
+  // A total of 0 means the core does not know the number of steps yet.
+  const running = () =>
+    Object.values(props.jobs.jobs[props.workspace] ?? {}).filter((job) => job.total === 0 || job.done < job.total);
 
   return (
     <footer class="status-bar">
@@ -14,7 +16,7 @@ export default function StatusBar(props: { workspace: WorkspaceId; jobs: JobStor
           <For each={running()}>
             {(job) => (
               <span class="status-job">
-                {job.label} {job.done}/{job.total}
+                {job.label} {job.total === 0 ? job.done : `${job.done}/${job.total}`}
               </span>
             )}
           </For>
