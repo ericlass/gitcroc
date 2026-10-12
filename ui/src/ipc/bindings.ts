@@ -48,6 +48,22 @@ export const commands = {
 	 */
 	repoSelect: (workspaceId: WorkspaceId, repoId: string | null) => typedError<null, IpcError>(__TAURI_INVOKE("repo_select", { workspaceId, repoId })),
 	/**
+	 *  The workspace's tree (UI-1): Ungrouped with every repo, each with its
+	 *  Local, Remotes, Tags and Stashes nodes not loaded; `refs_get` loads
+	 *  them (ARCH-8).
+	 */
+	treeGet: (workspaceId: WorkspaceId) => typedError<TreeNode[], IpcError>(__TAURI_INVOKE("tree_get", { workspaceId })),
+	/**
+	 *  One repo's Local, Remotes, Tags and Stashes nodes, loaded, with ahead
+	 *  and behind for each local branch.
+	 */
+	refsGet: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<TreeNode[], IpcError>(__TAURI_INVOKE("refs_get", { workspaceId, repoId })),
+	/**
+	 *  The tree filtered by `text` (UI-8); empty text gives the whole tree.
+	 *  `null` when a newer `tree_filter` of the workspace superseded this one.
+	 */
+	treeFilter: (workspaceId: WorkspaceId, text: string) => typedError<TreeNode[] | null, IpcError>(__TAURI_INVOKE("tree_filter", { workspaceId, text })),
+	/**
 	 *  Starts a fake job that reports three steps 100 ms apart, and returns
 	 *  its id without waiting for it.
 	 */
@@ -58,6 +74,7 @@ export const commands = {
 export const events = {
 	gitStatus: makeEvent<GitStatusEvent>("git_status"),
 	jobProgress: makeEvent<JobProgressEvent>("job_progress"),
+	repoRefsChanged: makeEvent<RepoRefsChangedEvent>("repo_refs_changed"),
 	repoSummary: makeEvent<RepoSummaryEvent>("repo_summary"),
 	workspaceAddReport: makeEvent<WorkspaceAddReportEvent>("workspace_add_report"),
 	workspaceChanged: makeEvent<WorkspaceChangedEvent>("workspace_changed"),
@@ -201,6 +218,18 @@ export type Refusal = {
 /**  Identifies a repo inside its workspace: `r1`, `r2` and so on. */
 export type RepoId = string;
 
+/**  A repo of a workspace. */
+export type RepoRef = {
+	workspace_id: WorkspaceId,
+	repo_id: RepoId,
+};
+
+/**
+ *  A repo's loaded refs were dropped because its summary was read again,
+ *  sent as event `repo_refs_changed`; `refs_get` reads them anew.
+ */
+export type RepoRefsChangedEvent = RepoRef;
+
 /**  Whether a repo is in conflict state (OPS-1). */
 export type RepoState = {
 	/**  The operation in progress, if any. */
@@ -275,12 +304,59 @@ export type SummaryView = {
 	 *  repo (SEC-6).
 	 */
 	error: string | null,
+	/**  A read of the repo is waiting or running (UI-3). */
+	refreshing: boolean,
+	/**  `summary` says the repo is in conflict state (OPS-1, UI-3). */
+	conflict: boolean,
 };
 
 /**  The app theme (UI-23). */
 export type Theme = 
 /**  Follow the OS light or dark mode, live. */
 "system" | "light" | "dark";
+
+/**  What a node stands for. */
+export type TreeItem = { kind: "ungrouped" } | { kind: "repo"; repo_id: RepoId } | { kind: "local"; repo_id: RepoId } | { kind: "remotes"; repo_id: RepoId } | { kind: "tags"; repo_id: RepoId } | { kind: "stashes"; repo_id: RepoId } | { kind: "remote"; repo_id: RepoId; remote: string } | 
+/**  One `/`-separated part of branch names. */
+{ kind: "folder"; repo_id: RepoId } | { kind: "branch"; repo_id: RepoId; 
+/**  The full short name, for example `feature/x`. */
+name: string; 
+/**  `HEAD` points to it. */
+current: boolean; 
+/**  The upstream, for example `origin/main`. */
+upstream: string | null; 
+/**  The upstream is configured but its ref does not exist. */
+gone: boolean; 
+/**
+ *  Commits ahead of and behind the upstream; `None` when not
+ *  counted or there is nothing to count against.
+ */
+ahead: number | null; behind: number | null } | { kind: "remote_branch"; repo_id: RepoId; 
+/**  With the remote, for example `origin/feature/x`. */
+name: string } | { kind: "tag"; repo_id: RepoId; name: string; annotated: boolean } | { kind: "stash"; repo_id: RepoId; 
+/**  `n` in `stash@{n}`. */
+index: number; message: string; 
+/**
+ *  Seconds since the Unix epoch. A plain `number` in TypeScript,
+ *  which `i64` is not by default.
+ */
+seconds: number };
+
+/**
+ *  One node of the tree. Ids are unique within a workspace and stable
+ *  across reads, so the UI can keep expanded and selected nodes by id.
+ */
+export type TreeNode = {
+	id: string,
+	/**  What the row shows: a repo name, a ref name or one folder of one. */
+	label: string,
+	item: TreeItem,
+	/**
+	 *  `None` while not loaded: a repo's ref nodes before [`tree_refs`].
+	 *  Leaves have `Some` and no children.
+	 */
+	children: TreeNode[] | null,
+};
 
 /**  The branch the current branch tracks. */
 export type Upstream = {

@@ -1,10 +1,20 @@
-// The three panes of section 8, empty until M1. Sizes come from the layout
-// store under the given workspace id (ARCH-9).
+// The three panes of section 8. Sizes come from the layout store under the
+// given workspace id (ARCH-9).
 import type { WorkspaceId } from "../ipc";
 import { type LayoutStore, MIN_PANE_WIDTH, type ResizablePane } from "../stores/layout";
+import type { SummaryStore } from "../stores/summaries";
+import type { TreeStore } from "../stores/tree";
+import type { WorkspaceStore } from "../stores/workspaces";
+import TreePane from "../tree/TreePane";
 import Splitter from "./Splitter";
 
-export default function Panes(props: { workspace: WorkspaceId; layout: LayoutStore }) {
+export default function Panes(props: {
+  workspace: WorkspaceId;
+  layout: LayoutStore;
+  tree: TreeStore;
+  summaries: SummaryStore;
+  workspaces: WorkspaceStore;
+}) {
   let changes: HTMLElement | undefined;
   const sizes = () => props.layout.paneSizes(props.workspace);
 
@@ -28,8 +38,13 @@ export default function Panes(props: { workspace: WorkspaceId; layout: LayoutSto
 
   return (
     <div class="panes">
-      <section class="pane" aria-label="Tree" style={{ width: `${sizes().tree}px` }}>
-        <p class="placeholder">Tree</p>
+      <section class="pane pane-tree" aria-label="Tree" style={{ width: `${sizes().tree}px` }}>
+        <TreePane
+          workspace={props.workspace}
+          tree={props.tree}
+          summaries={props.summaries}
+          workspaces={props.workspaces}
+        />
       </section>
       {splitter("tree", "Resize Tree")}
       <section class="pane" aria-label="History" style={{ width: `${sizes().history}px` }}>

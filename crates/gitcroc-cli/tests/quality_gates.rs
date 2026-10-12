@@ -8,6 +8,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::{Mutex, PoisonError};
+
+/// One `cargo run` of the coverage script at a time: two at once contend
+/// for cargo's locks, and on macOS CI one of them once printed nothing.
+static COVERAGE: Mutex<()> = Mutex::new(());
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -116,6 +121,7 @@ fn coverage_fixture(test: &str) -> PathBuf {
 }
 
 fn run_coverage(root: &Path, args: &[&str]) -> Output {
+    let _one_at_a_time = COVERAGE.lock().unwrap_or_else(PoisonError::into_inner);
     Command::new(env!("CARGO"))
         .current_dir(workspace_root())
         .args(["run", "--quiet", "-p", "req-coverage", "--", "--root"])
@@ -130,27 +136,34 @@ fn qa_3_coverage_script_lists_ids_without_test() {
     let root = coverage_fixture("qa_3_coverage_script_lists_ids_without_test");
     let out = run_coverage(&root, &["M9"]);
     let stdout = String::from_utf8(out.stdout).unwrap();
+    let context = format!(
+        "{}\nstdout:\n{stdout}\nstderr:\n{}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
     let missing: Vec<&str> = stdout
         .lines()
         .filter_map(|line| line.strip_prefix("missing: "))
         .collect();
 
-    assert_eq!(missing, ["XC-3"], "stdout:\n{stdout}");
+    assert_eq!(missing, ["XC-3"], "{context}");
     assert!(
         stdout.contains("no test needed: XE-5 (M9-01-example): proven by review"),
-        "stdout:\n{stdout}"
+        "{context}"
     );
-    assert_eq!(out.status.code(), Some(1), "stdout:\n{stdout}");
+    assert_eq!(out.status.code(), Some(1), "{context}");
 }
 
 #[test]
 fn qa_3_coverage_script_report_only_exits_zero() {
     let root = coverage_fixture("qa_3_coverage_script_report_only_exits_zero");
     let out = run_coverage(&root, &["M9", "--report-only"]);
-    assert!(out.status.success());
-    assert!(
-        String::from_utf8(out.stdout)
-            .unwrap()
-            .contains("missing: XC-3")
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let context = format!(
+        "{}\nstdout:\n{stdout}\nstderr:\n{}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
     );
+    assert!(out.status.success(), "{context}");
+    assert!(stdout.contains("missing: XC-3"), "{context}");
 }

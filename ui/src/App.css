@@ -159,6 +159,214 @@ main:not(.main) {
   background: var(--accent);
 }
 
+/* Tree pane (UI-1, UI-3, UI-8) */
+
+.pane-tree {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tree-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-header {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tree-filter {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+}
+
+.tree-report {
+  margin: 0;
+  padding: 4px 8px 4px 24px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.tree-refused {
+  color: var(--danger);
+}
+
+.tree-pane > [role="alert"] {
+  margin: 4px 8px;
+}
+
+.tree-empty {
+  padding: 4px 0;
+}
+
+.tree-empty button {
+  margin: 0 12px;
+}
+
+.tree-scroller {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.tree-scroller:focus-visible {
+  outline-offset: -2px;
+}
+
+.tree-rows {
+  position: relative;
+  width: 100%;
+}
+
+.tree-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+}
+
+.tree-row:hover {
+  background: var(--bg-2);
+}
+
+.tree-row.selected {
+  background: var(--bg-3);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.tree-chevron {
+  flex: 0 0 12px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.tree-repo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-repo .tree-label,
+.tree-label.current {
+  font-weight: 600;
+}
+
+.tree-repo.stale {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.tree-head {
+  color: var(--text-secondary);
+}
+
+.tree-head.detached {
+  font-family: var(--font-code);
+}
+
+.tree-count,
+.tree-gone {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+}
+
+.tree-dirty,
+.tree-current {
+  color: var(--accent);
+}
+
+.tree-conflict {
+  color: var(--danger);
+}
+
+.tree-warning {
+  color: var(--warning);
+}
+
+.tree-message {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.tree-message.error {
+  color: var(--danger);
+}
+
+.spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
+}
+
+/* Context menu */
+
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+}
+
+.menu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.menu [role="menuitem"] {
+  border: none;
+  text-align: left;
+  background: var(--bg-1);
+}
+
+.menu [role="menuitem"]:hover,
+.menu [role="menuitem"]:focus-visible {
+  background: var(--bg-3);
+}
+
 /* Status bar */
 
 .status-bar {

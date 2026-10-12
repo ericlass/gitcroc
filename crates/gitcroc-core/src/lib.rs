@@ -9,6 +9,7 @@ mod job;
 mod settings;
 mod status;
 mod summary;
+mod tree;
 mod workspace;
 
 pub use app_info::AppInfo;
@@ -16,12 +17,13 @@ pub use config_file::ConfigWarning;
 pub use diff::{DiffReadError, changed_files, commit_details, file_diff};
 pub use git::{GitSetup, GitStatus};
 pub use gitcroc_git::{
-    ChangedFile, CommitDetails, CommitRow, Conflict, Context, Cursor, DiffError, DiffOptions,
-    DiffRead, DiffSource, Edge, Engine, Fallback, FileDiff, FileStatus, Filter, GitRepo, GitRunner,
-    GraphRow, Head, HistoryError, HistoryStart, Hunk, Image, ImageFormat, Line, LineKind,
-    MAX_COUNTED_FILES, MAX_DIFF_LINES, MAX_IMAGE_BYTES, ModeChange, OpenError, Operation,
-    PAGE_SIZE, Page, Person, RefKind, RefLabel, RepoRead, RepoState, RepoSummary, SearchEnv,
-    StatusError, StatusRead, StatusReader, TextDiff, Time, UnmergedFile, Upstream, WorkingCopy,
+    AheadBehind, BranchUpstream, ChangedFile, CommitDetails, CommitRow, Conflict, Context, Cursor,
+    DiffError, DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback, FileDiff, FileStatus,
+    Filter, GitRepo, GitRunner, GraphRow, Head, HistoryError, HistoryStart, Hunk, Image,
+    ImageFormat, Line, LineKind, LocalBranch, MAX_COUNTED_FILES, MAX_DIFF_LINES, MAX_IMAGE_BYTES,
+    ModeChange, OpenError, Operation, PAGE_SIZE, Page, Person, RefKind, RefLabel, Refs, RefsError,
+    RefsRead, RemoteBranches, RepoRead, RepoState, RepoSummary, SearchEnv, StashEntry, StatusError,
+    StatusRead, StatusReader, Tag, TextDiff, Time, UnmergedFile, Upstream, WorkingCopy,
 };
 pub use history::{HistoryPageError, history_page};
 pub use job::{JobId, JobIds, JobProgress, WorkspaceId};
@@ -34,6 +36,7 @@ pub use summary::{
     CACHE_FILE, CACHE_SCHEMA, CacheDir, MAX_REFRESHES, PlatformCacheDir, Summaries, SummaryCache,
     SummaryView, refresh_summaries,
 };
+pub use tree::{TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, tree_filter, tree_refs};
 pub use workspace::{
     AddReport, DEFAULT_WORKSPACE_NAME, Refusal, RepoId, RepoView, SCAN_DEPTH, WORKSPACE_SCHEMA,
     WORKSPACES_DIR, WorkspaceError, WorkspaceView, Workspaces, add_path,
