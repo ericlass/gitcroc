@@ -98,21 +98,30 @@ impl Run {
             .collect()
     }
 
-    /// Refreshes every repo and returns the views in the order they were
-    /// sent.
+    /// Refreshes every repo and returns the views read, in the order they
+    /// were sent. Each repo is first sent once as refreshing (UI-3), in
+    /// workspace order.
     async fn refresh(&self) -> Vec<SummaryView> {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let sink = sent.clone();
+        let repos = self.repos();
         refresh_summaries(
             self.workspaces.clone(),
             self.summaries.clone(),
             self.id.clone(),
-            self.repos(),
+            repos.clone(),
             git(),
             move |view| sink.lock().unwrap().push(view),
         )
         .await;
-        sent.lock().unwrap().clone()
+        let mut sent = sent.lock().unwrap().clone();
+        let read = sent.split_off(repos.len());
+        let queued: Vec<_> = sent.iter().map(|view| view.repo_id.clone()).collect();
+        assert_eq!(queued, repos);
+        assert!(sent.iter().all(|view| view.refreshing));
+        assert!(read.iter().all(|view| !view.refreshing));
+        assert!(self.views().iter().all(|view| !view.refreshing));
+        read
     }
 }
 
@@ -411,4 +420,24 @@ async fn data_3_reads_create_no_files_in_the_repo() {
 
     // No CLI fallback applies to this repo, so git wrote nothing either.
     assert_eq!(snapshot(app.path()), before);
+}
+
+#[tokio::test]
+async fn ui_3_summary_says_when_the_repo_is_in_conflict() {
+    let fixture = Fixture::new().unwrap();
+    let clean = repo_at(fixture.path().join("clean"));
+    let torn = repo_at(fixture.path().join("torn"));
+    torn.branch("theirs").unwrap();
+    torn.commit_file("README.md", "ours\n", "Ours").unwrap();
+    torn.switch("theirs").unwrap();
+    torn.commit_file("README.md", "theirs\n", "Theirs").unwrap();
+    torn.switch("main").unwrap();
+    torn.merge_with_conflicts("theirs").unwrap();
+    drop(clean);
+    let dirs = Dirs::new();
+    let run = Run::start(&dirs);
+    run.add(fixture.path()).await;
+    run.refresh().await;
+    let conflict: Vec<bool> = run.views().iter().map(|view| view.conflict).collect();
+    assert_eq!(conflict, [false, true]);
 }

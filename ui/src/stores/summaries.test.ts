@@ -17,6 +17,8 @@ const view = (repo: string, hash: string, stale: boolean): SummaryView => ({
   stale,
   missing: false,
   error: null,
+  refreshing: false,
+  conflict: false,
 });
 
 test("PERF-3 cached summaries show stale until a fresh one arrives", async () => {

@@ -16,6 +16,7 @@ export type {
   JobProgress,
   Refusal,
   RepoId,
+  RepoRef,
   RepoState,
   RepoSummary,
   RepoView,
@@ -23,6 +24,8 @@ export type {
   SettingsView,
   SummaryView,
   Theme,
+  TreeItem,
+  TreeNode,
   Upstream,
   WorkspaceId,
   WorkspaceView,
@@ -73,5 +76,13 @@ export const workspaceSummaries = (workspaceId: WorkspaceId) => unwrap(core.comm
 
 export const repoSelect = (workspaceId: WorkspaceId, repoId: RepoId | null) =>
   unwrap(core.commands.repoSelect(workspaceId, repoId));
+
+export const treeGet = (workspaceId: WorkspaceId) => unwrap(core.commands.treeGet(workspaceId));
+
+export const refsGet = (workspaceId: WorkspaceId, repoId: RepoId) => unwrap(core.commands.refsGet(workspaceId, repoId));
+
+/** `null` when a newer filter of the workspace superseded this one. */
+export const treeFilter = (workspaceId: WorkspaceId, text: string) =>
+  unwrap(core.commands.treeFilter(workspaceId, text));
 
 export const debugEmitProgress = (workspaceId: string) => unwrap(core.commands.debugEmitProgress(workspaceId));

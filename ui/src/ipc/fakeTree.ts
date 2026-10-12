@@ -1,0 +1,213 @@
+// Trees for the fake core (fake.ts): the skeleton, ref nodes built like the
+// core builds them, the filter, and the scenarios Playwright picks with
+// `?fake=<name>`. Test support only; the real tree comes from the core.
+import type { RepoId, RepoView, SummaryView, TreeItem, TreeNode, WorkspaceView } from "./bindings";
+
+const CATEGORIES = [
+  ["local", "Local"],
+  ["remotes", "Remotes"],
+  ["tags", "Tags"],
+  ["stashes", "Stashes"],
+] as const;
+
+/** Ungrouped with every repo, each with its four ref nodes not loaded. */
+export function skeleton(workspace: WorkspaceView): TreeNode[] {
+  const repos = workspace.repos.map(repoNode);
+  return [{ id: "ungrouped", label: "Ungrouped", item: { kind: "ungrouped" }, children: repos }];
+}
+
+function repoNode(repo: RepoView): TreeNode {
+  return {
+    id: `repo:${repo.id}`,
+    label: repo.name,
+    item: { kind: "repo", repo_id: repo.id },
+    children: CATEGORIES.map(([key, label]) => ({
+      id: `repo:${repo.id}:${key}`,
+      label,
+      item: { kind: key, repo_id: repo.id },
+      children: null,
+    })),
+  };
+}
+
+export interface FakeRefs {
+  local?: string[];
+  current?: string;
+  /** Ahead and behind of local branches, by name. */
+  counts?: Record<string, [number, number]>;
+  remotes?: Record<string, string[]>;
+  tags?: string[];
+  stashes?: string[];
+}
+
+const leaf = (id: string, label: string, item: TreeItem): TreeNode => ({ id, label, item, children: [] });
+
+/** Folds `/`-separated names into folders: folders first, each sorted. */
+function fold(parent: string, repoId: RepoId, names: string[], item: (name: string) => TreeItem): TreeNode[] {
+  const build = (entries: string[], path: string): TreeNode[] => {
+    const folders = new Map<string, string[]>();
+    const refs: string[] = [];
+    for (const entry of entries) {
+      const slash = entry.indexOf("/");
+      if (slash < 0) {
+        refs.push(entry);
+      } else {
+        const folder = entry.slice(0, slash);
+        folders.set(folder, [...(folders.get(folder) ?? []), entry.slice(slash + 1)]);
+      }
+    }
+    const folderNodes = [...folders.keys()].sort().map((name) => ({
+      id: `${parent}:dir:${path}${name}/`,
+      label: name,
+      item: { kind: "folder" as const, repo_id: repoId },
+      children: build(folders.get(name) ?? [], `${path}${name}/`),
+    }));
+    const refNodes = refs.sort().map((name) => leaf(`${parent}:ref:${path}${name}`, name, item(`${path}${name}`)));
+    return [...folderNodes, ...refNodes];
+  };
+  return build(names, "");
+}
+
+/** The four loaded ref nodes of `repoId`, as `refs_get` returns them. */
+export function refNodes(repoId: RepoId, refs: FakeRefs): TreeNode[] {
+  const base = `repo:${repoId}`;
+  const local = fold(`${base}:local`, repoId, refs.local ?? [], (name) => ({
+    kind: "branch",
+    repo_id: repoId,
+    name,
+    current: name === refs.current,
+    upstream: refs.counts?.[name] ? `origin/${name}` : null,
+    gone: false,
+    ahead: refs.counts?.[name]?.[0] ?? null,
+    behind: refs.counts?.[name]?.[1] ?? null,
+  }));
+  const remotes = Object.entries(refs.remotes ?? {}).map(([remote, branches]) => ({
+    id: `${base}:remotes:${remote}`,
+    label: remote,
+    item: { kind: "remote" as const, repo_id: repoId, remote },
+    children: fold(`${base}:remotes:${remote}`, repoId, branches, (name) => ({
+      kind: "remote_branch",
+      repo_id: repoId,
+      name: `${remote}/${name}`,
+    })),
+  }));
+  const tags = (refs.tags ?? []).map((name) =>
+    leaf(`${base}:tags:ref:${name}`, name, { kind: "tag", repo_id: repoId, name, annotated: false }),
+  );
+  const stashes = (refs.stashes ?? []).map((message, index) =>
+    leaf(`${base}:stashes:ref:${index}`, message, {
+      kind: "stash",
+      repo_id: repoId,
+      index,
+      message,
+      seconds: 1_700_000_000 - index * 60,
+    }),
+  );
+  const children = [local, remotes, tags, stashes];
+  return CATEGORIES.map(([key, label], index) => ({
+    id: `${base}:${key}`,
+    label,
+    item: { kind: key, repo_id: repoId },
+    children: children[index] ?? [],
+  }));
+}
+
+function prune(node: TreeNode, text: string): TreeNode | null {
+  const item = node.item;
+  const key = item.kind === "branch" || item.kind === "remote_branch" || item.kind === "tag" ? item.name : null;
+  if (key?.toLowerCase().includes(text)) {
+    return node;
+  }
+  const kept = (node.children ?? []).map((child) => prune(child, text)).filter((child) => child !== null);
+  return kept.length > 0 ? { ...node, children: kept } : null;
+}
+
+/** Like the core's filter: matching repos and refs with their ancestors. */
+export function filterTree(workspace: WorkspaceView, refs: Record<RepoId, TreeNode[]>, text: string): TreeNode[] {
+  const lower = text.toLowerCase();
+  if (lower === "") {
+    return skeleton(workspace);
+  }
+  const repos: TreeNode[] = [];
+  for (const repo of workspace.repos) {
+    const kept = (refs[repo.id] ?? []).map((node) => prune(node, lower)).filter((node) => node !== null);
+    if (kept.length > 0) {
+      repos.push({ ...repoNode(repo), children: kept });
+    } else if (repo.name.toLowerCase().includes(lower)) {
+      repos.push(repoNode(repo));
+    }
+  }
+  return [{ id: "ungrouped", label: "Ungrouped", item: { kind: "ungrouped" }, children: repos }];
+}
+
+export function summary(workspaceId: string, repoId: RepoId, branch: string, change: Partial<SummaryView> = {}) {
+  const view: SummaryView = {
+    workspace_id: workspaceId,
+    repo_id: repoId,
+    summary: {
+      head: { kind: "branch", name: branch, hash: "0123456789abcdef0123456789abcdef01234567" },
+      upstream: { name: `origin/${branch}`, ahead: 0, behind: 0, gone: false },
+      dirty: false,
+      state: { operation: null, unmerged_paths: 0 },
+    },
+    stale: false,
+    missing: false,
+    error: null,
+    refreshing: false,
+    conflict: false,
+  };
+  return { ...view, ...change };
+}
+
+export interface Scenario {
+  repos: RepoView[];
+  /** What the folder dialog returns. */
+  pickedFolder?: string;
+  refs: Record<RepoId, TreeNode[]>;
+  summaries: SummaryView[];
+}
+
+const repo = (id: string, name: string): RepoView => ({ id, name, path: `/src/${name}`, remote: null });
+
+/** Named data sets for Playwright, picked with `?fake=<name>`. */
+export function scenario(name: string, workspaceId: string): Scenario | null {
+  if (name === "tree") {
+    return {
+      repos: [repo("r1", "api"), repo("r2", "web"), repo("r3", "login-service")],
+      pickedFolder: "/src/new-repo",
+      refs: {
+        r1: refNodes("r1", {
+          local: ["main", "feature/login", "bugfix/crash"],
+          current: "main",
+          counts: { main: [1, 2] },
+          remotes: { origin: ["main", "feature/login"] },
+          tags: ["v1.0"],
+          stashes: ["On main: work"],
+        }),
+        r2: refNodes("r2", { local: ["main", "release"], current: "main" }),
+        r3: refNodes("r3", { local: ["main"], current: "main" }),
+      },
+      summaries: [
+        summary(workspaceId, "r1", "main", {
+          summary: {
+            head: { kind: "branch", name: "main", hash: "0123456789abcdef0123456789abcdef01234567" },
+            upstream: { name: "origin/main", ahead: 1, behind: 2, gone: false },
+            dirty: true,
+            state: { operation: null, unmerged_paths: 0 },
+          },
+        }),
+        summary(workspaceId, "r2", "main"),
+        summary(workspaceId, "r3", "main", { stale: true }),
+      ],
+    };
+  }
+  if (name === "big-tree") {
+    const local = Array.from({ length: 5000 }, (_, index) => `branch-${String(index).padStart(4, "0")}`);
+    return {
+      repos: [repo("r1", "big")],
+      refs: { r1: refNodes("r1", { local, current: "branch-0000" }) },
+      summaries: [summary(workspaceId, "r1", "branch-0000")],
+    };
+  }
+  return null;
+}

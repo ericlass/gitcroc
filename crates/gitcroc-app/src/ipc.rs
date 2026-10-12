@@ -10,8 +10,9 @@ use std::sync::Arc;
 
 use gitcroc_core::{
     AddReport, AppInfo, GitRunner, GitSetup, GitStatus, JobId, JobIds, JobProgress, Refusal,
-    RepoId, SettingsError, SettingsStore, SettingsView, Summaries, SummaryView, Theme,
-    WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path, refresh_summaries,
+    RepoId, SettingsError, SettingsStore, SettingsView, Summaries, SummaryView, Theme, TreeError,
+    TreeNode, Trees, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path,
+    refresh_summaries, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -97,6 +98,19 @@ impl From<WorkspaceError> for IpcError {
     }
 }
 
+impl From<TreeError> for IpcError {
+    fn from(error: TreeError) -> Self {
+        match error {
+            TreeError::Workspace(error) => error.into(),
+            TreeError::Open(_) | TreeError::Refs(_) | TreeError::Stopped(_) => Self {
+                code: IpcErrorCode::Internal,
+                message: error.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
 /// Progress of a running job, sent as event `job_progress` (ARCH-7).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "job_progress")]
@@ -125,6 +139,19 @@ pub struct WorkspaceAddReportEvent(pub AddReport);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "repo_summary")]
 pub struct RepoSummaryEvent(pub SummaryView);
+
+/// A repo of a workspace.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct RepoRef {
+    pub workspace_id: WorkspaceId,
+    pub repo_id: RepoId,
+}
+
+/// A repo's loaded refs were dropped because its summary was read again,
+/// sent as event `repo_refs_changed`; `refs_get` reads them anew.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "repo_refs_changed")]
+pub struct RepoRefsChangedEvent(pub RepoRef);
 
 /// The name, version, OS and architecture of the running build.
 #[tauri::command]
@@ -258,6 +285,47 @@ pub async fn repo_select(
     Ok(())
 }
 
+/// The workspace's tree (UI-1): Ungrouped with every repo, each with its
+/// Local, Remotes, Tags and Stashes nodes not loaded; `refs_get` loads
+/// them (ARCH-8).
+#[tauri::command]
+#[specta::specta]
+pub async fn tree_get(
+    workspaces: State<'_, Arc<Workspaces>>,
+    trees: State<'_, Arc<Trees>>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<TreeNode>, IpcError> {
+    Ok(trees.tree(&workspaces, &workspace_id)?)
+}
+
+/// One repo's Local, Remotes, Tags and Stashes nodes, loaded, with ahead
+/// and behind for each local branch.
+#[tauri::command]
+#[specta::specta]
+pub async fn refs_get(
+    workspaces: State<'_, Arc<Workspaces>>,
+    trees: State<'_, Arc<Trees>>,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+) -> Result<Vec<TreeNode>, IpcError> {
+    let (trees, workspaces) = (trees.inner().clone(), workspaces.inner().clone());
+    Ok(tree_refs(trees, workspaces, workspace_id, repo_id).await?)
+}
+
+/// The tree filtered by `text` (UI-8); empty text gives the whole tree.
+/// `null` when a newer `tree_filter` of the workspace superseded this one.
+#[tauri::command]
+#[specta::specta]
+pub async fn tree_filter(
+    workspaces: State<'_, Arc<Workspaces>>,
+    trees: State<'_, Arc<Trees>>,
+    workspace_id: WorkspaceId,
+    text: String,
+) -> Result<Option<Vec<TreeNode>>, IpcError> {
+    let (trees, workspaces) = (trees.inner().clone(), workspaces.inner().clone());
+    Ok(gitcroc_core::tree_filter(trees, workspaces, workspace_id, text).await?)
+}
+
 /// Removes a repo from the workspace; nothing on disk changes (GRP-3).
 #[tauri::command]
 #[specta::specta]
@@ -336,12 +404,15 @@ fn spawn_add(app: AppHandle, workspace_id: WorkspaceId, path: PathBuf, git: GitR
 }
 
 /// Reads the summaries of `repos` again, sending each as `repo_summary`.
+/// A repo read again also drops its loaded refs, announced as
+/// `repo_refs_changed`.
 async fn refresh(app: AppHandle, workspace_id: WorkspaceId, repos: Vec<RepoId>, git: GitRunner) {
     if repos.is_empty() {
         return;
     }
     let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
     let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    let trees = app.state::<Arc<Trees>>().inner().clone();
     refresh_summaries(
         workspaces,
         summaries,
@@ -349,8 +420,16 @@ async fn refresh(app: AppHandle, workspace_id: WorkspaceId, repos: Vec<RepoId>, 
         repos,
         git,
         move |view| {
+            let read = !view.refreshing;
+            let changed = RepoRef {
+                workspace_id: view.workspace_id.clone(),
+                repo_id: view.repo_id.clone(),
+            };
             // An emit fails only while the app shuts down.
             let _ = RepoSummaryEvent(view).emit(&app);
+            if read && trees.invalidate(&changed.workspace_id, &changed.repo_id) {
+                let _ = RepoRefsChangedEvent(changed).emit(&app);
+            }
         },
     )
     .await;
@@ -436,6 +515,9 @@ macro_rules! with_commands {
                 workspace_remove_repo,
                 workspace_summaries,
                 repo_select,
+                tree_get,
+                refs_get,
+                tree_filter,
                 debug::debug_emit_progress
             ]
         }
@@ -452,7 +534,10 @@ macro_rules! with_commands {
                 workspace_pick_and_add,
                 workspace_remove_repo,
                 workspace_summaries,
-                repo_select
+                repo_select,
+                tree_get,
+                refs_get,
+                tree_filter
             ]
         }
     }};
@@ -467,7 +552,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             GitStatusEvent,
             WorkspaceChangedEvent,
             WorkspaceAddReportEvent,
-            RepoSummaryEvent
+            RepoSummaryEvent,
+            RepoRefsChangedEvent
         ])
 }
 

@@ -42,6 +42,10 @@ pub struct SummaryView {
     /// Why the last read failed; git's own message when git refused the
     /// repo (SEC-6).
     pub error: Option<String>,
+    /// A read of the repo is waiting or running (UI-3).
+    pub refreshing: bool,
+    /// `summary` says the repo is in conflict state (OPS-1, UI-3).
+    pub conflict: bool,
 }
 
 /// One repo's summary state.
@@ -51,6 +55,7 @@ struct Entry {
     stale: bool,
     missing: bool,
     error: Option<String>,
+    refreshing: bool,
 }
 
 impl Entry {
@@ -60,6 +65,7 @@ impl Entry {
             stale: true,
             missing: false,
             error: None,
+            refreshing: false,
         }
     }
 
@@ -71,6 +77,11 @@ impl Entry {
             stale: self.stale,
             missing: self.missing,
             error: self.error.clone(),
+            refreshing: self.refreshing,
+            conflict: self
+                .summary
+                .as_ref()
+                .is_some_and(|summary| summary.state.in_conflict()),
         }
     }
 }
@@ -192,23 +203,29 @@ impl Summaries {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Queues `repos` that are not waiting yet, takes the cached summary of
-    /// those without one, and returns how many workers to start.
-    fn enqueue(&self, workspaces: &Workspaces, id: &WorkspaceId, repos: &[RepoId]) -> usize {
+    /// Queues `repos` that are not waiting yet and takes the cached summary
+    /// of those without one. Returns how many workers to start and the new
+    /// views of the queued repos, now refreshing.
+    fn enqueue(
+        &self,
+        workspaces: &Workspaces,
+        id: &WorkspaceId,
+        repos: &[RepoId],
+    ) -> (usize, Vec<SummaryView>) {
         let paths = workspaces.repo_paths(id).unwrap_or_default();
         let mut state = self.lock();
         let workspace = state.entry(id.clone()).or_default();
+        let mut views = Vec::new();
         for repo in repos {
-            if !workspace.entries.contains_key(repo) {
+            let entry = workspace.entries.entry(repo.clone()).or_insert_with(|| {
                 let path = paths
                     .iter()
                     .find(|(known, _)| known == repo)
                     .map(|(_, path)| path);
-                let cached = path.and_then(|path| self.cache.get(path));
-                workspace
-                    .entries
-                    .insert(repo.clone(), Entry::cached(cached));
-            }
+                Entry::cached(path.and_then(|path| self.cache.get(path)))
+            });
+            entry.refreshing = true;
+            views.push(entry.view(id, repo));
             if !workspace.queue.contains(repo) {
                 workspace.queue.push_back(repo.clone());
             }
@@ -218,7 +235,7 @@ impl Summaries {
             .saturating_sub(workspace.workers)
             .min(workspace.queue.len());
         workspace.workers = workspace.workers.saturating_add(start);
-        start
+        (start, views)
     }
 
     fn next(&self, id: &WorkspaceId) -> Option<RepoId> {
@@ -244,6 +261,7 @@ impl Summaries {
                     stale: false,
                     missing: false,
                     error: None,
+                    refreshing: false,
                 };
             }
             Outcome::Missing => {
@@ -257,12 +275,14 @@ impl Summaries {
                 entry.error = Some(error);
             }
         }
+        entry.refreshing = false;
         entry.view(id, repo)
     }
 }
 
 /// Reads the summaries of `repos` of workspace `workspace` again, in their
-/// order but the selected repo first, and sends each new view to `emit`.
+/// order but the selected repo first. Sends each repo's view to `emit`
+/// when it is queued, marked refreshing, and again when it has been read.
 /// Repos already waiting keep their place; when reads of this workspace
 /// are already running, they take the new repos too and this returns
 /// sooner. Fresh summaries go to the cache.
@@ -274,14 +294,15 @@ pub async fn refresh_summaries(
     git: GitRunner,
     emit: impl Fn(SummaryView) + Send + Sync + 'static,
 ) {
-    let start = {
+    let (start, queued) = {
         let (workspaces, summaries, workspace) =
             (workspaces.clone(), summaries.clone(), workspace.clone());
         // The cache lookups of new repos read the disk (ARCH-7).
         tokio::task::spawn_blocking(move || summaries.enqueue(&workspaces, &workspace, &repos))
             .await
-            .unwrap_or(0)
+            .unwrap_or_default()
     };
+    queued.into_iter().for_each(&emit);
     let emit = Arc::new(emit);
     let workers: Vec<_> = (0..start)
         .map(|_| {

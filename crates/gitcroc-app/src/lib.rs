@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use gitcroc_core::{
     GitSetup, JobIds, PlatformCacheDir, PlatformConfigDir, SettingsStore, Summaries, SummaryCache,
-    Workspaces,
+    Trees, Workspaces,
 };
 
 /// Errors returned by `gitcroc-app`.
@@ -41,6 +41,7 @@ pub fn run() -> Result<(), Error> {
         .manage(SettingsStore::load(&PlatformConfigDir))
         .manage(workspaces)
         .manage(summaries)
+        .manage(Arc::new(Trees::new()))
         .setup(move |app| {
             ipc.mount_events(app);
             ipc::spawn_git_detection(app.handle().clone());

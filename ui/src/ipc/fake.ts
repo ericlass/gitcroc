@@ -8,11 +8,14 @@ import type {
   GitStatus,
   JobProgress,
   RepoId,
+  RepoRef,
   SettingsView,
   SummaryView,
+  TreeNode,
   WorkspaceView,
 } from "./bindings";
 import type { Core } from "./core";
+import { filterTree, scenario, skeleton } from "./fakeTree";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch" };
 const defaultGitStatus: GitStatus = { kind: "usable", path: "/fake/bin/git", version: "2.47.0" };
@@ -51,6 +54,7 @@ const gitStatusListeners: Listeners<GitStatus> = new Set();
 const workspaceChangedListeners: Listeners<WorkspaceView> = new Set();
 const workspaceAddReportListeners: Listeners<AddReport> = new Set();
 const repoSummaryListeners: Listeners<SummaryView> = new Set();
+const repoRefsChangedListeners: Listeners<RepoRef> = new Set();
 
 /** What the fake returns; tests change it and call `reset` afterwards. */
 export const fakeState: {
@@ -64,6 +68,10 @@ export const fakeState: {
   summaries: SummaryView[];
   /** The last `repo_select` of each workspace. */
   selected: Record<string, RepoId | null>;
+  /** What `refs_get` returns, by repo; a repo without is unreadable. */
+  refs: Record<RepoId, TreeNode[]>;
+  /** How many `refs_get` calls each repo had. */
+  refsCalls: Record<RepoId, number>;
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -72,6 +80,8 @@ export const fakeState: {
   pickedFolder: null,
   summaries: [],
   selected: {},
+  refs: {},
+  refsCalls: {},
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -101,6 +111,11 @@ export function emitRepoSummary(payload: SummaryView): void {
   emit(repoSummaryListeners, "repo_summary", payload);
 }
 
+/** Delivers a `repo_refs_changed` event to every listener, as the core would. */
+export function emitRepoRefsChanged(payload: RepoRef): void {
+  emit(repoRefsChangedListeners, "repo_refs_changed", payload);
+}
+
 export function reset(): void {
   fakeState.appInfo = defaultAppInfo;
   fakeState.gitStatus = defaultGitStatus;
@@ -109,11 +124,24 @@ export function reset(): void {
   fakeState.pickedFolder = null;
   fakeState.summaries = [];
   fakeState.selected = {};
+  fakeState.refs = {};
+  fakeState.refsCalls = {};
   jobProgressListeners.clear();
   gitStatusListeners.clear();
   workspaceChangedListeners.clear();
   workspaceAddReportListeners.clear();
   repoSummaryListeners.clear();
+  repoRefsChangedListeners.clear();
+}
+
+// Playwright runs the fake build; `?fake=<name>` picks a data set.
+const picked = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("fake");
+const data = picked === null ? null : scenario(picked, defaultWorkspace.id);
+if (data) {
+  fakeState.workspace = { ...defaultWorkspace, repos: data.repos };
+  fakeState.refs = data.refs;
+  fakeState.summaries = data.summaries;
+  fakeState.pickedFolder = data.pickedFolder ?? null;
 }
 
 const notFound = (message: string) =>
@@ -216,6 +244,32 @@ export const fake: Core = {
       fakeState.selected[workspaceId] = repoId;
       return Promise.resolve({ status: "ok", data: null });
     },
+    treeGet: (workspaceId) => {
+      if (workspaceId !== fakeState.workspace.id) {
+        return notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      return Promise.resolve({ status: "ok", data: skeleton(fakeState.workspace) });
+    },
+    refsGet: (workspaceId, repoId) => {
+      if (workspaceId !== fakeState.workspace.id || !fakeState.workspace.repos.some((repo) => repo.id === repoId)) {
+        return notFound(`the workspace has no repo with the id ${repoId}`);
+      }
+      fakeState.refsCalls[repoId] = (fakeState.refsCalls[repoId] ?? 0) + 1;
+      const refs = fakeState.refs[repoId];
+      if (!refs) {
+        return Promise.resolve({
+          status: "error",
+          error: { code: "internal", message: `cannot read the refs of ${repoId}`, git_stderr: null },
+        });
+      }
+      return Promise.resolve({ status: "ok", data: refs });
+    },
+    treeFilter: (workspaceId, text) => {
+      if (workspaceId !== fakeState.workspace.id) {
+        return notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      return Promise.resolve({ status: "ok", data: filterTree(fakeState.workspace, fakeState.refs, text) });
+    },
     debugEmitProgress: (workspaceId) => {
       const jobId = nextJobId++;
       const total = 3;
@@ -230,6 +284,7 @@ export const fake: Core = {
   events: {
     gitStatus: fakeEvent(gitStatusListeners),
     jobProgress: fakeEvent(jobProgressListeners),
+    repoRefsChanged: fakeEvent(repoRefsChangedListeners),
     repoSummary: fakeEvent(repoSummaryListeners),
     workspaceAddReport: fakeEvent(workspaceAddReportListeners),
     workspaceChanged: fakeEvent(workspaceChangedListeners),

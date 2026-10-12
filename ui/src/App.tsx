@@ -1,4 +1,4 @@
-import { createResource, createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import { createEffect, createResource, createSignal, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
 import DebugJobs from "./DebugJobs";
 import GitSetup from "./GitSetup";
 import { appInfo } from "./ipc";
@@ -12,6 +12,8 @@ import { createGitStore } from "./stores/git";
 import { createJobStore } from "./stores/jobs";
 import { createLayoutStore } from "./stores/layout";
 import { createSettingsStore } from "./stores/settings";
+import { createSummaryStore } from "./stores/summaries";
+import { createTreeStore } from "./stores/tree";
 import { createWorkspaceStore } from "./stores/workspaces";
 import { followTheme } from "./theme/theme";
 
@@ -22,6 +24,8 @@ export default function App() {
   const settings = createSettingsStore();
   const layout = createLayoutStore();
   const workspaces = createWorkspaceStore();
+  const summaries = createSummaryStore();
+  const tree = createTreeStore();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   // The open tab's workspace: the only one until tabs exist (M3). It is
@@ -29,6 +33,24 @@ export default function App() {
   const workspace = () => workspaces.state.views?.[0];
 
   followTheme(settings.theme);
+
+  // The open workspace's tree and summaries, kept current while it is open.
+  createEffect(
+    on(
+      () => workspace()?.id,
+      (id) => {
+        if (id === undefined) {
+          return;
+        }
+        const unlisten = [tree.subscribe(id), summaries.subscribe(id)];
+        onCleanup(() => {
+          for (const pending of unlisten) {
+            void pending.then((stop) => stop());
+          }
+        });
+      },
+    ),
+  );
 
   onMount(() => {
     void settings.load();
@@ -83,7 +105,7 @@ export default function App() {
             {(id) => (
               <>
                 <main class="main">
-                  <Panes workspace={id()} layout={layout} />
+                  <Panes workspace={id()} layout={layout} tree={tree} summaries={summaries} workspaces={workspaces} />
                 </main>
                 <StatusBar workspace={id()} jobs={jobs}>
                   <Show when={import.meta.env.DEV}>

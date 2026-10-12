@@ -118,6 +118,10 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Added repos | The repos an add job adds have their summaries read at once, as at start | M1-06 |
 | Summary IPC types | The summary types in `gitcroc-git` derive specta's `Type` directly; specta is not Tauri, so ARCH-5 holds | M1-06 |
 | Summary cache | SQLite `user_version` holds the schema; the summary is stored as JSON, and a row this build cannot read counts as missing. The refresh starts once git detection finds a usable git | M1-06 |
+| Tree IPC | `tree_get` returns the skeleton: Ungrouped, the repos and their four ref nodes, not loaded. `refs_get` returns one repo's four ref nodes in full, unpaged, when one of them is first expanded; only then are ahead and behind counted (ARCH-8) | M1-07 |
+| Tree filter scope | Matches repo names and the full names of local branches, remote branches (with the remote) and tags; stashes are not matched. Refs not loaded yet are read for it, without ahead and behind. A repo matched by name alone keeps its four ref nodes, not loaded. Each request supersedes the previous one of its workspace and returns `null` | M1-07 |
+| Refs refresh | A repo's loaded refs are dropped when its summary is read again; `repo_refs_changed` then tells the UI to read them again if it had them | M1-07 |
+| Repo row spinner | `SummaryView.refreshing` is set while a summary read waits or runs; `SummaryView.conflict` carries the conflict state so the UI need not derive it | M1-07 |
 | Diff settings | Mode, options and the file list toggle are global settings; dock position is per workspace | M1-09 |
 | Fonts | Default size 13 px, range 8 to 32 | M1-10 |
 | Watcher debounce | 200 ms per repo; lock files alone do not trigger a refresh | M1-11 |
