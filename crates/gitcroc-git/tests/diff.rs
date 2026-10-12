@@ -381,7 +381,7 @@ fn ui_18_binary_by_nul_byte_and_by_attribute() {
     let mut late_nul = vec![b'a'; 8_000];
     late_nul.extend_from_slice(b"\0\n");
     git.write("late.txt", &late_nul).unwrap();
-    git.write("nul.bin", b"head\0tail\n").unwrap();
+    git.write("zero.bin", b"head\0tail\n").unwrap();
     git.write("text.dat", "plain text\n").unwrap();
     git.write("text.nodiff", "plain text\n").unwrap();
     git.write("logo.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"/>\n")
@@ -394,7 +394,7 @@ fn ui_18_binary_by_nul_byte_and_by_attribute() {
         new_size: Some(10),
     };
     assert_eq!(
-        diff_of(&repo, &hash, 0, "nul.bin", DiffOptions::default()),
+        diff_of(&repo, &hash, 0, "zero.bin", DiffOptions::default()),
         binary
     );
     let binary = FileDiff::Binary {
@@ -411,9 +411,9 @@ fn ui_18_binary_by_nul_byte_and_by_attribute() {
         text(diff_of(&repo, &hash, 0, path, DiffOptions::default()));
     }
     let files = repo.changed_files(&hash, 0).unwrap();
-    let nul = files.iter().find(|f| f.path == "nul.bin").unwrap();
+    let zero = files.iter().find(|f| f.path == "zero.bin").unwrap();
     assert_eq!(
-        (nul.added, nul.removed),
+        (zero.added, zero.removed),
         (None, None),
         "no counts for binary files"
     );
@@ -553,7 +553,10 @@ fn plat_2_file_names_round_trip_through_ids() {
     let fixture = Fixture::new().unwrap();
     let git = fixture.repo("app").unwrap();
     git.commit_file("a.txt", "a\n", "First").unwrap();
-    // Quotes are not allowed in Windows file names; the index takes them.
+    // Quotes are not allowed in Windows file names, and git on Windows
+    // refuses them in the index unless core.protectNTFS is off. Repos made
+    // elsewhere can still hold them, so the index takes them here.
+    git.git(["config", "core.protectNTFS", "false"]).unwrap();
     let name = "dir with space/it's \"quoted\" – ü 日本.txt";
     stage(&git, "100644", name, b"unicode name\n");
     let mut names = vec![name.to_owned()];
