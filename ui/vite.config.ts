@@ -14,7 +14,9 @@ function workspaceVersion(): string {
 
 // Port 1420 is the `devUrl` in crates/gitcroc-app/tauri.conf.json.
 export default defineConfig({
-  plugins: [solid()],
+  // Hot reload is for `vite dev` only. Under Vitest its `@solid-refresh`
+  // module fails to load on Windows.
+  plugins: [solid({ hot: !process.env.VITEST })],
   define: {
     __APP_VERSION__: JSON.stringify(workspaceVersion()),
   },
