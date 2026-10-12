@@ -7,7 +7,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
-use cargo_metadata::{Metadata, MetadataCommand, PackageId};
+use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, PackageId};
 
 const CORE_CRATES: [&str; 3] = ["gitcroc-git", "gitcroc-core", "gitcroc-ai"];
 
@@ -19,9 +19,10 @@ const MEMBERS: [&str; 5] = [
     "gitcroc-cli",
 ];
 
-/// Developer tools in the workspace. No crate may depend on them, and they
-/// depend on no workspace crate.
-const TOOLS: [&str; 1] = ["req-coverage"];
+/// Developer tools in the workspace. They depend on no workspace crate, and
+/// workspace crates may use them as dev-dependencies only (the test fixtures
+/// of `repo-gen`, QA-2).
+const TOOLS: [&str; 2] = ["req-coverage", "repo-gen"];
 
 /// Internal dependency edges allowed by the Crates table in spec section 4.
 const ALLOWED_EDGES: [(&str, &str); 6] = [
@@ -121,7 +122,12 @@ fn arch_5_internal_dependencies_match_spec() {
     for node in resolve.nodes.iter().filter(|n| members.contains(&n.id)) {
         for dep in node.deps.iter().filter(|d| members.contains(&d.pkg)) {
             let edge = (names[&node.id], names[&dep.pkg]);
-            if !allowed.contains(&edge) {
+            let dev_only = dep
+                .dep_kinds
+                .iter()
+                .all(|kind| kind.kind == DependencyKind::Development);
+            let tool_for_tests = TOOLS.contains(&edge.1) && !TOOLS.contains(&edge.0) && dev_only;
+            if !allowed.contains(&edge) && !tool_for_tests {
                 forbidden.insert(edge);
             }
         }

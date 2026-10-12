@@ -75,6 +75,10 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Measuring machine | The developer's Linux machine pinned to 8 cores, with its specs recorded; Windows and macOS measurements deferred as for M0 | M1-12 |
 | Reference data generator | A tools crate `tools/repo-gen` that writes `git fast-import` streams with a fixed seed; it also holds the test fixture helpers, used as a dev-dependency. Data in `target/bench-data` or `$GITCROC_BENCH_DATA` | M1-01 |
 | `big-history` | A clone of the Linux kernel at a fixed release tag; measured locally, never in CI | M1-01, M1-12 |
+| `big-history` source | `git clone --single-branch --branch v6.17` of github.com/torvalds/linux, so only that tag's history is fetched and the data never changes | M1-01 |
+| Generated repo shape | One quarter of the commits on side branches, every second side branch merged back; 30% of the files in the first commit, the rest added over time; a commit changes 1 to 20 files, 2% change 100 to 400; an annotated tag every 250 commits on `main`; 12 authors; repacked, with a commit-graph file, `main` checked out | M1-01 |
+| Sizes the spec leaves open | `target-project`: the 19 smaller repos share 140,000 files and 1.4 million lines evenly. `big-tree`: 5 million lines, 5,000 commits, 30 branches. `many-repos`: 1,000 files and 10,000 lines per repo | M1-01 |
+| Bench output | A JSON array, one object per scenario and set: `scenario`, `data_set`, `runs`, `median_ms`, `p95_ms`, `budget_ms` (null when section 9 has none), `pass` (median within budget). 10 runs after one warm-up | M1-01 |
 | Nightly benchmark | GitHub Actions on Linux; baseline committed in `bench/baseline-linux.json`, changed only by a pull request | M1-12 |
 | History order | Newest first by commit date, never a parent above its child (`git log --date-order`) | M1-02 |
 | Whole-repo history | Starts from `HEAD`, local and remote branches; tags only label commits | M1-02 |

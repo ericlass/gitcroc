@@ -7,6 +7,7 @@ members = [
     "crates/gitcroc-app",
     "crates/gitcroc-cli",
     "tools/req-coverage",
+    "tools/repo-gen",
 ]
 
 [workspace.package]
@@ -20,6 +21,8 @@ publish = false
 gitcroc-git = { path = "crates/gitcroc-git" }
 gitcroc-core = { path = "crates/gitcroc-core" }
 gitcroc-ai = { path = "crates/gitcroc-ai" }
+# Test fixtures and reference data (QA-2); a dev-dependency only.
+repo-gen = { path = "tools/repo-gen" }
 
 thiserror = "2.0.21"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -37,6 +40,10 @@ tauri-build = { version = "2.7.2", features = [] }
 # Async runtime and child processes; the same tokio Tauri runs on. Crates add
 # the features they use.
 tokio = { version = "1.53.2", features = [] }
+
+# Git reads (ARCH-2, section 4 "Stack"). Features are added as the read API
+# grows; the exact version is recorded in the M1-01 pull request.
+gix = { version = "0.89.0", default-features = false, features = ["sha1", "max-performance-safe"] }
 
 # Settings (DATA-1): the platform config dir, the file format and the
 # temporary file of the atomic write.

@@ -6,9 +6,7 @@ Spec: docs/spec/ (source of truth). Decisions: docs/spec/01-decisions.md and doc
 ## Commands
 - just check        # everything CI requires; must pass before you say a task is done
 - just dev          # run the app
-- just bench        # performance harness
-
-`just bench` does not exist yet: it arrives in M1 (docs/spec/13-milestones.md) and fails with a message until then.
+- just bench        # performance harness; needs `just bench-data target-project` first
 
 ## Invariants (never break; see spec IDs)
 - All repo writes and network operations go through the git CLI runner (ARCH-1).

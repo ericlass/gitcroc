@@ -74,6 +74,25 @@ A task file may list an ID on a `No test needed:` line with a reason in parenthe
 
 Build fixture git repositories in code, with helper functions. Never check in repo archives (zip or tar) or other binary fixtures.
 
+The helpers are in `tools/repo-gen` (`repo_gen::Fixture` and `repo_gen::Repo`): a repo in a temporary directory, files, commits, branches, tags, merges, conflicts, stashes, and remotes as a second local repo. Add `repo-gen.workspace = true` to a crate's `[dev-dependencies]`; a test fails if a crate uses it as a normal dependency. The helpers run `git` with argument arrays and hide the user's and the system's git config, so commit ids are the same on every machine.
+
+## Benchmarks (PERF-8)
+
+`just bench-data <set>` builds a reference data set of spec section 9 in `target/bench-data/<set>`, or in `$GITCROC_BENCH_DATA/<set>` when that is set. The generated sets are written by `tools/repo-gen` through `git fast-import`, with a fixed seed, so every machine gets the same commits. A set that is up to date is not rebuilt; changing the generator's output means bumping `GENERATOR_VERSION` in `tools/repo-gen/src/sets.rs`. The generator only deletes a directory it made itself.
+
+| Set | Disk | Time | Notes |
+| --- | --- | --- | --- |
+| `target-project` | 1.6 GB | 18 s | Gating. 20 repos and a `workspace.toml` |
+| `big-tree` | 2.2 GB | 45 s | Stretch |
+| `many-repos` | 3.1 GB | 67 s | Stretch. 200 repos and a `workspace.toml` |
+| `big-history` | not measured yet | not measured yet | Stretch. Clones the Linux kernel at a fixed tag; needs the network |
+
+`all` builds all four. Times were measured on a Ryzen 9 3900X (12 cores) with an NVMe SSD.
+
+`just bench` runs the harness in `gitcroc-cli` on `target-project` and prints a JSON array: one object per scenario with the median and 95th percentile in milliseconds, the section 9 budget and whether the median is within it. It exits 1 when a scenario misses its budget. `just bench --stretch` adds the stretch sets that exist locally; `--runs <n>` changes the number of timed runs (10 by default, after one warm-up). Always build in release mode, as `just bench` does.
+
+To add a scenario, add an entry to `SCENARIOS` in `crates/gitcroc-cli/src/bench.rs`: a name, its section 9 budget if it has one, the sets it runs on, and a function that does the untimed setup and returns the operation to time.
+
 ## Integration tests and unwrap (QA-4)
 
 `unsafe` is forbidden. `unwrap` and `expect` are denied outside tests. `clippy.toml` allows them in tests, but clippy's `allow-unwrap-in-tests` does not cover helper functions in integration test files. So every integration test file (`tests/*.rs`) starts with:
