@@ -92,6 +92,11 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | "Uncommitted changes (n)" | n is the number of distinct changed paths: staged, unstaged, untracked or unmerged | M1-08 |
 | Paths over IPC | Files cross IPC as a display string plus an id; the UI never sends a path string back (PLAT-2) | M1-03 |
 | Image diffs | PNG, JPEG, GIF, WebP and BMP up to 10 MB per side, shown through `blob:` URLs; SVG is diffed as text | M1-03, M1-09 |
+| Image detection | A binary side is an image when its first bytes are one of the five formats' signatures; the file name does not matter | M1-03 |
+| Changed-file line counts | Counted as `git diff --numstat` does when the list has at most 1,000 files (about 7 µs a file); longer lists have no counts. Binary files and submodules have none | M1-03, M1-09 |
+| Renames in diffs | As `diff.renames` says, git's default when unset; `copies` is treated as renames, and a copy is listed as an added file | M1-03 |
+| Diff attributes | `binary` and `-diff` are read from the working tree's `.gitattributes`, then the index, as git does; a bare repo uses `HEAD`'s tree | M1-03 |
+| Diff bench | `select-commit`: of the first history page of the largest repo, the commit with the most changed lines under 5,000; header, file list and the first file's diff against the first parent, the repo already open. `select-commit-large`: the root commit of the largest repo, which adds 30% of its files. `select-commit` is also reported on `big-history` | M1-03 |
 | Text that is not UTF-8 | Decoded lossily for display; no encoding detection | M1-02, M1-03 |
 | Tree filter | Done in the core, like history search, so the UI holds no filtering logic | M1-07 |
 | Graph drawing | Lanes computed in the core, drawn per row as inline SVG | M1-02, M1-08 |
