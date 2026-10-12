@@ -247,37 +247,12 @@ async fn plat_2_windows_long_paths() {
     while path.as_os_str().len() <= 260 {
         path.push("a-folder-name-of-forty-characters-long-x");
     }
-    // Built with `git -C` from a short folder: Windows cannot start a
-    // process whose working folder is this long.
+    // Built in a short folder and moved: git for Windows cannot change into
+    // a folder this long, even with `core.longpaths`. std handles it.
+    let short = repo_at(fixture.path().join("short"));
+    fs::create_dir_all(&path).unwrap();
     let repo = path.join("repo");
-    fs::create_dir_all(&repo).unwrap();
-    fs::write(repo.join("README.md"), "hello\n").unwrap();
-    let long_git = |args: &[&str]| {
-        let output = std::process::Command::new("git")
-            .args(["-c", "core.longpaths=true", "-C"])
-            .arg(&repo)
-            .args(args)
-            .current_dir(fixture.path())
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    };
-    long_git(&["init", "--quiet", "--initial-branch=main"]);
-    long_git(&["add", "README.md"]);
-    long_git(&[
-        "-c",
-        "user.name=Fixture Author",
-        "-c",
-        "user.email=author@example.com",
-        "commit",
-        "--quiet",
-        "-m",
-        "First",
-    ]);
+    fs::rename(short.path(), &repo).unwrap();
     let setup = Setup::new();
     let report = setup.add(&repo).await;
     assert_eq!(report.refused, []);
