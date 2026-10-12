@@ -38,11 +38,15 @@ tauri-build = { version = "2.7.2", features = [] }
 # the features they use.
 tokio = { version = "1.53.2", features = [] }
 
+# Settings (DATA-1): the platform config dir, the file format and the
+# temporary file of the atomic write.
+directories = "6.0.0"
+toml = "1.1.8"
+tempfile = "3.27.0"
+
 # Test-only, except serde_json, which gitcroc-cli uses for its output
 cargo_metadata = "0.23.1"
-toml = "1.1.8"
 serde_json = "1.0.154"
-tempfile = "3.27.0"
 
 # QA-4: no unsafe anywhere; no unwrap/expect outside tests. The tests' allowance
 # lives in clippy.toml. Every crate opts in with `[lints] workspace = true`;

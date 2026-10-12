@@ -2,11 +2,12 @@
 // vite.config.ts). It implements the generated interface, so a change to the
 // Rust commands breaks it at compile time like the real one.
 import type { Event, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
-import type { AppInfo, GitStatus, JobProgress } from "./bindings";
+import type { AppInfo, GitStatus, JobProgress, SettingsView } from "./bindings";
 import type { Core } from "./core";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch" };
 const defaultGitStatus: GitStatus = { kind: "usable", path: "/fake/bin/git", version: "2.47.0" };
+const defaultSettings: SettingsView = { settings: { theme: "system" }, read_only: false, warning: null };
 
 type Listeners<T> = Set<EventCallback<T>>;
 
@@ -33,9 +34,10 @@ const jobProgressListeners: Listeners<JobProgress> = new Set();
 const gitStatusListeners: Listeners<GitStatus> = new Set();
 
 /** What the fake returns; tests change it and call `reset` afterwards. */
-export const fakeState: { appInfo: AppInfo; gitStatus: GitStatus } = {
+export const fakeState: { appInfo: AppInfo; gitStatus: GitStatus; settings: SettingsView } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
+  settings: defaultSettings,
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -58,6 +60,7 @@ export function emitGitStatus(payload: GitStatus): void {
 export function reset(): void {
   fakeState.appInfo = defaultAppInfo;
   fakeState.gitStatus = defaultGitStatus;
+  fakeState.settings = defaultSettings;
   jobProgressListeners.clear();
   gitStatusListeners.clear();
 }
@@ -71,6 +74,22 @@ export const fake: Core = {
       emitGitStatus({ kind: "checking" });
       setTimeout(() => emitGitStatus(fakeState.gitStatus), 10);
       return Promise.resolve({ status: "ok", data: null });
+    },
+    settingsGet: () => Promise.resolve({ status: "ok", data: fakeState.settings }),
+    // Like the core: read-only settings refuse every change.
+    settingsSetTheme: (theme) => {
+      if (fakeState.settings.read_only) {
+        return Promise.resolve({
+          status: "error",
+          error: {
+            code: "settings_read_only",
+            message: "the settings are read-only, so the change was not saved",
+            git_stderr: null,
+          },
+        });
+      }
+      fakeState.settings = { ...fakeState.settings, settings: { ...fakeState.settings.settings, theme } };
+      return Promise.resolve({ status: "ok", data: fakeState.settings });
     },
     debugEmitProgress: (workspaceId) => {
       const jobId = nextJobId++;

@@ -36,6 +36,12 @@ Every command is `async` and returns `Result<_, IpcError>` (ARCH-7). Front-end t
 
 `just coverage <milestone>` (for example `just coverage M1`) lists requirement IDs from the `Implements:` lines of `docs/tasks/<milestone>-*.md` that have no test, and fails if there are any.
 
+## Colors and themes (UI-23)
+
+Colors exist only as CSS variables in `ui/src/theme/tokens.css`, defined once for `:root[data-theme="light"]` and once for `:root[data-theme="dark"]`. Stylesheets and inline styles use `var(--…)`; the test `UI-23 no hardcoded colors` (`ui/src/theme/colors.test.ts`) fails on a hex value, a color function such as `rgb(` or a named color anywhere else.
+
+The app's settings live in `settings.toml` in the platform config dir under `gitcroc/` (for example `~/.config/gitcroc/settings.toml` on Linux).
+
 ## Continuous integration
 
 CI (`.github/workflows/ci.yml`) runs `just check` on Linux (ubuntu-22.04), Windows and macOS for every pull request and every push to `main`. It calls only `just check`, so local and CI checks cannot drift (QA-5). The repository owner must mark the three CI jobs (`check (ubuntu-22.04)`, `check (windows-latest)`, `check (macos-latest)`) as required status checks in the branch protection rule for `main`; this is a manual step in the GitHub settings.

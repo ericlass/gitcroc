@@ -16,12 +16,12 @@ test("PLAT-3 setup screen: too old shows both versions, usable shows the app", a
   expect(screen.getByRole("alert").textContent).toBe(
     "Found git 2.30.0 at /usr/bin/git, but gitcroc needs git 2.40.0 or newer.",
   );
-  expect(screen.queryByText(/^Version /)).toBeNull();
+  expect(screen.queryByRole("toolbar")).toBeNull();
 
   // "Check again" after installing a newer git shows the app, no restart.
   fakeState.gitStatus = { kind: "usable", path: "/usr/bin/git", version: "2.47.0" };
   fireEvent.click(screen.getByRole("button", { name: "Check again" }));
-  expect(await screen.findByText("Version 0.0.0-fake on fake-os (fake-arch)")).toBeDefined();
+  expect(await screen.findByRole("toolbar", { name: "Main" })).toBeDefined();
   expect(screen.queryByRole("heading", { name: "gitcroc needs git" })).toBeNull();
 });
 

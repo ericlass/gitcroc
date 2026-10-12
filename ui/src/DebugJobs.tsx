@@ -1,28 +1,11 @@
-// Development builds only: starts the core's debug job and shows the progress
-// events it sends, to check the event path by hand.
-import { For } from "solid-js";
-import { debugEmitProgress } from "./ipc";
-import type { JobStore } from "./stores/jobs";
+// Development builds only: starts the core's debug job, whose progress shows
+// in the status bar, to check the event path by hand.
+import { debugEmitProgress, type WorkspaceId } from "./ipc";
 
-const WORKSPACE = "debug";
-
-export default function DebugJobs(props: { jobs: JobStore }) {
-  const progress = () => Object.values(props.jobs.jobs[WORKSPACE] ?? {});
-
+export default function DebugJobs(props: { workspace: WorkspaceId }) {
   return (
-    <section>
-      <button type="button" onClick={() => void debugEmitProgress(WORKSPACE)}>
-        Run debug job
-      </button>
-      <ul>
-        <For each={progress()}>
-          {(job) => (
-            <li>
-              Job {job.job_id}: {job.label} {job.done}/{job.total}
-            </li>
-          )}
-        </For>
-      </ul>
-    </section>
+    <button type="button" onClick={() => void debugEmitProgress(props.workspace)}>
+      Run debug job
+    </button>
   );
 }
