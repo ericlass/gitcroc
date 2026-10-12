@@ -9,7 +9,7 @@
 use std::ffi::OsString;
 use std::hint::black_box;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 use std::time::Instant;
 
 use gitcroc_core::{
@@ -43,8 +43,18 @@ struct Scenario {
     prepare: fn(&DataSet) -> Result<Option<Measured>, String>,
 }
 
-/// Later tasks add their scenarios here (M1-05, M1-06).
+/// Later tasks add their scenarios here.
 const SCENARIOS: &[Scenario] = &[
+    // Cold start, the core part: from process start to every repo's cached
+    // summary (PERF-3). M1-12 measures the tree becoming visible.
+    Scenario {
+        name: "cold-start-core",
+        sets: &[
+            ("target-project", Some(1000.0)),
+            ("many-repos", Some(1500.0)),
+        ],
+        prepare: cold_start,
+    },
     Scenario {
         name: "open-repo",
         sets: &[
@@ -141,6 +151,68 @@ fn status(set: &DataSet, caches: bool) -> Result<Option<Measured>, String> {
         black_box(working_copy);
         Ok(())
     })))
+}
+
+/// Starts `gitcroc-cli summaries --cached-only` as a new process on a
+/// workspace of every repo of the set, its cache filled by one untimed
+/// refresh, and checks that every repo has its cached summary.
+fn cold_start(set: &DataSet) -> Result<Option<Measured>, String> {
+    let exe =
+        std::env::current_exe().map_err(|error| format!("cannot find this program: {error}"))?;
+    let dirs = tempfile::tempdir().map_err(|error| format!("cannot make a temp dir: {error}"))?;
+    let config = dirs.path().join("config");
+    let cache = dirs.path().join("cache");
+    for repo in &set.repos {
+        let add = [
+            "workspace".into(),
+            "--config-dir".into(),
+            config.clone().into_os_string(),
+            "add".into(),
+            repo.path.clone().into_os_string(),
+        ];
+        run_self(&exe, &add)?;
+    }
+    let mut summaries: Vec<OsString> = vec![
+        "summaries".into(),
+        "--config-dir".into(),
+        config.into_os_string(),
+        "--cache-dir".into(),
+        cache.into_os_string(),
+    ];
+    run_self(&exe, &summaries)?;
+    summaries.push("--cached-only".into());
+    let expected = set.repos.len();
+    Ok(Some(Box::new(move || {
+        // The dirs live as long as the operation.
+        let _dirs = &dirs;
+        let stdout = run_self(&exe, &summaries)?;
+        let views: Value = serde_json::from_slice(&stdout)
+            .map_err(|error| format!("cannot parse the summaries: {error}"))?;
+        let cached = views.as_array().map_or(0, |views| {
+            views
+                .iter()
+                .filter(|view| !view["summary"].is_null())
+                .count()
+        });
+        if cached == expected {
+            Ok(())
+        } else {
+            Err(format!("{cached} of {expected} summaries were cached"))
+        }
+    })))
+}
+
+/// Runs this program with `args` and returns its output.
+fn run_self(exe: &Path, args: &[OsString]) -> Result<Vec<u8>, String> {
+    let output = Command::new(exe)
+        .args(args)
+        .output()
+        .map_err(|error| format!("cannot run {}: {error}", exe.display()))?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).into_owned())
+    }
 }
 
 /// The git the app would use, found as at startup (PLAT-3).

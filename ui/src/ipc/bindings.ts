@@ -37,6 +37,17 @@ export const commands = {
 	/**  Removes a repo from the workspace; nothing on disk changes (GRP-3). */
 	workspaceRemoveRepo: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<WorkspaceView, IpcError>(__TAURI_INVOKE("workspace_remove_repo", { workspaceId, repoId })),
 	/**
+	 *  The current summary of every repo of the workspace, in workspace order:
+	 *  at start the cached ones, marked stale; then each fresh one as it is
+	 *  read, which also arrives as a `repo_summary` event (PERF-3).
+	 */
+	workspaceSummaries: (workspaceId: WorkspaceId) => typedError<SummaryView[], IpcError>(__TAURI_INVOKE("workspace_summaries", { workspaceId })),
+	/**
+	 *  Tells the core which repo of the workspace is selected, so it is read
+	 *  first when its summary waits for a refresh (PERF-4). `None` clears it.
+	 */
+	repoSelect: (workspaceId: WorkspaceId, repoId: string | null) => typedError<null, IpcError>(__TAURI_INVOKE("repo_select", { workspaceId, repoId })),
+	/**
 	 *  Starts a fake job that reports three steps 100 ms apart, and returns
 	 *  its id without waiting for it.
 	 */
@@ -47,6 +58,7 @@ export const commands = {
 export const events = {
 	gitStatus: makeEvent<GitStatusEvent>("git_status"),
 	jobProgress: makeEvent<JobProgressEvent>("job_progress"),
+	repoSummary: makeEvent<RepoSummaryEvent>("repo_summary"),
 	workspaceAddReport: makeEvent<WorkspaceAddReportEvent>("workspace_add_report"),
 	workspaceChanged: makeEvent<WorkspaceChangedEvent>("workspace_changed"),
 };
@@ -117,6 +129,11 @@ export type GitStatus =
  */
 export type GitStatusEvent = GitStatus;
 
+/**  Where `HEAD` is. */
+export type Head = 
+/**  On a branch; `hash` is `None` while it has no commit yet. */
+{ kind: "branch"; name: string; hash: string | null } | { kind: "detached"; hash: string };
+
 /**  The error every command returns. */
 export type IpcError = {
 	code: IpcErrorCode,
@@ -157,6 +174,22 @@ export type JobProgress = {
 export type JobProgressEvent = JobProgress;
 
 /**
+ *  An operation that stopped part way and waits to be continued or
+ *  aborted.
+ */
+export type Operation = 
+/**  `MERGE_HEAD`. */
+"merge" | 
+/**  `rebase-merge`, or `rebase-apply` from `git rebase`. */
+"rebase" | 
+/**  `rebase-apply` from `git am`. */
+"apply_mailbox" | 
+/**  `CHERRY_PICK_HEAD`. */
+"cherry_pick" | 
+/**  `REVERT_HEAD`. */
+"revert";
+
+/**
  *  A folder that was not added, and why. Git's own refusals carry git's
  *  message (SEC-6). The path is text for display only (PLAT-2).
  */
@@ -167,6 +200,33 @@ export type Refusal = {
 
 /**  Identifies a repo inside its workspace: `r1`, `r2` and so on. */
 export type RepoId = string;
+
+/**  Whether a repo is in conflict state (OPS-1). */
+export type RepoState = {
+	/**  The operation in progress, if any. */
+	operation: Operation | null,
+	/**
+	 *  How many paths have conflict stages in the index. A stash applied
+	 *  with conflicts leaves these and no operation.
+	 */
+	unmerged_paths: number,
+};
+
+/**  What a repo row shows (UI-3) and the cache keeps (PERF-3). */
+export type RepoSummary = {
+	head: Head,
+	/**  `None` when the branch has no upstream or `HEAD` is detached. */
+	upstream: Upstream | null,
+	/**  Anything staged, unstaged, untracked or unmerged. */
+	dirty: boolean,
+	state: RepoState,
+};
+
+/**
+ *  One repo's fresh summary, sent as event `repo_summary` each time a repo
+ *  has been read (PERF-3).
+ */
+export type RepoSummaryEvent = SummaryView;
 
 /**  A repo as the UI sees it. The path is text for display only (PLAT-2). */
 export type RepoView = {
@@ -194,10 +254,48 @@ export type SettingsView = {
 	warning: ConfigWarning | null,
 };
 
+/**  A repo's summary as the UI sees it. */
+export type SummaryView = {
+	workspace_id: WorkspaceId,
+	repo_id: RepoId,
+	/**
+	 *  The last summary read, in this run or an earlier one; `None` when
+	 *  the repo has never been read.
+	 */
+	summary: RepoSummary | null,
+	/**
+	 *  `summary` was not read in this run: it comes from the cache, or the
+	 *  repo could not be read again (PERF-3).
+	 */
+	stale: boolean,
+	/**  The repo's folder does not exist (UI-3). */
+	missing: boolean,
+	/**
+	 *  Why the last read failed; git's own message when git refused the
+	 *  repo (SEC-6).
+	 */
+	error: string | null,
+};
+
 /**  The app theme (UI-23). */
 export type Theme = 
 /**  Follow the OS light or dark mode, live. */
 "system" | "light" | "dark";
+
+/**  The branch the current branch tracks. */
+export type Upstream = {
+	/**  As git shortens it, for example `origin/main`. */
+	name: string,
+	/**  Commits on the branch and not on the upstream. */
+	ahead: number,
+	/**  Commits on the upstream and not on the branch. */
+	behind: number,
+	/**
+	 *  The upstream is configured but its ref does not exist, for example
+	 *  after the remote branch was deleted and pruned. Counts are then 0.
+	 */
+	gone: boolean,
+};
 
 /**
  *  What an add job did, sent as event `workspace_add_report` when it ends,

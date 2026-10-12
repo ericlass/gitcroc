@@ -11,10 +11,11 @@ gitcroc-core.workspace = true
 gitcroc-ai.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt"] }
+# The bench's throwaway config and cache dirs.
+tempfile.workspace = true
 
 [dev-dependencies]
 repo-gen.workspace = true
-tempfile.workspace = true
 cargo_metadata.workspace = true
 toml.workspace = true
 

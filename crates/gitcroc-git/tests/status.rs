@@ -456,7 +456,7 @@ fn conflict(git: &Repo, args: &[&str]) {
 }
 
 /// A name, how to get there from [`diverged`], and the state expected.
-type Case = (&'static str, fn(&Repo), Option<Operation>, usize);
+type Case = (&'static str, fn(&Repo), Option<Operation>, u32);
 
 #[test]
 fn ops_1_detects_conflict_state() {

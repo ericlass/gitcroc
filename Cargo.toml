@@ -64,6 +64,10 @@ uuid = { version = "1.28.0", features = ["v4"] }
 dunce = "1.0.5"
 same-file = "1.0.6"
 
+# The summary cache (PERF-3, M1-06): SQLite built into the binary, so no
+# system library is needed on any platform.
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+
 # Test-only, except serde_json, which gitcroc-cli uses for its output
 cargo_metadata = "0.23.1"
 serde_json = "1.0.154"

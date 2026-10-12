@@ -17,6 +17,8 @@ toml.workspace = true
 tempfile.workspace = true
 uuid.workspace = true
 dunce.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 same-file.workspace = true

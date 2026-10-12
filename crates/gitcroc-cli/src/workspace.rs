@@ -42,7 +42,7 @@ pub fn parse_args(args: &[OsString]) -> Option<Options> {
 }
 
 /// The config dir given on the command line.
-struct GivenConfigDir(PathBuf);
+pub(crate) struct GivenConfigDir(pub PathBuf);
 
 impl ConfigDir for GivenConfigDir {
     fn config_dir(&self) -> Option<PathBuf> {
