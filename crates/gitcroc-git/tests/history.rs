@@ -326,12 +326,15 @@ fn sec_3_invalid_utf8_is_decoded_lossily() {
 #[test]
 fn plat_2_history_of_a_repo_at_a_path_that_is_not_ascii() {
     let fixture = Fixture::new().unwrap();
-    let mut names = vec![std::ffi::OsString::from("répo-ü-日本")];
+    let unicode = std::ffi::OsString::from("répo-ü-日本");
     // Linux file names are bytes; macOS and Windows require Unicode names.
     #[cfg(target_os = "linux")]
-    names.push(std::os::unix::ffi::OsStringExt::from_vec(
-        b"repo-\xff".to_vec(),
-    ));
+    let names = [
+        unicode,
+        std::os::unix::ffi::OsStringExt::from_vec(b"repo-\xff".to_vec()),
+    ];
+    #[cfg(not(target_os = "linux"))]
+    let names = [unicode];
     for name in names {
         let git = Repo::init(fixture.path().join(&name)).unwrap();
         git.commit_file("a.txt", "a\n", "First").unwrap();
