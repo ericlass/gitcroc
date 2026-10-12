@@ -19,13 +19,17 @@ pub use git::{GitSetup, GitStatus};
 pub use gitcroc_git::{
     AheadBehind, BranchUpstream, ChangedFile, CommitDetails, CommitRow, Conflict, Context, Cursor,
     DiffError, DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback, FileDiff, FileStatus,
-    Filter, GitRepo, GitRunner, GraphRow, Head, HistoryError, HistoryStart, Hunk, Image,
+    Filter, GitError, GitRepo, GitRunner, GraphRow, Head, HistoryError, HistoryStart, Hunk, Image,
     ImageFormat, Line, LineKind, LocalBranch, MAX_COUNTED_FILES, MAX_DIFF_LINES, MAX_IMAGE_BYTES,
     ModeChange, OpenError, Operation, PAGE_SIZE, Page, Person, RefKind, RefLabel, Refs, RefsError,
     RefsRead, RemoteBranches, RepoRead, RepoState, RepoSummary, SearchEnv, StashEntry, StatusError,
     StatusRead, StatusReader, Tag, TextDiff, Time, UnmergedFile, Upstream, WorkingCopy,
 };
-pub use history::{HistoryPageError, history_page};
+pub use history::{
+    COMMIT_GRAPH_THRESHOLD, CommitGraphError, Histories, HistoryPageError, HistoryTarget,
+    HistoryView, HistoryViewError, commit_graph_begin, commit_graph_write, history_get,
+    history_more, history_page,
+};
 pub use job::{JobId, JobIds, JobProgress, WorkspaceId};
 pub use settings::{
     ConfigDir, PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Settings, SettingsError,

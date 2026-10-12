@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { clampPaneWidth, createLayoutStore, DEFAULT_PANE_SIZES, MIN_PANE_WIDTH } from "./layout";
+import {
+  clampPaneWidth,
+  createLayoutStore,
+  DEFAULT_HISTORY_COLUMNS,
+  DEFAULT_PANE_SIZES,
+  MIN_COLUMN_WIDTH,
+  MIN_PANE_WIDTH,
+} from "./layout";
 
 test("ARCH-9 pane sizes are stored per workspace", () => {
   const layout = createLayoutStore();
@@ -20,4 +27,17 @@ test("pane widths keep the minimum, which wins over the maximum", () => {
   expect(clampPaneWidth(900, 500)).toBe(500);
   expect(clampPaneWidth(900, 120)).toBe(MIN_PANE_WIDTH);
   expect(clampPaneWidth(300.4)).toBe(300);
+});
+
+test("UI-9 history column widths are stored per workspace", () => {
+  const layout = createLayoutStore();
+  expect(layout.historyColumns("a")).toEqual(DEFAULT_HISTORY_COLUMNS);
+
+  layout.setColumnWidth("a", "author", 200.4);
+  layout.setColumnWidth("b", "graph", 5);
+  expect(layout.historyColumns("a")).toEqual({ ...DEFAULT_HISTORY_COLUMNS, author: 200 });
+  expect(layout.historyColumns("b")).toEqual({ ...DEFAULT_HISTORY_COLUMNS, graph: MIN_COLUMN_WIDTH });
+
+  layout.resetColumn("a", "author");
+  expect(layout.historyColumns("a")).toEqual(DEFAULT_HISTORY_COLUMNS);
 });

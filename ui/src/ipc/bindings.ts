@@ -64,6 +64,48 @@ export const commands = {
 	 */
 	treeFilter: (workspaceId: WorkspaceId, text: string) => typedError<TreeNode[] | null, IpcError>(__TAURI_INVOKE("tree_filter", { workspaceId, text })),
 	/**
+	 *  The first page of `target`'s history in a repo (section 8 "History
+	 *  pane"), filtered by `text` when it is not empty (UI-12). It starts a new
+	 *  walk of the workspace; the previous one ends. `null` when a newer
+	 *  `history_get` of the workspace superseded this one.
+	 */
+	historyGet: (workspaceId: WorkspaceId, repoId: RepoId, target: HistoryTarget, text: string) => typedError<{
+	/**  Names this walk for `history_more`. */
+	handle: number,
+	rows: CommitRow[],
+	/**  No page follows. */
+	done: boolean,
+	/**
+	 *  Offer to write a commit-graph file for the repo (PERF-2). Only a
+	 *  first page sets it.
+	 */
+	offer_commit_graph: boolean,
+} | null, IpcError>(__TAURI_INVOKE("history_get", { workspaceId, repoId, target, text })),
+	/**
+	 *  The next page of the walk `handle` returned by `history_get` (ARCH-8).
+	 *  `null` when a newer walk of the workspace replaced it.
+	 */
+	historyMore: (workspaceId: WorkspaceId, handle: number) => typedError<{
+	/**  Names this walk for `history_more`. */
+	handle: number,
+	rows: CommitRow[],
+	/**  No page follows. */
+	done: boolean,
+	/**
+	 *  Offer to write a commit-graph file for the repo (PERF-2). Only a
+	 *  first page sets it.
+	 */
+	offer_commit_graph: boolean,
+} | null, IpcError>(__TAURI_INVOKE("history_more", { workspaceId, handle })),
+	/**
+	 *  Starts writing a repo's commit-graph file and returns the job id at
+	 *  once; a write already running for the repo returns its id. Progress
+	 *  arrives as `job_progress`, the result as `commit_graph_written`.
+	 */
+	commitGraphWrite: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<JobId, IpcError>(__TAURI_INVOKE("commit_graph_write", { workspaceId, repoId })),
+	/**  Keeps "don't ask again" for a repo's commit-graph offer (PERF-2). */
+	commitGraphDecline: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<null, IpcError>(__TAURI_INVOKE("commit_graph_decline", { workspaceId, repoId })),
+	/**
 	 *  Starts a fake job that reports three steps 100 ms apart, and returns
 	 *  its id without waiting for it.
 	 */
@@ -72,6 +114,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	commitGraphWritten: makeEvent<CommitGraphWrittenEvent>("commit_graph_written"),
 	gitStatus: makeEvent<GitStatusEvent>("git_status"),
 	jobProgress: makeEvent<JobProgressEvent>("job_progress"),
 	repoRefsChanged: makeEvent<RepoRefsChangedEvent>("repo_refs_changed"),
@@ -103,6 +146,38 @@ export type AppInfo = {
 	arch: string,
 };
 
+/**  A commit-graph write job ended, sent as event `commit_graph_written`. */
+export type CommitGraphWrittenEvent = {
+	workspace_id: WorkspaceId,
+	repo_id: RepoId,
+	job_id: JobId,
+	/**  Why the write failed; `None` when the file was written. */
+	error: string | null,
+	/**  What git printed on stderr, when git ran and failed. */
+	git_stderr: string | null,
+};
+
+/**
+ *  One commit of a history page. Text from the repo is decoded lossily
+ *  (SEC-3).
+ */
+export type CommitRow = {
+	hash: string,
+	short_hash: string,
+	subject: string,
+	author_name: string,
+	author_email: string,
+	author_time: Time,
+	commit_time: Time,
+	parents: string[],
+	refs: RefLabel[],
+	/**
+	 *  The graph cell; `None` on a filtered page, whose rows are not
+	 *  contiguous.
+	 */
+	graph: GraphRow | null,
+};
+
 /**
  *  Why a config file is read-only, shown to the user as a banner. Paths are
  *  text for display only (PLAT-2).
@@ -120,6 +195,16 @@ export type ConfigWarning =
 { kind: "unreadable"; path: string; reason: string } | 
 /**  The platform has no config dir, so nothing can be saved. */
 { kind: "no_config_dir" };
+
+/**
+ *  One line segment within half a row. A line keeps its color index from
+ *  the row where it starts to the row where it ends.
+ */
+export type Edge = {
+	from: number,
+	to: number,
+	color: number,
+};
 
 /**
  *  Whether a usable git was found, as shown to the user. Paths and versions
@@ -146,10 +231,56 @@ export type GitStatus =
  */
 export type GitStatusEvent = GitStatus;
 
+/**  The graph cell of one history row. */
+export type GraphRow = {
+	/**  The lane the commit sits on. */
+	lane: number,
+	/**  The color index of the commit's line. */
+	color: number,
+	/**
+	 *  Lines in the upper half of the row, from the top edge (`from`) to the
+	 *  middle (`to`): lines ending at the commit, and lines passing it.
+	 */
+	up: Edge[],
+	/**
+	 *  Lines in the lower half, from the middle (`from`) to the bottom edge
+	 *  (`to`): lines leaving the commit for its parents, and lines passing it.
+	 */
+	down: Edge[],
+};
+
 /**  Where `HEAD` is. */
 export type Head = 
 /**  On a branch; `hash` is `None` while it has no commit yet. */
 { kind: "branch"; name: string; hash: string | null } | { kind: "detached"; hash: string };
+
+/**
+ *  What the history pane shows for a single-repo selection (section 8
+ *  "History pane"). Names are short, as the tree shows them.
+ */
+export type HistoryTarget = 
+/**  Every local and remote branch. */
+{ kind: "repo" } | 
+/**  A local branch, such as `main`. */
+{ kind: "branch"; name: string } | 
+/**  A remote branch with its remote, such as `origin/main`. */
+{ kind: "remote_branch"; name: string } | { kind: "tag"; name: string } | 
+/**  `stash@{index}`, shown as one row. */
+{ kind: "stash"; index: number };
+
+/**  A page of the history the pane shows. */
+export type HistoryView = {
+	/**  Names this walk for `history_more`. */
+	handle: number,
+	rows: CommitRow[],
+	/**  No page follows. */
+	done: boolean,
+	/**
+	 *  Offer to write a commit-graph file for the repo (PERF-2). Only a
+	 *  first page sets it.
+	 */
+	offer_commit_graph: boolean,
+};
 
 /**  The error every command returns. */
 export type IpcError = {
@@ -206,6 +337,19 @@ export type Operation =
 /**  `REVERT_HEAD`. */
 "revert";
 
+/**  The kind of a ref label on a history row. */
+export type RefKind = 
+/**  `HEAD`, shown only when it is detached. */
+"head" | 
+/**  The local branch `HEAD` points to. */
+"current_branch" | "local_branch" | "remote_branch" | "tag";
+
+/**  A ref pointing at a commit, by its short name. */
+export type RefLabel = {
+	kind: RefKind,
+	name: string,
+};
+
 /**
  *  A folder that was not added, and why. Git's own refusals carry git's
  *  message (SEC-6). The path is text for display only (PLAT-2).
@@ -248,6 +392,11 @@ export type RepoSummary = {
 	upstream: Upstream | null,
 	/**  Anything staged, unstaged, untracked or unmerged. */
 	dirty: boolean,
+	/**
+	 *  How many distinct paths are staged, unstaged, untracked or unmerged
+	 *  (UI-10); 0 exactly when not `dirty`.
+	 */
+	changes: number,
 	state: RepoState,
 };
 
@@ -314,6 +463,17 @@ export type SummaryView = {
 export type Theme = 
 /**  Follow the OS light or dark mode, live. */
 "system" | "light" | "dark";
+
+/**  A point in time as git records it. */
+export type Time = {
+	/**
+	 *  Seconds since the Unix epoch. A JavaScript number holds it exactly;
+	 *  specta refuses `i64` because it would be a `bigint`.
+	 */
+	seconds: number,
+	/**  The recorded time zone, in seconds east of UTC. */
+	offset: number,
+};
 
 /**  What a node stands for. */
 export type TreeItem = { kind: "ungrouped" } | { kind: "repo"; repo_id: RepoId } | { kind: "local"; repo_id: RepoId } | { kind: "remotes"; repo_id: RepoId } | { kind: "tags"; repo_id: RepoId } | { kind: "stashes"; repo_id: RepoId } | { kind: "remote"; repo_id: RepoId; remote: string } | 

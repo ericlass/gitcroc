@@ -2,6 +2,7 @@
 // core builds them, the filter, and the scenarios Playwright picks with
 // `?fake=<name>`. Test support only; the real tree comes from the core.
 import type { RepoId, RepoView, SummaryView, TreeItem, TreeNode, WorkspaceView } from "./bindings";
+import type { FakeHistory } from "./fakeHistory";
 
 const CATEGORIES = [
   ["local", "Local"],
@@ -148,6 +149,7 @@ export function summary(workspaceId: string, repoId: RepoId, branch: string, cha
       head: { kind: "branch", name: branch, hash: "0123456789abcdef0123456789abcdef01234567" },
       upstream: { name: `origin/${branch}`, ahead: 0, behind: 0, gone: false },
       dirty: false,
+      changes: 0,
       state: { operation: null, unmerged_paths: 0 },
     },
     stale: false,
@@ -165,6 +167,12 @@ export interface Scenario {
   pickedFolder?: string;
   refs: Record<RepoId, TreeNode[]>;
   summaries: SummaryView[];
+  /** See `fakeState.histories`. */
+  histories?: Record<string, FakeHistory>;
+  /** See `fakeState.historyDelay`. */
+  historyDelay?: number;
+  /** See `fakeState.slowRepos`. */
+  slowRepos?: Record<RepoId, boolean>;
 }
 
 const repo = (id: string, name: string): RepoView => ({ id, name, path: `/src/${name}`, remote: null });
@@ -193,12 +201,34 @@ export function scenario(name: string, workspaceId: string): Scenario | null {
             head: { kind: "branch", name: "main", hash: "0123456789abcdef0123456789abcdef01234567" },
             upstream: { name: "origin/main", ahead: 1, behind: 2, gone: false },
             dirty: true,
+            changes: 3,
             state: { operation: null, unmerged_paths: 0 },
           },
         }),
         summary(workspaceId, "r2", "main"),
         summary(workspaceId, "r3", "main", { stale: true }),
       ],
+    };
+  }
+  if (name === "big-history") {
+    // PERF-1, PERF-2: 100,000 commits, paged with a 20 ms delay.
+    return {
+      repos: [repo("r1", "huge")],
+      refs: { r1: refNodes("r1", { local: ["main"], current: "main" }) },
+      summaries: [summary(workspaceId, "r1", "main")],
+      histories: {
+        r1: {
+          length: 100_000,
+          prefix: "huge",
+          refs: {
+            0: [
+              { kind: "current_branch", name: "main" },
+              { kind: "remote_branch", name: "origin/main" },
+            ],
+          },
+        },
+      },
+      historyDelay: 20,
     };
   }
   if (name === "big-tree") {

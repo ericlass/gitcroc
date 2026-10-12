@@ -44,6 +44,19 @@ impl WorkingCopy {
         self.staged.is_empty() && self.unstaged.is_empty() && self.unmerged.is_empty()
     }
 
+    /// The number of distinct paths that are staged, unstaged, untracked or
+    /// unmerged (UI-10). A path both staged and unstaged counts once.
+    pub fn changed_paths(&self) -> u32 {
+        let paths: std::collections::HashSet<&[u8]> = self
+            .staged
+            .iter()
+            .chain(&self.unstaged)
+            .map(ChangedFile::git_path)
+            .chain(self.unmerged.iter().map(UnmergedFile::git_path))
+            .collect();
+        u32::try_from(paths.len()).unwrap_or(u32::MAX)
+    }
+
     fn sort(&mut self) {
         crate::diff::sort_and_number(&mut self.staged);
         crate::diff::sort_and_number(&mut self.unstaged);
@@ -273,9 +286,9 @@ impl StatusRead for StatusReader {
     }
 
     fn summary(&self) -> Result<RepoSummary, StatusError> {
-        let dirty = !self.status()?.is_clean();
+        let changes = self.status()?.changed_paths();
         let repo = self.repo.thread_local();
-        state::summary(&repo, dirty)
+        state::summary(&repo, changes)
     }
 }
 

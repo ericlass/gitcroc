@@ -1,6 +1,6 @@
 // The only way into the core. Components import from here, never from
 // `@tauri-apps/api` or `./bindings` directly (enforced by eslint.config.js).
-import type { IpcError, RepoId, Theme, WorkspaceId } from "./bindings";
+import type { HistoryTarget, IpcError, RepoId, Theme, WorkspaceId } from "./bindings";
 import type { Core } from "./core";
 import { fake } from "./fake";
 import { real } from "./core";
@@ -8,12 +8,20 @@ import { real } from "./core";
 export type {
   AddReport,
   AppInfo,
+  CommitGraphWrittenEvent,
+  CommitRow,
   ConfigWarning,
+  Edge,
   GitStatus,
+  GraphRow,
   Head,
+  HistoryTarget,
+  HistoryView,
   IpcError,
   JobId,
   JobProgress,
+  RefKind,
+  RefLabel,
   Refusal,
   RepoId,
   RepoRef,
@@ -24,6 +32,7 @@ export type {
   SettingsView,
   SummaryView,
   Theme,
+  Time,
   TreeItem,
   TreeNode,
   Upstream,
@@ -84,5 +93,19 @@ export const refsGet = (workspaceId: WorkspaceId, repoId: RepoId) => unwrap(core
 /** `null` when a newer filter of the workspace superseded this one. */
 export const treeFilter = (workspaceId: WorkspaceId, text: string) =>
   unwrap(core.commands.treeFilter(workspaceId, text));
+
+/** `null` when a newer walk of the workspace superseded this one. */
+export const historyGet = (workspaceId: WorkspaceId, repoId: RepoId, target: HistoryTarget, text: string) =>
+  unwrap(core.commands.historyGet(workspaceId, repoId, target, text));
+
+/** `null` when a newer walk of the workspace replaced walk `handle`. */
+export const historyMore = (workspaceId: WorkspaceId, handle: number) =>
+  unwrap(core.commands.historyMore(workspaceId, handle));
+
+export const commitGraphWrite = (workspaceId: WorkspaceId, repoId: RepoId) =>
+  unwrap(core.commands.commitGraphWrite(workspaceId, repoId));
+
+export const commitGraphDecline = (workspaceId: WorkspaceId, repoId: RepoId) =>
+  unwrap(core.commands.commitGraphDecline(workspaceId, repoId));
 
 export const debugEmitProgress = (workspaceId: string) => unwrap(core.commands.debugEmitProgress(workspaceId));

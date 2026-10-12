@@ -431,3 +431,263 @@ main:not(.main) {
 [role="alert"]:not(.banner) {
   color: var(--danger);
 }
+
+/* History pane (UI-9). Column widths come from the layout store as
+   variables set on .history-pane; the subject takes the rest. */
+.pane-history {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.history-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-header {
+  display: flex;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-search {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+}
+
+.history-pane > [role="alert"] {
+  margin: 4px 8px;
+}
+
+.history-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.history-offer p {
+  flex: 1 1 200px;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.history-offer.error p {
+  color: var(--danger);
+}
+
+.history-offer-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.history-columns,
+.history-row {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.history-columns {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.history-columns .history-cell {
+  position: relative;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.history-column-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.column-splitter {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.column-splitter:hover,
+.column-splitter:focus-visible {
+  background: var(--accent);
+}
+
+.history-cell {
+  flex: 0 0 auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+
+.history-graph {
+  width: var(--col-graph);
+  padding: 0;
+}
+
+.history-subject {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.history-subject-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-author {
+  width: var(--col-author);
+}
+
+.history-date {
+  width: var(--col-date);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-hash {
+  width: var(--col-hash);
+  font-family: var(--font-code);
+}
+
+.history-author,
+.history-date,
+.history-hash {
+  color: var(--text-secondary);
+}
+
+.history-scroller {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.history-scroller:focus-visible {
+  outline-offset: -2px;
+}
+
+.history-rows {
+  position: relative;
+  width: 100%;
+}
+
+.history-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.history-row:hover {
+  background: var(--bg-2);
+}
+
+.history-row.selected {
+  background: var(--bg-3);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.history-uncommitted {
+  flex: 1;
+  padding-left: calc(var(--col-graph) + 6px);
+  font-style: italic;
+}
+
+.history-skeleton {
+  flex: 1;
+}
+
+.history-skeleton::after {
+  content: "";
+  display: block;
+  width: 60%;
+  height: 8px;
+  margin-left: var(--col-graph);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+}
+
+.ref-label {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.9em;
+  line-height: 16px;
+  background: var(--bg-2);
+}
+
+.ref-current_branch,
+.ref-local_branch {
+  border-color: var(--accent);
+}
+
+.ref-current_branch {
+  font-weight: 600;
+}
+
+.ref-remote_branch {
+  border-color: var(--success);
+}
+
+.ref-tag {
+  border-color: var(--warning);
+}
+
+.ref-head {
+  border-color: var(--danger);
+}
+
+.graph {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+}
+
+.graph-line {
+  stroke: var(--lane);
+  stroke-width: 2;
+  fill: none;
+}
+
+.graph-dot {
+  fill: var(--lane);
+  stroke: var(--bg-1);
+  stroke-width: 1.5;
+}
+
+.graph-c0 { --lane: var(--graph-0); }
+.graph-c1 { --lane: var(--graph-1); }
+.graph-c2 { --lane: var(--graph-2); }
+.graph-c3 { --lane: var(--graph-3); }
+.graph-c4 { --lane: var(--graph-4); }
+.graph-c5 { --lane: var(--graph-5); }
+.graph-c6 { --lane: var(--graph-6); }
+.graph-c7 { --lane: var(--graph-7); }

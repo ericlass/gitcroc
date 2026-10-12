@@ -11,7 +11,7 @@ import {
   workspaceRemoveRepo,
 } from "../ipc";
 import type { SummaryStore } from "../stores/summaries";
-import { repoOf, type TreeStore } from "../stores/tree";
+import type { TreeStore } from "../stores/tree";
 import type { WorkspaceStore } from "../stores/workspaces";
 import RepoRow, { AheadBehind } from "./RepoRow";
 import { flatten, type Row } from "./rows";
@@ -124,7 +124,7 @@ function TreeList(props: {
     if (row?.kind !== "node") {
       return;
     }
-    props.tree.select(props.workspace, row.id, repoOf(row.node));
+    props.tree.select(props.workspace, row.node);
     virtualizer.scrollToIndex(index, { align: "auto" });
   };
 

@@ -5,6 +5,7 @@ import type { Event, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AddReport,
   AppInfo,
+  CommitGraphWrittenEvent,
   GitStatus,
   JobProgress,
   RepoId,
@@ -15,6 +16,7 @@ import type {
   WorkspaceView,
 } from "./bindings";
 import type { Core } from "./core";
+import { defaultHistory, type FakeHistory, type FakeWalk, historyKey, nextPage } from "./fakeHistory";
 import { filterTree, scenario, skeleton } from "./fakeTree";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch" };
@@ -55,6 +57,11 @@ const workspaceChangedListeners: Listeners<WorkspaceView> = new Set();
 const workspaceAddReportListeners: Listeners<AddReport> = new Set();
 const repoSummaryListeners: Listeners<SummaryView> = new Set();
 const repoRefsChangedListeners: Listeners<RepoRef> = new Set();
+const commitGraphWrittenListeners: Listeners<CommitGraphWrittenEvent> = new Set();
+
+/** Each workspace's walk, as the core keeps it. */
+const walks = new Map<string, FakeWalk & { handle: number }>();
+let nextHandle = 1;
 
 /** What the fake returns; tests change it and call `reset` afterwards. */
 export const fakeState: {
@@ -72,6 +79,20 @@ export const fakeState: {
   refs: Record<RepoId, TreeNode[]>;
   /** How many `refs_get` calls each repo had. */
   refsCalls: Record<RepoId, number>;
+  /** Histories by `historyKey`; others get `defaultHistory`. */
+  histories: Record<string, FakeHistory>;
+  /** How long each history page takes, in ms. */
+  historyDelay: number;
+  /** Every `history_get` and `history_more`, oldest first. */
+  historyCalls: { command: "get" | "more"; text?: string }[];
+  /** Repos whose first page offers to write a commit-graph file. */
+  slowRepos: Record<RepoId, boolean>;
+  /** Repos whose commit-graph offer was declined. */
+  declined: Record<RepoId, boolean>;
+  /** Repos whose commit-graph writes were started, in order. */
+  commitGraphWrites: RepoId[];
+  /** Why a commit-graph write fails; `null` succeeds. */
+  commitGraphError: string | null;
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -82,6 +103,13 @@ export const fakeState: {
   selected: {},
   refs: {},
   refsCalls: {},
+  histories: {},
+  historyDelay: 0,
+  historyCalls: [],
+  slowRepos: {},
+  declined: {},
+  commitGraphWrites: [],
+  commitGraphError: null,
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -126,12 +154,21 @@ export function reset(): void {
   fakeState.selected = {};
   fakeState.refs = {};
   fakeState.refsCalls = {};
+  fakeState.histories = {};
+  fakeState.historyDelay = 0;
+  fakeState.historyCalls = [];
+  fakeState.slowRepos = {};
+  fakeState.declined = {};
+  fakeState.commitGraphWrites = [];
+  fakeState.commitGraphError = null;
+  walks.clear();
   jobProgressListeners.clear();
   gitStatusListeners.clear();
   workspaceChangedListeners.clear();
   workspaceAddReportListeners.clear();
   repoSummaryListeners.clear();
   repoRefsChangedListeners.clear();
+  commitGraphWrittenListeners.clear();
 }
 
 // Playwright runs the fake build; `?fake=<name>` picks a data set.
@@ -142,7 +179,14 @@ if (data) {
   fakeState.refs = data.refs;
   fakeState.summaries = data.summaries;
   fakeState.pickedFolder = data.pickedFolder ?? null;
+  fakeState.histories = data.histories ?? {};
+  fakeState.historyDelay = data.historyDelay ?? 0;
+  fakeState.slowRepos = data.slowRepos ?? {};
 }
+
+/** Resolves after the fake's paging delay, as a slow disk would. */
+const later = <T>(value: T): Promise<T> =>
+  new Promise((resolve) => setTimeout(() => resolve(value), fakeState.historyDelay));
 
 const notFound = (message: string) =>
   Promise.resolve({ status: "error" as const, error: { code: "not_found" as const, message, git_stderr: null } });
@@ -270,6 +314,61 @@ export const fake: Core = {
       }
       return Promise.resolve({ status: "ok", data: filterTree(fakeState.workspace, fakeState.refs, text) });
     },
+    historyGet: (workspaceId, repoId, target, text) => {
+      const repo = fakeState.workspace.repos.find((candidate) => candidate.id === repoId);
+      if (workspaceId !== fakeState.workspace.id || !repo) {
+        return notFound(`the workspace has no repo with the id ${repoId}`);
+      }
+      fakeState.historyCalls.push({ command: "get", text });
+      const handle = nextHandle++;
+      const history = fakeState.histories[historyKey(repoId, target)] ?? defaultHistory(repo.name, target);
+      const walk = { handle, history, text, next: 0 };
+      walks.set(workspaceId, walk);
+      const page = nextPage(walk);
+      const offer = !!fakeState.slowRepos[repoId] && !fakeState.declined[repoId];
+      // Like the core: `null` once a newer walk of the workspace began.
+      return later({
+        status: "ok" as const,
+        data: walks.get(workspaceId)?.handle === handle ? { handle, ...page, offer_commit_graph: offer } : null,
+      });
+    },
+    historyMore: (workspaceId, handle) => {
+      fakeState.historyCalls.push({ command: "more" });
+      const walk = walks.get(workspaceId);
+      if (walk?.handle !== handle) {
+        return Promise.resolve({ status: "ok", data: null });
+      }
+      const page = nextPage(walk);
+      return later({
+        status: "ok" as const,
+        data: walks.get(workspaceId)?.handle === handle ? { handle, ...page, offer_commit_graph: false } : null,
+      });
+    },
+    commitGraphWrite: (workspaceId, repoId) => {
+      const jobId = nextJobId++;
+      fakeState.commitGraphWrites.push(repoId);
+      setTimeout(() => {
+        const label = "Writing the commit-graph file";
+        emitJobProgress({ job_id: jobId, workspace_id: workspaceId, label, done: 0, total: 0 });
+        const error = fakeState.commitGraphError;
+        if (error === null) {
+          fakeState.slowRepos[repoId] = false;
+          emitJobProgress({ job_id: jobId, workspace_id: workspaceId, label, done: 1, total: 1 });
+        }
+        emit(commitGraphWrittenListeners, "commit_graph_written", {
+          workspace_id: workspaceId,
+          repo_id: repoId,
+          job_id: jobId,
+          error,
+          git_stderr: null,
+        });
+      }, 10);
+      return Promise.resolve({ status: "ok", data: jobId });
+    },
+    commitGraphDecline: (_workspaceId, repoId) => {
+      fakeState.declined[repoId] = true;
+      return Promise.resolve({ status: "ok", data: null });
+    },
     debugEmitProgress: (workspaceId) => {
       const jobId = nextJobId++;
       const total = 3;
@@ -282,6 +381,7 @@ export const fake: Core = {
     },
   },
   events: {
+    commitGraphWritten: fakeEvent(commitGraphWrittenListeners),
     gitStatus: fakeEvent(gitStatusListeners),
     jobProgress: fakeEvent(jobProgressListeners),
     repoRefsChanged: fakeEvent(repoRefsChangedListeners),

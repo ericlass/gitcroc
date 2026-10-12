@@ -12,6 +12,7 @@ const view = (repo: string, hash: string, stale: boolean): SummaryView => ({
     head: { kind: "branch", name: "main", hash },
     upstream: null,
     dirty: false,
+    changes: 0,
     state: { operation: null, unmerged_paths: 0 },
   },
   stale,

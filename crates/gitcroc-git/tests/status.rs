@@ -652,3 +652,31 @@ fn ui_3_summary_of_an_unborn_branch() {
     assert_eq!(by_gix.staged[0].status, FileStatus::Added);
     assert!(reader(&git).summary().unwrap().dirty);
 }
+
+#[test]
+fn ui_10_summary_counts_distinct_changed_paths() {
+    let fixture = Fixture::new().unwrap();
+    let git = fixture.repo("count").unwrap();
+    git.write("tracked.txt", "one\n").unwrap();
+    git.write("both.txt", "one\n").unwrap();
+    git.commit_all("First").unwrap();
+    assert_eq!(reader(&git).summary().unwrap().changes, 0);
+
+    // Staged and unstaged at once counts once.
+    git.write("both.txt", "two\n").unwrap();
+    git.git(["add", "both.txt"]).unwrap();
+    git.write("both.txt", "three\n").unwrap();
+    git.write("tracked.txt", "changed\n").unwrap();
+    git.write("untracked.txt", "new\n").unwrap();
+    let summary = reader(&git).summary().unwrap();
+    assert_eq!(summary.changes, 3);
+    assert!(summary.dirty);
+
+    // Unmerged paths count too, once each.
+    let conflicts = every_conflict(&fixture);
+    let copy = status(&conflicts, Engine::Auto);
+    let summary = reader(&conflicts).summary().unwrap();
+    assert!(!copy.unmerged.is_empty());
+    assert_eq!(summary.changes, copy.changed_paths());
+    assert!(summary.changes >= u32::try_from(copy.unmerged.len()).unwrap());
+}
