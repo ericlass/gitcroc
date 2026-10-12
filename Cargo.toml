@@ -23,9 +23,14 @@ gitcroc-ai = { path = "crates/gitcroc-ai" }
 
 thiserror = "2.0.21"
 
+# Shell (D2). The exact versions are recorded in the M0-04 pull request.
+tauri = { version = "2.12.3", features = [] }
+tauri-build = { version = "2.7.2", features = [] }
+
 # Test-only
 cargo_metadata = "0.23.1"
 toml = "1.1.8"
+serde_json = "1.0.154"
 
 # QA-4: no unsafe anywhere; no unwrap/expect outside tests. The tests' allowance
 # lives in clippy.toml. Every crate opts in with `[lints] workspace = true`;

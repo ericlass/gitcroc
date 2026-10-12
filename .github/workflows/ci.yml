@@ -1,4 +1,4 @@
-# QA-1 (Rust half) and QA-5: every pull request runs `just check` on all three
+# QA-1 and QA-5: every pull request runs `just check` on all three
 # platforms. Only `just check` runs here, so local and CI checks cannot drift.
 name: CI
 
@@ -52,8 +52,42 @@ jobs:
         with:
           tool: just@1.58.0,cargo-deny@0.20.2
 
+      # Build packages for Tauri's Linux backend (WebKitGTK 4.1).
+      - name: Install WebKitGTK build packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libdbus-1-dev
+
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
+
+      # Installs the pnpm version in ui/package.json's packageManager field.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: ui/package.json
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      # Playwright's default browser directory on each platform. The lockfile
+      # pins the Playwright version, which pins the browser build.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+            ~/AppData/Local/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('ui/pnpm-lock.yaml') }}
+
+      - name: Install front-end packages and Chromium
+        run: just setup
 
       - name: just check
         run: just check

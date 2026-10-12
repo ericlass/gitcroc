@@ -6,12 +6,19 @@ all-features = true
 
 [advisories]
 yanked = "deny"
+ignore = [
+    # Tauri's Linux backend (D2) uses WebKitGTK 4.1, whose gtk-rs 0.18 bindings
+    # pull in glib-macros, which uses this proc macro at build time. No
+    # alternative exists until Tauri moves off GTK 3.
+    { id = "RUSTSEC-2024-0370", reason = "build-time only, via glib-macros 0.18 under Tauri on Linux" },
+]
 
 [licenses]
 # MPL-2.0 is accepted for dependencies only; the project's own crates are MIT.
 allow = [
     "MIT",
     "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
