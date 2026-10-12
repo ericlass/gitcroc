@@ -1,16 +1,35 @@
-import { createResource, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import { createResource, createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import DebugJobs from "./DebugJobs";
 import GitSetup from "./GitSetup";
-import { appInfo } from "./ipc";
+import { appInfo, type WorkspaceId } from "./ipc";
+import Panes from "./layout/Panes";
+import StatusBar from "./layout/StatusBar";
+import TabBar from "./layout/TabBar";
+import Toolbar from "./layout/Toolbar";
+import SettingsBanner from "./SettingsBanner";
+import SettingsDialog from "./SettingsDialog";
 import { createGitStore } from "./stores/git";
 import { createJobStore } from "./stores/jobs";
+import { createLayoutStore } from "./stores/layout";
+import { createSettingsStore } from "./stores/settings";
+import { followTheme } from "./theme/theme";
 
 export default function App() {
   const [info] = createResource(appInfo);
   const jobs = createJobStore();
   const git = createGitStore();
+  const settings = createSettingsStore();
+  const layout = createLayoutStore();
+  const [settingsOpen, setSettingsOpen] = createSignal(false);
+
+  // Stands in for the open tab's workspace until workspaces exist (M3). It is
+  // passed down, never read from a module, so tabs need no rework (ARCH-9).
+  const workspace: WorkspaceId = "placeholder";
+
+  followTheme(settings.theme);
 
   onMount(() => {
+    void settings.load();
     const unlisten = [jobs.subscribe(), git.subscribe()];
     onCleanup(() => {
       for (const pending of unlisten) {
@@ -28,7 +47,7 @@ export default function App() {
   return (
     <Switch>
       <Match when={git.state.result === null}>
-        <main>
+        <main class="message-screen">
           <p>Looking for git…</p>
         </main>
       </Match>
@@ -38,26 +57,27 @@ export default function App() {
         )}
       </Match>
       <Match when={true}>
-        <main>
-          <Switch>
-            <Match when={info.error as unknown}>
-              <p role="alert">Cannot reach the core: {String(info.error)}</p>
-            </Match>
-            <Match when={info()}>
-              {(info) => (
-                <>
-                  <h1>{info().name}</h1>
-                  <p>
-                    Version {info().version} on {info().os} ({info().arch})
-                  </p>
-                </>
-              )}
-            </Match>
-          </Switch>
-          <Show when={import.meta.env.DEV}>
-            <DebugJobs jobs={jobs} />
+        <div class="app">
+          <TabBar />
+          <Toolbar onSettings={() => setSettingsOpen(true)} />
+          <Show when={info.error as unknown}>
+            <div role="alert" class="banner">
+              Cannot reach the core: {String(info.error)}
+            </div>
           </Show>
-        </main>
+          <Show when={settings.state.view?.warning}>{(warning) => <SettingsBanner warning={warning()} />}</Show>
+          <main class="main">
+            <Panes workspace={workspace} layout={layout} />
+          </main>
+          <StatusBar workspace={workspace} jobs={jobs}>
+            <Show when={import.meta.env.DEV}>
+              <DebugJobs workspace={workspace} />
+            </Show>
+          </StatusBar>
+          <Show when={settingsOpen()}>
+            <SettingsDialog settings={settings} info={info()} onClose={() => setSettingsOpen(false)} />
+          </Show>
+        </div>
       </Match>
     </Switch>
   );

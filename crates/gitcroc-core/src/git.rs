@@ -93,8 +93,8 @@ impl GitSetup {
         self.detection.read().await.clone()?.ok()
     }
 
-    /// Detects git in this process's environment. The explicit path from
-    /// settings arrives with the settings (M0-07); until then there is none.
+    /// Detects git in this process's environment. There is no explicit path
+    /// setting yet.
     pub async fn detect(&self) -> GitStatus {
         self.detect_with(None, &SearchEnv::from_process()).await
     }

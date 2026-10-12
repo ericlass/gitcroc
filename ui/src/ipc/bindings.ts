@@ -15,6 +15,10 @@ export const commands = {
 	 *  `git_status` event.
 	 */
 	gitRecheck: () => typedError<null, IpcError>(__TAURI_INVOKE("git_recheck")),
+	/**  The settings, and why they are read-only if they are (DATA-1). */
+	settingsGet: () => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_get")),
+	/**  Changes the app theme (UI-23) and saves the settings. */
+	settingsSetTheme: (theme: Theme) => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_set_theme", { theme })),
 	/**
 	 *  Starts a fake job that reports three steps 100 ms apart, and returns
 	 *  its id without waiting for it.
@@ -75,7 +79,9 @@ export type IpcError = {
 /**  What kind of failure an [`IpcError`] reports. */
 export type IpcErrorCode = 
 /**  A bug or an environment problem the user cannot fix from the UI. */
-"internal";
+"internal" | 
+/**  The settings are read-only (DATA-1); `settings_get` says why. */
+"settings_read_only";
 
 /**  Identifies a job, unique while the app runs. */
 export type JobId = number;
@@ -91,6 +97,45 @@ export type JobProgress = {
 
 /**  Progress of a running job, sent as event `job_progress` (ARCH-7). */
 export type JobProgressEvent = JobProgress;
+
+/**
+ *  Every setting. A key missing from the file takes its default (see
+ *  [`decode`]).
+ */
+export type Settings = {
+	theme: Theme,
+};
+
+/**  The settings as the UI sees them. */
+export type SettingsView = {
+	settings: Settings,
+	/**  Changes are refused; `warning` says why. */
+	read_only: boolean,
+	warning: SettingsWarning | null,
+};
+
+/**
+ *  Why the settings are read-only, shown to the user as a banner. Paths are
+ *  text for display only (PLAT-2).
+ */
+export type SettingsWarning = 
+/**
+ *  The file at `path` has schema `found`, newer than the `supported` one.
+ *  Its known settings are used; it is not written.
+ */
+{ kind: "newer_schema"; path: string; found: number; supported: number } | 
+/**
+ *  The file at `path` could not be read or parsed, for `reason`. The
+ *  defaults are used; the file is not written.
+ */
+{ kind: "unreadable"; path: string; reason: string } | 
+/**  The platform has no config dir, so nothing can be saved. */
+{ kind: "no_config_dir" };
+
+/**  The app theme (UI-23). */
+export type Theme = 
+/**  Follow the OS light or dark mode, live. */
+"system" | "light" | "dark";
 
 /**  Identifies a workspace. All session state is keyed by it (ARCH-9). */
 export type WorkspaceId = string;

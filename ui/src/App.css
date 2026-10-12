@@ -1,0 +1,225 @@
+/* Layout of section 8. Colors come only from src/theme/tokens.css (UI-23). */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-1);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+}
+
+button {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px 10px;
+}
+
+button:hover:not(:disabled) {
+  background: var(--bg-3);
+}
+
+button:disabled {
+  color: var(--text-disabled);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+pre {
+  font-family: var(--font-code);
+}
+
+.message-screen,
+main:not(.main) {
+  padding: 16px 24px;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Tab bar */
+
+.tab-bar {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.tab {
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  padding: 6px 16px;
+  background: var(--bg-2);
+}
+
+.tab[aria-selected="true"] {
+  background: var(--bg-1);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.tab-add {
+  border: none;
+  border-radius: 0;
+  padding: 6px 12px;
+}
+
+/* Toolbar */
+
+.toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar-gap {
+  flex: 1;
+}
+
+/* Banner */
+
+.banner {
+  padding: 6px 12px;
+  background: var(--warning-bg);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--warning);
+}
+
+/* Panes */
+
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.panes {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pane {
+  flex: 0 0 auto;
+  min-width: 200px;
+  overflow: auto;
+  background: var(--bg-1);
+}
+
+.pane-fill {
+  flex: 1 1 0;
+}
+
+.placeholder {
+  margin: 12px;
+  color: var(--text-secondary);
+}
+
+.splitter {
+  flex: 0 0 var(--splitter-width);
+  cursor: col-resize;
+  background: var(--bg-2);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  touch-action: none;
+}
+
+.splitter:hover,
+.splitter:focus-visible {
+  background: var(--accent);
+}
+
+/* Status bar */
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 8px;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.status-jobs {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+}
+
+/* Settings dialog */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--backdrop);
+}
+
+.dialog {
+  min-width: 320px;
+  padding: 16px 20px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.dialog h2 {
+  margin: 0 0 12px;
+  font-size: 1.2em;
+}
+
+.dialog fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.choice {
+  display: block;
+  padding: 2px 0;
+}
+
+.about {
+  color: var(--text-secondary);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+[role="alert"]:not(.banner) {
+  color: var(--danger);
+}

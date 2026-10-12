@@ -7,7 +7,9 @@
 
 use std::path::Path;
 
-use gitcroc_core::{AppInfo, GitSetup, GitStatus, JobProgress};
+use gitcroc_core::{
+    AppInfo, GitSetup, GitStatus, JobProgress, SettingsError, SettingsStore, SettingsView, Theme,
+};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use specta::function::collect_functions;
@@ -38,12 +40,28 @@ pub struct IpcError {
 pub enum IpcErrorCode {
     /// A bug or an environment problem the user cannot fix from the UI.
     Internal,
+    /// The settings are read-only (DATA-1); `settings_get` says why.
+    SettingsReadOnly,
 }
 
 impl From<tauri::Error> for IpcError {
     fn from(error: tauri::Error) -> Self {
         Self {
             code: IpcErrorCode::Internal,
+            message: error.to_string(),
+            git_stderr: None,
+        }
+    }
+}
+
+impl From<SettingsError> for IpcError {
+    fn from(error: SettingsError) -> Self {
+        let code = match error {
+            SettingsError::ReadOnly => IpcErrorCode::SettingsReadOnly,
+            SettingsError::Write { .. } | SettingsError::Encode(_) => IpcErrorCode::Internal,
+        };
+        Self {
+            code,
             message: error.to_string(),
             git_stderr: None,
         }
@@ -82,6 +100,24 @@ pub async fn git_status(git: State<'_, GitSetup>) -> Result<GitStatus, IpcError>
 pub async fn git_recheck(app: AppHandle) -> Result<(), IpcError> {
     spawn_git_detection(app);
     Ok(())
+}
+
+/// The settings, and why they are read-only if they are (DATA-1).
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_get(settings: State<'_, SettingsStore>) -> Result<SettingsView, IpcError> {
+    Ok(settings.view())
+}
+
+/// Changes the app theme (UI-23) and saves the settings.
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_set_theme(app: AppHandle, theme: Theme) -> Result<SettingsView, IpcError> {
+    // Saving touches the disk; keep it off the async workers (ARCH-7).
+    let saved =
+        tauri::async_runtime::spawn_blocking(move || app.state::<SettingsStore>().set_theme(theme))
+            .await?;
+    Ok(saved?)
 }
 
 /// Detects git in the background (ARCH-7), sending `git_status` events when it
@@ -150,12 +186,20 @@ macro_rules! with_commands {
                 app_info,
                 git_status,
                 git_recheck,
+                settings_get,
+                settings_set_theme,
                 debug::debug_emit_progress
             ]
         }
         #[cfg(not(debug_assertions))]
         {
-            $collect![app_info, git_status, git_recheck]
+            $collect![
+                app_info,
+                git_status,
+                git_recheck,
+                settings_get,
+                settings_set_theme
+            ]
         }
     }};
 }

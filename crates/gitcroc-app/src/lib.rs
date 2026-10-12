@@ -2,7 +2,7 @@
 
 pub mod ipc;
 
-use gitcroc_core::GitSetup;
+use gitcroc_core::{GitSetup, PlatformConfigDir, SettingsStore};
 
 /// Errors returned by `gitcroc-app`.
 #[derive(Debug, thiserror::Error)]
@@ -19,6 +19,9 @@ pub fn run() -> Result<(), Error> {
     tauri::Builder::default()
         .invoke_handler(ipc.invoke_handler())
         .manage(GitSetup::new())
+        // A small file read once, before the window shows, so the first
+        // paint already has the saved theme.
+        .manage(SettingsStore::load(&PlatformConfigDir))
         .setup(move |app| {
             ipc.mount_events(app);
             ipc::spawn_git_detection(app.handle().clone());
