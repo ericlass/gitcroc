@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use gitcroc_core::{
-    AddReport, ConfigDir, ConfigWarning, DEFAULT_WORKSPACE_NAME, GitRepo, GitRunner, Head, JobId,
-    JobProgress, RepoId, StatusReader, WORKSPACES_DIR, WorkspaceError, WorkspaceId, Workspaces,
-    add_path, repo_summary,
+    AddReport, ConfigDir, ConfigWarning, DEFAULT_WORKSPACE_NAME, Dock, GitRepo, GitRunner, Head,
+    JobId, JobProgress, PaneLayout, RepoId, StatusReader, WORKSPACES_DIR, WorkspaceError,
+    WorkspaceId, Workspaces, add_path, repo_summary,
 };
 use repo_gen::{Fixture, Repo};
 
@@ -595,7 +595,7 @@ async fn data_1_newer_workspace_schema_is_read_only() {
     let fixture = Fixture::new().unwrap();
     let repo = repo_at(fixture.path().join("app"));
     let config = TempConfig::new();
-    let text = "schema = 2\nname = \"Future\"\nlayout = \"new\"\n\n[[repo]]\nid = \"r1\"\npath = \"/a/b\"\n";
+    let text = "schema = 2\nname = \"Future\"\nfuture = \"new\"\n\n[[repo]]\nid = \"r1\"\npath = \"/a/b\"\n";
     let path = config.write("future", text);
     let store = Arc::new(Workspaces::load(&config));
     let id = WorkspaceId("future".to_owned());
@@ -658,4 +658,63 @@ fn arch_9_calls_name_their_workspace() {
         store.remove_repo(&other, &RepoId("r1".to_owned())),
         Err(WorkspaceError::UnknownWorkspace(_))
     ));
+}
+
+#[test]
+fn ui_19_pane_layout_round_trips_in_workspace_file() {
+    let config = TempConfig::new();
+    let text =
+        "schema = 1\nname = \"Platform\"\n\n[[repo]]\nid = \"r1\"\npath = \"/somewhere/api\"\n";
+    let path = config.write("ws", text);
+    let store = Workspaces::load(&config);
+    let id = WorkspaceId("ws".to_owned());
+    // No layout yet: every field is left to the UI's defaults.
+    assert_eq!(store.view(&id).unwrap().layout, PaneLayout::default());
+
+    let layout = PaneLayout {
+        dock: Some(Dock::Bottom),
+        tree: Some(300),
+        history: Some(520),
+        changes: Some(240),
+    };
+    store.set_layout(&id, layout.clone()).unwrap();
+    assert_eq!(store.view(&id).unwrap().layout, layout);
+    let saved = fs::read_to_string(&path).unwrap();
+    assert!(saved.starts_with(text), "{saved}");
+    assert!(
+        saved
+            .ends_with("\n[layout]\ndock = \"bottom\"\ntree = 300\nhistory = 520\nchanges = 240\n"),
+        "{saved}"
+    );
+    assert_eq!(Workspaces::load(&config).view(&id).unwrap().layout, layout);
+
+    // A partial table, as a person might write it, keeps the rest unset.
+    config.write("ws", &format!("{text}\n[layout]\ndock = \"right\"\n"));
+    let partial = Workspaces::load(&config).view(&id).unwrap();
+    assert!(!partial.read_only);
+    assert_eq!(
+        partial.layout,
+        PaneLayout {
+            dock: Some(Dock::Right),
+            ..PaneLayout::default()
+        }
+    );
+}
+
+#[test]
+fn ui_19_a_read_only_workspace_keeps_its_file() {
+    let config = TempConfig::new();
+    let text = "schema = 99\nname = \"Future\"\n";
+    let path = config.write("future", text);
+    let store = Workspaces::load(&config);
+    let id = WorkspaceId("future".to_owned());
+    let layout = PaneLayout {
+        dock: Some(Dock::Bottom),
+        ..PaneLayout::default()
+    };
+    assert!(matches!(
+        store.set_layout(&id, layout),
+        Err(WorkspaceError::ReadOnly)
+    ));
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
 }

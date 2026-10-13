@@ -1,7 +1,23 @@
 // The settings as the core reports them (DATA-1). The store only mirrors
 // `settings_get` and the results of changes; the core decides and saves.
 import { createStore } from "solid-js/store";
-import { settingsGet, settingsSetTheme, type SettingsView, type Theme } from "../ipc";
+import {
+  type ChangesSettings,
+  settingsGet,
+  settingsSetChanges,
+  settingsSetTheme,
+  type SettingsView,
+  type Theme,
+} from "../ipc";
+
+/** The changes pane's view until the settings are read; the core's defaults. */
+export const DEFAULT_CHANGES_SETTINGS: Readonly<ChangesSettings> = {
+  diff_mode: "inline",
+  file_list: "flat",
+  ignore_whitespace: false,
+  wrap_lines: false,
+  context: "three",
+};
 
 export interface SettingsState {
   /** `null` until the first read. */
@@ -25,8 +41,13 @@ export function createSettingsStore() {
     state,
     /** The theme to show: the saved one, or the default until it is read. */
     theme: (): Theme => state.view?.settings.theme ?? "system",
+    /** The changes pane's view (UI-14, UI-17): the saved one, or the default until it is read. */
+    changes: (): ChangesSettings => state.view?.settings.changes ?? DEFAULT_CHANGES_SETTINGS,
     load: () => track(settingsGet()),
     setTheme: (theme: Theme) => track(settingsSetTheme(theme)),
+    /** Changes some of the changes pane's settings; the core saves them. */
+    setChanges: (change: Partial<ChangesSettings>) =>
+      track(settingsSetChanges({ ...(state.view?.settings.changes ?? DEFAULT_CHANGES_SETTINGS), ...change })),
   };
 }
 

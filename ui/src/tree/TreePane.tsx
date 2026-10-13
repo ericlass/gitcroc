@@ -16,7 +16,7 @@ import type { WorkspaceStore } from "../stores/workspaces";
 import RepoRow, { AheadBehind } from "./RepoRow";
 import { flatten, type Row } from "./rows";
 
-/** Height of one row in CSS pixels; every row has it. */
+/** Height of one row in CSS pixels; `.tree-row` in App.css sets it, as `.history-row` does. */
 export const ROW_HEIGHT = 22;
 
 /** Rows rendered beyond each edge of the visible ones. */
@@ -224,7 +224,6 @@ function TreeList(props: {
                     aria-selected={node() ? row().id === tree().selected : undefined}
                     style={{
                       transform: `translateY(${item.start}px)`,
-                      height: `${ROW_HEIGHT}px`,
                       "padding-left": `${4 + row().depth * INDENT}px`,
                     }}
                     onClick={() => select(item.index)}

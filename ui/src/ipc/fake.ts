@@ -5,9 +5,15 @@ import type { Event, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AddReport,
   AppInfo,
+  ChangesContent,
+  ChangesSettings,
+  ChangesTarget,
   CommitGraphWrittenEvent,
+  DiffRequest,
+  FileRef,
   GitStatus,
   JobProgress,
+  PaneLayout,
   RepoId,
   RepoRef,
   SettingsView,
@@ -16,16 +22,38 @@ import type {
   WorkspaceView,
 } from "./bindings";
 import type { Core } from "./core";
-import { defaultHistory, type FakeHistory, type FakeWalk, historyKey, nextPage } from "./fakeHistory";
+import {
+  defaultDetails,
+  defaultFiles,
+  diffOf,
+  type FakeCommit,
+  type FakeFile,
+  type FakeWorkingCopy,
+  numbered,
+} from "./fakeChanges";
+import { defaultHistory, type FakeHistory, type FakeWalk, historyKey, nextPage, parentOf } from "./fakeHistory";
 import { filterTree, scenario, skeleton } from "./fakeTree";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch" };
 const defaultGitStatus: GitStatus = { kind: "usable", path: "/fake/bin/git", version: "2.47.0" };
-const defaultSettings: SettingsView = { settings: { theme: "system" }, read_only: false, warning: null };
+export const defaultChangesSettings: ChangesSettings = {
+  diff_mode: "inline",
+  file_list: "flat",
+  ignore_whitespace: false,
+  wrap_lines: false,
+  context: "three",
+};
+const defaultSettings: SettingsView = {
+  settings: { theme: "system", changes: defaultChangesSettings },
+  read_only: false,
+  warning: null,
+};
+export const emptyLayout: PaneLayout = { dock: null, tree: null, history: null, changes: null };
 const defaultWorkspace: WorkspaceView = {
   id: "fake-workspace",
   name: "My workspace",
   repos: [],
+  layout: emptyLayout,
   read_only: false,
   warning: null,
 };
@@ -58,6 +86,11 @@ const workspaceAddReportListeners: Listeners<AddReport> = new Set();
 const repoSummaryListeners: Listeners<SummaryView> = new Set();
 const repoRefsChangedListeners: Listeners<RepoRef> = new Set();
 const commitGraphWrittenListeners: Listeners<CommitGraphWrittenEvent> = new Set();
+
+/** Each workspace's changes view, as the core keeps it. */
+const views = new Map<string, { handle: number; lists: Partial<Record<FileRef["list"], FakeFile[]>> }>();
+/** The file whose image diff was read last, by workspace. */
+const imageFiles = new Map<string, { handle: number; file: FakeFile; ref: FileRef }>();
 
 /** Each workspace's walk, as the core keeps it. */
 const walks = new Map<string, FakeWalk & { handle: number }>();
@@ -93,6 +126,19 @@ export const fakeState: {
   commitGraphWrites: RepoId[];
   /** Why a commit-graph write fails; `null` succeeds. */
   commitGraphError: string | null;
+  /** Commits by hash; others get a header and `defaultFiles`. */
+  commits: Record<string, FakeCommit>;
+  /** Working copies by repo; a repo without one has none changed. */
+  workingCopies: Record<RepoId, FakeWorkingCopy>;
+  /** Every `changes_get` and `diff_get`, oldest first. */
+  changesCalls: (
+    | { command: "changes"; repo: RepoId; target: ChangesTarget }
+    | { command: "diff"; file: FileRef; request: DiffRequest }
+  )[];
+  /** How long each `changes_get` and `diff_get` takes, in ms. */
+  changesDelay: number;
+  /** Every `workspace_set_layout`, oldest first. */
+  layouts: PaneLayout[];
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -110,6 +156,11 @@ export const fakeState: {
   declined: {},
   commitGraphWrites: [],
   commitGraphError: null,
+  commits: {},
+  workingCopies: {},
+  changesCalls: [],
+  changesDelay: 0,
+  layouts: [],
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -161,7 +212,14 @@ export function reset(): void {
   fakeState.declined = {};
   fakeState.commitGraphWrites = [];
   fakeState.commitGraphError = null;
+  fakeState.commits = {};
+  fakeState.workingCopies = {};
+  fakeState.changesCalls = [];
+  fakeState.changesDelay = 0;
+  fakeState.layouts = [];
   walks.clear();
+  views.clear();
+  imageFiles.clear();
   jobProgressListeners.clear();
   gitStatusListeners.clear();
   workspaceChangedListeners.clear();
@@ -182,11 +240,29 @@ if (data) {
   fakeState.histories = data.histories ?? {};
   fakeState.historyDelay = data.historyDelay ?? 0;
   fakeState.slowRepos = data.slowRepos ?? {};
+  fakeState.commits = data.commits ?? {};
+  fakeState.workingCopies = data.workingCopies ?? {};
 }
 
 /** Resolves after the fake's paging delay, as a slow disk would. */
 const later = <T>(value: T): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), fakeState.historyDelay));
+
+/** Resolves after the fake's changes delay. */
+const slowly = <T>(value: () => T): Promise<T> =>
+  new Promise((resolve) => setTimeout(() => resolve(value()), fakeState.changesDelay));
+
+/** The commit view of `hash` against parent `parent`, from the fake state or the defaults. */
+function commitContent(hash: string, parent: number): { content: ChangesContent; files: FakeFile[] } {
+  const known = fakeState.commits[hash];
+  const parentHash = parentOf(hash);
+  const details = known?.details ?? defaultDetails(hash, parentHash === null ? [] : [parentHash]);
+  const files = numbered(known?.files[parent] ?? defaultFiles());
+  return {
+    content: { kind: "commit", details, parent, files: files.map((file, id) => ({ id, ...file.file })) },
+    files,
+  };
+}
 
 const notFound = (message: string) =>
   Promise.resolve({ status: "error" as const, error: { code: "not_found" as const, message, git_stderr: null } });
@@ -364,6 +440,90 @@ export const fake: Core = {
         });
       }, 10);
       return Promise.resolve({ status: "ok", data: jobId });
+    },
+    // Like the core: read-only settings refuse every change.
+    settingsSetChanges: (changes) => {
+      if (fakeState.settings.read_only) {
+        return Promise.resolve({
+          status: "error",
+          error: {
+            code: "settings_read_only",
+            message: "the settings are read-only, so the change was not saved",
+            git_stderr: null,
+          },
+        });
+      }
+      fakeState.settings = { ...fakeState.settings, settings: { ...fakeState.settings.settings, changes } };
+      return Promise.resolve({ status: "ok", data: fakeState.settings });
+    },
+    workspaceSetLayout: (workspaceId, layout) => {
+      if (workspaceId !== fakeState.workspace.id) {
+        return notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      fakeState.layouts.push(layout);
+      fakeState.workspace = { ...fakeState.workspace, layout };
+      return Promise.resolve({ status: "ok", data: null });
+    },
+    changesGet: (workspaceId, repoId, target) => {
+      if (workspaceId !== fakeState.workspace.id || !fakeState.workspace.repos.some((repo) => repo.id === repoId)) {
+        return notFound(`the workspace has no repo with the id ${repoId}`);
+      }
+      fakeState.changesCalls.push({ command: "changes", repo: repoId, target });
+      const handle = nextHandle++;
+      let content: ChangesContent;
+      let lists: Partial<Record<FileRef["list"], FakeFile[]>>;
+      if (target.kind === "commit") {
+        const commit = commitContent(target.hash, target.parent);
+        content = commit.content;
+        lists = { commit: commit.files };
+      } else {
+        const working = fakeState.workingCopies[repoId] ?? { staged: [], unstaged: [], unmerged: [] };
+        const staged = numbered(working.staged);
+        const unstaged = numbered(working.unstaged);
+        content = {
+          kind: "uncommitted",
+          staged: staged.map((file, id) => ({ id, ...file.file })),
+          unstaged: unstaged.map((file, id) => ({ id, ...file.file })),
+          unmerged: working.unmerged.map((file, id) => ({ id, ...file })),
+        };
+        lists = { staged, unstaged };
+      }
+      views.set(workspaceId, { handle, lists });
+      imageFiles.delete(workspaceId);
+      // Like the core: `null` once a newer view of the workspace began.
+      return slowly(() => ({
+        status: "ok" as const,
+        data: views.get(workspaceId)?.handle === handle ? { handle, content } : null,
+      }));
+    },
+    diffGet: (workspaceId, handle, file, request) => {
+      fakeState.changesCalls.push({ command: "diff", file, request });
+      const view = views.get(workspaceId);
+      if (view?.handle !== handle) {
+        return Promise.resolve({ status: "ok", data: null });
+      }
+      const found = view.lists[file.list]?.[file.id];
+      if (!found) {
+        return Promise.resolve({
+          status: "error",
+          error: { code: "internal", message: `the list has no file ${file.id}`, git_stderr: null },
+        });
+      }
+      const diff = diffOf(found, request);
+      if (diff.kind === "image") {
+        imageFiles.set(workspaceId, { handle, file: found, ref: file });
+      } else {
+        imageFiles.delete(workspaceId);
+      }
+      return slowly(() => ({
+        status: "ok" as const,
+        data: views.get(workspaceId)?.handle === handle ? diff : null,
+      }));
+    },
+    diffImage: (workspaceId, handle, file, side) => {
+      const last = imageFiles.get(workspaceId);
+      const same = last?.handle === handle && last.ref.list === file.list && last.ref.id === file.id;
+      return Promise.resolve({ status: "ok", data: (same && last.file.images?.[side]) || null });
     },
     commitGraphDecline: (_workspaceId, repoId) => {
       fakeState.declined[repoId] = true;

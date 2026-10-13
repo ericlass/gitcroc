@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, expect, test } from "vitest";
 import App from "../App";
-import { fakeState, reset } from "../ipc/fake";
+import { defaultChangesSettings, fakeState, reset } from "../ipc/fake";
 import { setSystemDark } from "../test/media";
 
 afterEach(() => {
@@ -40,14 +40,14 @@ test("UI-23 theme switch: dark sets data-theme, system follows the OS live", asy
 });
 
 test("UI-23 saved theme applies on start", async () => {
-  fakeState.settings = { settings: { theme: "dark" }, read_only: false, warning: null };
+  fakeState.settings = { settings: { theme: "dark", changes: defaultChangesSettings }, read_only: false, warning: null };
   render(() => <App />);
   await expect.poll(rootTheme).toBe("dark");
 });
 
 test("data_1_read_only_settings_show_a_banner_and_disable_the_choice", async () => {
   fakeState.settings = {
-    settings: { theme: "light" },
+    settings: { theme: "light", changes: defaultChangesSettings },
     read_only: true,
     warning: { kind: "newer_schema", path: "/home/me/.config/gitcroc/settings.toml", found: 99, supported: 1 },
   };
@@ -66,7 +66,7 @@ test("data_1_read_only_settings_show_a_banner_and_disable_the_choice", async () 
 
 test("sec_3_settings_warning_renders_as_text", async () => {
   fakeState.settings = {
-    settings: { theme: "system" },
+    settings: { theme: "system", changes: defaultChangesSettings },
     read_only: true,
     warning: { kind: "unreadable", path: "/tmp/<b>x</b>/settings.toml", reason: "<img src=x onerror=alert(1)>" },
   };

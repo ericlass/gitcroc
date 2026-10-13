@@ -1,6 +1,18 @@
 // The only way into the core. Components import from here, never from
 // `@tauri-apps/api` or `./bindings` directly (enforced by eslint.config.js).
-import type { HistoryTarget, IpcError, RepoId, Theme, WorkspaceId } from "./bindings";
+import type {
+  ChangesSettings,
+  ChangesTarget,
+  DiffRequest,
+  FileRef,
+  HistoryTarget,
+  ImageSide,
+  IpcError,
+  PaneLayout,
+  RepoId,
+  Theme,
+  WorkspaceId,
+} from "./bindings";
 import type { Core } from "./core";
 import { fake } from "./fake";
 import { real } from "./core";
@@ -8,18 +20,43 @@ import { real } from "./core";
 export type {
   AddReport,
   AppInfo,
+  ChangedFile,
+  ChangesContent,
+  ChangesSettings,
+  ChangesTarget,
+  ChangesView,
   CommitGraphWrittenEvent,
+  CommitDetails,
   CommitRow,
+  Conflict,
   ConfigWarning,
+  Context,
+  DiffMode,
+  DiffRequest,
+  Dock,
   Edge,
+  FileDiff,
+  FileList,
+  FileListMode,
+  FileRef,
+  FileStatus,
   GitStatus,
   GraphRow,
   Head,
   HistoryTarget,
   HistoryView,
+  Hunk,
+  Image,
+  ImageFormat,
+  ImageSide,
   IpcError,
   JobId,
   JobProgress,
+  Line,
+  LineKind,
+  ModeChange,
+  PaneLayout,
+  Person,
   RefKind,
   RefLabel,
   Refusal,
@@ -31,10 +68,12 @@ export type {
   Settings,
   SettingsView,
   SummaryView,
+  TextDiff,
   Theme,
   Time,
   TreeItem,
   TreeNode,
+  UnmergedFile,
   Upstream,
   WorkspaceId,
   WorkspaceView,
@@ -107,5 +146,22 @@ export const commitGraphWrite = (workspaceId: WorkspaceId, repoId: RepoId) =>
 
 export const commitGraphDecline = (workspaceId: WorkspaceId, repoId: RepoId) =>
   unwrap(core.commands.commitGraphDecline(workspaceId, repoId));
+
+export const settingsSetChanges = (changes: ChangesSettings) => unwrap(core.commands.settingsSetChanges(changes));
+
+export const workspaceSetLayout = (workspaceId: WorkspaceId, layout: PaneLayout) =>
+  unwrap(core.commands.workspaceSetLayout(workspaceId, layout));
+
+/** `null` when a newer view of the workspace superseded this one. */
+export const changesGet = (workspaceId: WorkspaceId, repoId: RepoId, target: ChangesTarget) =>
+  unwrap(core.commands.changesGet(workspaceId, repoId, target));
+
+/** `null` when a newer view of the workspace replaced view `handle`. */
+export const diffGet = (workspaceId: WorkspaceId, handle: number, file: FileRef, request: DiffRequest) =>
+  unwrap(core.commands.diffGet(workspaceId, handle, file, request));
+
+/** One side of the image diff last read for `file`, as base64; `null` when there is none. */
+export const diffImage = (workspaceId: WorkspaceId, handle: number, file: FileRef, side: ImageSide) =>
+  unwrap(core.commands.diffImage(workspaceId, handle, file, side));
 
 export const debugEmitProgress = (workspaceId: string) => unwrap(core.commands.debugEmitProgress(workspaceId));

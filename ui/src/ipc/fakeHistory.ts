@@ -25,7 +25,8 @@ const AUTHORS = [
 /** 2024-01-01 00:00 UTC; each older commit is an hour earlier. */
 const NEWEST = 1_704_067_200;
 
-const hashOf = (index: number) => index.toString(16).padStart(8, "0").padEnd(40, "c");
+/** The hash of row `index` of every fake history. */
+export const hashOf = (index: number) => index.toString(16).padStart(8, "0").padEnd(40, "c");
 
 const edge = (from: number, to: number, color: number): Edge => ({ from, to, color });
 
@@ -49,6 +50,11 @@ function graphOf(index: number, length: number): GraphRow {
     return { lane: 1, color: side, up, down };
   }
   return { lane: 0, color: 0, up, down };
+}
+
+/** The parent a fake history gives the commit `hash`; `null` when it is not one of them. */
+export function parentOf(hash: string): string | null {
+  return /^[0-9a-f]{8}c{32}$/.test(hash) ? hashOf(Number.parseInt(hash.slice(0, 8), 16) + 1) : null;
 }
 
 export function commitAt(history: FakeHistory, index: number): CommitRow {
