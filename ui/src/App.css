@@ -402,6 +402,8 @@ main:not(.main) {
 
 .dialog {
   min-width: 320px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
   padding: 16px 20px;
   background: var(--bg-1);
   border: 1px solid var(--border);
@@ -421,6 +423,86 @@ main:not(.main) {
 .choice {
   display: block;
   padding: 2px 0;
+}
+
+.setting {
+  padding: 4px 0;
+}
+
+.setting-font {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.setting input,
+.setting select {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.setting input[type="number"] {
+  width: 4em;
+}
+
+/* A diff in one code theme (UI-24); src/theme/CodeThemePreview.tsx sets
+   the theme's variables on it. */
+.code-preview {
+  margin-top: 4px;
+  padding: 4px 0;
+  font-family: var(--font-code);
+  font-size: var(--font-size-code);
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--code-text);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.code-preview-hunk {
+  padding: 0 8px;
+  color: var(--code-hunk-text);
+  background: var(--code-hunk-bg);
+}
+
+.code-preview-line {
+  padding: 0 8px;
+}
+
+.code-preview-line.added {
+  background: var(--diff-added-bg);
+}
+
+.code-preview-line.removed {
+  background: var(--diff-removed-bg);
+}
+
+.code-preview .tok-keyword {
+  color: var(--code-keyword);
+}
+
+.code-preview .tok-string {
+  color: var(--code-string);
+}
+
+.code-preview .tok-comment {
+  color: var(--code-comment);
+}
+
+.code-preview .tok-number {
+  color: var(--code-number);
+}
+
+.code-preview .tok-type {
+  color: var(--code-type);
+}
+
+.code-preview .tok-function {
+  color: var(--code-function);
 }
 
 .about {

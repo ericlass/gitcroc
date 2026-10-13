@@ -149,6 +149,11 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 */
 	diffImage: (workspaceId: WorkspaceId, handle: number, file: FileRef, side: ImageSide) => typedError<string | null, IpcError>(__TAURI_INVOKE("diff_image", { workspaceId, handle, file, side })),
 	/**
+	 *  Changes the code themes and fonts (UI-24, UI-26) and saves the settings.
+	 *  Font sizes outside 8 to 32 are moved to the nearest limit.
+	 */
+	settingsSetAppearance: (appearance: Appearance) => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_set_appearance", { appearance })),
+	/**
 	 *  Starts a fake job that reports three steps 100 ms apart, and returns
 	 *  its id without waiting for it.
 	 */
@@ -187,6 +192,25 @@ export type AppInfo = {
 	os: string,
 	/**  `std::env::consts::ARCH`, e.g. `x86_64`, `aarch64`. */
 	arch: string,
+};
+
+/**
+ *  Code themes and fonts (UI-24, UI-26). Saved as top-level keys of the
+ *  file.
+ */
+export type Appearance = {
+	/**  Used while the app theme resolves to light. */
+	code_theme_light: CodeTheme,
+	/**  Used while the app theme resolves to dark. */
+	code_theme_dark: CodeTheme,
+	/**  A font family name; `None` is the system UI font. */
+	ui_font: string | null,
+	/**  In CSS pixels, [`MIN_FONT_SIZE`] to [`MAX_FONT_SIZE`]. */
+	ui_font_size: number,
+	/**  A font family name; `None` is the system monospace font. */
+	code_font: string | null,
+	/**  In CSS pixels, [`MIN_FONT_SIZE`] to [`MAX_FONT_SIZE`]. */
+	code_font_size: number,
 };
 
 /**  One entry of a changed-file list. It holds no content (ARCH-8). */
@@ -241,6 +265,12 @@ export type ChangesView = {
 	handle: number,
 	content: ChangesContent,
 };
+
+/**
+ *  A code theme for diffs and the conflict editor (UI-24). The UI holds
+ *  their colors.
+ */
+export type CodeTheme = "github_light" | "github_dark" | "solarized_light" | "solarized_dark" | "one_dark" | "dracula" | "nord" | "monokai";
 
 /**  A commit's header (UI-14). Text is decoded lossily (SEC-3). */
 export type CommitDetails = {
@@ -657,7 +687,7 @@ export type RepoView = {
 export type Settings = {
 	theme: Theme,
 	changes: ChangesSettings,
-};
+} & Appearance;
 
 /**  The settings as the UI sees them. */
 export type SettingsView = {

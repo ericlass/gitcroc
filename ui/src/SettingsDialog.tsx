@@ -1,12 +1,29 @@
-// The Settings dialog: the theme (UI-23), and which gitcroc and git are running.
+// The Settings dialog: the theme (UI-23), code themes (UI-24), fonts
+// (UI-26), and which gitcroc and git are running.
 import { For, onMount, Show } from "solid-js";
-import type { AppInfo, GitStatus, Theme } from "./ipc";
-import type { SettingsStore } from "./stores/settings";
+import type { Appearance, AppInfo, CodeTheme, GitStatus, Theme } from "./ipc";
+import { FONT_SIZE_LIMITS, type SettingsStore } from "./stores/settings";
+import { CODE_THEME_NAMES, CODE_THEMES } from "./theme/codeThemes";
+import CodeThemePreview from "./theme/CodeThemePreview";
 
 const THEMES: { value: Theme; label: string }[] = [
   { value: "system", label: "Follow the system" },
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
+];
+
+type CodeThemeKey = "code_theme_light" | "code_theme_dark";
+type FontKey = "ui_font" | "code_font";
+type FontSizeKey = "ui_font_size" | "code_font_size";
+
+const CODE_THEME_CHOICES: { key: CodeThemeKey; label: string }[] = [
+  { key: "code_theme_light", label: "Code theme in light mode" },
+  { key: "code_theme_dark", label: "Code theme in dark mode" },
+];
+
+const FONTS: { font: FontKey; size: FontSizeKey; label: string; placeholder: string }[] = [
+  { font: "ui_font", size: "ui_font_size", label: "UI font", placeholder: "System UI font" },
+  { font: "code_font", size: "code_font_size", label: "Code font", placeholder: "System monospace font" },
 ];
 
 export default function SettingsDialog(props: {
@@ -17,6 +34,17 @@ export default function SettingsDialog(props: {
 }) {
   let dialog: HTMLDivElement | undefined;
   const readOnly = () => props.settings.state.view?.read_only ?? true;
+  const appearance = (): Appearance => props.settings.appearance();
+
+  // A size that is not a number puts the saved one back; the core limits the rest.
+  const setSize = (key: FontSizeKey, input: HTMLInputElement) => {
+    const size = Number.parseInt(input.value, 10);
+    if (Number.isNaN(size)) {
+      input.value = String(appearance()[key]);
+      return;
+    }
+    void props.settings.setAppearance({ [key]: size });
+  };
 
   onMount(() => dialog?.querySelector<HTMLElement>("input:checked, input, button")?.focus());
 
@@ -52,6 +80,58 @@ export default function SettingsDialog(props: {
                 />
                 {theme.label}
               </label>
+            )}
+          </For>
+        </fieldset>
+        <fieldset disabled={readOnly()}>
+          <legend>Code themes</legend>
+          <For each={CODE_THEME_CHOICES}>
+            {(choice) => (
+              <div class="setting">
+                <label>
+                  {choice.label}{" "}
+                  <select
+                    value={appearance()[choice.key]}
+                    onChange={(event) =>
+                      void props.settings.setAppearance({ [choice.key]: event.currentTarget.value as CodeTheme })
+                    }
+                  >
+                    <For each={CODE_THEME_NAMES}>
+                      {(name) => <option value={name}>{CODE_THEMES[name].label}</option>}
+                    </For>
+                  </select>
+                </label>
+                <CodeThemePreview theme={appearance()[choice.key]} />
+              </div>
+            )}
+          </For>
+        </fieldset>
+        <fieldset disabled={readOnly()}>
+          <legend>Fonts</legend>
+          <For each={FONTS}>
+            {(font) => (
+              <div class="setting setting-font">
+                <label>
+                  {font.label}{" "}
+                  <input
+                    type="text"
+                    placeholder={font.placeholder}
+                    value={appearance()[font.font] ?? ""}
+                    onChange={(event) => void props.settings.setAppearance({ [font.font]: event.currentTarget.value })}
+                  />
+                </label>
+                <label>
+                  {font.label} size{" "}
+                  <input
+                    type="number"
+                    min={FONT_SIZE_LIMITS.min}
+                    max={FONT_SIZE_LIMITS.max}
+                    value={appearance()[font.size]}
+                    onChange={(event) => setSize(font.size, event.currentTarget)}
+                  />{" "}
+                  <span aria-hidden="true">px</span>
+                </label>
+              </div>
             )}
           </For>
         </fieldset>

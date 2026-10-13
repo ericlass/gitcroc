@@ -1,5 +1,6 @@
-// What every diff editor shares (UI-17, SEC-2, SEC-3, UI-23): read-only,
-// styled only through theme variables, its injected styles carrying the
+// What every diff editor shares (UI-17, SEC-2, SEC-3, UI-24, UI-26):
+// read-only, styled only through the code theme's and the fonts' variables,
+// so a change of either restyles open editors at once, its injected styles carrying the
 // page's CSP nonce, and the syntax of the file's extension. CodeMirror
 // renders the document as text, never as HTML.
 import { LanguageDescription, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
@@ -17,7 +18,7 @@ export function cspNonce(): string {
   return document.querySelector<HTMLStyleElement>("style#csp-nonce")?.nonce ?? "";
 }
 
-/** Syntax colors from the theme tokens, until code themes arrive (M1-10). */
+/** Syntax colors from the code theme (src/theme/codeThemes.ts). */
 const highlight = HighlightStyle.define([
   { tag: [tags.keyword, tags.operatorKeyword, tags.modifier, tags.controlKeyword], color: "var(--code-keyword)" },
   { tag: [tags.string, tags.special(tags.string), tags.regexp], color: "var(--code-string)" },
@@ -32,37 +33,37 @@ const highlight = HighlightStyle.define([
 
 const theme = EditorView.theme({
   "&": {
-    color: "var(--text-primary)",
-    backgroundColor: "var(--bg-1)",
-    fontSize: "var(--font-size-ui)",
+    color: "var(--code-text)",
+    backgroundColor: "var(--code-bg)",
+    fontSize: "var(--font-size-code)",
     height: "100%",
   },
   ".cm-scroller": { fontFamily: "var(--font-code)", lineHeight: "1.5" },
   ".cm-content": { caretColor: "transparent" },
   ".cm-gutters": {
-    backgroundColor: "var(--bg-2)",
-    color: "var(--text-secondary)",
+    backgroundColor: "var(--code-gutter-bg)",
+    color: "var(--code-gutter-text)",
     borderRight: "1px solid var(--border)",
   },
   "&.cm-focused": { outline: "none" },
-  ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "var(--bg-3)" },
+  ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "var(--code-selection)" },
   // Inline mode.
   ".cm-diff-added": { backgroundColor: "var(--diff-added-bg)" },
   ".cm-diff-removed": { backgroundColor: "var(--diff-removed-bg)" },
   ".cm-diff-hunk": {
-    backgroundColor: "var(--diff-hunk-bg)",
-    color: "var(--text-secondary)",
+    backgroundColor: "var(--code-hunk-bg)",
+    color: "var(--code-hunk-text)",
     fontFamily: "var(--font-code)",
     padding: "2px 8px",
   },
   ".cm-diff-number": { minWidth: "3ch", textAlign: "right", padding: "0 4px" },
   // Side-by-side mode (@codemirror/merge). Its base theme sets some rules
-  // for light and dark apart; these are as specific, so the tokens win.
+  // for light and dark apart; these are as specific, so the code theme wins.
   "&.cm-merge-a .cm-changedLine": { backgroundColor: "var(--diff-removed-bg)" },
   "&.cm-merge-b .cm-changedLine": { backgroundColor: "var(--diff-added-bg)" },
   "&.cm-merge-a .cm-collapsedLines, &.cm-merge-b .cm-collapsedLines": {
-    background: "var(--diff-hunk-bg)",
-    color: "var(--text-secondary)",
+    background: "var(--code-hunk-bg)",
+    color: "var(--code-hunk-text)",
   },
 });
 

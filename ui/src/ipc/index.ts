@@ -1,6 +1,7 @@
 // The only way into the core. Components import from here, never from
 // `@tauri-apps/api` or `./bindings` directly (enforced by eslint.config.js).
 import type {
+  Appearance,
   ChangesSettings,
   ChangesTarget,
   DiffRequest,
@@ -20,6 +21,8 @@ import { real } from "./core";
 export type {
   AddReport,
   AppInfo,
+  Appearance,
+  CodeTheme,
   ChangedFile,
   ChangesContent,
   ChangesSettings,
@@ -148,6 +151,8 @@ export const commitGraphDecline = (workspaceId: WorkspaceId, repoId: RepoId) =>
   unwrap(core.commands.commitGraphDecline(workspaceId, repoId));
 
 export const settingsSetChanges = (changes: ChangesSettings) => unwrap(core.commands.settingsSetChanges(changes));
+export const settingsSetAppearance = (appearance: Appearance) =>
+  unwrap(core.commands.settingsSetAppearance(appearance));
 
 export const workspaceSetLayout = (workspaceId: WorkspaceId, layout: PaneLayout) =>
   unwrap(core.commands.workspaceSetLayout(workspaceId, layout));

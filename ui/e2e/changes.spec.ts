@@ -71,6 +71,32 @@ test("UI-19 the changes pane docks at the bottom and back", async ({ page }) => 
   expect(left && right && right.x >= left.x + left.width - 1).toBe(true);
 });
 
+test("UI-24 UI-26 the open diff follows the code theme and the code font at once", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto("/?fake=tree");
+  await selectCommit(page, "api: change 40");
+  const editor = diff(page).locator(".cm-editor");
+  await expect(diff(page).locator(".cm-content")).toContainText("line five");
+  const style = () =>
+    editor.evaluate((element) => {
+      const computed = getComputedStyle(element);
+      const scroller = getComputedStyle(element.querySelector(".cm-scroller") as Element);
+      return { background: computed.backgroundColor, font: scroller.fontFamily, size: computed.fontSize };
+    });
+  // GitHub Light, the default for light mode.
+  expect((await style()).background).toBe("rgb(255, 255, 255)");
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("combobox", { name: "Code theme in light mode" }).selectOption("solarized_light");
+  await expect.poll(async () => (await style()).background).toBe("rgb(253, 246, 227)");
+
+  await page.getByRole("textbox", { name: "Code font" }).fill("Courier New");
+  await page.getByRole("spinbutton", { name: "Code font size" }).fill("18");
+  await page.getByRole("spinbutton", { name: "Code font size" }).press("Tab");
+  await expect.poll(async () => (await style()).size).toBe("18px");
+  expect((await style()).font).toMatch(/^"Courier New", ui-monospace/);
+});
+
 /** The app's content security policy from `tauri.conf.json`, as a header. */
 function appCsp(styleNonce: string): string {
   const config = JSON.parse(readFileSync(new URL("../../crates/gitcroc-app/tauri.conf.json", import.meta.url), "utf8"));
