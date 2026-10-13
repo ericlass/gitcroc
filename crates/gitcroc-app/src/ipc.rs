@@ -210,11 +210,41 @@ pub struct CommitGraphWrittenEvent {
     pub git_stderr: Option<String>,
 }
 
-/// The name, version, OS and architecture of the running build.
+/// The desktop's UI font family, read once at startup (UI-26).
+#[derive(Debug, Clone, Default)]
+pub struct DesktopFont(pub Option<String>);
+
+impl DesktopFont {
+    /// Reads the font GTK uses, e.g. `Ubuntu` from `Ubuntu 11`; `None` off
+    /// Linux. Called on the main thread once GTK is up, in `setup`.
+    pub fn read() -> Self {
+        #[cfg(target_os = "linux")]
+        {
+            use gtk::prelude::GtkSettingsExt;
+            let name = gtk::Settings::default().and_then(|settings| settings.gtk_font_name());
+            Self(name.and_then(|name| font_family(&name)))
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Self(None)
+        }
+    }
+}
+
+/// The family of a Pango font description such as `Noto Sans Bold 10`.
+#[cfg(target_os = "linux")]
+pub fn font_family(description: &str) -> Option<String> {
+    let family = gtk::pango::FontDescription::from_string(description).family()?;
+    let family = family.trim();
+    (!family.is_empty()).then(|| family.to_owned())
+}
+
+/// The name, version, OS and architecture of the running build, and the
+/// desktop's UI font.
 #[tauri::command]
 #[specta::specta]
-pub async fn app_info() -> Result<AppInfo, IpcError> {
-    Ok(AppInfo::current())
+pub async fn app_info(font: State<'_, DesktopFont>) -> Result<AppInfo, IpcError> {
+    Ok(AppInfo::current().with_ui_font(font.0.clone()))
 }
 
 /// The latest git detection result; `checking` until the first one is done.

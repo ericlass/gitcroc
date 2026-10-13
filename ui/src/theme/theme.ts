@@ -57,6 +57,16 @@ export function fontFamily(name: string | null, fallback: string): string {
   return `"${quoted}", ${fallback}`;
 }
 
+/**
+ * Puts the desktop's UI font, as the core reports it, first in the system UI
+ * font (UI-26); `null` leaves the CSS list alone.
+ */
+export function followDesktopFont(font: Accessor<string | null>, root: HTMLElement = document.documentElement): void {
+  createEffect(() => {
+    root.style.setProperty("--font-ui-system", fontFamily(font(), "var(--font-ui-stack)"));
+  });
+}
+
 /** Keeps the code theme and font variables on `root` in step with the settings and the theme in use. */
 export function followAppearance(
   appearance: Accessor<Appearance>,

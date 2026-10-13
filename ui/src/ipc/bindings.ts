@@ -6,7 +6,10 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	/**  The name, version, OS and architecture of the running build. */
+	/**
+	 *  The name, version, OS and architecture of the running build, and the
+	 *  desktop's UI font.
+	 */
 	appInfo: () => typedError<AppInfo, IpcError>(__TAURI_INVOKE("app_info")),
 	/**  The latest git detection result; `checking` until the first one is done. */
 	gitStatus: () => typedError<GitStatus, IpcError>(__TAURI_INVOKE("git_status")),
@@ -215,6 +218,11 @@ export type AppInfo = {
 	os: string,
 	/**  `std::env::consts::ARCH`, e.g. `x86_64`, `aarch64`. */
 	arch: string,
+	/**
+	 *  The desktop's UI font family, when the platform tells it (GTK on
+	 *  Linux). The UI puts it before its own list of system fonts (UI-26).
+	 */
+	ui_font: string | null,
 };
 
 /**

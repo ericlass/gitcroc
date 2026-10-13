@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 test("arch_6_ui_state_comes_only_from_core", async () => {
-  fakeState.appInfo = { name: "gitcroc", version: "9.9.9", os: "plan9", arch: "mips" };
+  fakeState.appInfo = { name: "gitcroc", version: "9.9.9", os: "plan9", arch: "mips", ui_font: null };
   render(() => <App />);
   fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
   expect(await screen.findByText("gitcroc version 9.9.9 on plan9 (mips)")).toBeDefined();

@@ -5,7 +5,11 @@
    variables from the settings (UI-26). */
 
 :root {
-  --font-ui-system: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, sans-serif;
+  /* The desktop's UI font goes before this list when the core reports one
+     (src/theme/theme.ts). WebKitGTK does not resolve system-ui to it, and
+     each family here that is not installed slows the first layout (M1-16). */
+  --font-ui-stack: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, sans-serif;
+  --font-ui-system: var(--font-ui-stack);
   --font-code-system: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --font-ui: var(--font-ui-system);
   --font-code: var(--font-code-system);
