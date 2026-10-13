@@ -7,8 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use gitcroc_core::{
-    ChangesSettings, ConfigDir, ConfigWarning, Context, DiffMode, FileListMode, SETTINGS_FILE,
-    Settings, SettingsError, SettingsStore, SettingsView, Theme,
+    Appearance, ChangesSettings, CodeTheme, ConfigDir, ConfigWarning, Context, DiffMode,
+    FileListMode, SETTINGS_FILE, Settings, SettingsError, SettingsStore, SettingsView, Theme,
 };
 
 /// A config dir inside a temporary dir; it does not exist until a save.
@@ -63,6 +63,14 @@ fn data_1_missing_file_gives_defaults() {
         SettingsView {
             settings: Settings {
                 theme: Theme::System,
+                appearance: Appearance {
+                    code_theme_light: CodeTheme::GithubLight,
+                    code_theme_dark: CodeTheme::GithubDark,
+                    ui_font: None,
+                    ui_font_size: 13,
+                    code_font: None,
+                    code_font_size: 13,
+                },
                 changes: ChangesSettings::default(),
             },
             read_only: false,
@@ -81,7 +89,7 @@ fn data_1_saved_settings_load_again() {
     assert_eq!(store.view(), view);
 
     let text = fs::read_to_string(config.file()).unwrap();
-    assert!(text.starts_with("schema = 1\ntheme = \"dark\"\n"), "{text}");
+    assert!(text.starts_with("schema = 2\ntheme = \"dark\"\n"), "{text}");
     assert_eq!(SettingsStore::load(&config).view(), view);
 }
 
@@ -153,7 +161,7 @@ fn data_1_newer_schema_is_read_only() {
         Some(ConfigWarning::NewerSchema {
             path: display(&config.file()),
             found: 99,
-            supported: 1,
+            supported: 2,
         })
     );
 
@@ -215,4 +223,78 @@ fn data_1_missing_keys_take_defaults() {
     let view = SettingsStore::load(&config).view();
     assert_eq!(view.settings, Settings::default());
     assert_eq!(view.warning, None);
+}
+
+#[test]
+fn data_1_schema_1_is_migrated_keeping_the_theme() {
+    let config =
+        TempConfig::with_file("schema = 1\ntheme = \"dark\"\n[changes]\nwrap_lines = true\n");
+    let store = SettingsStore::load(&config);
+    let view = store.view();
+    assert_eq!(view.warning, None);
+    assert_eq!(view.settings.theme, Theme::Dark);
+    assert!(view.settings.changes.wrap_lines);
+    assert_eq!(view.settings.appearance, Appearance::default());
+
+    // The next save writes schema 2 with the new keys.
+    store.set_changes(view.settings.changes).unwrap();
+    let text = fs::read_to_string(config.file()).unwrap();
+    assert!(text.starts_with("schema = 2\ntheme = \"dark\"\n"), "{text}");
+    assert!(
+        text.contains("code_theme_light = \"github_light\"\ncode_theme_dark = \"github_dark\"\n"),
+        "{text}"
+    );
+    assert!(text.contains("ui_font_size = 13\n"), "{text}");
+}
+
+#[test]
+fn ui_24_code_themes_and_fonts_are_remembered() {
+    let config = TempConfig::new();
+    let store = SettingsStore::load(&config);
+    let appearance = Appearance {
+        code_theme_light: CodeTheme::SolarizedLight,
+        code_theme_dark: CodeTheme::Dracula,
+        ui_font: Some("Inter".to_owned()),
+        ui_font_size: 14,
+        code_font: Some("JetBrains Mono".to_owned()),
+        code_font_size: 12,
+    };
+    let view = store.set_appearance(appearance.clone()).unwrap();
+    assert_eq!(view.settings.appearance, appearance);
+    let text = fs::read_to_string(config.file()).unwrap();
+    assert!(text.contains("code_font = \"JetBrains Mono\"\n"), "{text}");
+    assert_eq!(
+        SettingsStore::load(&config).view().settings.appearance,
+        appearance
+    );
+}
+
+#[test]
+fn ui_26_font_sizes_stay_in_range_and_blank_fonts_are_the_system_font() {
+    let config = TempConfig::new();
+    let store = SettingsStore::load(&config);
+    let view = store
+        .set_appearance(Appearance {
+            ui_font: Some("  ".to_owned()),
+            ui_font_size: 2,
+            code_font: Some(" Fira Code ".to_owned()),
+            code_font_size: 99,
+            ..Appearance::default()
+        })
+        .unwrap();
+    let appearance = view.settings.appearance;
+    assert_eq!(appearance.ui_font, None);
+    assert_eq!(appearance.ui_font_size, 8);
+    assert_eq!(appearance.code_font.as_deref(), Some("Fira Code"));
+    assert_eq!(appearance.code_font_size, 32);
+
+    // A hand-edited file is held to the same limits.
+    let config = TempConfig::with_file(
+        "schema = 2\nui_font_size = 0\ncode_font_size = 40\ncode_font = \"\"\n",
+    );
+    let view = SettingsStore::load(&config).view();
+    assert_eq!(view.warning, None);
+    assert_eq!(view.settings.appearance.ui_font_size, 8);
+    assert_eq!(view.settings.appearance.code_font_size, 32);
+    assert_eq!(view.settings.appearance.code_font, None);
 }

@@ -10,13 +10,13 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use gitcroc_core::{
-    AddReport, AppInfo, Changes, ChangesError, ChangesSettings, ChangesTarget, ChangesView,
-    CommitGraphError, DiffRequest, FileDiff, FileRef, GitError, GitRunner, GitSetup, GitStatus,
-    Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, JobId, JobIds, JobProgress,
-    PaneLayout, Refusal, RepoId, SettingsError, SettingsStore, SettingsView, StatusError,
-    StatusReadError, Summaries, SummaryView, Theme, TreeError, TreeNode, Trees, WorkspaceError,
-    WorkspaceId, WorkspaceView, Workspaces, add_path, commit_graph_begin, refresh_summaries,
-    tree_refs,
+    AddReport, AppInfo, Appearance, Changes, ChangesError, ChangesSettings, ChangesTarget,
+    ChangesView, CommitGraphError, DiffRequest, FileDiff, FileRef, GitError, GitRunner, GitSetup,
+    GitStatus, Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, JobId, JobIds,
+    JobProgress, PaneLayout, Refusal, RepoId, SettingsError, SettingsStore, SettingsView,
+    StatusError, StatusReadError, Summaries, SummaryView, Theme, TreeError, TreeNode, Trees,
+    WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path, commit_graph_begin,
+    refresh_summaries, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -496,6 +496,22 @@ pub async fn settings_set_changes(
         .map_err(IpcError::from)
 }
 
+/// Changes the code themes and fonts (UI-24, UI-26) and saves the settings.
+/// Font sizes outside 8 to 32 are moved to the nearest limit.
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_set_appearance(
+    app: AppHandle,
+    appearance: Appearance,
+) -> Result<SettingsView, IpcError> {
+    // Saving touches the disk; keep it off the async workers (ARCH-7).
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<SettingsStore>().set_appearance(appearance)
+    })
+    .await?
+    .map_err(IpcError::from)
+}
+
 /// Saves the workspace's pane layout: the dock position and pane sizes
 /// (UI-19).
 #[tauri::command]
@@ -773,6 +789,7 @@ macro_rules! with_commands {
                 changes_get,
                 diff_get,
                 diff_image,
+                settings_set_appearance,
                 debug::debug_emit_progress
             ]
         }
@@ -801,7 +818,8 @@ macro_rules! with_commands {
                 workspace_set_layout,
                 changes_get,
                 diff_get,
-                diff_image
+                diff_image,
+                settings_set_appearance
             ]
         }
     }};

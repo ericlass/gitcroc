@@ -1,11 +1,16 @@
-/* The only place colors are defined (UI-23). Components use these variables;
+/* The only place app colors are defined (UI-23); code theme colors are in
+   src/theme/codeThemes.ts (UI-24). Components use these variables;
    src/theme/colors.test.ts fails on a color literal anywhere else. The root
-   gets data-theme="light" or "dark" from src/theme/theme.ts. */
+   gets data-theme="light" or "dark" from src/theme/theme.ts, and the font
+   variables from the settings (UI-26). */
 
 :root {
-  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, sans-serif;
-  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --font-ui-system: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, sans-serif;
+  --font-code-system: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --font-ui: var(--font-ui-system);
+  --font-code: var(--font-code-system);
   --font-size-ui: 13px;
+  --font-size-code: 13px;
   --radius: 4px;
   --splitter-width: 5px;
 }
@@ -37,19 +42,6 @@
   --graph-5: #1b7c83;
   --graph-6: #cf222e;
   --graph-7: #9a6700;
-  /* Diffs and code, until code themes arrive (M1-10, UI-24). */
-  --diff-added-bg: #dafbe1;
-  --diff-added-text-bg: #aceebb;
-  --diff-removed-bg: #ffebe9;
-  --diff-removed-text-bg: #ffcecb;
-  --diff-hunk-bg: #ddf4ff;
-  --code-keyword: #cf222e;
-  --code-string: #0a3069;
-  --code-comment: #59636e;
-  --code-number: #0550ae;
-  --code-type: #953800;
-  --code-function: #8250df;
-  --code-tag: #116329;
 }
 
 :root[data-theme="dark"] {
@@ -77,16 +69,4 @@
   --graph-5: #39c5cf;
   --graph-6: #f85149;
   --graph-7: #d29922;
-  --diff-added-bg: #12261e;
-  --diff-added-text-bg: #1d4428;
-  --diff-removed-bg: #2a1619;
-  --diff-removed-text-bg: #5a1e24;
-  --diff-hunk-bg: #121d2f;
-  --code-keyword: #ff7b72;
-  --code-string: #a5d6ff;
-  --code-comment: #9198a1;
-  --code-number: #79c0ff;
-  --code-type: #ffa657;
-  --code-function: #d2a8ff;
-  --code-tag: #7ee787;
 }

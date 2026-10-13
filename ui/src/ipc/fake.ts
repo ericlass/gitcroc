@@ -5,6 +5,7 @@ import type { Event, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AddReport,
   AppInfo,
+  Appearance,
   ChangesContent,
   ChangesSettings,
   ChangesTarget,
@@ -43,8 +44,16 @@ export const defaultChangesSettings: ChangesSettings = {
   wrap_lines: false,
   context: "three",
 };
+export const defaultAppearance: Appearance = {
+  code_theme_light: "github_light",
+  code_theme_dark: "github_dark",
+  ui_font: null,
+  ui_font_size: 13,
+  code_font: null,
+  code_font_size: 13,
+};
 const defaultSettings: SettingsView = {
-  settings: { theme: "system", changes: defaultChangesSettings },
+  settings: { theme: "system", ...defaultAppearance, changes: defaultChangesSettings },
   read_only: false,
   warning: null,
 };
@@ -454,6 +463,33 @@ export const fake: Core = {
         });
       }
       fakeState.settings = { ...fakeState.settings, settings: { ...fakeState.settings.settings, changes } };
+      return Promise.resolve({ status: "ok", data: fakeState.settings });
+    },
+    // Like the core: sizes limited to 8 to 32, a blank font the system font.
+    settingsSetAppearance: (appearance) => {
+      if (fakeState.settings.read_only) {
+        return Promise.resolve({
+          status: "error",
+          error: {
+            code: "settings_read_only",
+            message: "the settings are read-only, so the change was not saved",
+            git_stderr: null,
+          },
+        });
+      }
+      const size = (value: number) => Math.min(32, Math.max(8, value));
+      const font = (name: string | null) => (name?.trim() ? name.trim() : null);
+      fakeState.settings = {
+        ...fakeState.settings,
+        settings: {
+          ...fakeState.settings.settings,
+          ...appearance,
+          ui_font: font(appearance.ui_font),
+          ui_font_size: size(appearance.ui_font_size),
+          code_font: font(appearance.code_font),
+          code_font_size: size(appearance.code_font_size),
+        },
+      };
       return Promise.resolve({ status: "ok", data: fakeState.settings });
     },
     workspaceSetLayout: (workspaceId, layout) => {

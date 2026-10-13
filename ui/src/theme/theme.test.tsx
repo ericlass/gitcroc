@@ -1,13 +1,15 @@
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, expect, test } from "vitest";
 import App from "../App";
-import { defaultChangesSettings, fakeState, reset } from "../ipc/fake";
+import { defaultAppearance, defaultChangesSettings, fakeState, reset } from "../ipc/fake";
 import { setSystemDark } from "../test/media";
+import { CODE_THEMES } from "./codeThemes";
 
 afterEach(() => {
   cleanup();
   reset();
   delete document.documentElement.dataset.theme;
+  document.documentElement.removeAttribute("style");
 });
 
 const rootTheme = () => document.documentElement.dataset.theme;
@@ -40,14 +42,14 @@ test("UI-23 theme switch: dark sets data-theme, system follows the OS live", asy
 });
 
 test("UI-23 saved theme applies on start", async () => {
-  fakeState.settings = { settings: { theme: "dark", changes: defaultChangesSettings }, read_only: false, warning: null };
+  fakeState.settings = { settings: { theme: "dark", ...defaultAppearance, changes: defaultChangesSettings }, read_only: false, warning: null };
   render(() => <App />);
   await expect.poll(rootTheme).toBe("dark");
 });
 
 test("data_1_read_only_settings_show_a_banner_and_disable_the_choice", async () => {
   fakeState.settings = {
-    settings: { theme: "light", changes: defaultChangesSettings },
+    settings: { theme: "light", ...defaultAppearance, changes: defaultChangesSettings },
     read_only: true,
     warning: { kind: "newer_schema", path: "/home/me/.config/gitcroc/settings.toml", found: 99, supported: 1 },
   };
@@ -66,7 +68,7 @@ test("data_1_read_only_settings_show_a_banner_and_disable_the_choice", async () 
 
 test("sec_3_settings_warning_renders_as_text", async () => {
   fakeState.settings = {
-    settings: { theme: "system", changes: defaultChangesSettings },
+    settings: { theme: "system", ...defaultAppearance, changes: defaultChangesSettings },
     read_only: true,
     warning: { kind: "unreadable", path: "/tmp/<b>x</b>/settings.toml", reason: "<img src=x onerror=alert(1)>" },
   };
@@ -74,4 +76,75 @@ test("sec_3_settings_warning_renders_as_text", async () => {
   const banner = await screen.findByRole("alert");
   expect(banner.textContent).toContain("<img src=x onerror=alert(1)>");
   expect(container.querySelector("b, img")).toBeNull();
+});
+
+const rootVariable = (name: string) => document.documentElement.style.getPropertyValue(name);
+
+test("UI-24 code theme follows the app theme", async () => {
+  fakeState.settings = {
+    ...fakeState.settings,
+    settings: { ...fakeState.settings.settings, code_theme_light: "solarized_light", code_theme_dark: "dracula" },
+  };
+  render(() => <App />);
+  await expect.poll(() => rootVariable("--code-bg")).toBe(CODE_THEMES.solarized_light.colors.background);
+  expect(rootVariable("--diff-added-bg")).toBe(CODE_THEMES.solarized_light.colors.added);
+
+  // The app theme switches the code theme between the two choices, live.
+  setSystemDark(true);
+  await expect.poll(() => rootVariable("--code-bg")).toBe(CODE_THEMES.dracula.colors.background);
+  expect(rootVariable("--code-keyword")).toBe(CODE_THEMES.dracula.colors.keyword);
+  setSystemDark(false);
+  await expect.poll(() => rootVariable("--code-bg")).toBe(CODE_THEMES.solarized_light.colors.background);
+
+  // Choosing another theme for the mode in use applies it at once and saves it.
+  await openSettings();
+  fireEvent.change(screen.getByRole("combobox", { name: "Code theme in light mode" }), {
+    target: { value: "github_light" },
+  });
+  await expect.poll(() => rootVariable("--code-bg")).toBe(CODE_THEMES.github_light.colors.background);
+  expect(fakeState.settings.settings.code_theme_light).toBe("github_light");
+  expect(fakeState.settings.settings.code_theme_dark).toBe("dracula");
+});
+
+test("UI-24 each code theme choice shows its own preview", async () => {
+  render(() => <App />);
+  const dialog = await openSettings();
+  fireEvent.change(screen.getByRole("combobox", { name: "Code theme in dark mode" }), { target: { value: "nord" } });
+  await expect.poll(() => fakeState.settings.settings.code_theme_dark).toBe("nord");
+  const previews = [...dialog.querySelectorAll<HTMLElement>(".code-preview")];
+  expect(previews.map((preview) => preview.style.getPropertyValue("--code-bg"))).toEqual([
+    CODE_THEMES.github_light.colors.background,
+    CODE_THEMES.nord.colors.background,
+  ]);
+  // The app itself stays light.
+  expect(rootVariable("--code-bg")).toBe(CODE_THEMES.github_light.colors.background);
+});
+
+test("UI-26 fonts apply", async () => {
+  render(() => <App />);
+  await openSettings();
+  await expect.poll(() => rootVariable("--font-code")).toBe("var(--font-code-system)");
+  expect(rootVariable("--font-size-code")).toBe("13px");
+
+  const font = screen.getByRole("textbox", { name: "Code font" });
+  expect(font.getAttribute("placeholder")).toBe("System monospace font");
+  fireEvent.change(font, { target: { value: 'Fira "Code"' } });
+  await expect.poll(() => rootVariable("--font-code")).toBe('"Fira \\"Code\\"", var(--font-code-system)');
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Code font size" }), { target: { value: "40" } });
+  await expect.poll(() => rootVariable("--font-size-code")).toBe("32px");
+
+  fireEvent.change(screen.getByRole("textbox", { name: "UI font" }), { target: { value: "Inter" } });
+  await expect.poll(() => rootVariable("--font-ui")).toBe('"Inter", var(--font-ui-system)');
+  fireEvent.change(screen.getByRole("spinbutton", { name: "UI font size" }), { target: { value: "15" } });
+  await expect.poll(() => rootVariable("--font-size-ui")).toBe("15px");
+  expect(fakeState.settings.settings).toMatchObject({
+    ui_font: "Inter",
+    ui_font_size: 15,
+    code_font: 'Fira "Code"',
+    code_font_size: 32,
+  });
+
+  // Clearing a font goes back to the system font.
+  fireEvent.change(screen.getByRole("textbox", { name: "Code font" }), { target: { value: " " } });
+  await expect.poll(() => rootVariable("--font-code")).toBe("var(--font-code-system)");
 });

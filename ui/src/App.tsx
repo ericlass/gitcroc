@@ -29,7 +29,7 @@ import { createSettingsStore } from "./stores/settings";
 import { createSummaryStore } from "./stores/summaries";
 import { createTreeStore } from "./stores/tree";
 import { createWorkspaceStore } from "./stores/workspaces";
-import { followTheme } from "./theme/theme";
+import { followAppearance, followTheme } from "./theme/theme";
 
 export default function App() {
   const [info] = createResource(appInfo);
@@ -49,7 +49,7 @@ export default function App() {
   // passed down, never read from a module, so tabs need no rework (ARCH-9).
   const workspace = () => workspaces.state.views?.[0];
 
-  followTheme(settings.theme);
+  followAppearance(settings.appearance, followTheme(settings.theme));
 
   // The open workspace's tree and summaries, kept current while it is open.
   createEffect(

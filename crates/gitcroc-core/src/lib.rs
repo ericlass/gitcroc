@@ -37,8 +37,9 @@ pub use history::{
 };
 pub use job::{JobId, JobIds, JobProgress, WorkspaceId};
 pub use settings::{
-    ChangesSettings, ConfigDir, DiffMode, FileListMode, PlatformConfigDir, SETTINGS_FILE,
-    SETTINGS_SCHEMA, Settings, SettingsError, SettingsStore, SettingsView, Theme,
+    Appearance, ChangesSettings, CodeTheme, ConfigDir, DEFAULT_FONT_SIZE, DiffMode, FileListMode,
+    MAX_FONT_SIZE, MIN_FONT_SIZE, PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Settings,
+    SettingsError, SettingsStore, SettingsView, Theme,
 };
 pub use status::{StatusReadError, repo_state, repo_summary, working_copy};
 pub use summary::{

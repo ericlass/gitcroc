@@ -12,13 +12,13 @@ use gitcroc_git::Context;
 use crate::config_file::{self, ConfigWarning, Migration};
 
 /// The schema this build reads and writes.
-pub const SETTINGS_SCHEMA: u32 = 1;
+pub const SETTINGS_SCHEMA: u32 = 2;
 
 /// The file name inside the config dir.
 pub const SETTINGS_FILE: &str = "settings.toml";
 
-/// `MIGRATIONS[n - 1]` migrates schema `n`. None exist yet.
-const MIGRATIONS: &[Migration] = &[];
+/// `MIGRATIONS[n - 1]` migrates schema `n`.
+const MIGRATIONS: &[Migration] = &[from_schema_1];
 
 const _: () = assert!(SETTINGS_SCHEMA as usize == MIGRATIONS.len() + 1);
 
@@ -79,11 +79,84 @@ pub struct ChangesSettings {
     pub context: Context,
 }
 
+/// A code theme for diffs and the conflict editor (UI-24). The UI holds
+/// their colors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum CodeTheme {
+    GithubLight,
+    GithubDark,
+    SolarizedLight,
+    SolarizedDark,
+    OneDark,
+    Dracula,
+    Nord,
+    Monokai,
+}
+
+/// The smallest font size in CSS pixels (UI-26).
+pub const MIN_FONT_SIZE: u32 = 8;
+/// The largest font size in CSS pixels (UI-26).
+pub const MAX_FONT_SIZE: u32 = 32;
+/// The font size until the user picks one (UI-26).
+pub const DEFAULT_FONT_SIZE: u32 = 13;
+
+/// Code themes and fonts (UI-24, UI-26). Saved as top-level keys of the
+/// file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct Appearance {
+    /// Used while the app theme resolves to light.
+    pub code_theme_light: CodeTheme,
+    /// Used while the app theme resolves to dark.
+    pub code_theme_dark: CodeTheme,
+    /// A font family name; `None` is the system UI font.
+    pub ui_font: Option<String>,
+    /// In CSS pixels, [`MIN_FONT_SIZE`] to [`MAX_FONT_SIZE`].
+    pub ui_font_size: u32,
+    /// A font family name; `None` is the system monospace font.
+    pub code_font: Option<String>,
+    /// In CSS pixels, [`MIN_FONT_SIZE`] to [`MAX_FONT_SIZE`].
+    pub code_font_size: u32,
+}
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Self {
+            code_theme_light: CodeTheme::GithubLight,
+            code_theme_dark: CodeTheme::GithubDark,
+            ui_font: None,
+            ui_font_size: DEFAULT_FONT_SIZE,
+            code_font: None,
+            code_font_size: DEFAULT_FONT_SIZE,
+        }
+    }
+}
+
+impl Appearance {
+    /// Sizes limited to [`MIN_FONT_SIZE`]..=[`MAX_FONT_SIZE`], font names
+    /// trimmed, and a blank name the system font.
+    pub fn normalized(self) -> Self {
+        let font = |name: Option<String>| {
+            name.map(|name| name.trim().to_owned())
+                .filter(|name| !name.is_empty())
+        };
+        Self {
+            ui_font: font(self.ui_font),
+            ui_font_size: self.ui_font_size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE),
+            code_font: font(self.code_font),
+            code_font_size: self.code_font_size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE),
+            ..self
+        }
+    }
+}
+
 /// Every setting. A key missing from the file takes its default (see
 /// [`decode`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct Settings {
     pub theme: Theme,
+    #[serde(flatten)]
+    pub appearance: Appearance,
     pub changes: ChangesSettings,
 }
 
@@ -159,6 +232,12 @@ impl SettingsStore {
         self.update(|settings| settings.changes = changes)
     }
 
+    /// Changes the code themes and fonts and saves the file. Sizes outside
+    /// the limits are moved to the nearest one.
+    pub fn set_appearance(&self, appearance: Appearance) -> Result<SettingsView, SettingsError> {
+        self.update(|settings| settings.appearance = appearance.normalized())
+    }
+
     fn update(&self, change: impl FnOnce(&mut Settings)) -> Result<SettingsView, SettingsError> {
         let mut state = self.lock();
         let path = match (&self.path, &state.warning) {
@@ -193,14 +272,19 @@ fn view(state: &Loaded) -> SettingsView {
     }
 }
 
+/// Schema 2 added the code themes and fonts; their defaults fill in.
+fn from_schema_1(_table: &mut toml::Table) {}
+
 /// Reads the settings from a file's table, taking the default for every
 /// missing key, inside tables too. Unknown keys, such as `schema`, are
-/// ignored.
+/// ignored. Font sizes outside the limits are moved to the nearest one.
 fn decode(table: toml::Table) -> Result<Settings, toml::de::Error> {
     let mut full = toml::Table::try_from(Settings::default())
         .map_err(<toml::de::Error as serde::de::Error>::custom)?;
     merge(&mut full, table);
-    toml::Value::Table(full).try_into()
+    let mut settings: Settings = toml::Value::Table(full).try_into()?;
+    settings.appearance = std::mem::take(&mut settings.appearance).normalized();
+    Ok(settings)
 }
 
 /// Puts every key of `from` into `into`, merging tables both have.
@@ -226,6 +310,6 @@ mod tests {
             ..Settings::default()
         };
         let text = config_file::encode(SETTINGS_SCHEMA, &settings).unwrap();
-        assert!(text.starts_with("schema = 1\ntheme = \"dark\"\n"), "{text}");
+        assert!(text.starts_with("schema = 2\ntheme = \"dark\"\n"), "{text}");
     }
 }
