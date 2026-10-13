@@ -56,7 +56,11 @@ Core-side parts, from `just bench` on the same machine, for comparison: `cold-st
 - **Input latency while a refresh runs, 106.5 ms of 50 ms.** With no refresh running the same key takes 22 ms (`input-latency-idle`). Unpinned, on all 24 threads, the same run gave 46 ms. The refresh competes with the webview for the 8 cores, because it does not yet run at low priority: PERF-4's shared job pool comes with M2's job engine (tasks README, "What M1 completes").
 - **Memory, 590 MB of 400 MB.** The gitcroc process holds 360 to 395 MB and the WebKit web process 205 to 280 MB (the network process 15 MB). Unpinned, the total was 760 MB. More threads giving more memory points at allocator arenas kept by the refresh threads, not at data the app holds.
 
-Decision for each, with its date: _____
+Decisions (Eric, 2026-10-13):
+
+- Input latency: fixed in [M1-13](M1-13-input-latency-during-refresh.md).
+- Memory: fixed in [M1-14](M1-14-idle-memory.md).
+- Cold start: investigated in [M1-15](M1-15-cold-start-investigation.md), which finds out whether and how 1 s can be reached.
 
 ## Stretch results (reported, not gating)
 
@@ -73,7 +77,7 @@ Memory with `big-history` scrolled 100,000 rows (stretch target 1.2 GB) is not m
 
 ## No write operation exists yet
 
-- [x] `m1_no_write_operation_exists_yet` (`crates/gitcroc-git/tests/read_only.rs`) passes. It reads the source of the crates in the app. It checks that only the runner starts a process, and that every runner call runs `--version`, `rev-parse` or `status`. The one exception is `commit-graph write` (M1-08). That write is offered to the user and changes only a cache file in the git directory, never a ref, an object, the index or a working file.
+- [x] `m1_no_write_operation_exists_yet` (`crates/gitcroc-git/tests/read_only.rs`) passes. It reads the source of the crates in the app. It checks that only the runner starts a process, and that every runner call runs `--version`, `rev-parse` or `status`. The one exception is `commit-graph write` (M1-08). That write is offered to the user and changes only a cache file in the git directory, never a ref, an object, the index or a working file. Kept as allowed (Eric, 2026-10-13).
 
 ## Gates
 

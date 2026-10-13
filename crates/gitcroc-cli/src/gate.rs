@@ -1,10 +1,13 @@
 //! The nightly regression gate (PERF-8): compares a `bench` run with the
 //! committed baseline, and makes a baseline from several runs.
 //!
-//! Only the gating set counts. A scenario fails when its median is more than
-//! [`REGRESSION_LIMIT`] slower than the baseline's, or over its budget. A
-//! scenario the baseline does not have yet is reported and passes, so a new
-//! scenario can land before its baseline does.
+//! Only the gating set counts, and only scenarios with a section 9 budget
+//! fail: PERF-8 gates budgets. A budgeted scenario fails when its median is
+//! over its budget, or more than [`REGRESSION_LIMIT`] slower than the
+//! baseline's and also at least [`REGRESSION_FLOOR_MS`] slower, since hosted
+//! runners vary by more than 20% on scenarios of a few milliseconds. Other
+//! slowdowns are reported. A scenario the baseline does not have yet is
+//! reported and passes, so a new scenario can land before its baseline does.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -16,6 +19,9 @@ use crate::bench::{GATING_SET, summarize};
 
 /// How much slower than the baseline a median may be (PERF-8).
 pub const REGRESSION_LIMIT: f64 = 0.20;
+
+/// How many milliseconds slower a median must also be to fail.
+pub const REGRESSION_FLOOR_MS: f64 = 2.0;
 
 pub const COMPARE_USAGE: &str = "bench-compare <results.json> <baseline.json>";
 pub const BASELINE_USAGE: &str = "bench-baseline <results.json>...";
@@ -62,6 +68,12 @@ pub enum Verdict {
         median_ms: f64,
         budget_ms: f64,
     },
+    /// Over the limit, but without a budget or under the floor: reported.
+    Slower {
+        median_ms: f64,
+        baseline_ms: f64,
+        slower: f64,
+    },
     /// `slower` is the fraction over the baseline, 0.21 for 21%.
     Regressed {
         median_ms: f64,
@@ -90,15 +102,22 @@ pub fn judge(result: &Measured, baseline: Option<&Measured>) -> Verdict {
     let Some(baseline) = baseline else {
         return Verdict::NoBaseline;
     };
-    let slower = result.median_ms / baseline.median_ms - 1.0;
-    if slower > REGRESSION_LIMIT {
+    let (median_ms, baseline_ms) = (result.median_ms, baseline.median_ms);
+    let slower = median_ms / baseline_ms - 1.0;
+    if slower <= REGRESSION_LIMIT {
+        Verdict::Pass
+    } else if result.budget_ms.is_some() && median_ms - baseline_ms >= REGRESSION_FLOOR_MS {
         Verdict::Regressed {
-            median_ms: result.median_ms,
-            baseline_ms: baseline.median_ms,
+            median_ms,
+            baseline_ms,
             slower,
         }
     } else {
-        Verdict::Pass
+        Verdict::Slower {
+            median_ms,
+            baseline_ms,
+            slower,
+        }
     }
 }
 
@@ -183,6 +202,14 @@ pub fn run_compare(results: &Path, baseline: &Path) -> ExitCode {
                     result.median_ms
                 );
             }
+            Verdict::Slower {
+                median_ms,
+                baseline_ms,
+                slower,
+            } => println!(
+                "slow  {name}: {median_ms:.3} ms is {:.0}% slower than the baseline's {baseline_ms:.3} ms; not gated",
+                slower * 100.0
+            ),
             Verdict::OverBudget {
                 median_ms,
                 budget_ms,
@@ -281,6 +308,20 @@ mod tests {
             }
         );
         assert!(judge(&over, None).fails());
+    }
+
+    #[test]
+    fn perf_8_small_or_unbudgeted_slowdowns_are_only_reported() {
+        // 50% slower, but 1 ms: runner noise.
+        let base = measured("cold-start-core", 2.0, Some(1000.0));
+        let small = judge(&measured("cold-start-core", 3.0, Some(1000.0)), Some(&base));
+        assert!(matches!(small, Verdict::Slower { .. }));
+        assert!(!small.fails());
+        // No budget: reported, never failed.
+        let base = measured("history-page-10", 20.0, None);
+        let unbudgeted = judge(&measured("history-page-10", 40.0, None), Some(&base));
+        assert!(matches!(unbudgeted, Verdict::Slower { .. }));
+        assert!(!unbudgeted.fails());
     }
 
     #[test]

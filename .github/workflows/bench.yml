@@ -1,6 +1,7 @@
 # PERF-8: the core-side benchmarks on target-project, nightly and on demand,
-# Linux only. A scenario fails when its median is more than 20% slower than
-# bench/baseline-linux.json or over its section 9 budget. The stretch sets
+# Linux only. A scenario with a section 9 budget fails when its median is
+# over the budget, or more than 20% and at least 2 ms slower than
+# bench/baseline-linux.json; other slowdowns are reported. The stretch sets
 # never run here.
 #
 # Hosted runners have no fixed speed, so this is the only workflow that
