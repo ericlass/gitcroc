@@ -29,22 +29,22 @@ Windows and macOS are deferred (decided for M0 on 2026-10-12: no Windows PC or M
 - Disk: Samsung SSD 970 EVO Plus 1 TB, NVMe
 - OS: Ubuntu 24.04.5 LTS, kernel 6.8.0-147, WebKitGTK 2.52.6
 - git: 2.43.0
-- Commit measured: branch `m1-12-budgets-and-signoff`, 2026-10-13; again on branches `m1-13-input-latency-during-refresh`, `m1-14-idle-memory`, `m1-15-cold-start` and `m1-16-desktop-font`, 2026-10-13 (the table below is from M1-16, `--runs 10`)
+- Commit measured: branch `m1-12-budgets-and-signoff`, 2026-10-13; again on branches `m1-13-input-latency-during-refresh`, `m1-14-idle-memory`, `m1-15-cold-start`, `m1-16-desktop-font` and `m1-17-desktop-code-font`, 2026-10-13 (the table below is from M1-17, `--runs 10`)
 - Measured by, date: Claude for Eric Lass, 2026-10-13
 
 ## Single-repo budgets on `target-project` (Linux)
 
 | Section 9 row | Scenario | Measured (median) | p95 | Budget | Pass |
 | --- | --- | --- | --- | --- | --- |
-| Cold start: tree visible from cache | `bench-ui` `cold-start` | 569 ms | 633 ms | 1 s | pass |
-| Select the largest repo: first page of history visible | `bench-ui` `select-largest-repo` | 111 ms | 120 ms | 200 ms | pass |
+| Cold start: tree visible from cache | `bench-ui` `cold-start` | 596 ms | 627 ms | 1 s | pass |
+| Select the largest repo: first page of history visible | `bench-ui` `select-largest-repo` | 93.5 ms | 100 ms | 200 ms | pass |
 | Scroll history at any speed: 60 fps | `bench-ui` `scroll-frame` (frame time at 100 px a frame) | 16 ms | 17 ms | 16.7 ms | pass |
 | Scroll history: no row blank for more than 100 ms | `bench-ui` `scroll-blank` (longest blank per run) | 0 ms | 0 ms | 100 ms | pass |
-| Select a commit with under 5,000 changed lines: file list and first diff visible | `bench-ui` `select-commit` | 104.5 ms | 150 ms | 150 ms | pass |
-| Switch selection between two repos: first paint | `bench-ui` `switch-repo` | 76 ms | 106 ms | 100 ms | pass |
+| Select a commit with under 5,000 changed lines: file list and first diff visible | `bench-ui` `select-commit` | 95.5 ms | 158 ms | 150 ms | pass |
+| Switch selection between two repos: first paint | `bench-ui` `switch-repo` | 72.5 ms | 102 ms | 100 ms | pass |
 | Working copy status of the 60,000-file repo, git defaults | `bench` `status-60k` | 68 ms | 85 ms | 500 ms | pass |
 | UI input latency while any job runs | `bench-ui` `input-latency` (a status refresh of all 20 repos runs) | 26 ms | 37 ms | 50 ms | pass |
-| Memory, workspace idle, including the webview | `bench-ui` `memory-idle` (PSS of the app and its WebKit processes) | 368 MB | 404 MB | 400 MB | pass |
+| Memory, workspace idle, including the webview | `bench-ui` `memory-idle` (PSS of the app and its WebKit processes) | 370 MB | 401 MB | 400 MB | pass |
 
 The rows for the status of all 20 repos, tab switching and group history are M3.
 
@@ -62,6 +62,7 @@ Core-side parts, from `just bench` on the same machine, for comparison: `cold-st
   - Tried, with the effect on the median (`--direct`): no web process sandbox, none; compositing off, the page still started late in most starts; DMA-BUF renderer off (`WEBKIT_DISABLE_DMABUF_RENDERER=1`), 1147 to 611 ms before the fix and 654 to 592 ms after it, but the app cannot set it, since `std::env::set_var` needs `unsafe` (QA-4); the window shown when the page has finished loading instead of when it starts, 666 ms against 645; the changes pane and CodeMirror split into a chunk loaded later, the first script ran 25 ms earlier but the tree showed at the same time; no status refresh at the start, no change; the refresh spinner not animated, no change; no non-Latin glyphs in the tree, 25 ms less layout. Merging the start's IPC calls could save at most the 54 ms between the first answers and `tree_get`'s; not tried.
   - Recommendation: no section 9 change and no D2 revisit; 1 s is met with 300 ms to spare. One optional task: put an installed UI font first (on Linux, the desktop's font as GTK reports it), which is also what UI-26 asks for and saves about 150 ms here. It changes how the default font is chosen, so it needs Eric's decision.
   - Done in M1-16 (Eric, 2026-10-13): the app reads the desktop's UI font from GTK (`gtk-font-name`, e.g. `Ubuntu 11`) and reports its family in `app_info`; the UI puts it before the CSS list (`--font-ui-stack`). A UI font set by the user still comes first. Cold start 688 to 569 ms, and `select-largest-repo` 188 to 111 ms, whose first history layout went through the same list. The tree's first layout takes 70 ms instead of 181. The "Looking for git…" screen is still laid out with the CSS list once, before `app_info` answers (about 30 ms).
+  - M1-17 (Eric, 2026-10-13) does the same for the monospace font: GTK has none, so the app reads GNOME's `monospace-font-name` (e.g. `JetBrains Mono NL 11`) where its schema is installed, and the UI puts the family before `--font-code-stack`. `select-largest-repo` 111 to 93.5 ms and `select-commit` 104.5 to 95.5 ms; cold start 569 to 596 ms median with the same p95 (633 and 627 ms), within the spread between runs or a small cost of loading the monospace font at the start. Off GNOME (KDE, for one) the code font stays the CSS list.
 - **Input latency while a refresh runs, 106.5 ms of 50 ms (M1-12); met in M1-13 with 27 ms.** With no refresh running the same key took 22 ms (`input-latency-idle`). Unpinned, on all 24 threads, the same run gave 46 ms. The refresh competed with the webview for the 8 cores: up to 8 reads at once, each `gix` status starting threads of its own, 96 threads at the peak. M1-13 runs the refresh's reads at the lowest thread priority (PERF-4), and the threads `gix` starts inherit it on Linux. Now the key takes 27 ms both with the refresh running and without it. A refresh of all 20 repos on its own takes 0.64 s instead of 0.37 s (`gitcroc-cli summaries`, pinned), within the 2 s of the M3 row. M1-14 limits each background status read to 4 threads: 0.9 s, and `input-latency` 25 ms.
 - **Memory, 590 MB of 400 MB (M1-12); 509 MB after M1-13.** The gitcroc process holds 360 to 395 MB and the WebKit web process 205 to 280 MB (the network process 15 MB). After M1-13, whose refresh threads end with each refresh, the gitcroc process held 165 MB and the web process 308 MB in the verbose run. Unpinned, the total was 760 MB. More threads giving more memory points at allocator arenas kept by the refresh threads, not at data the app holds. Met in M1-14 with 358 MB: the gitcroc process holds 134 to 153 MB, the web process 186 to 239 MB, the network process 15 MB.
   - Web process. The JS heap holds about 14 MB after a full collection, but JavaScriptCore runs only small collections until the heap reaches about 100 MB, and keeps what they promote. Scrolling the whole history built about 5,000 rows of DOM, and the store wrapped every row it read in a proxy with signals. Now the list keeps its row elements and shows other rows in them as it scrolls, and the store keeps the loaded commits unwrapped. The web process went from 290 to 360 MB to 186 to 239 MB.

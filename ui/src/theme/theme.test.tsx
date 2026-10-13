@@ -149,18 +149,20 @@ test("UI-26 fonts apply", async () => {
   await expect.poll(() => rootVariable("--font-code")).toBe("var(--font-code-system)");
 });
 
-test("UI-26 the desktop's UI font comes first in the system UI font", async () => {
-  fakeState.appInfo = { ...fakeState.appInfo, ui_font: 'Ubuntu "Sans"' };
+test("UI-26 the desktop's fonts come first in the system fonts", async () => {
+  fakeState.appInfo = { ...fakeState.appInfo, ui_font: 'Ubuntu "Sans"', code_font: "JetBrains Mono NL" };
   render(() => <App />);
+  await expect.poll(() => rootVariable("--font-code-system")).toBe('"JetBrains Mono NL", var(--font-code-stack)');
   await expect.poll(() => rootVariable("--font-ui-system")).toBe('"Ubuntu \\"Sans\\"", var(--font-ui-stack)');
-  // A UI font set by the user still comes before it.
+  // A font set by the user still comes before them.
   await openSettings();
   fireEvent.change(screen.getByRole("textbox", { name: "UI font" }), { target: { value: "Inter" } });
   await expect.poll(() => rootVariable("--font-ui")).toBe('"Inter", var(--font-ui-system)');
 });
 
-test("UI-26 without a desktop font the CSS list is the system UI font", async () => {
+test("UI-26 without desktop fonts the CSS lists are the system fonts", async () => {
   render(() => <App />);
   await screen.findByRole("button", { name: "Settings" });
   expect(rootVariable("--font-ui-system")).toBe("var(--font-ui-stack)");
+  expect(rootVariable("--font-code-system")).toBe("var(--font-code-stack)");
 });
