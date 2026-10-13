@@ -210,25 +210,50 @@ pub struct CommitGraphWrittenEvent {
     pub git_stderr: Option<String>,
 }
 
-/// The desktop's UI font family, read once at startup (UI-26).
+/// The desktop's UI and monospace font families, read once at startup
+/// (UI-26).
 #[derive(Debug, Clone, Default)]
-pub struct DesktopFont(pub Option<String>);
+pub struct DesktopFonts {
+    pub ui: Option<String>,
+    pub code: Option<String>,
+}
 
-impl DesktopFont {
-    /// Reads the font GTK uses, e.g. `Ubuntu` from `Ubuntu 11`; `None` off
-    /// Linux. Called on the main thread once GTK is up, in `setup`.
+impl DesktopFonts {
+    /// Reads the fonts of the desktop, e.g. `Ubuntu` from GTK's `Ubuntu 11`;
+    /// `None` off Linux and for what the desktop does not tell. Called on the
+    /// main thread once GTK is up, in `setup`.
     pub fn read() -> Self {
         #[cfg(target_os = "linux")]
         {
             use gtk::prelude::GtkSettingsExt;
-            let name = gtk::Settings::default().and_then(|settings| settings.gtk_font_name());
-            Self(name.and_then(|name| font_family(&name)))
+            let ui = gtk::Settings::default().and_then(|settings| settings.gtk_font_name());
+            Self {
+                ui: ui.and_then(|name| font_family(&name)),
+                code: gnome_monospace_font().and_then(|name| font_family(&name)),
+            }
         }
         #[cfg(not(target_os = "linux"))]
         {
-            Self(None)
+            Self::default()
         }
     }
+}
+
+/// GNOME's monospace font, e.g. `JetBrains Mono NL 11`. GTK has no setting
+/// for it. `None` where the GNOME schema is not installed: GIO aborts the
+/// process on a schema it does not know, so it is looked up first.
+#[cfg(target_os = "linux")]
+pub fn gnome_monospace_font() -> Option<String> {
+    use gtk::gio;
+    use gtk::gio::prelude::SettingsExtManual;
+    const SCHEMA: &str = "org.gnome.desktop.interface";
+    const KEY: &str = "monospace-font-name";
+    let schema = gio::SettingsSchemaSource::default()?.lookup(SCHEMA, true)?;
+    if !schema.has_key(KEY) {
+        return None;
+    }
+    let settings = gio::Settings::new_full(&schema, None::<&gio::SettingsBackend>, None);
+    Some(settings.get::<String>(KEY))
 }
 
 /// The family of a Pango font description such as `Noto Sans Bold 10`.
@@ -240,11 +265,13 @@ pub fn font_family(description: &str) -> Option<String> {
 }
 
 /// The name, version, OS and architecture of the running build, and the
-/// desktop's UI font.
+/// desktop's fonts.
 #[tauri::command]
 #[specta::specta]
-pub async fn app_info(font: State<'_, DesktopFont>) -> Result<AppInfo, IpcError> {
-    Ok(AppInfo::current().with_ui_font(font.0.clone()))
+pub async fn app_info(fonts: State<'_, DesktopFonts>) -> Result<AppInfo, IpcError> {
+    Ok(AppInfo::current()
+        .with_ui_font(fonts.ui.clone())
+        .with_code_font(fonts.code.clone()))
 }
 
 /// The latest git detection result; `checking` until the first one is done.

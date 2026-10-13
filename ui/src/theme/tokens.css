@@ -10,7 +10,9 @@
      each family here that is not installed slows the first layout (M1-16). */
   --font-ui-stack: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, sans-serif;
   --font-ui-system: var(--font-ui-stack);
-  --font-code-system: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  /* The same for the desktop's monospace font (M1-17). */
+  --font-code-stack: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --font-code-system: var(--font-code-stack);
   --font-ui: var(--font-ui-system);
   --font-code: var(--font-code-system);
   --font-size-ui: 13px;

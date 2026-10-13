@@ -8,7 +8,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	/**
 	 *  The name, version, OS and architecture of the running build, and the
-	 *  desktop's UI font.
+	 *  desktop's fonts.
 	 */
 	appInfo: () => typedError<AppInfo, IpcError>(__TAURI_INVOKE("app_info")),
 	/**  The latest git detection result; `checking` until the first one is done. */
@@ -223,6 +223,12 @@ export type AppInfo = {
 	 *  Linux). The UI puts it before its own list of system fonts (UI-26).
 	 */
 	ui_font: string | null,
+	/**
+	 *  The desktop's monospace font family, when the platform tells it
+	 *  (GNOME's settings on Linux). The UI puts it before its own list of
+	 *  monospace fonts (UI-26).
+	 */
+	code_font: string | null,
 };
 
 /**

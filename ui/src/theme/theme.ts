@@ -58,12 +58,16 @@ export function fontFamily(name: string | null, fallback: string): string {
 }
 
 /**
- * Puts the desktop's UI font, as the core reports it, first in the system UI
- * font (UI-26); `null` leaves the CSS list alone.
+ * Puts the desktop's UI and monospace fonts, as the core reports them, first
+ * in the system fonts (UI-26); `null` leaves the CSS list alone.
  */
-export function followDesktopFont(font: Accessor<string | null>, root: HTMLElement = document.documentElement): void {
+export function followDesktopFonts(
+  fonts: Accessor<{ ui: string | null; code: string | null }>,
+  root: HTMLElement = document.documentElement,
+): void {
   createEffect(() => {
-    root.style.setProperty("--font-ui-system", fontFamily(font(), "var(--font-ui-stack)"));
+    root.style.setProperty("--font-ui-system", fontFamily(fonts().ui, "var(--font-ui-stack)"));
+    root.style.setProperty("--font-code-system", fontFamily(fonts().code, "var(--font-code-stack)"));
   });
 }
 
