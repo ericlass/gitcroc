@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use gitcroc_core::{
     CACHE_FILE, CACHE_SCHEMA, CacheDir, ChangedFile, ConfigDir, DiffOptions, DiffSource, GitRepo,
-    GitRunner, Head, HistoryStart, JobId, MAX_REFRESHES, RepoId, StatusReader, Summaries,
+    GitRunner, Head, HistoryStart, JobId, REFRESH_READS, RepoId, StatusReader, Summaries,
     SummaryCache, SummaryView, WorkspaceId, Workspaces, add_path, changed_files, file_diff,
     history_page, refresh_summaries, repo_summary, working_copy,
 };
@@ -333,13 +333,12 @@ async fn perf_4_selected_repo_is_refreshed_first() {
 }
 
 #[test]
-fn perf_4_reads_at_once_follow_the_cores_up_to_8() {
+fn perf_4_the_refresh_reads_one_repo_at_a_time() {
     let dirs = Dirs::new();
     let workspaces = Workspaces::load(&dirs);
     let summaries = Summaries::load(SummaryCache::none(), &workspaces);
-    let cores = std::thread::available_parallelism().unwrap().get();
-    assert_eq!(summaries.limit(), cores.min(MAX_REFRESHES));
-    assert_eq!(MAX_REFRESHES, 8);
+    assert_eq!(summaries.limit(), REFRESH_READS);
+    assert_eq!(REFRESH_READS, 1);
 }
 
 #[tokio::test]

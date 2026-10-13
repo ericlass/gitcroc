@@ -5,8 +5,8 @@ pub mod ipc;
 use std::sync::Arc;
 
 use gitcroc_core::{
-    Changes, GitSetup, Histories, JobIds, PlatformCacheDir, PlatformConfigDir, SettingsStore,
-    Summaries, SummaryCache, Trees, Workspaces,
+    AppLog, Changes, GitSetup, Histories, PlatformCacheDir, PlatformConfigDir, PlatformLogDir,
+    SettingsStore, Summaries, SummaryCache, Trees, Workspaces,
 };
 use tauri::Manager;
 
@@ -24,6 +24,10 @@ pub fn run() -> Result<(), Error> {
     #[cfg(any(debug_assertions, feature = "perf-trace"))]
     ipc::debug::mark_process_start();
     let ipc = ipc::builder();
+    // Every git process the app runs goes to `gitcroc.log` (section 10).
+    let log = Arc::new(AppLog::open(&PlatformLogDir));
+    let command_log = log.clone();
+    gitcroc_core::log_commands_to(move |record| command_log.command(record));
     // Small files, read once so the first paint has the workspace.
     let workspaces = Arc::new(Workspaces::load(&PlatformConfigDir));
     // The cached summaries, read once so the first paint shows every repo
@@ -46,7 +50,7 @@ pub fn run() -> Result<(), Error> {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(invoke_handler)
         .manage(GitSetup::new())
-        .manage(JobIds::default())
+        .manage(log)
         // A small file read once, before the window shows, so the first
         // paint already has the saved theme.
         .manage(SettingsStore::load(&PlatformConfigDir))
@@ -78,6 +82,7 @@ pub fn run() -> Result<(), Error> {
             ipc.mount_events(app);
             // The watchers report through the app, so they start with it.
             app.manage(Arc::new(ipc::watchers(app.handle())));
+            app.manage(ipc::jobs(app.handle()));
             ipc::spawn_watching(app.handle());
             ipc::spawn_git_detection(app.handle().clone());
             ipc::perf_mark("setup done");

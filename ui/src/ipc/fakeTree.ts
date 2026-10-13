@@ -159,6 +159,7 @@ export function summary(workspaceId: string, repoId: RepoId, branch: string, cha
     refreshing: false,
     conflict: false,
     refs_version: 0,
+    busy: false,
   };
   return { ...view, ...change };
 }

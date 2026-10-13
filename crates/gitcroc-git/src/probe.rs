@@ -66,7 +66,7 @@ impl From<GitError> for InspectError {
             GitError::Failed { stderr, .. } => Self::Refused {
                 message: String::from_utf8_lossy(&stderr).trim_end().to_owned(),
             },
-            spawn @ GitError::Spawn { .. } => Self::Git(spawn),
+            other @ (GitError::Spawn { .. } | GitError::Killed) => Self::Git(other),
         }
     }
 }
@@ -114,6 +114,7 @@ mod tests {
         let message = "fatal: detected dubious ownership in repository at '/repo'";
         let error = InspectError::from(GitError::Failed {
             code: Some(128),
+            stdout: Vec::new(),
             stderr: format!("{message}\n").into_bytes(),
         });
         assert!(matches!(&error, InspectError::Refused { message: m } if m == message));

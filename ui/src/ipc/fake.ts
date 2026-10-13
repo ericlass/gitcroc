@@ -14,6 +14,7 @@ import type {
   FileRef,
   GitStatus,
   JobProgress,
+  JobView,
   PaneLayout,
   RepoId,
   RepoRef,
@@ -98,6 +99,7 @@ const repoSummaryListeners: Listeners<SummaryView> = new Set();
 const repoRefsChangedListeners: Listeners<RepoRef> = new Set();
 const commitGraphWrittenListeners: Listeners<CommitGraphWrittenEvent> = new Set();
 const watchWarningListeners: Listeners<WatchWarning> = new Set();
+const jobEndedListeners: Listeners<JobView> = new Set();
 
 /** Each workspace's changes view, as the core keeps it. */
 const views = new Map<string, { handle: number; lists: Partial<Record<FileRef["list"], FakeFile[]>> }>();
@@ -253,6 +255,7 @@ export function reset(): void {
   repoRefsChangedListeners.clear();
   commitGraphWrittenListeners.clear();
   watchWarningListeners.clear();
+  jobEndedListeners.clear();
 }
 
 // Playwright runs the fake build; `?fake=<name>` picks a data set.
@@ -602,16 +605,10 @@ export const fake: Core = {
       fakeState.declined[repoId] = true;
       return Promise.resolve({ status: "ok", data: null });
     },
-    debugEmitProgress: (workspaceId) => {
-      const jobId = nextJobId++;
-      const total = 3;
-      for (let done = 1; done <= total; done++) {
-        setTimeout(() => {
-          emitJobProgress({ job_id: jobId, workspace_id: workspaceId, label: "Debug job", done, total });
-        }, done * 100);
-      }
-      return Promise.resolve({ status: "ok", data: jobId });
-    },
+    // The fake runs no write jobs yet; its commit-graph write reports
+    // `commit_graph_written` only.
+    jobsGet: () => Promise.resolve({ status: "ok", data: [] }),
+    jobCancel: () => Promise.resolve({ status: "ok", data: "ended" }),
     // Only `just bench-ui` builds measure; the fake has nowhere to write.
     perfTraceWrite: () =>
       Promise.resolve({
@@ -622,6 +619,7 @@ export const fake: Core = {
   events: {
     commitGraphWritten: fakeEvent(commitGraphWrittenListeners),
     gitStatus: fakeEvent(gitStatusListeners),
+    jobEnded: fakeEvent(jobEndedListeners),
     jobProgress: fakeEvent(jobProgressListeners),
     repoRefsChanged: fakeEvent(repoRefsChangedListeners),
     repoSummary: fakeEvent(repoSummaryListeners),

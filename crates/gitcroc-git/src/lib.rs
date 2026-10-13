@@ -3,6 +3,7 @@
 mod detect;
 mod diff;
 mod history;
+pub mod ops;
 mod probe;
 mod read;
 mod refs;
@@ -24,10 +25,13 @@ pub use history::{
 pub use probe::{InspectError, Inspected, Layout, inspect, layout};
 pub use read::{GitRepo, OpenError};
 pub use refs::{
-    AheadBehind, BranchUpstream, LocalBranch, Refs, RefsError, RefsRead, RemoteBranches,
-    StashEntry, Tag,
+    AheadBehind, BranchUpstream, LocalBranch, RefSnapshot, Refs, RefsError, RefsRead,
+    RemoteBranches, StashEntry, Tag,
 };
-pub use runner::{GIT_ENV, GitError, GitRunner, Output};
+pub use runner::{
+    CommandRecord, Exit, GIT_ENV, GitError, GitRunner, Kill, Output, WRITE_ENV, Write,
+    log_commands_to,
+};
 pub use status::{
     Conflict, Engine, Fallback, Head, Operation, RepoState, RepoSummary, StatusError, StatusRead,
     StatusReader, UnmergedFile, Upstream, WorkingCopy,

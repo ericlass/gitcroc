@@ -10,7 +10,6 @@ import {
   Switch,
   untrack,
 } from "solid-js";
-import DebugJobs from "./DebugJobs";
 import GitSetup from "./GitSetup";
 import { appInfo } from "./ipc";
 import Panes from "./layout/Panes";
@@ -205,11 +204,7 @@ export default function App() {
                     settings={settings}
                   />
                 </main>
-                <StatusBar workspace={id()} jobs={jobs}>
-                  <Show when={import.meta.env.DEV}>
-                    <DebugJobs workspace={id()} />
-                  </Show>
-                </StatusBar>
+                <StatusBar workspace={id()} jobs={jobs} />
               </>
             )}
           </Show>

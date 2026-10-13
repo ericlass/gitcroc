@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 
-use gitcroc_git::{GitError, GitRunner, SearchEnv, detect};
+use gitcroc_git::{GitError, GitRunner, Kill, SearchEnv, Write, detect};
 
 async fn runner() -> GitRunner {
     let git = detect(None, &SearchEnv::from_process())
@@ -62,7 +62,7 @@ async fn runner_reports_exit_code_and_stderr() {
         .await
         .unwrap_err();
     match err {
-        GitError::Failed { code, stderr } => {
+        GitError::Failed { code, stderr, .. } => {
             assert_eq!(code, Some(128));
             // LC_ALL=C keeps the message in English.
             let stderr = String::from_utf8(stderr).unwrap();
@@ -70,4 +70,64 @@ async fn runner_reports_exit_code_and_stderr() {
         }
         other => panic!("expected Failed, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn writes_never_wait_on_an_editor() {
+    let git = runner().await;
+    let dir = tempfile::tempdir().unwrap();
+    let editor = |command: &tokio::process::Command| {
+        command
+            .as_std()
+            .get_envs()
+            .find(|(name, _)| *name == OsStr::new("GIT_EDITOR"))
+            .and_then(|(_, value)| value.map(OsStr::to_owned))
+    };
+    let write = git.write_command(&args(&["commit"]), dir.path());
+    assert_eq!(editor(&write), Some(OsString::from("true")));
+    let env: HashMap<&OsStr, Option<&OsStr>> = write.as_std().get_envs().collect();
+    assert_eq!(env.get(OsStr::new("LC_ALL")), Some(&Some(OsStr::new("C"))));
+    // Reads are unchanged.
+    assert_eq!(editor(&git.command(&args(&["status"]), None)), None);
+}
+
+#[tokio::test]
+async fn a_write_sends_stderr_lines_while_git_runs_and_keeps_all_output() {
+    let git = runner().await;
+    let dir = tempfile::tempdir().unwrap();
+    let lines = std::sync::Mutex::new(Vec::new());
+    let on_line = |line: &str| lines.lock().unwrap().push(line.to_owned());
+    let write = Write {
+        kill: None,
+        on_line: Some(&on_line),
+    };
+    let error = git
+        .run_write(&args(&["rev-parse", "--git-dir"]), dir.path(), write)
+        .await
+        .unwrap_err();
+    let GitError::Failed { code, stderr, .. } = error else {
+        panic!("expected Failed, got {error:?}");
+    };
+    assert_eq!(code, Some(128));
+    let stderr = String::from_utf8(stderr).unwrap();
+    let lines = lines.into_inner().unwrap();
+    assert_eq!(lines.concat(), stderr.replace('\n', ""));
+    assert!(lines[0].contains("not a git repository"), "{lines:?}");
+}
+
+#[tokio::test]
+async fn grp_10_a_write_killed_before_it_starts_never_runs() {
+    let git = runner().await;
+    let dir = tempfile::tempdir().unwrap();
+    let kill = Kill::new();
+    kill.kill();
+    let write = Write {
+        kill: Some(&kill),
+        on_line: None,
+    };
+    let result = git
+        .run_write(&args(&["init", "--quiet"]), dir.path(), write)
+        .await;
+    assert!(matches!(result, Err(GitError::Killed)), "{result:?}");
+    assert!(!dir.path().join(".git").exists());
 }

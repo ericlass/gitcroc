@@ -9,9 +9,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gitcroc_core::{
-    ConfigDir, GitRepo, GitRunner, Histories, HistoryStart, HistoryTarget, HistoryView, JobId,
-    PAGE_SIZE, RepoId, RepoRead, WorkspaceId, Workspaces, add_path, commit_graph_begin,
-    commit_graph_write, history_get, history_more,
+    ConfigDir, GitRepo, GitRunner, Histories, HistoryStart, HistoryTarget, HistoryView, JobEvents,
+    JobId, JobProgress, JobView, Jobs, Outcome, PAGE_SIZE, RepoId, RepoRead, Summaries,
+    SummaryCache, SummaryView, WorkspaceId, Workspaces, add_path, commit_graph_write, history_get,
+    history_more,
 };
 use repo_gen::{Fixture, Repo, RepoSpec};
 
@@ -29,7 +30,24 @@ struct Run {
     dirs: Dirs,
     workspaces: Arc<Workspaces>,
     histories: Arc<Histories>,
+    jobs: Arc<Jobs>,
+    progress: Arc<Progress>,
     id: WorkspaceId,
+}
+
+/// The progress the engine sent.
+#[derive(Default)]
+struct Progress(std::sync::Mutex<Vec<(JobId, u32, u32)>>);
+
+impl JobEvents for Progress {
+    fn progress(&self, progress: JobProgress) {
+        let step = (progress.job_id, progress.done, progress.total);
+        self.0.lock().unwrap().push(step);
+    }
+
+    fn ended(&self, _: &JobView) {}
+
+    fn summary(&self, _: SummaryView, _: bool) {}
 }
 
 impl Run {
@@ -49,10 +67,15 @@ impl Run {
         )
         .await
         .unwrap();
+        let summaries = Arc::new(Summaries::load(SummaryCache::none(), &workspaces));
+        let progress = Arc::new(Progress::default());
+        let jobs = Jobs::new(workspaces.clone(), summaries, progress.clone());
         Self {
             dirs,
             workspaces,
             histories: Arc::new(Histories::new(threshold)),
+            jobs,
+            progress,
             id,
         }
     }
@@ -76,6 +99,18 @@ impl Run {
             text.to_owned(),
         )
         .await
+        .unwrap()
+    }
+
+    fn write_commit_graph(&self, repo: &RepoId, git: GitRunner) -> gitcroc_core::CommitGraphWrite {
+        commit_graph_write(
+            &self.histories,
+            &self.jobs,
+            &self.workspaces,
+            &self.id,
+            repo,
+            git,
+        )
         .unwrap()
     }
 
@@ -309,13 +344,11 @@ async fn arch_1_commit_graph_is_written_by_the_git_cli() {
         .unwrap();
     assert!(!before.commit_graph);
 
-    let (job, new) = commit_graph_begin(&run.histories, &run.id, &app, JobId(7));
-    assert_eq!((job, new), (JobId(7), true));
+    let write = run.write_commit_graph(&app, git());
     // A second request while it runs joins the running job.
-    assert_eq!(
-        commit_graph_begin(&run.histories, &run.id, &app, JobId(8)),
-        (JobId(7), false)
-    );
+    let joined = run.write_commit_graph(&app, git());
+    assert_eq!(joined.job_id, write.job_id);
+    assert!(joined.ended.is_none());
     // No offer while the file is being written.
     assert!(
         !run.get(&app, HistoryTarget::Repo, "")
@@ -323,19 +356,12 @@ async fn arch_1_commit_graph_is_written_by_the_git_cli() {
             .unwrap()
             .offer_commit_graph
     );
-    let progress = std::sync::Mutex::new(Vec::new());
-    commit_graph_write(
-        run.histories.clone(),
-        run.workspaces.clone(),
-        run.id.clone(),
-        app.clone(),
-        git(),
-        job,
-        |step| progress.lock().unwrap().push((step.done, step.total)),
-    )
-    .await
-    .unwrap();
-    assert_eq!(*progress.lock().unwrap(), [(0, 0), (1, 1)]);
+    let view = write.ended.unwrap().await.unwrap();
+    assert_eq!(view.outcome, Some(Outcome::Succeeded));
+    // A job of the engine, in the job list.
+    assert_eq!(run.jobs.views(&run.id)[0].job_id, view.job_id);
+    assert_eq!(view.label, "Writing the commit-graph file of app");
+    assert_eq!(*run.progress.0.lock().unwrap(), [(view.job_id, 0, 0)]);
 
     assert!(has_commit_graph(&path));
     let after = GitRepo::open(&path)
@@ -350,7 +376,9 @@ async fn arch_1_commit_graph_is_written_by_the_git_cli() {
             .offer_commit_graph
     );
     // The job is over: a new request starts a new one.
-    assert!(commit_graph_begin(&run.histories, &run.id, &app, JobId(9)).1);
+    let again = run.write_commit_graph(&app, git());
+    assert_ne!(again.job_id, view.job_id);
+    again.ended.unwrap().await.unwrap();
 }
 
 #[tokio::test]
@@ -359,19 +387,11 @@ async fn arch_1_a_failed_commit_graph_write_is_reported() {
     small_repo(&fixture);
     let run = Run::with_repos_in(fixture.path(), Duration::ZERO).await;
     let app = run.repo("app");
-    let (job, _) = commit_graph_begin(&run.histories, &run.id, &app, JobId(1));
     let missing = GitRunner::new(PathBuf::from("/no/such/git"));
-    let result = commit_graph_write(
-        run.histories.clone(),
-        run.workspaces.clone(),
-        run.id.clone(),
-        app.clone(),
-        missing,
-        job,
-        |_| {},
-    )
-    .await;
-    assert!(result.is_err());
+    let write = run.write_commit_graph(&app, missing);
+    let view = write.ended.unwrap().await.unwrap();
+    assert_eq!(view.outcome, Some(Outcome::Failed));
+    assert!(view.message.unwrap().contains("/no/such/git"));
     // History keeps working without the file.
     let view = run.get(&app, HistoryTarget::Repo, "").await.unwrap();
     assert_eq!(view.rows.len(), 4);

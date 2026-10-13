@@ -179,7 +179,5 @@ export const diffGet = (workspaceId: WorkspaceId, handle: number, file: FileRef,
 export const diffImage = (workspaceId: WorkspaceId, handle: number, file: FileRef, side: ImageSide) =>
   unwrap(core.commands.diffImage(workspaceId, handle, file, side));
 
-export const debugEmitProgress = (workspaceId: string) => unwrap(core.commands.debugEmitProgress(workspaceId));
-
 /** `perf-trace` builds only (`just bench-ui`): writes what the UI measured. */
 export const perfTraceWrite = (trace: PerfTrace) => unwrap(core.commands.perfTraceWrite(trace));

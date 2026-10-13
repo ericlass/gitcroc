@@ -3,30 +3,34 @@
 //! refresh then reads each repo again, the selected repo first, and keeps
 //! the fresh summary in the cache.
 //!
-//! The refresh is the minimal scheduler M1 needs: at most as many reads at
-//! once as the machine has cores, capped at [`MAX_REFRESHES`], each on a
-//! thread of its own at the lowest priority the OS gives (PERF-4), so the
-//! webview and the reads the user waits for keep the CPU. M2's job engine
-//! replaces it with the shared job pool and the full PERF-4 order. All
-//! state is kept per workspace (ARCH-9).
+//! The refresh reads [`REFRESH_READS`] repo at a time per workspace, each
+//! read holding a worker of the pool it shares with jobs (PERF-4), which
+//! serves jobs first. Each
+//! read runs on a thread of its own at the lowest priority the OS gives, so
+//! the webview and the reads the user waits for keep the CPU. A job's own
+//! re-read of a repo (OPS-7) runs at once instead, and a background read
+//! that began before it is not kept. All state is kept per workspace
+//! (ARCH-9).
 
 mod cache;
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::num::NonZero;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use gitcroc_git::{GitRepo, GitRunner, RepoSummary, StatusRead, StatusReader};
 use serde::{Deserialize, Serialize};
 
+use crate::job::{POOL_SIZE, Pool, Priority};
 use crate::{RepoId, WorkspaceError, WorkspaceId, Workspaces};
 
 pub use cache::{CACHE_FILE, CACHE_SCHEMA, CacheDir, PlatformCacheDir, SummaryCache};
 
-/// At most this many summaries are read at once, fewer on a machine with
-/// fewer cores.
-pub const MAX_REFRESHES: usize = 8;
+/// How many summaries the background refresh reads at once per workspace.
+/// Reading up to 8 at once took a refresh of `target-project` from 0.9 s to
+/// 0.33 s, but `memory-idle` from 370 to 460 MB and cold start from 596 to
+/// 1112 ms, over their section 9 budgets (M2-01).
+pub const REFRESH_READS: usize = 1;
 
 /// A repo's summary as the UI sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -51,6 +55,9 @@ pub struct SummaryView {
     /// Goes up each time the repo's refs or `HEAD` are seen to have changed
     /// in this run; the history reads the repo again when it does (OPS-7).
     pub refs_version: u32,
+    /// A write job waits or runs on the repo, so other writes are disabled
+    /// (GRP-8) and the row shows the spinner (UI-3).
+    pub busy: bool,
 }
 
 /// One repo's summary state.
@@ -62,6 +69,11 @@ struct Entry {
     error: Option<String>,
     refreshing: bool,
     refs_version: u32,
+    /// Write jobs waiting or running on the repo.
+    busy: u32,
+    /// Goes up when a job's re-read begins; a read that began earlier is
+    /// not kept.
+    epoch: u32,
 }
 
 impl Entry {
@@ -73,6 +85,8 @@ impl Entry {
             error: None,
             refreshing: false,
             refs_version: 0,
+            busy: 0,
+            epoch: 0,
         }
     }
 
@@ -90,6 +104,7 @@ impl Entry {
                 .as_ref()
                 .is_some_and(|summary| summary.state.in_conflict()),
             refs_version: self.refs_version,
+            busy: self.busy > 0,
         }
     }
 }
@@ -131,6 +146,8 @@ impl WorkspaceState {
 #[derive(Debug)]
 pub struct Summaries {
     cache: SummaryCache,
+    /// The workers the refresh shares with jobs.
+    pool: Arc<Pool>,
     /// Reads at once per workspace.
     limit: usize,
     state: Mutex<HashMap<WorkspaceId, WorkspaceState>>,
@@ -157,19 +174,27 @@ impl Summaries {
             }
             state.insert(view.id, workspace);
         }
-        let limit = std::thread::available_parallelism()
-            .map(NonZero::get)
-            .unwrap_or(1)
-            .min(MAX_REFRESHES);
         Self {
             cache,
-            limit,
+            pool: Pool::new(POOL_SIZE),
+            limit: REFRESH_READS,
             state: Mutex::new(state),
         }
     }
 
-    /// Runs at most `limit` reads at once per workspace instead of one per
-    /// core.
+    /// Reads in workers of `pool` instead of a pool of its own.
+    pub fn with_pool(mut self, pool: Arc<Pool>) -> Self {
+        self.pool = pool;
+        self
+    }
+
+    /// The workers the refresh shares with jobs (PERF-4).
+    pub fn pool(&self) -> &Arc<Pool> {
+        &self.pool
+    }
+
+    /// Runs at most `limit` reads at once per workspace instead of
+    /// [`REFRESH_READS`].
     pub fn with_limit(mut self, limit: usize) -> Self {
         self.limit = limit.max(1);
         self
@@ -218,11 +243,64 @@ impl Summaries {
     }
 
     /// Takes the note of [`Summaries::refs_changed`] as a read of `repo`
-    /// begins, so a change during the read is kept for the next one.
-    fn take_refs_changed(&self, id: &WorkspaceId, repo: &RepoId) -> bool {
-        self.lock()
-            .get_mut(id)
-            .is_some_and(|workspace| workspace.refs_changed.remove(repo))
+    /// begins, so a change during the read is kept for the next one, and
+    /// returns it with the repo's epoch.
+    fn begin_read(&self, id: &WorkspaceId, repo: &RepoId) -> (bool, u32) {
+        let mut state = self.lock();
+        let Some(workspace) = state.get_mut(id) else {
+            return (false, 0);
+        };
+        let refs_changed = workspace.refs_changed.remove(repo);
+        let epoch = workspace.entries.get(repo).map_or(0, |entry| entry.epoch);
+        (refs_changed, epoch)
+    }
+
+    /// Notes that a write job waits or runs on `repo` (`busy`), or that one
+    /// ended, and returns the repo's new view.
+    pub fn set_busy(&self, id: &WorkspaceId, repo: &RepoId, busy: bool) -> SummaryView {
+        let mut state = self.lock();
+        let entry = state
+            .entry(id.clone())
+            .or_default()
+            .entries
+            .entry(repo.clone())
+            .or_insert_with(|| Entry::cached(None));
+        entry.busy = if busy {
+            entry.busy.saturating_add(1)
+        } else {
+            entry.busy.saturating_sub(1)
+        };
+        entry.view(id, repo)
+    }
+
+    /// Reads `repo` of workspace `id` again at once, at normal priority,
+    /// after a job changed it (OPS-7); `refs_changed` says the job changed
+    /// its refs, so the history reads it again. A background read that
+    /// began before is not kept. Returns the new view, or `None` when the
+    /// repo is no longer in the workspace. Reads the repo: call it from a
+    /// thread that may block.
+    pub fn reread(
+        &self,
+        workspaces: &Workspaces,
+        id: &WorkspaceId,
+        repo: &RepoId,
+        git: &GitRunner,
+        refs_changed: bool,
+    ) -> Option<SummaryView> {
+        let path = workspaces.repo_path(id, repo).ok()?;
+        let (noted, epoch) = {
+            let mut state = self.lock();
+            let workspace = state.entry(id.clone()).or_default();
+            let noted = workspace.refs_changed.remove(repo);
+            let entry = workspace
+                .entries
+                .entry(repo.clone())
+                .or_insert_with(|| Entry::cached(None));
+            entry.epoch = entry.epoch.wrapping_add(1);
+            (noted, entry.epoch)
+        };
+        let outcome = read(&path, |repo| StatusReader::new(repo, git.clone()));
+        Some(self.store(id, repo, &path, outcome, refs_changed || noted, epoch))
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<WorkspaceId, WorkspaceState>> {
@@ -279,20 +357,30 @@ impl Summaries {
         path: &Path,
         outcome: Outcome,
         refs_changed: bool,
+        epoch: u32,
     ) -> SummaryView {
-        if let Outcome::Read(summary) = &outcome {
-            self.cache.put(path, summary);
-        }
         let mut state = self.lock();
         let workspace = state.entry(id.clone()).or_default();
-        if refs_changed && !matches!(outcome, Outcome::Read(_)) {
-            // Counted at the next read that succeeds.
+        let current = workspace
+            .entries
+            .get(repo)
+            .is_none_or(|entry| entry.epoch == epoch);
+        if refs_changed && !(current && matches!(outcome, Outcome::Read(_))) {
+            // Counted at the next read that succeeds and is kept.
             workspace.refs_changed.insert(repo.clone());
         }
         let entry = workspace
             .entries
             .entry(repo.clone())
             .or_insert_with(|| Entry::cached(None));
+        if !current {
+            // A job's re-read began since: what this read saw is older.
+            entry.refreshing = false;
+            return entry.view(id, repo);
+        }
+        if let Outcome::Read(summary) = &outcome {
+            self.cache.put(path, summary);
+        }
         match outcome {
             Outcome::Read(summary) => {
                 // A summary read in this run shows `HEAD` moving even when
@@ -314,6 +402,8 @@ impl Summaries {
                     error: None,
                     refreshing: false,
                     refs_version,
+                    busy: entry.busy,
+                    epoch: entry.epoch,
                 };
             }
             Outcome::Missing => {
@@ -365,47 +455,61 @@ pub async fn refresh_summaries(
                 git.clone(),
                 emit.clone(),
             );
-            run_in_background(move || {
-                let mut worker = Worker {
+            tokio::spawn(async move {
+                let pool = summaries.pool.clone();
+                let mut reader = Reader {
                     summaries,
                     workspace,
                     done: false,
                 };
-                while let Some(repo) = worker.next() {
+                loop {
+                    let _worker = pool.worker(Priority::Refresh).await;
+                    let Some(repo) = reader.next() else {
+                        break;
+                    };
                     // A repo removed while it waited is skipped.
-                    let Ok(path) = workspaces.repo_path(&worker.workspace, &repo) else {
+                    let Ok(path) = workspaces.repo_path(&reader.workspace, &repo) else {
                         continue;
                     };
-                    let refs_changed = worker.summaries.take_refs_changed(&worker.workspace, &repo);
-                    let outcome = read(&path, &git);
-                    emit(worker.summaries.store(
-                        &worker.workspace,
+                    let (refs_changed, epoch) =
+                        reader.summaries.begin_read(&reader.workspace, &repo);
+                    let (read_path, git) = (path.clone(), git.clone());
+                    let outcome = run_in_background(move || {
+                        read(&read_path, |repo| background_reader(repo, &git))
+                    })
+                    .await
+                    .unwrap_or_else(|| Outcome::Failed("the read did not finish".to_owned()));
+                    emit(reader.summaries.store(
+                        &reader.workspace,
                         &repo,
                         &path,
                         outcome,
                         refs_changed,
+                        epoch,
                     ));
                 }
             })
         })
         .collect();
     for worker in workers {
-        // A worker that panicked gave back its place (see `Worker`); the
+        // A reader that panicked gave back its place (see `Reader`); the
         // others go on.
-        worker.await;
+        let _ = worker.await;
     }
 }
 
 /// Runs `work` on a thread of its own at the lowest priority the OS gives
-/// (PERF-4) and resolves when it ends, also by a panic. On Linux the
-/// threads `gix` starts for a status inherit the priority. Not tokio's
-/// blocking pool: its threads also run the reads the user waits for, and a
-/// thread's priority cannot be raised again without privileges. When no
-/// thread can be started, `work` runs there at normal priority.
-async fn run_in_background(work: impl FnOnce() + Send + 'static) {
+/// (PERF-4) and resolves to what it returned, or `None` when it panicked.
+/// On Linux the threads `gix` starts for a status inherit the priority. Not
+/// tokio's blocking pool: its threads also run the reads the user waits
+/// for, and a thread's priority cannot be raised again without privileges.
+/// When no thread can be started, `work` runs there at normal priority.
+async fn run_in_background<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
     let work = Arc::new(Mutex::new(Some(work)));
     let take = |work: &Mutex<Option<_>>| work.lock().unwrap_or_else(PoisonError::into_inner).take();
-    let (done, ended) = tokio::sync::oneshot::channel::<()>();
+    let (done, ended) = tokio::sync::oneshot::channel::<T>();
     let spawned = std::thread::Builder::new()
         .name("gitcroc-refresh".to_owned())
         .spawn({
@@ -416,15 +520,16 @@ async fn run_in_background(work: impl FnOnce() + Send + 'static) {
                     thread_priority::ThreadPriority::Min,
                 );
                 if let Some(work) = take(&work) {
-                    work();
+                    let _ = done.send(work());
                 }
-                let _ = done.send(());
             }
         });
     if spawned.is_ok() {
-        let _ = ended.await;
+        ended.await.ok()
     } else if let Some(work) = take(&work) {
-        let _ = tokio::task::spawn_blocking(work).await;
+        tokio::task::spawn_blocking(work).await.ok()
+    } else {
+        None
     }
 }
 
@@ -447,15 +552,15 @@ pub async fn refresh_workspace(
     Ok(())
 }
 
-/// A running read loop's place in its workspace's worker count.
-struct Worker {
+/// A running read loop's place in its workspace's reader count.
+struct Reader {
     summaries: Arc<Summaries>,
     workspace: WorkspaceId,
     /// The place was given back when the queue ran empty.
     done: bool,
 }
 
-impl Worker {
+impl Reader {
     fn next(&mut self) -> Option<RepoId> {
         let next = self.summaries.next(&self.workspace);
         self.done = next.is_none();
@@ -463,7 +568,7 @@ impl Worker {
     }
 }
 
-impl Drop for Worker {
+impl Drop for Reader {
     /// Gives the place back when the loop ended by a panic, so later
     /// refreshes still start their workers.
     fn drop(&mut self) {
@@ -476,8 +581,8 @@ impl Drop for Worker {
 }
 
 /// How many threads one background status read uses at most. Unlimited,
-/// each of up to [`MAX_REFRESHES`] reads starts one per core, and glibc's
-/// malloc keeps memory for each of them after the refresh. Four keep a
+/// each read starts one per core, and glibc's malloc keeps memory for each
+/// of them after the refresh. Four keep a
 /// refresh of `target-project` within 1 s, measured pinned to 8 cores; one
 /// took 1.9 s (M1-14).
 const STATUS_THREADS: usize = 4;
@@ -487,7 +592,8 @@ fn background_reader(repo: GitRepo, git: &GitRunner) -> StatusReader {
     StatusReader::new(repo, git.clone()).with_thread_limit(STATUS_THREADS)
 }
 
-fn read(path: &Path, git: &GitRunner) -> Outcome {
+/// Reads the summary of the repo at `path` with the reader `reader` makes.
+fn read(path: &Path, reader: impl FnOnce(GitRepo) -> StatusReader) -> Outcome {
     match path.try_exists() {
         Ok(true) => {}
         Ok(false) => return Outcome::Missing,
@@ -497,7 +603,7 @@ fn read(path: &Path, git: &GitRunner) -> Outcome {
         Ok(repo) => repo,
         Err(error) => return Outcome::Failed(error.to_string()),
     };
-    match background_reader(repo, git).summary() {
+    match reader(repo).summary() {
         Ok(summary) => Outcome::Read(summary),
         Err(error) => Outcome::Failed(error.to_string()),
     }
