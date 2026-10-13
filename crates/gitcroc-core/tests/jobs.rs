@@ -14,10 +14,10 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use gitcroc_core::{
-    CancelResult, ConfigDir, GitError, GitRunner, Head, JobEvents, JobHandle, JobProgress, JobRun,
-    JobState, JobView, Jobs, NothingToDo, OnCancel, Outcome, Output, Pool, Priority, RepoId,
-    SkipReason, Summaries, SummaryCache, SummaryView, WorkspaceId, Workspaces, WriteJob, add_path,
-    refresh_summaries,
+    AddReport, CancelResult, ConfigDir, GitError, GitRunner, Head, JobEvents, JobHandle, JobRun,
+    JobState, JobView, Jobs, NothingToDo, OnCancel, Outcome, Output, Pool, Priority, Refusal,
+    RepoId, RepoView, SkipReason, Summaries, SummaryCache, SummaryView, WorkspaceId, Workspaces,
+    WriteJob, add_path, refresh_summaries,
 };
 use repo_gen::{Fixture, Repo};
 use tokio::sync::{mpsc, oneshot};
@@ -35,7 +35,7 @@ impl ConfigDir for Dirs {
 /// What the engine sent, in order.
 #[derive(Debug, Clone)]
 enum Sent {
-    Progress(JobProgress),
+    Progress(JobView),
     Ended(JobView),
     Summary(SummaryView, bool),
 }
@@ -44,8 +44,8 @@ enum Sent {
 struct Recorder(Mutex<Vec<Sent>>);
 
 impl JobEvents for Recorder {
-    fn progress(&self, progress: JobProgress) {
-        self.0.lock().unwrap().push(Sent::Progress(progress));
+    fn progress(&self, job: &JobView) {
+        self.0.lock().unwrap().push(Sent::Progress(job.clone()));
     }
 
     fn ended(&self, job: &JobView) {
@@ -328,7 +328,10 @@ async fn ops_7_a_job_rereads_the_repos_it_touched() {
         .expect("the new summary was sent");
     let began = sent
         .iter()
-        .position(|sent| matches!(sent, Sent::Progress(progress) if progress.job_id == job_id))
+        .position(|sent| {
+            matches!(sent, Sent::Progress(progress)
+                if progress.job_id == job_id && progress.state == JobState::Running)
+        })
         .unwrap();
     let end = sent
         .iter()
@@ -576,4 +579,158 @@ async fn a_job_on_a_repo_not_in_the_workspace_does_not_start() {
         .start(git(), job, |_run| async { Ok::<_, GitError>(empty()) });
     assert!(started.is_err());
     assert!(setup.jobs.views(&setup.id).is_empty());
+}
+
+/// Each view the engine sent for job `job_id`, in order.
+fn progress_of(sent: &[Sent], job_id: gitcroc_core::JobId) -> Vec<JobView> {
+    sent.iter()
+        .filter_map(|sent| match sent {
+            Sent::Progress(view) if view.job_id == job_id => Some(view.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn ui_21_a_job_is_sent_queued_then_running_with_progress_then_ended() {
+    let setup = Setup::new().await;
+    let (log, mut started) = Log::new();
+    let (first, release_first) = setup.held("one", "A", &log);
+    started.recv().await.unwrap();
+    let second = setup
+        .jobs
+        .start(git(), setup.job("one", "B"), |run| async move {
+            run.progress(1, 2);
+            run.progress(2, 2);
+            Ok(empty())
+        })
+        .unwrap();
+    let id = second.job_id;
+
+    // Queued behind A, with the names the job list shows.
+    let queued = progress_of(&setup.sent(), id);
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    let workspace_name = setup.workspaces.view(&setup.id).unwrap().name;
+    assert_eq!(queued[0].state, JobState::Queued);
+    assert_eq!(queued[0].workspace_name, workspace_name);
+    assert_eq!(queued[0].repo_names, ["one"]);
+    assert_eq!(queued[0].started_at, None);
+
+    release_first.send(()).unwrap();
+    ended(first).await;
+    let view = ended(second).await;
+    let steps: Vec<(JobState, u32, u32)> = progress_of(&setup.sent(), id)
+        .iter()
+        .map(|view| (view.state, view.done, view.total))
+        .collect();
+    assert_eq!(
+        steps,
+        [
+            (JobState::Queued, 0, 0),
+            (JobState::Running, 0, 0),
+            (JobState::Running, 1, 2),
+            (JobState::Running, 2, 2),
+        ]
+    );
+    assert_eq!(view.state, JobState::Ended);
+    assert_eq!(view.outcome, Some(Outcome::Succeeded));
+    assert!(
+        view.started_at.is_some() && view.duration_ms.is_some(),
+        "{view:?}"
+    );
+    assert_eq!(setup.jobs.views(&setup.id)[0], view);
+    assert_eq!(setup.jobs.all_views()[0], view);
+}
+
+fn repo_view(name: &str) -> RepoView {
+    RepoView {
+        id: RepoId(name.to_owned()),
+        name: name.to_owned(),
+        path: format!("/work/{name}"),
+        remote: None,
+    }
+}
+
+#[tokio::test]
+async fn ui_21_an_add_job_is_listed_with_its_outcome() {
+    let setup = Setup::new().await;
+    let tracked = setup.jobs.track(&setup.id, "Add repos from /work").unwrap();
+    let id = tracked.job_id();
+    tracked.progress(1, 3);
+    let report = AddReport {
+        workspace_id: setup.id.clone(),
+        job_id: id,
+        added: vec![repo_view("new")],
+        already_present: vec![repo_view("old")],
+        refused: vec![Refusal {
+            path: "/work/broken".to_owned(),
+            reason: "not a repo".to_owned(),
+        }],
+    };
+    let (outcome, output, message) = report.ending();
+    tracked.end(outcome, output, message);
+
+    let steps: Vec<(JobState, u32, u32)> = progress_of(&setup.sent(), id)
+        .iter()
+        .map(|view| (view.state, view.done, view.total))
+        .collect();
+    assert_eq!(
+        steps,
+        [(JobState::Running, 0, 0), (JobState::Running, 1, 3)]
+    );
+    let view = setup.jobs.views(&setup.id)[0].clone();
+    assert_eq!(view.job_id, id);
+    assert_eq!(view.state, JobState::Ended);
+    assert_eq!(view.outcome, Some(Outcome::Succeeded));
+    assert_eq!(
+        view.output,
+        "added /work/new\nalready present /work/old\nrefused /work/broken: not a repo\n"
+    );
+    assert!(
+        setup
+            .sent()
+            .iter()
+            .any(|sent| matches!(sent, Sent::Ended(ended) if *ended == view))
+    );
+
+    // Dropped before its end, as when its task panics, it failed.
+    let dropped = setup.jobs.track(&setup.id, "Add repos from /gone").unwrap();
+    let dropped_id = dropped.job_id();
+    drop(dropped);
+    let view = setup.jobs.views(&setup.id)[0].clone();
+    assert_eq!(
+        (view.job_id, view.outcome),
+        (dropped_id, Some(Outcome::Failed))
+    );
+}
+
+#[test]
+fn grp_7_an_add_job_succeeds_when_it_added_a_repo() {
+    let report = |added: Vec<RepoView>, present: Vec<RepoView>, refused: Vec<Refusal>| AddReport {
+        workspace_id: WorkspaceId("ws".to_owned()),
+        job_id: gitcroc_core::JobId(1),
+        added,
+        already_present: present,
+        refused,
+    };
+    let refusal = || Refusal {
+        path: "/work/broken".to_owned(),
+        reason: "not a repo".to_owned(),
+    };
+    let outcome = |report: AddReport| {
+        let (outcome, _, message) = report.ending();
+        (outcome, message)
+    };
+    assert_eq!(
+        outcome(report(vec![repo_view("new")], vec![], vec![refusal()])),
+        (Outcome::Succeeded, None)
+    );
+    assert_eq!(
+        outcome(report(vec![], vec![repo_view("old")], vec![])),
+        (Outcome::NothingToDo, None)
+    );
+    assert_eq!(
+        outcome(report(vec![], vec![repo_view("old")], vec![refusal()])),
+        (Outcome::Failed, Some("no repo was added".to_owned()))
+    );
 }

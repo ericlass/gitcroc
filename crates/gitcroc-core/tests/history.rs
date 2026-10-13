@@ -10,9 +10,8 @@ use std::time::Duration;
 
 use gitcroc_core::{
     ConfigDir, GitRepo, GitRunner, Histories, HistoryStart, HistoryTarget, HistoryView, JobEvents,
-    JobId, JobProgress, JobView, Jobs, Outcome, PAGE_SIZE, RepoId, RepoRead, Summaries,
-    SummaryCache, SummaryView, WorkspaceId, Workspaces, add_path, commit_graph_write, history_get,
-    history_more,
+    JobId, JobState, JobView, Jobs, Outcome, PAGE_SIZE, RepoId, RepoRead, Summaries, SummaryCache,
+    SummaryView, WorkspaceId, Workspaces, add_path, commit_graph_write, history_get, history_more,
 };
 use repo_gen::{Fixture, Repo, RepoSpec};
 
@@ -40,9 +39,11 @@ struct Run {
 struct Progress(std::sync::Mutex<Vec<(JobId, u32, u32)>>);
 
 impl JobEvents for Progress {
-    fn progress(&self, progress: JobProgress) {
-        let step = (progress.job_id, progress.done, progress.total);
-        self.0.lock().unwrap().push(step);
+    fn progress(&self, job: &JobView) {
+        if job.state == JobState::Running {
+            let step = (job.job_id, job.done, job.total);
+            self.0.lock().unwrap().push(step);
+        }
     }
 
     fn ended(&self, _: &JobView) {}

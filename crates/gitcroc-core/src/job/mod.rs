@@ -13,6 +13,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use gitcroc_git::{
     GitError, GitRepo, GitRunner, Kill, Output, RefSnapshot, StatusRead, StatusReader, Write,
@@ -42,7 +43,7 @@ impl JobIds {
     }
 }
 
-/// How far a job has come: `done` of `total` steps. A `total` of 0 means
+/// A step of adding repos: `done` of `total` steps. A `total` of 0 means
 /// the number of steps is not known yet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct JobProgress {
@@ -83,14 +84,27 @@ pub enum JobState {
     Ended,
 }
 
-/// A job as the job list shows it.
+/// A job as the status bar and the job list show it (UI-21).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct JobView {
     pub job_id: JobId,
     pub workspace_id: WorkspaceId,
+    /// The workspace's name when the job was started.
+    pub workspace_name: String,
     pub label: String,
     pub repos: Vec<RepoId>,
+    /// The names of `repos`, in their order, when the job was started.
+    pub repo_names: Vec<String>,
     pub state: JobState,
+    /// How far it has come: `done` of `total` steps. A `total` of 0 means
+    /// the number of steps is not known yet.
+    pub done: u32,
+    pub total: u32,
+    /// When it began to run, in milliseconds since the Unix epoch.
+    #[specta(type = Option<f64>)]
+    pub started_at: Option<u64>,
+    /// How long it ran, in milliseconds; set when it ended.
+    pub duration_ms: Option<u32>,
     /// Set when the job has ended.
     pub outcome: Option<Outcome>,
     /// What git printed, stdout then stderr, progress lines folded to their
@@ -184,7 +198,8 @@ impl JobRun {
 
 /// What the engine tells the app.
 pub trait JobEvents: Send + Sync {
-    fn progress(&self, progress: JobProgress);
+    /// A job was queued, began to run, or made progress.
+    fn progress(&self, job: &JobView);
     /// A job ended; sent after its repos were read again.
     fn ended(&self, job: &JobView);
     /// A repo's summary changed: read again (`read`), or only its busy flag.
@@ -229,6 +244,8 @@ pub enum CancelResult {
 /// One job's place in the engine.
 struct Entry {
     view: JobView,
+    /// When it began to run.
+    began: Option<Instant>,
     kill: Kill,
     on_cancel: OnCancel,
     /// Wakes the job when it is first in all its repos' queues.
@@ -331,6 +348,7 @@ impl Jobs {
             .map(|repo| self.workspaces.repo_path(&job.workspace_id, repo))
             .collect::<Result<Vec<_>, _>>()?;
         let id = self.ids.next();
+        let view = self.new_view(id, &job.workspace_id, &job.label, &job.repos)?;
         let kill = Kill::new();
         let (turn, my_turn) = oneshot::channel();
         let first = {
@@ -344,22 +362,15 @@ impl Jobs {
             }
             let first = state.first(&job.workspace_id, &job.repos, id);
             state.jobs.push_back(Entry {
-                view: JobView {
-                    job_id: id,
-                    workspace_id: job.workspace_id.clone(),
-                    label: job.label.clone(),
-                    repos: job.repos.clone(),
-                    state: JobState::Queued,
-                    outcome: None,
-                    output: String::new(),
-                    message: None,
-                },
+                view: view.clone(),
+                began: None,
                 kill: kill.clone(),
                 on_cancel: job.on_cancel,
                 turn: (!first).then_some(turn),
             });
             first
         };
+        self.events.progress(&view);
         for repo in &job.repos {
             let view = self.summaries.set_busy(&job.workspace_id, repo, true);
             self.events.summary(view, false);
@@ -376,6 +387,98 @@ impl Jobs {
             job_id: id,
             ended: receiver,
         })
+    }
+
+    /// A queued job's view: the workspace's and repos' names as they are
+    /// now, so the job list keeps them when a repo is removed.
+    fn new_view(
+        &self,
+        id: JobId,
+        workspace: &WorkspaceId,
+        label: &str,
+        repos: &[RepoId],
+    ) -> Result<JobView, WorkspaceError> {
+        let current = self.workspaces.view(workspace)?;
+        let repo_names = repos
+            .iter()
+            .map(|repo| {
+                current
+                    .repos
+                    .iter()
+                    .find(|known| known.id == *repo)
+                    .map_or_else(|| repo.0.clone(), |known| known.name.clone())
+            })
+            .collect();
+        Ok(JobView {
+            job_id: id,
+            workspace_id: workspace.clone(),
+            workspace_name: current.name,
+            label: label.to_owned(),
+            repos: repos.to_owned(),
+            repo_names,
+            state: JobState::Queued,
+            done: 0,
+            total: 0,
+            started_at: None,
+            duration_ms: None,
+            outcome: None,
+            output: String::new(),
+            message: None,
+        })
+    }
+
+    /// Tracks a job that is not a repo write, such as adding repos: it runs
+    /// at once, outside the repo queues, and ends with [`TrackedJob::end`].
+    pub fn track(
+        self: &Arc<Self>,
+        workspace: &WorkspaceId,
+        label: &str,
+    ) -> Result<TrackedJob, JobError> {
+        let id = self.ids.next();
+        let view = self.new_view(id, workspace, label, &[])?;
+        self.lock().jobs.push_back(Entry {
+            view,
+            began: None,
+            kill: Kill::new(),
+            on_cancel: OnCancel::Finish,
+            turn: None,
+        });
+        if let Some(view) = self.begin(id) {
+            self.events.progress(&view);
+        }
+        Ok(TrackedJob {
+            jobs: self.clone(),
+            id,
+            ended: false,
+        })
+    }
+
+    /// Sets job `id`'s progress and sends its view.
+    fn set_progress(&self, id: JobId, done: u32, total: u32) {
+        let view = {
+            let mut state = self.lock();
+            let Some(entry) = state.entry(id) else {
+                return;
+            };
+            if entry.view.state != JobState::Running {
+                return;
+            }
+            entry.view.done = done;
+            entry.view.total = total;
+            entry.view.clone()
+        };
+        self.events.progress(&view);
+    }
+
+    /// This run's jobs of every workspace, newest first, for the job list
+    /// (UI-21).
+    pub fn all_views(&self) -> Vec<JobView> {
+        self.lock()
+            .jobs
+            .iter()
+            .rev()
+            .map(|entry| entry.view.clone())
+            .collect()
     }
 
     /// This run's jobs of workspace `workspace`, newest first.
@@ -439,7 +542,8 @@ impl Jobs {
             () = kill.requested() => None,
             worker = ready => Some(worker),
         };
-        let Some(_worker) = worker.filter(|_| self.begin(id)) else {
+        let begun = worker.and_then(|worker| self.begin(id).map(|view| (worker, view)));
+        let Some((_worker, view)) = begun else {
             return self.end(
                 &job,
                 id,
@@ -448,32 +552,14 @@ impl Jobs {
                 Some("cancelled".to_owned()),
             );
         };
-        self.events.progress(JobProgress {
-            job_id: id,
-            workspace_id: job.workspace_id.clone(),
-            label: job.label.clone(),
-            done: 0,
-            total: 0,
-        });
+        self.events.progress(&view);
         for repo in &job.repos {
             self.events.hold_watch(&job.workspace_id, repo, true);
         }
         let before = see(&paths, &git, job.may_conflict).await;
         let progress = {
-            let (events, workspace, label) = (
-                self.events.clone(),
-                job.workspace_id.clone(),
-                job.label.clone(),
-            );
-            Arc::new(move |done, total| {
-                events.progress(JobProgress {
-                    job_id: id,
-                    workspace_id: workspace.clone(),
-                    label: label.clone(),
-                    done,
-                    total,
-                });
-            })
+            let engine = self.clone();
+            Arc::new(move |done, total| engine.set_progress(id, done, total))
         };
         let result = run(JobRun {
             job_id: id,
@@ -521,16 +607,18 @@ impl Jobs {
         self.end(&job, id, outcome, output, message)
     }
 
-    /// Marks job `id` running, unless it was cancelled meanwhile.
-    fn begin(&self, id: JobId) -> bool {
+    /// Marks job `id` running, unless it was cancelled meanwhile, and
+    /// returns its view.
+    fn begin(&self, id: JobId) -> Option<JobView> {
         let mut state = self.lock();
-        match state.entry(id) {
-            Some(entry) if !entry.kill.is_requested() => {
-                entry.view.state = JobState::Running;
-                true
-            }
-            _ => false,
+        let entry = state.entry(id)?;
+        if entry.kill.is_requested() {
+            return None;
         }
+        entry.view.state = JobState::Running;
+        entry.view.started_at = Some(epoch_ms(SystemTime::now()));
+        entry.began = Some(Instant::now());
+        Some(entry.view.clone())
     }
 
     /// Ends job `id`: takes it out of its repos' queues, wakes the jobs now
@@ -568,48 +656,144 @@ impl Jobs {
                     let _ = turn.send(());
                 }
             }
-            let view = match state.entry(id) {
-                Some(entry) => {
-                    entry.view.state = JobState::Ended;
-                    entry.view.outcome = Some(outcome);
-                    entry.view.output = output;
-                    entry.view.message = message;
-                    entry.turn = None;
-                    entry.view.clone()
-                }
-                None => JobView {
-                    job_id: id,
-                    workspace_id: job.workspace_id.clone(),
-                    label: job.label.clone(),
-                    repos: job.repos.clone(),
-                    state: JobState::Ended,
-                    outcome: Some(outcome),
-                    output,
-                    message,
-                },
-            };
-            let ended = state
-                .jobs
-                .iter()
-                .filter(|entry| entry.view.state == JobState::Ended)
-                .count();
-            if ended > MAX_ENDED_JOBS
-                && let Some(oldest) = state
-                    .jobs
-                    .iter()
-                    .position(|entry| entry.view.state == JobState::Ended)
-            {
-                state.jobs.remove(oldest);
-            }
-            view
+            finish(&mut state, id, outcome, output, message)
         };
         for repo in &job.repos {
             let summary = self.summaries.set_busy(&job.workspace_id, repo, false);
             self.events.summary(summary, false);
         }
+        let view = view.unwrap_or_else(|ending| ended_view(id, job, ending));
         self.events.ended(&view);
         view
     }
+}
+
+/// A job that is not a repo write, from [`Jobs::track`]. Dropped before it
+/// ended, as when its task panics, it ends as *failed*.
+pub struct TrackedJob {
+    jobs: Arc<Jobs>,
+    id: JobId,
+    ended: bool,
+}
+
+impl std::fmt::Debug for TrackedJob {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TrackedJob")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl TrackedJob {
+    pub fn job_id(&self) -> JobId {
+        self.id
+    }
+
+    /// Reports `done` of `total` steps.
+    pub fn progress(&self, done: u32, total: u32) {
+        self.jobs.set_progress(self.id, done, total);
+    }
+
+    /// Reports progress like [`Self::progress`], from another thread.
+    pub fn reporter(&self) -> impl Fn(u32, u32) + Send + Sync + 'static {
+        let (jobs, id) = (self.jobs.clone(), self.id);
+        move |done, total| jobs.set_progress(id, done, total)
+    }
+
+    /// Ends the job and sends its view.
+    pub fn end(mut self, outcome: Outcome, output: String, message: Option<String>) {
+        self.ended = true;
+        self.finish(outcome, output, message);
+    }
+
+    fn finish(&self, outcome: Outcome, output: String, message: Option<String>) {
+        let view = finish(&mut self.jobs.lock(), self.id, outcome, output, message);
+        if let Ok(view) = view {
+            self.jobs.events.ended(&view);
+        }
+    }
+}
+
+impl Drop for TrackedJob {
+    fn drop(&mut self) {
+        if !self.ended {
+            self.finish(
+                Outcome::Failed,
+                String::new(),
+                Some("the job stopped before its end".to_owned()),
+            );
+        }
+    }
+}
+
+/// How a job ended: its outcome, output and message.
+type Ending = (Outcome, String, Option<String>);
+
+/// Marks job `id` ended, drops the oldest ended job past
+/// [`MAX_ENDED_JOBS`], and returns its view, or the ending when it is not
+/// listed.
+fn finish(
+    state: &mut State,
+    id: JobId,
+    outcome: Outcome,
+    output: String,
+    message: Option<String>,
+) -> Result<JobView, Ending> {
+    let view = match state.entry(id) {
+        Some(entry) => {
+            entry.view.state = JobState::Ended;
+            entry.view.outcome = Some(outcome);
+            entry.view.output = output;
+            entry.view.message = message;
+            entry.view.duration_ms = entry
+                .began
+                .map(|began| u32::try_from(began.elapsed().as_millis()).unwrap_or(u32::MAX));
+            entry.turn = None;
+            Ok(entry.view.clone())
+        }
+        None => Err((outcome, output, message)),
+    };
+    let ended = state
+        .jobs
+        .iter()
+        .filter(|entry| entry.view.state == JobState::Ended)
+        .count();
+    if ended > MAX_ENDED_JOBS
+        && let Some(oldest) = state
+            .jobs
+            .iter()
+            .position(|entry| entry.view.state == JobState::Ended)
+    {
+        state.jobs.remove(oldest);
+    }
+    view
+}
+
+/// The view of a write job whose entry is gone, which a running job's
+/// never is.
+fn ended_view(id: JobId, job: &WriteJob, (outcome, output, message): Ending) -> JobView {
+    JobView {
+        job_id: id,
+        workspace_id: job.workspace_id.clone(),
+        workspace_name: String::new(),
+        label: job.label.clone(),
+        repos: job.repos.clone(),
+        repo_names: job.repos.iter().map(|repo| repo.0.clone()).collect(),
+        state: JobState::Ended,
+        done: 0,
+        total: 0,
+        started_at: None,
+        duration_ms: None,
+        outcome: Some(outcome),
+        output,
+        message,
+    }
+}
+
+/// `time` in milliseconds since the Unix epoch.
+fn epoch_ms(time: SystemTime) -> u64 {
+    let since = time.duration_since(UNIX_EPOCH).unwrap_or_default();
+    u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
 }
 
 fn cancelled() -> Outcome {

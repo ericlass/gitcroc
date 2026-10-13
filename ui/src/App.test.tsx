@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, expect, test } from "vitest";
 import App from "./App";
 import { emitJobProgress, emitWatchWarning, fakeState, reset } from "./ipc/fake";
+import { fakeJob } from "./ipc/fakeJobs";
 
 afterEach(() => {
   cleanup();
@@ -47,24 +48,15 @@ test("UI-20 layout: tab bar, toolbar, three panes and status bar", async () => {
   expect(screen.getByRole("status").textContent).toBe("No jobs running");
 });
 
-test("UI-21 status bar shows running jobs of the workspace", async () => {
-  render(() => <App />);
-  const status = await screen.findByRole("status");
-  emitJobProgress({ job_id: 1, workspace_id: "fake-workspace", label: "Fetch", done: 1, total: 4 });
-  emitJobProgress({ job_id: 2, workspace_id: "elsewhere", label: "Push", done: 1, total: 2 });
-  expect(status.textContent).toBe("Fetch 1/4");
-  emitJobProgress({ job_id: 1, workspace_id: "fake-workspace", label: "Fetch", done: 4, total: 4 });
-  expect(status.textContent).toBe("No jobs running");
-});
-
 test("ARCH-9 the workspace id comes from the core's workspace file", async () => {
   fakeState.workspace = { ...fakeState.workspace, id: "0b7c6f2e-uuid", name: "Platform" };
   render(() => <App />);
   const status = await screen.findByRole("status");
   expect(screen.getByRole("tab", { name: "Platform" })).toBeDefined();
-  emitJobProgress({ job_id: 1, workspace_id: "fake-workspace", label: "Old id", done: 1, total: 2 });
-  emitJobProgress({ job_id: 2, workspace_id: "0b7c6f2e-uuid", label: "Looking for repos", done: 5, total: 0 });
-  expect(status.textContent).toBe("Looking for repos 5");
+  const running = { state: "running" as const, outcome: null, done: 1, total: 2 };
+  emitJobProgress(fakeJob({ id: "fake-workspace", name: "Old" }, { job_id: 1, label: "Old id", ...running }));
+  emitJobProgress(fakeJob({ id: "0b7c6f2e-uuid", name: "Platform" }, { job_id: 2, label: "Add repos", ...running }));
+  expect(status.textContent).toBe("Add repos 1/2");
 });
 
 test("settings dialog closes with Escape and the Close button", async () => {

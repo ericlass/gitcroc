@@ -9,6 +9,7 @@ import type {
   HistoryTarget,
   ImageSide,
   IpcError,
+  JobId,
   PaneLayout,
   PerfTrace,
   RepoId,
@@ -23,6 +24,7 @@ export type {
   AddReport,
   AppInfo,
   Appearance,
+  CancelResult,
   CodeTheme,
   ChangedFile,
   ChangesContent,
@@ -55,10 +57,12 @@ export type {
   ImageSide,
   IpcError,
   JobId,
-  JobProgress,
+  JobState,
+  JobView,
   Line,
   LineKind,
   ModeChange,
+  Outcome,
   PaneLayout,
   PerfSample,
   PerfTrace,
@@ -156,6 +160,12 @@ export const historyMore = (workspaceId: WorkspaceId, handle: number) =>
 
 export const commitGraphWrite = (workspaceId: WorkspaceId, repoId: RepoId) =>
   unwrap(core.commands.commitGraphWrite(workspaceId, repoId));
+
+/** This run's jobs of every workspace, newest first (UI-21). */
+export const jobsGet = () => unwrap(core.commands.jobsGet());
+
+/** Cancels a job (GRP-10); its end arrives as `job_ended`. */
+export const jobCancel = (jobId: JobId) => unwrap(core.commands.jobCancel(jobId));
 
 export const commitGraphDecline = (workspaceId: WorkspaceId, repoId: RepoId) =>
   unwrap(core.commands.commitGraphDecline(workspaceId, repoId));

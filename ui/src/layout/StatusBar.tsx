@@ -1,27 +1,83 @@
-// The status bar of UI-21: running jobs of this workspace with progress. The
-// job list it opens arrives with the job engine.
-import { For, type JSX, Show } from "solid-js";
-import type { WorkspaceId } from "../ipc";
+// The status bar of UI-21: the running jobs of this workspace with their
+// progress; after the last one ends, its outcome for a while, and a failed
+// or conflicted job until the job list has shown it. Clicking it opens the
+// job list.
+import { createEffect, createSignal, For, type JSX, Match, on, onCleanup, Show, Switch } from "solid-js";
+import type { JobId, WorkspaceId } from "../ipc";
+import { JobProgressLabel, OutcomeLabel } from "../jobs/outcome";
 import type { JobStore } from "../stores/jobs";
 
-export default function StatusBar(props: { workspace: WorkspaceId; jobs: JobStore; children?: JSX.Element }) {
-  // A total of 0 means the core does not know the number of steps yet.
-  const running = () =>
-    Object.values(props.jobs.jobs[props.workspace] ?? {}).filter((job) => job.total === 0 || job.done < job.total);
+/** How long the outcome of the job that ended last stays, in ms. */
+export const OUTCOME_SHOWN_MS = 10_000;
+
+export default function StatusBar(props: {
+  workspace: WorkspaceId;
+  jobs: JobStore;
+  onOpenJobs: () => void;
+  children?: JSX.Element;
+}) {
+  const mine = () => props.jobs.jobs().filter((job) => job.workspace_id === props.workspace);
+  const running = () => mine().filter((job) => job.state === "running");
+
+  // The job that ended last, for OUTCOME_SHOWN_MS after its end.
+  const [recent, setRecent] = createSignal<JobId | null>(null);
+  createEffect(
+    on(
+      () => props.jobs.state.lastEnded[props.workspace],
+      (id) => {
+        if (id === undefined) {
+          return;
+        }
+        setRecent(id);
+        const timer = setTimeout(() => setRecent(null), OUTCOME_SHOWN_MS);
+        onCleanup(() => clearTimeout(timer));
+      },
+    ),
+  );
+
+  /** The ended job to show: the recent one, else the newest failure not yet seen. */
+  const ended = () => {
+    const id = recent();
+    const last = id === null ? undefined : props.jobs.state.byId[id];
+    return (
+      last ??
+      mine().find(
+        (job) =>
+          (job.outcome?.kind === "failed" || job.outcome?.kind === "conflict") && !props.jobs.state.seen[job.job_id],
+      )
+    );
+  };
 
   return (
     <footer class="status-bar">
-      <div role="status" class="status-jobs">
-        <Show when={running().length > 0} fallback="No jobs running">
-          <For each={running()}>
-            {(job) => (
-              <span class="status-job">
-                {job.label} {job.total === 0 ? job.done : `${job.done}/${job.total}`}
-              </span>
-            )}
-          </For>
-        </Show>
-      </div>
+      <button
+        type="button"
+        class="status-jobs"
+        aria-haspopup="dialog"
+        title="Show the job list"
+        onClick={() => props.onOpenJobs()}
+      >
+        <span role="status">
+          <Switch fallback="No jobs running">
+            <Match when={running().length > 0}>
+              <For each={running()}>
+                {(job) => (
+                  <span class="status-job">
+                    {job.label} <JobProgressLabel job={job} />
+                  </span>
+                )}
+              </For>
+            </Match>
+            <Match when={ended()}>
+              {(job) => (
+                <span class="status-job">
+                  {job().label}: <Show when={job().outcome}>{(outcome) => <OutcomeLabel outcome={outcome()} />}</Show>
+                </span>
+              )}
+            </Match>
+          </Switch>
+        </span>
+      </button>
       {props.children}
     </footer>
   );

@@ -15,7 +15,7 @@ use gitcroc_core::{
     GitSetup, GitStatus, Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide,
     JobError, JobEvents, JobId, JobProgress, JobView, Jobs, Outcome, PaneLayout, Refusal,
     RepoChange, RepoId, SettingsError, SettingsStore, SettingsView, StatusError, StatusReadError,
-    Summaries, SummaryView, Theme, TreeError, TreeNode, Trees, WatchWarning, Watchers,
+    Summaries, SummaryView, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers,
     WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path, refresh_summaries,
     refresh_workspace, tree_refs,
 };
@@ -164,10 +164,11 @@ impl From<ChangesError> for IpcError {
     }
 }
 
-/// Progress of a running job, sent as event `job_progress` (ARCH-7).
+/// A job was queued, began to run, or made progress, sent as event
+/// `job_progress` (ARCH-7, UI-21).
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "job_progress")]
-pub struct JobProgressEvent(pub JobProgress);
+pub struct JobProgressEvent(pub JobView);
 
 /// A job ended, sent as event `job_ended` with its outcome and git's
 /// output, after its repos' fresh summaries.
@@ -581,15 +582,12 @@ pub async fn commit_graph_write(
     Ok(write.job_id)
 }
 
-/// This run's jobs of the workspace, newest first, with their outcome and
-/// git's output, for the job list.
+/// This run's jobs of every workspace, newest first, with their outcome
+/// and git's output, for the job list (UI-21).
 #[tauri::command]
 #[specta::specta]
-pub async fn jobs_get(
-    jobs: State<'_, Arc<Jobs>>,
-    workspace_id: WorkspaceId,
-) -> Result<Vec<JobView>, IpcError> {
-    Ok(jobs.views(&workspace_id))
+pub async fn jobs_get(jobs: State<'_, Arc<Jobs>>) -> Result<Vec<JobView>, IpcError> {
+    Ok(jobs.all_views())
 }
 
 /// Cancels a job: one that has not started never runs, a running fetch or
@@ -764,18 +762,25 @@ async fn usable_git(app: &AppHandle) -> Result<GitRunner, IpcError> {
 }
 
 /// Runs an add job in the background and returns its id.
+/// It is in the job list (UI-21) with the outcome of [`AddReport::ending`].
 fn spawn_add(app: AppHandle, workspace_id: WorkspaceId, path: PathBuf, git: GitRunner) -> JobId {
-    let job_id = app.state::<Arc<Jobs>>().next_id();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let shown = path.display().to_string();
+    let tracked = jobs.track(&workspace_id, &format!("Add repos from {shown}"));
+    let job_id = tracked
+        .as_ref()
+        .map_or_else(|_| jobs.next_id(), TrackedJob::job_id);
     tauri::async_runtime::spawn(async move {
         let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+        let tracked = tracked.ok();
         let progress = {
-            let app = app.clone();
-            // An emit fails only while the app shuts down.
-            move |progress| {
-                let _ = JobProgressEvent(progress).emit(&app);
+            let report = tracked.as_ref().map(TrackedJob::reporter);
+            move |progress: JobProgress| {
+                if let Some(report) = &report {
+                    report(progress.done, progress.total);
+                }
             }
         };
-        let shown = path.display().to_string();
         let result = add_path(
             workspaces.clone(),
             workspace_id.clone(),
@@ -799,6 +804,10 @@ fn spawn_add(app: AppHandle, workspace_id: WorkspaceId, path: PathBuf, git: GitR
             let _ = WorkspaceChangedEvent(view).emit(&app);
         }
         let added: Vec<RepoId> = report.added.iter().map(|repo| repo.id.clone()).collect();
+        if let Some(tracked) = tracked {
+            let (outcome, output, message) = report.ending();
+            tracked.end(outcome, output, message);
+        }
         let _ = WorkspaceAddReportEvent(report).emit(&app);
         if !added.is_empty() {
             spawn_watch_sync(&app, workspace_id.clone());
@@ -857,9 +866,9 @@ struct AppJobEvents {
 }
 
 impl JobEvents for AppJobEvents {
-    fn progress(&self, progress: JobProgress) {
+    fn progress(&self, job: &JobView) {
         // An emit fails only while the app shuts down.
-        let _ = JobProgressEvent(progress).emit(&self.app);
+        let _ = JobProgressEvent(job.clone()).emit(&self.app);
     }
 
     fn ended(&self, job: &JobView) {
