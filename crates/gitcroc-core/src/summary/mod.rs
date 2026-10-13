@@ -4,9 +4,11 @@
 //! the fresh summary in the cache.
 //!
 //! The refresh is the minimal scheduler M1 needs: at most as many reads at
-//! once as the machine has cores, capped at [`MAX_REFRESHES`]. M2's job
-//! engine replaces it with the shared job pool and the full PERF-4 order.
-//! All state is kept per workspace (ARCH-9).
+//! once as the machine has cores, capped at [`MAX_REFRESHES`], each on a
+//! thread of its own at the lowest priority the OS gives (PERF-4), so the
+//! webview and the reads the user waits for keep the CPU. M2's job engine
+//! replaces it with the shared job pool and the full PERF-4 order. All
+//! state is kept per workspace (ARCH-9).
 
 mod cache;
 
@@ -363,7 +365,7 @@ pub async fn refresh_summaries(
                 git.clone(),
                 emit.clone(),
             );
-            tokio::task::spawn_blocking(move || {
+            run_in_background(move || {
                 let mut worker = Worker {
                     summaries,
                     workspace,
@@ -390,7 +392,39 @@ pub async fn refresh_summaries(
     for worker in workers {
         // A worker that panicked gave back its place (see `Worker`); the
         // others go on.
-        let _ = worker.await;
+        worker.await;
+    }
+}
+
+/// Runs `work` on a thread of its own at the lowest priority the OS gives
+/// (PERF-4) and resolves when it ends, also by a panic. On Linux the
+/// threads `gix` starts for a status inherit the priority. Not tokio's
+/// blocking pool: its threads also run the reads the user waits for, and a
+/// thread's priority cannot be raised again without privileges. When no
+/// thread can be started, `work` runs there at normal priority.
+async fn run_in_background(work: impl FnOnce() + Send + 'static) {
+    let work = Arc::new(Mutex::new(Some(work)));
+    let take = |work: &Mutex<Option<_>>| work.lock().unwrap_or_else(PoisonError::into_inner).take();
+    let (done, ended) = tokio::sync::oneshot::channel::<()>();
+    let spawned = std::thread::Builder::new()
+        .name("gitcroc-refresh".to_owned())
+        .spawn({
+            let work = work.clone();
+            move || {
+                // A thread left at normal priority still reads.
+                let _ = thread_priority::set_current_thread_priority(
+                    thread_priority::ThreadPriority::Min,
+                );
+                if let Some(work) = take(&work) {
+                    work();
+                }
+                let _ = done.send(());
+            }
+        });
+    if spawned.is_ok() {
+        let _ = ended.await;
+    } else if let Some(work) = take(&work) {
+        let _ = tokio::task::spawn_blocking(work).await;
     }
 }
 
@@ -477,5 +511,54 @@ mod tests {
         assert_eq!(state.workers, 1);
         assert_eq!(state.next(), None);
         assert_eq!(state.workers, 0);
+    }
+
+    /// The niceness of the calling thread, from `/proc`.
+    #[cfg(target_os = "linux")]
+    fn niceness() -> i32 {
+        let stat = std::fs::read_to_string("/proc/thread-self/stat").unwrap();
+        // The command name, in parentheses, may hold spaces; niceness is
+        // the 19th field, the 17th after it.
+        let (_, rest) = stat.rsplit_once(')').unwrap();
+        rest.split_whitespace().nth(16).unwrap().parse().unwrap()
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn perf_4_background_reads_run_at_the_lowest_priority() {
+        let (sender, received) = std::sync::mpsc::channel();
+        run_in_background(move || {
+            // `gix` starts threads of its own for a status.
+            let started = std::thread::spawn(niceness).join().unwrap();
+            sender.send((niceness(), started)).unwrap();
+        })
+        .await;
+        assert_eq!(received.recv().unwrap(), (19, 19));
+        // The threads that run the reads the user waits for stay at normal
+        // priority.
+        let normal = std::thread::spawn(niceness).join().unwrap();
+        let waited_for = tokio::task::spawn_blocking(niceness).await.unwrap();
+        assert_eq!(waited_for, normal);
+        assert!(normal < 19);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[tokio::test]
+    async fn perf_4_background_reads_run_at_the_lowest_priority() {
+        use thread_priority::get_current_thread_priority;
+        let (sender, received) = std::sync::mpsc::channel();
+        run_in_background(move || {
+            sender.send(get_current_thread_priority().unwrap()).unwrap();
+        })
+        .await;
+        let background = received.recv().unwrap();
+        let normal = std::thread::spawn(|| get_current_thread_priority().unwrap())
+            .join()
+            .unwrap();
+        let waited_for = tokio::task::spawn_blocking(|| get_current_thread_priority().unwrap())
+            .await
+            .unwrap();
+        assert_ne!(background, normal);
+        assert_eq!(waited_for, normal);
     }
 }
