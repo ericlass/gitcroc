@@ -726,6 +726,95 @@ mod tests {
         RepoId(id.to_owned())
     }
 
+    /// Two plain repos, `app` selected, and a linked worktree of `app`.
+    fn routes() -> Routes {
+        let plain = |id: &str, dir: &str| RepoDirs {
+            id: repo(id),
+            path: PathBuf::from(dir),
+            git_dir: Path::new(dir).join(".git"),
+            common_dir: Path::new(dir).join(".git"),
+            work_dir: Some(PathBuf::from(dir)),
+        };
+        Routes {
+            repos: vec![
+                plain("app", "/src/app"),
+                plain("lib", "/src/lib"),
+                RepoDirs {
+                    id: repo("wt"),
+                    path: PathBuf::from("/src/wt"),
+                    git_dir: PathBuf::from("/src/app/.git/worktrees/wt"),
+                    common_dir: PathBuf::from("/src/app/.git"),
+                    work_dir: Some(PathBuf::from("/src/wt")),
+                },
+            ],
+            selected: Some(repo("app")),
+        }
+    }
+
+    fn changed(kind: EventKind, path: &str) -> Vec<(RepoId, bool)> {
+        route(&routes(), &Event::new(kind).add_path(PathBuf::from(path))).0
+    }
+
+    fn modified(path: &str) -> Vec<(RepoId, bool)> {
+        changed(EventKind::Modify(notify::event::ModifyKind::Any), path)
+    }
+
+    #[test]
+    fn perf_6_lock_files_alone_trigger_nothing() {
+        for path in [
+            "/src/app/.git/index.lock",
+            "/src/app/.git/HEAD.lock",
+            "/src/app/.git/packed-refs.lock",
+            "/src/app/.git/refs/heads/main.lock",
+            "/src/lib/.git/index.lock",
+        ] {
+            assert_eq!(modified(path), Vec::new(), "{path}");
+        }
+        // git renames the lock over the file when it is done.
+        assert_eq!(modified("/src/app/.git/index"), vec![(repo("app"), false)]);
+        // In the working tree a lock file is an ordinary file.
+        assert_eq!(modified("/src/app/Cargo.lock"), vec![(repo("app"), false)]);
+    }
+
+    #[test]
+    fn perf_6_only_the_selected_working_tree_counts() {
+        assert_eq!(modified("/src/app/src/main.rs"), vec![(repo("app"), false)]);
+        assert_eq!(modified("/src/lib/src/lib.rs"), Vec::new());
+        // Its git directory counts as git files only.
+        assert_eq!(modified("/src/app/.git/objects/ab/cdef"), Vec::new());
+        assert_eq!(modified("/src/app/vendor/dep/.git/HEAD"), Vec::new());
+        // Unselected repos still report their git files.
+        assert_eq!(modified("/src/lib/.git/HEAD"), vec![(repo("lib"), true)]);
+        assert_eq!(modified("/src/lib/.git/index"), vec![(repo("lib"), false)]);
+    }
+
+    #[test]
+    fn perf_6_a_linked_worktree_reports_its_own_and_its_shared_refs() {
+        assert_eq!(
+            modified("/src/app/.git/worktrees/wt/HEAD"),
+            vec![(repo("wt"), true)]
+        );
+        assert_eq!(
+            modified("/src/app/.git/refs/heads/topic"),
+            vec![(repo("app"), true), (repo("wt"), true)]
+        );
+        // The main repo's HEAD is not the worktree's.
+        assert_eq!(modified("/src/app/.git/HEAD"), vec![(repo("app"), true)]);
+    }
+
+    #[test]
+    fn perf_6_reading_is_not_a_change_and_lost_events_refresh_all() {
+        let read = EventKind::Access(notify::event::AccessKind::Open(
+            notify::event::AccessMode::Any,
+        ));
+        assert_eq!(changed(read, "/src/app/.git/index"), Vec::new());
+        let lost = Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan);
+        assert_eq!(
+            route(&routes(), &lost).0,
+            vec![(repo("app"), true), (repo("lib"), true), (repo("wt"), true)]
+        );
+    }
+
     #[test]
     fn perf_6_a_burst_of_100_changes_in_100_ms_gives_one_refresh() {
         let start = Instant::now();

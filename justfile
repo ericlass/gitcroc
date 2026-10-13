@@ -30,6 +30,11 @@ fmt:
 coverage milestone *flags:
     cargo run --quiet -p req-coverage -- {{milestone}} {{flags}}
 
+# Tests that assert times. Never on hosted CI runners, whose speed varies;
+# run them on the reference machine.
+timing:
+    cargo test --workspace -- --ignored
+
 # Run the app.
 dev:
     TAURI_APP_PATH="{{justfile_directory()}}/crates/gitcroc-app" pnpm --dir ui exec tauri dev
