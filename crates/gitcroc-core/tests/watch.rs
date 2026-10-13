@@ -11,9 +11,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use gitcroc_core::{
-    CacheDir, ConfigDir, GitRunner, Head, JobId, RepoChange, RepoId, Summaries, SummaryCache,
-    SummaryView, WatchedPath, Watchers, WorkspaceId, Workspaces, add_path, refresh_summaries,
-    refresh_workspace,
+    CacheDir, ConfigDir, GitRunner, Head, JobId, MAX_DELAY, RepoChange, RepoId, Summaries,
+    SummaryCache, SummaryView, WatchedPath, Watchers, WorkspaceId, Workspaces, add_path,
+    refresh_summaries, refresh_workspace,
 };
 use repo_gen::{Fixture, Repo};
 
@@ -472,14 +472,16 @@ async fn perf_6_a_burst_of_changes_gives_one_refresh() {
     watched.select(Some(&id)).await;
     watched.settle().await;
 
+    // 100 writes back to back: sleeping between them overshoots on CI
+    // runners (a 1 ms sleep took 9 ms on macOS).
     let start = Instant::now();
     for index in 0..100 {
         app.write(&format!("burst/{}.txt", index % 10), format!("{index}\n"))
             .unwrap();
-        std::thread::sleep(Duration::from_millis(1));
     }
+    // A burst longer than MAX_DELAY is meant to give a second refresh.
     assert!(
-        start.elapsed() < Duration::from_millis(500),
+        start.elapsed() < MAX_DELAY,
         "the burst took {:?}",
         start.elapsed()
     );
