@@ -106,6 +106,49 @@ export const commands = {
 	/**  Keeps "don't ask again" for a repo's commit-graph offer (PERF-2). */
 	commitGraphDecline: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<null, IpcError>(__TAURI_INVOKE("commit_graph_decline", { workspaceId, repoId })),
 	/**
+	 *  Saves the changes pane's view: diff mode and options and the file list
+	 *  toggle, the same for every workspace (UI-14, UI-17).
+	 */
+	settingsSetChanges: (changes: ChangesSettings) => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_set_changes", { changes })),
+	/**
+	 *  Saves the workspace's pane layout: the dock position and pane sizes
+	 *  (UI-19).
+	 */
+	workspaceSetLayout: (workspaceId: WorkspaceId, layout: PaneLayout) => typedError<null, IpcError>(__TAURI_INVOKE("workspace_set_layout", { workspaceId, layout })),
+	/**
+	 *  What the changes pane shows for `target` in a repo (UI-14, UI-15,
+	 *  UI-16), as a new view of the workspace; the previous one ends. `null`
+	 *  when a newer `changes_get` of the workspace superseded this one.
+	 */
+	changesGet: (workspaceId: WorkspaceId, repoId: RepoId, target: ChangesTarget) => typedError<{
+	/**  Names this view for `diff_get` and `diff_image`. */
+	handle: number,
+	content: ChangesContent,
+} | null, IpcError>(__TAURI_INVOKE("changes_get", { workspaceId, repoId, target })),
+	/**
+	 *  The diff of one file of view `handle` (ARCH-8, UI-17, UI-18). `null`
+	 *  when a newer view of the workspace replaced it.
+	 */
+	diffGet: (workspaceId: WorkspaceId, handle: number, file: FileRef, request: DiffRequest) => typedError<{
+	kind: "text",
+} & TextDiff | 
+/**  Sizes in bytes; `None` for a side that does not exist. */
+({ kind: "binary"; 
+/**  Typed for specta like [`Image::size`]. */
+old_size: number | null; new_size: number | null }) & { added?: never; new?: never; old?: never; removed?: never } | ({ kind: "image"; old: Image | null; new: Image | null }) & { added?: never; new_size?: never; old_size?: never; removed?: never } | 
+/**  Over [`MAX_DIFF_LINES`] changed lines: the counts only. */
+({ kind: "too_large"; added: number; removed: number }) & { new?: never; new_size?: never; old?: never; old_size?: never } | 
+/**  An untracked folder git lists as one entry; its files are not read. */
+({ kind: "directory" }) & { added?: never; new?: never; new_size?: never; old?: never; old_size?: never; removed?: never } | 
+/**  The submodule's commit on each side. */
+({ kind: "submodule"; old: string | null; new: string | null }) & { added?: never; new_size?: never; old_size?: never; removed?: never } | null, IpcError>(__TAURI_INVOKE("diff_get", { workspaceId, handle, file, request })),
+	/**
+	 *  One side of the image diff `diff_get` last read for `file`, as base64
+	 *  (UI-18). `null` when that side has no image, or the view or the file is
+	 *  no longer the one read.
+	 */
+	diffImage: (workspaceId: WorkspaceId, handle: number, file: FileRef, side: ImageSide) => typedError<string | null, IpcError>(__TAURI_INVOKE("diff_image", { workspaceId, handle, file, side })),
+	/**
 	 *  Starts a fake job that reports three steps 100 ms apart, and returns
 	 *  its id without waiting for it.
 	 */
@@ -144,6 +187,69 @@ export type AppInfo = {
 	os: string,
 	/**  `std::env::consts::ARCH`, e.g. `x86_64`, `aarch64`. */
 	arch: string,
+};
+
+/**  One entry of a changed-file list. It holds no content (ARCH-8). */
+export type ChangedFile = {
+	/**  The index in the list it came from. */
+	id: number,
+	/**  The path for display, decoded lossily; never sent back. */
+	path: string,
+	/**  The path before a rename, for display. */
+	old_path: string | null,
+	status: FileStatus,
+	mode_change: ModeChange | null,
+	/**
+	 *  Line counts for text files when the list is short enough
+	 *  ([`MAX_COUNTED_FILES`]).
+	 */
+	added: number | null,
+	removed: number | null,
+};
+
+/**  What the changes pane lists. */
+export type ChangesContent = { kind: "commit"; details: CommitDetails; 
+/**  The parent the files are compared with. */
+parent: number; files: ChangedFile[] } | { kind: "uncommitted"; staged: ChangedFile[]; 
+/**  Untracked files included. */
+unstaged: ChangedFile[]; 
+/**  In neither list above, as in `git status`. */
+unmerged: UnmergedFile[] };
+
+/**
+ *  The changes pane's view, remembered for every workspace (UI-14,
+ *  UI-17). A key missing from the file takes its default (see [`decode`]).
+ */
+export type ChangesSettings = {
+	diff_mode: DiffMode,
+	file_list: FileListMode,
+	ignore_whitespace: boolean,
+	wrap_lines: boolean,
+	context: Context,
+};
+
+/**  What to show. */
+export type ChangesTarget = 
+/**  A commit against one of its parents, 0 being the first (UI-16). */
+{ kind: "commit"; hash: string; parent: number } | 
+/**  The working copy (UI-15). */
+{ kind: "uncommitted" };
+
+/**  A view of the changes pane. */
+export type ChangesView = {
+	/**  Names this view for `diff_get` and `diff_image`. */
+	handle: number,
+	content: ChangesContent,
+};
+
+/**  A commit's header (UI-14). Text is decoded lossily (SEC-3). */
+export type CommitDetails = {
+	hash: string,
+	author: Person,
+	committer: Person,
+	/**  The full message. */
+	message: string,
+	parents: string[],
 };
 
 /**  A commit-graph write job ended, sent as event `commit_graph_written`. */
@@ -196,6 +302,28 @@ export type ConfigWarning =
 /**  The platform has no config dir, so nothing can be saved. */
 { kind: "no_config_dir" };
 
+/**  How the two sides of a merge left a path, as `git status` names it. */
+export type Conflict = "both_deleted" | "added_by_us" | "deleted_by_them" | "added_by_them" | "deleted_by_us" | "both_added" | "both_modified";
+
+/**  How much unchanged text surrounds each change (UI-17). */
+export type Context = "three" | "ten" | 
+/**  One hunk spanning the file, and both sides' full text. */
+"whole_file";
+
+/**  How the diff shows a text file (UI-17). */
+export type DiffMode = "inline" | "side_by_side";
+
+/**  The options of a file diff (UI-17, UI-18), as the UI sends them. */
+export type DiffRequest = {
+	ignore_whitespace: boolean,
+	context: Context,
+	/**  Return the hunks of a diff over the line limit (UI-18). */
+	load_anyway: boolean,
+};
+
+/**  Where the changes pane sits (UI-19). */
+export type Dock = "right" | "bottom";
+
 /**
  *  One line segment within half a row. A line keeps its color index from
  *  the row where it starts to the row where it ends.
@@ -205,6 +333,43 @@ export type Edge = {
 	to: number,
 	color: number,
 };
+
+/**  The diff of one file. */
+export type FileDiff = {
+	kind: "text",
+} & TextDiff | 
+/**  Sizes in bytes; `None` for a side that does not exist. */
+({ kind: "binary"; 
+/**  Typed for specta like [`Image::size`]. */
+old_size: number | null; new_size: number | null }) & { added?: never; new?: never; old?: never; removed?: never } | ({ kind: "image"; old: Image | null; new: Image | null }) & { added?: never; new_size?: never; old_size?: never; removed?: never } | 
+/**  Over [`MAX_DIFF_LINES`] changed lines: the counts only. */
+({ kind: "too_large"; added: number; removed: number }) & { new?: never; new_size?: never; old?: never; old_size?: never } | 
+/**  An untracked folder git lists as one entry; its files are not read. */
+({ kind: "directory" }) & { added?: never; new?: never; new_size?: never; old?: never; old_size?: never; removed?: never } | 
+/**  The submodule's commit on each side. */
+({ kind: "submodule"; old: string | null; new: string | null }) & { added?: never; new_size?: never; old_size?: never; removed?: never };
+
+/**  The list a file of a view belongs to. */
+export type FileList = "commit" | "staged" | "unstaged";
+
+/**  How the changes pane lists files (UI-14). */
+export type FileListMode = "flat" | "tree";
+
+/**  A file of a view: its list and its id in that list. */
+export type FileRef = {
+	list: FileList,
+	id: number,
+};
+
+/**  How a file changed. */
+export type FileStatus = "added" | "modified" | "deleted" | "renamed" | 
+/**  File, symbolic link and submodule turned into one another. */
+"type_changed" | 
+/**
+ *  In the working tree but not in the index. A folder git lists as one
+ *  entry has a path ending in `/`.
+ */
+"untracked";
 
 /**
  *  Whether a usable git was found, as shown to the user. Paths and versions
@@ -282,6 +447,34 @@ export type HistoryView = {
 	offer_commit_graph: boolean,
 };
 
+/**
+ *  A run of changes with its context. Starts and counts are as in a
+ *  unified diff header: `@@ -old_start,old_lines +new_start,new_lines @@`.
+ */
+export type Hunk = {
+	old_start: number,
+	old_lines: number,
+	new_start: number,
+	new_lines: number,
+	lines: Line[],
+};
+
+/**  One side of an image diff. */
+export type Image = {
+	format: ImageFormat,
+	/**
+	 *  In bytes. specta refuses `u64` because it would be a `bigint`; as a
+	 *  JavaScript number, any file size is exact.
+	 */
+	size: number,
+};
+
+/**  An image format shown as a picture (UI-18). */
+export type ImageFormat = "png" | "jpeg" | "gif" | "webp" | "bmp";
+
+/**  A side of an image diff. */
+export type ImageSide = "old" | "new";
+
 /**  The error every command returns. */
 export type IpcError = {
 	code: IpcErrorCode,
@@ -321,6 +514,25 @@ export type JobProgress = {
 /**  Progress of a running job, sent as event `job_progress` (ARCH-7). */
 export type JobProgressEvent = JobProgress;
 
+/**  One line of a hunk, without its line terminator. */
+export type Line = {
+	kind: LineKind,
+	/**  1-based line number on the old side; `None` for an added line. */
+	old_line: number | null,
+	/**  1-based line number on the new side; `None` for a removed line. */
+	new_line: number | null,
+	text: string,
+};
+
+/**  What a diff line is. */
+export type LineKind = "context" | "added" | "removed";
+
+/**  Both modes, as git writes them (`100644`), when they differ. */
+export type ModeChange = {
+	old: string,
+	new: string,
+};
+
 /**
  *  An operation that stopped part way and waits to be continued or
  *  aborted.
@@ -336,6 +548,28 @@ export type Operation =
 "cherry_pick" | 
 /**  `REVERT_HEAD`. */
 "revert";
+
+/**
+ *  The workspace's pane layout (section 10, UI-19): where the changes pane
+ *  is docked and the pane sizes in CSS pixels. A field missing from the
+ *  file is `None`, and the UI uses its default; TOML leaves `None` out.
+ */
+export type PaneLayout = {
+	dock: Dock | null,
+	/**  The tree pane's width. */
+	tree: number | null,
+	/**  The history pane's width while the changes pane is docked right. */
+	history: number | null,
+	/**  The changes pane's height while it is docked at the bottom. */
+	changes: number | null,
+};
+
+/**  A commit author or committer. */
+export type Person = {
+	name: string,
+	email: string,
+	time: Time,
+};
 
 /**  The kind of a ref label on a history row. */
 export type RefKind = 
@@ -422,6 +656,7 @@ export type RepoView = {
  */
 export type Settings = {
 	theme: Theme,
+	changes: ChangesSettings,
 };
 
 /**  The settings as the UI sees them. */
@@ -457,6 +692,22 @@ export type SummaryView = {
 	refreshing: boolean,
 	/**  `summary` says the repo is in conflict state (OPS-1, UI-3). */
 	conflict: boolean,
+};
+
+/**  The diff of a text file. */
+export type TextDiff = {
+	added: number,
+	removed: number,
+	hunks: Hunk[],
+	/**
+	 *  Both sides in full, only with [`Context::WholeFile`] (side-by-side
+	 *  mode needs them); empty for a side that does not exist.
+	 */
+	old_text: string | null,
+	new_text: string | null,
+	/**  The side's last line has no line terminator. */
+	old_missing_newline: boolean,
+	new_missing_newline: boolean,
 };
 
 /**  The app theme (UI-23). */
@@ -518,6 +769,15 @@ export type TreeNode = {
 	children: TreeNode[] | null,
 };
 
+/**  A path with conflict stages in the index. */
+export type UnmergedFile = {
+	/**  The index in [`WorkingCopy::unmerged`]. */
+	id: number,
+	/**  The path for display, decoded lossily; never sent back (PLAT-2). */
+	path: string,
+	conflict: Conflict,
+};
+
 /**  The branch the current branch tracks. */
 export type Upstream = {
 	/**  As git shortens it, for example `origin/main`. */
@@ -554,6 +814,7 @@ export type WorkspaceView = {
 	name: string,
 	/**  In the order they were added. */
 	repos: RepoView[],
+	layout: PaneLayout,
 	/**  Changes are refused; `warning` says why. */
 	read_only: boolean,
 	warning: ConfigWarning | null,

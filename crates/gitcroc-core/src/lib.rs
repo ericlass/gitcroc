@@ -1,6 +1,7 @@
 //! Workspace, group and repo model, job engine, preflight, result reports, config and cache.
 
 mod app_info;
+mod changes;
 mod config_file;
 mod diff;
 mod git;
@@ -13,6 +14,10 @@ mod tree;
 mod workspace;
 
 pub use app_info::AppInfo;
+pub use changes::{
+    Changes, ChangesContent, ChangesError, ChangesTarget, ChangesView, DiffRequest, FileList,
+    FileRef, ImageSide, changes_get, diff_get, diff_image,
+};
 pub use config_file::ConfigWarning;
 pub use diff::{DiffReadError, changed_files, commit_details, file_diff};
 pub use git::{GitSetup, GitStatus};
@@ -32,8 +37,8 @@ pub use history::{
 };
 pub use job::{JobId, JobIds, JobProgress, WorkspaceId};
 pub use settings::{
-    ConfigDir, PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Settings, SettingsError,
-    SettingsStore, SettingsView, Theme,
+    ChangesSettings, ConfigDir, DiffMode, FileListMode, PlatformConfigDir, SETTINGS_FILE,
+    SETTINGS_SCHEMA, Settings, SettingsError, SettingsStore, SettingsView, Theme,
 };
 pub use status::{StatusReadError, repo_state, repo_summary, working_copy};
 pub use summary::{
@@ -42,8 +47,8 @@ pub use summary::{
 };
 pub use tree::{TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, tree_filter, tree_refs};
 pub use workspace::{
-    AddReport, DEFAULT_WORKSPACE_NAME, Refusal, RepoId, RepoView, SCAN_DEPTH, WORKSPACE_SCHEMA,
-    WORKSPACES_DIR, WorkspaceError, WorkspaceView, Workspaces, add_path,
+    AddReport, DEFAULT_WORKSPACE_NAME, Dock, PaneLayout, Refusal, RepoId, RepoView, SCAN_DEPTH,
+    WORKSPACE_SCHEMA, WORKSPACES_DIR, WorkspaceError, WorkspaceView, Workspaces, add_path,
 };
 
 /// Errors returned by `gitcroc-core`.

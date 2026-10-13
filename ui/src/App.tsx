@@ -19,6 +19,7 @@ import TabBar from "./layout/TabBar";
 import Toolbar from "./layout/Toolbar";
 import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
+import { createChangesStore } from "./stores/changes";
 import { createGitStore } from "./stores/git";
 import { createHistoryStore, sourceOf } from "./stores/history";
 import { createJobStore } from "./stores/jobs";
@@ -41,6 +42,7 @@ export default function App() {
   const tree = createTreeStore();
   const selection = createSelectionStore();
   const history = createHistoryStore(selection);
+  const changes = createChangesStore(settings.changes);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   // The open tab's workspace: the only one until tabs exist (M3). It is
@@ -57,7 +59,7 @@ export default function App() {
         if (id === undefined) {
           return;
         }
-        const unlisten = [tree.subscribe(id), summaries.subscribe(id), history.subscribe(id)];
+        const unlisten = [tree.subscribe(id), summaries.subscribe(id), history.subscribe(id), changes.subscribe(id)];
         onCleanup(() => {
           for (const pending of unlisten) {
             void pending.then((stop) => stop());
@@ -76,6 +78,40 @@ export default function App() {
     const current = tree.tree(id);
     const source = sourceOf(current.selected, current.selectedItem);
     untrack(() => history.show(id, source));
+  });
+
+  // The changes pane follows the history's selection (UI-14, UI-15).
+  createEffect(() => {
+    const id = workspace()?.id;
+    if (id === undefined) {
+      return;
+    }
+    const selected = selection.selected(id);
+    untrack(() => void changes.show(id, selected));
+  });
+
+  // A diff option the core applies reads the diff again (UI-17).
+  createEffect(
+    on(
+      () => {
+        const view = settings.changes();
+        return [workspace()?.id, view.diff_mode, view.ignore_whitespace, view.context] as const;
+      },
+      ([id]) => {
+        if (id !== undefined) {
+          untrack(() => void changes.reloadDiff(id));
+        }
+      },
+      { defer: true },
+    ),
+  );
+
+  // The pane layout kept in the workspace file (UI-19), applied once.
+  createEffect(() => {
+    const view = workspace();
+    if (view !== undefined) {
+      untrack(() => layout.load(view.id, view.layout));
+    }
   });
 
   onMount(() => {
@@ -138,6 +174,8 @@ export default function App() {
                     summaries={summaries}
                     workspaces={workspaces}
                     history={history}
+                    changes={changes}
+                    settings={settings}
                   />
                 </main>
                 <StatusBar workspace={id()} jobs={jobs}>

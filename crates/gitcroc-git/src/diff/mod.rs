@@ -34,7 +34,7 @@ pub const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 pub const MAX_COUNTED_FILES: usize = 1_000;
 
 /// A commit author or committer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct Person {
     pub name: String,
     pub email: String,
@@ -42,7 +42,7 @@ pub struct Person {
 }
 
 /// A commit's header (UI-14). Text is decoded lossily (SEC-3).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct CommitDetails {
     pub hash: String,
     pub author: Person,
@@ -67,7 +67,7 @@ pub enum DiffSource {
 }
 
 /// How a file changed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum FileStatus {
     Added,
@@ -82,16 +82,17 @@ pub enum FileStatus {
 }
 
 /// Both modes, as git writes them (`100644`), when they differ.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct ModeChange {
     pub old: String,
     pub new: String,
 }
 
 /// One entry of a changed-file list. It holds no content (ARCH-8).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct ChangedFile {
     /// The index in the list it came from.
+    #[specta(type = u32)]
     pub id: usize,
     /// The path for display, decoded lossily; never sent back.
     pub path: String,
@@ -196,7 +197,7 @@ pub struct DiffOptions {
 }
 
 /// An image format shown as a picture (UI-18).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ImageFormat {
     Png,
@@ -226,9 +227,12 @@ impl ImageFormat {
 }
 
 /// One side of an image diff.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct Image {
     pub format: ImageFormat,
+    /// In bytes. specta refuses `u64` because it would be a `bigint`; as a
+    /// JavaScript number, any file size is exact.
+    #[specta(type = u32)]
     pub size: u64,
     /// The file's bytes. Not part of the JSON form; the pane gets them
     /// another way (M1-09).
@@ -237,13 +241,16 @@ pub struct Image {
 }
 
 /// The diff of one file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FileDiff {
     Text(TextDiff),
     /// Sizes in bytes; `None` for a side that does not exist.
     Binary {
+        /// Typed for specta like [`Image::size`].
+        #[specta(type = Option<u32>)]
         old_size: Option<u64>,
+        #[specta(type = Option<u32>)]
         new_size: Option<u64>,
     },
     Image {

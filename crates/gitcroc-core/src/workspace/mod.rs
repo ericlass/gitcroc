@@ -64,6 +64,28 @@ pub struct RepoView {
     pub remote: Option<String>,
 }
 
+/// Where the changes pane sits (UI-19).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum Dock {
+    Right,
+    Bottom,
+}
+
+/// The workspace's pane layout (section 10, UI-19): where the changes pane
+/// is docked and the pane sizes in CSS pixels. A field missing from the
+/// file is `None`, and the UI uses its default; TOML leaves `None` out.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct PaneLayout {
+    pub dock: Option<Dock>,
+    /// The tree pane's width.
+    pub tree: Option<u32>,
+    /// The history pane's width while the changes pane is docked right.
+    pub history: Option<u32>,
+    /// The changes pane's height while it is docked at the bottom.
+    pub changes: Option<u32>,
+}
+
 /// A workspace as the UI sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct WorkspaceView {
@@ -71,6 +93,7 @@ pub struct WorkspaceView {
     pub name: String,
     /// In the order they were added.
     pub repos: Vec<RepoView>,
+    pub layout: PaneLayout,
     /// Changes are refused; `warning` says why.
     pub read_only: bool,
     pub warning: Option<ConfigWarning>,
@@ -143,6 +166,9 @@ struct WorkspaceFile {
     repos: Vec<RepoEntry>,
     #[serde(default, rename = "group", skip_serializing_if = "Vec::is_empty")]
     groups: Vec<Group>,
+    /// Optional, so the schema stays 1: older builds ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    layout: Option<PaneLayout>,
 }
 
 impl Default for WorkspaceFile {
@@ -151,6 +177,7 @@ impl Default for WorkspaceFile {
             name: DEFAULT_WORKSPACE_NAME.to_owned(),
             repos: Vec::new(),
             groups: Vec::new(),
+            layout: None,
         }
     }
 }
@@ -187,6 +214,7 @@ impl Workspace {
             id: self.id.clone(),
             name: self.file.name.clone(),
             repos: self.file.repos.iter().map(RepoEntry::view).collect(),
+            layout: self.file.layout.clone().unwrap_or_default(),
             read_only: self.warning.is_some() || self.path.is_none(),
             warning: self.warning.clone(),
         }
@@ -300,6 +328,16 @@ impl Workspaces {
                     .find(|entry| entry.id == *repo)
                     .ok_or_else(|| WorkspaceError::UnknownRepo(repo.clone()))?;
                 found.commit_graph = Some(CommitGraphAnswer::Declined);
+                Ok(())
+            })
+        })
+    }
+
+    /// Keeps the workspace's pane layout (UI-19).
+    pub fn set_layout(&self, id: &WorkspaceId, layout: PaneLayout) -> Result<(), WorkspaceError> {
+        self.with(id, |workspace| {
+            workspace.update(|file| {
+                file.layout = Some(layout);
                 Ok(())
             })
         })
@@ -492,6 +530,7 @@ mod tests {
                 name: "Backend".to_owned(),
                 repos: vec![RepoId("r1".to_owned())],
             }],
+            layout: None,
         };
         let text = config_file::encode(WORKSPACE_SCHEMA, &file).unwrap();
         assert_eq!(

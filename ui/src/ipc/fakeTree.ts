@@ -2,7 +2,8 @@
 // core builds them, the filter, and the scenarios Playwright picks with
 // `?fake=<name>`. Test support only; the real tree comes from the core.
 import type { RepoId, RepoView, SummaryView, TreeItem, TreeNode, WorkspaceView } from "./bindings";
-import type { FakeHistory } from "./fakeHistory";
+import { defaultDetails, type FakeCommit, type FakeWorkingCopy, keep, textFile } from "./fakeChanges";
+import { type FakeHistory, hashOf } from "./fakeHistory";
 
 const CATEGORIES = [
   ["local", "Local"],
@@ -173,6 +174,10 @@ export interface Scenario {
   historyDelay?: number;
   /** See `fakeState.slowRepos`. */
   slowRepos?: Record<RepoId, boolean>;
+  /** See `fakeState.commits`. */
+  commits?: Record<string, FakeCommit>;
+  /** See `fakeState.workingCopies`. */
+  workingCopies?: Record<RepoId, FakeWorkingCopy>;
 }
 
 const repo = (id: string, name: string): RepoView => ({ id, name, path: `/src/${name}`, remote: null });
@@ -208,6 +213,23 @@ export function scenario(name: string, workspaceId: string): Scenario | null {
         summary(workspaceId, "r2", "main"),
         summary(workspaceId, "r3", "main", { stale: true }),
       ],
+      // api's fifth commit merges a side branch (UI-16).
+      commits: {
+        [hashOf(4)]: {
+          details: defaultDetails(hashOf(4), [hashOf(5), "51de000000000000000000000000000000000000"]),
+          files: [[textFile("side.txt", [{ add: "from the side branch" }], "added")], [textFile("main.txt", [...keep(1, 2), { add: "on main" }])]],
+        },
+      },
+      workingCopies: {
+        r1: {
+          staged: [textFile("src/app.ts", [...keep(1, 3), { add: "staged line" }])],
+          unstaged: [
+            textFile("src/app.ts", [...keep(1, 3), { add: "staged line" }, { add: "unstaged line" }]),
+            textFile("notes.txt", [{ add: "untracked" }], "untracked"),
+          ],
+          unmerged: [{ path: "conflict.txt", conflict: "both_modified" }],
+        },
+      },
     };
   }
   if (name === "big-history") {

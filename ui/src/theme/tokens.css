@@ -37,6 +37,19 @@
   --graph-5: #1b7c83;
   --graph-6: #cf222e;
   --graph-7: #9a6700;
+  /* Diffs and code, until code themes arrive (M1-10, UI-24). */
+  --diff-added-bg: #dafbe1;
+  --diff-added-text-bg: #aceebb;
+  --diff-removed-bg: #ffebe9;
+  --diff-removed-text-bg: #ffcecb;
+  --diff-hunk-bg: #ddf4ff;
+  --code-keyword: #cf222e;
+  --code-string: #0a3069;
+  --code-comment: #59636e;
+  --code-number: #0550ae;
+  --code-type: #953800;
+  --code-function: #8250df;
+  --code-tag: #116329;
 }
 
 :root[data-theme="dark"] {
@@ -64,4 +77,16 @@
   --graph-5: #39c5cf;
   --graph-6: #f85149;
   --graph-7: #d29922;
+  --diff-added-bg: #12261e;
+  --diff-added-text-bg: #1d4428;
+  --diff-removed-bg: #2a1619;
+  --diff-removed-text-bg: #5a1e24;
+  --diff-hunk-bg: #121d2f;
+  --code-keyword: #ff7b72;
+  --code-string: #a5d6ff;
+  --code-comment: #9198a1;
+  --code-number: #79c0ff;
+  --code-type: #ffa657;
+  --code-function: #d2a8ff;
+  --code-tag: #7ee787;
 }

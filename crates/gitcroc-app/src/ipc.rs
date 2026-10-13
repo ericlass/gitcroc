@@ -8,12 +8,15 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use base64::Engine as _;
 use gitcroc_core::{
-    AddReport, AppInfo, CommitGraphError, GitError, GitRunner, GitSetup, GitStatus, Histories,
-    HistoryTarget, HistoryView, HistoryViewError, JobId, JobIds, JobProgress, Refusal, RepoId,
-    SettingsError, SettingsStore, SettingsView, Summaries, SummaryView, Theme, TreeError, TreeNode,
-    Trees, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path, commit_graph_begin,
-    refresh_summaries, tree_refs,
+    AddReport, AppInfo, Changes, ChangesError, ChangesSettings, ChangesTarget, ChangesView,
+    CommitGraphError, DiffRequest, FileDiff, FileRef, GitError, GitRunner, GitSetup, GitStatus,
+    Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, JobId, JobIds, JobProgress,
+    PaneLayout, Refusal, RepoId, SettingsError, SettingsStore, SettingsView, StatusError,
+    StatusReadError, Summaries, SummaryView, Theme, TreeError, TreeNode, Trees, WorkspaceError,
+    WorkspaceId, WorkspaceView, Workspaces, add_path, commit_graph_begin, refresh_summaries,
+    tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -123,6 +126,25 @@ impl From<HistoryViewError> for IpcError {
                     git_stderr: None,
                 }
             }
+        }
+    }
+}
+
+impl From<ChangesError> for IpcError {
+    fn from(error: ChangesError) -> Self {
+        match error {
+            ChangesError::Workspace(error) => error.into(),
+            // git refused the repo; its message is for the user (SEC-6).
+            ChangesError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
+                code: IpcErrorCode::Internal,
+                message: "git refused to read the working copy".to_owned(),
+                git_stderr: Some(message),
+            },
+            other => Self {
+                code: IpcErrorCode::Internal,
+                message: other.to_string(),
+                git_stderr: None,
+            },
         }
     }
 }
@@ -460,6 +482,91 @@ pub async fn commit_graph_decline(
     Ok(())
 }
 
+/// Saves the changes pane's view: diff mode and options and the file list
+/// toggle, the same for every workspace (UI-14, UI-17).
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_set_changes(
+    app: AppHandle,
+    changes: ChangesSettings,
+) -> Result<SettingsView, IpcError> {
+    // Saving touches the disk; keep it off the async workers (ARCH-7).
+    tauri::async_runtime::spawn_blocking(move || app.state::<SettingsStore>().set_changes(changes))
+        .await?
+        .map_err(IpcError::from)
+}
+
+/// Saves the workspace's pane layout: the dock position and pane sizes
+/// (UI-19).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_set_layout(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    layout: PaneLayout,
+) -> Result<(), IpcError> {
+    // Saving touches the disk; keep it off the async workers (ARCH-7).
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || workspaces.set_layout(&workspace_id, layout))
+        .await??;
+    Ok(())
+}
+
+/// What the changes pane shows for `target` in a repo (UI-14, UI-15,
+/// UI-16), as a new view of the workspace; the previous one ends. `null`
+/// when a newer `changes_get` of the workspace superseded this one.
+#[tauri::command]
+#[specta::specta]
+pub async fn changes_get(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+    target: ChangesTarget,
+) -> Result<Option<ChangesView>, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let changes = app.state::<Arc<Changes>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::changes_get(changes, workspaces, git, workspace_id, repo_id, target).await?)
+}
+
+/// The diff of one file of view `handle` (ARCH-8, UI-17, UI-18). `null`
+/// when a newer view of the workspace replaced it.
+#[tauri::command]
+#[specta::specta]
+pub async fn diff_get(
+    changes: State<'_, Arc<Changes>>,
+    workspace_id: WorkspaceId,
+    handle: u32,
+    file: FileRef,
+    request: DiffRequest,
+) -> Result<Option<FileDiff>, IpcError> {
+    let changes = changes.inner().clone();
+    Ok(gitcroc_core::diff_get(changes, workspace_id, handle, file, request).await?)
+}
+
+/// One side of the image diff `diff_get` last read for `file`, as base64
+/// (UI-18). `null` when that side has no image, or the view or the file is
+/// no longer the one read.
+#[tauri::command]
+#[specta::specta]
+pub async fn diff_image(
+    changes: State<'_, Arc<Changes>>,
+    workspace_id: WorkspaceId,
+    handle: u32,
+    file: FileRef,
+    side: ImageSide,
+) -> Result<Option<String>, IpcError> {
+    let changes = changes.inner().clone();
+    // Encoding up to 10 MB takes a few milliseconds; keep it off the async
+    // workers all the same (ARCH-7).
+    let encoded = tauri::async_runtime::spawn_blocking(move || {
+        gitcroc_core::diff_image(&changes, &workspace_id, handle, file, side)
+            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))
+    })
+    .await?;
+    Ok(encoded)
+}
+
 /// Removes a repo from the workspace; nothing on disk changes (GRP-3).
 #[tauri::command]
 #[specta::specta]
@@ -661,6 +768,11 @@ macro_rules! with_commands {
                 history_more,
                 commit_graph_write,
                 commit_graph_decline,
+                settings_set_changes,
+                workspace_set_layout,
+                changes_get,
+                diff_get,
+                diff_image,
                 debug::debug_emit_progress
             ]
         }
@@ -684,7 +796,12 @@ macro_rules! with_commands {
                 history_get,
                 history_more,
                 commit_graph_write,
-                commit_graph_decline
+                commit_graph_decline,
+                settings_set_changes,
+                workspace_set_layout,
+                changes_get,
+                diff_get,
+                diff_image
             ]
         }
     }};

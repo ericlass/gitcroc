@@ -5,10 +5,10 @@
 use std::borrow::Cow;
 
 use gix::diff::blob::{Algorithm, Diff, InternedInput, Interner};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// How much unchanged text surrounds each change (UI-17).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum Context {
     #[default]
@@ -29,7 +29,7 @@ impl Context {
 }
 
 /// What a diff line is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum LineKind {
     Context,
@@ -38,7 +38,7 @@ pub enum LineKind {
 }
 
 /// One line of a hunk, without its line terminator.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct Line {
     pub kind: LineKind,
     /// 1-based line number on the old side; `None` for an added line.
@@ -50,7 +50,7 @@ pub struct Line {
 
 /// A run of changes with its context. Starts and counts are as in a
 /// unified diff header: `@@ -old_start,old_lines +new_start,new_lines @@`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct Hunk {
     pub old_start: u32,
     pub old_lines: u32,
@@ -60,7 +60,7 @@ pub struct Hunk {
 }
 
 /// The diff of a text file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct TextDiff {
     pub added: u32,
     pub removed: u32,

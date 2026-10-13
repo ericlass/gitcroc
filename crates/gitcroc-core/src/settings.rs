@@ -7,6 +7,8 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use serde::{Deserialize, Serialize};
 
+use gitcroc_git::Context;
+
 use crate::config_file::{self, ConfigWarning, Migration};
 
 /// The schema this build reads and writes.
@@ -48,11 +50,41 @@ pub enum Theme {
     Dark,
 }
 
+/// How the diff shows a text file (UI-17).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum DiffMode {
+    #[default]
+    Inline,
+    SideBySide,
+}
+
+/// How the changes pane lists files (UI-14).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum FileListMode {
+    #[default]
+    Flat,
+    Tree,
+}
+
+/// The changes pane's view, remembered for every workspace (UI-14,
+/// UI-17). A key missing from the file takes its default (see [`decode`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct ChangesSettings {
+    pub diff_mode: DiffMode,
+    pub file_list: FileListMode,
+    pub ignore_whitespace: bool,
+    pub wrap_lines: bool,
+    pub context: Context,
+}
+
 /// Every setting. A key missing from the file takes its default (see
 /// [`decode`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct Settings {
     pub theme: Theme,
+    pub changes: ChangesSettings,
 }
 
 /// The settings as the UI sees them.
@@ -122,6 +154,11 @@ impl SettingsStore {
         self.update(|settings| settings.theme = theme)
     }
 
+    /// Changes the changes pane's view and saves the file.
+    pub fn set_changes(&self, changes: ChangesSettings) -> Result<SettingsView, SettingsError> {
+        self.update(|settings| settings.changes = changes)
+    }
+
     fn update(&self, change: impl FnOnce(&mut Settings)) -> Result<SettingsView, SettingsError> {
         let mut state = self.lock();
         let path = match (&self.path, &state.warning) {
@@ -157,12 +194,25 @@ fn view(state: &Loaded) -> SettingsView {
 }
 
 /// Reads the settings from a file's table, taking the default for every
-/// missing key. Unknown keys, such as `schema`, are ignored.
+/// missing key, inside tables too. Unknown keys, such as `schema`, are
+/// ignored.
 fn decode(table: toml::Table) -> Result<Settings, toml::de::Error> {
     let mut full = toml::Table::try_from(Settings::default())
         .map_err(<toml::de::Error as serde::de::Error>::custom)?;
-    full.extend(table);
+    merge(&mut full, table);
     toml::Value::Table(full).try_into()
+}
+
+/// Puts every key of `from` into `into`, merging tables both have.
+fn merge(into: &mut toml::Table, from: toml::Table) {
+    for (key, value) in from {
+        match (into.get_mut(&key), value) {
+            (Some(toml::Value::Table(inner)), toml::Value::Table(value)) => merge(inner, value),
+            (_, value) => {
+                into.insert(key, value);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -171,7 +221,11 @@ mod tests {
 
     #[test]
     fn data_1_saved_file_has_schema_and_theme() {
-        let text = config_file::encode(SETTINGS_SCHEMA, &Settings { theme: Theme::Dark }).unwrap();
-        assert_eq!(text, "schema = 1\ntheme = \"dark\"\n");
+        let settings = Settings {
+            theme: Theme::Dark,
+            ..Settings::default()
+        };
+        let text = config_file::encode(SETTINGS_SCHEMA, &settings).unwrap();
+        assert!(text.starts_with("schema = 1\ntheme = \"dark\"\n"), "{text}");
     }
 }

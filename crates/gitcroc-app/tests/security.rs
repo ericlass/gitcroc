@@ -124,6 +124,39 @@ fn sec_2_csp_forbids_remote_sources() {
     );
 }
 
+/// Image diffs are shown through `blob:` URLs the UI makes from bytes the
+/// core sent (UI-18); nothing else may load an image from outside the
+/// bundle.
+const IMAGE_SOURCES: [&str; 2] = ["'self'", "blob:"];
+
+#[test]
+fn sec_2_images_load_only_from_the_bundle_or_blob_urls() {
+    let config = config();
+    let security = &config["app"]["security"];
+    for name in ["csp", "devCsp"] {
+        let Some(policy) = security.get(name).filter(|v| !v.is_null()) else {
+            continue;
+        };
+        let csp = parse_csp(policy);
+        let images = csp.get("img-src").expect("SEC-2: img-src is set");
+        for source in images {
+            assert!(
+                IMAGE_SOURCES.contains(&source.as_str()),
+                "SEC-2: {name} img-src allows {source}"
+            );
+        }
+        // `blob:` is for images only: it must not reach the directives
+        // that load code, styles, fonts or frames.
+        for directive in LOCAL_ONLY {
+            assert!(
+                !csp.get(directive)
+                    .is_some_and(|sources| sources.iter().any(|s| s == "blob:")),
+                "SEC-2: {name} {directive} allows blob:"
+            );
+        }
+    }
+}
+
 #[test]
 fn sec_2_csp_check_rejects_remote_and_eval() {
     let parse = |policy: &str| parse_csp(&Value::String(policy.to_owned()));

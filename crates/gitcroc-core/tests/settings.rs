@@ -7,8 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use gitcroc_core::{
-    ConfigDir, ConfigWarning, SETTINGS_FILE, Settings, SettingsError, SettingsStore, SettingsView,
-    Theme,
+    ChangesSettings, ConfigDir, ConfigWarning, Context, DiffMode, FileListMode, SETTINGS_FILE,
+    Settings, SettingsError, SettingsStore, SettingsView, Theme,
 };
 
 /// A config dir inside a temporary dir; it does not exist until a save.
@@ -62,7 +62,8 @@ fn data_1_missing_file_gives_defaults() {
         store.view(),
         SettingsView {
             settings: Settings {
-                theme: Theme::System
+                theme: Theme::System,
+                changes: ChangesSettings::default(),
             },
             read_only: false,
             warning: None,
@@ -80,8 +81,62 @@ fn data_1_saved_settings_load_again() {
     assert_eq!(store.view(), view);
 
     let text = fs::read_to_string(config.file()).unwrap();
-    assert_eq!(text, "schema = 1\ntheme = \"dark\"\n");
+    assert!(text.starts_with("schema = 1\ntheme = \"dark\"\n"), "{text}");
     assert_eq!(SettingsStore::load(&config).view(), view);
+}
+
+#[test]
+fn ui_17_diff_view_settings_are_remembered() {
+    let config = TempConfig::new();
+    let store = SettingsStore::load(&config);
+    assert_eq!(
+        store.view().settings.changes,
+        ChangesSettings {
+            diff_mode: DiffMode::Inline,
+            file_list: FileListMode::Flat,
+            ignore_whitespace: false,
+            wrap_lines: false,
+            context: Context::Three,
+        }
+    );
+
+    let changes = ChangesSettings {
+        diff_mode: DiffMode::SideBySide,
+        file_list: FileListMode::Tree,
+        ignore_whitespace: true,
+        wrap_lines: true,
+        context: Context::WholeFile,
+    };
+    let view = store.set_changes(changes).unwrap();
+    assert_eq!(view.settings.changes, changes);
+    let text = fs::read_to_string(config.file()).unwrap();
+    assert!(
+        text.contains("[changes]\ndiff_mode = \"side_by_side\"\n"),
+        "{text}"
+    );
+    assert_eq!(
+        SettingsStore::load(&config).view().settings.changes,
+        changes
+    );
+}
+
+#[test]
+fn ui_17_a_file_without_diff_settings_gets_the_defaults() {
+    // Written before the changes pane existed, or with only some keys.
+    for (text, wrap) in [
+        ("schema = 1\ntheme = \"dark\"\n", false),
+        ("schema = 1\n[changes]\nwrap_lines = true\n", true),
+    ] {
+        let config = TempConfig::with_file(text);
+        let view = SettingsStore::load(&config).view();
+        assert!(!view.read_only, "{text:?}");
+        assert_eq!(view.settings.changes.wrap_lines, wrap, "{text:?}");
+        assert_eq!(
+            view.settings.changes.diff_mode,
+            DiffMode::Inline,
+            "{text:?}"
+        );
+    }
 }
 
 #[test]

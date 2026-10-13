@@ -3,7 +3,7 @@
 // search results come from the core through the history store; this
 // component lays them out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, For, Match, on, Show, Switch } from "solid-js";
+import { createEffect, createMemo, For, Match, on, onMount, Show, Switch } from "solid-js";
 import type { CommitRow, RefLabel, RepoId, WorkspaceId } from "../ipc";
 import Splitter from "../layout/Splitter";
 import type { HistoryStore } from "../stores/history";
@@ -12,7 +12,11 @@ import type { SummaryStore } from "../stores/summaries";
 import Graph from "./Graph";
 import { formatDate, formatFullDate, type HistoryRow, historyRows } from "./rows";
 
-/** Height of one row in CSS pixels; every row has it. */
+/**
+ * Height of one row in CSS pixels; every row has it. `.history-row` in
+ * App.css sets it: a constant inline style would become a `style`
+ * attribute in Solid's template, which the CSP blocks (SEC-2).
+ */
 export const ROW_HEIGHT = 24;
 
 /** Rows rendered beyond each edge of the visible ones. */
@@ -142,6 +146,28 @@ function HistoryList(props: { workspace: WorkspaceId; history: HistoryStore; sum
     ),
   );
 
+  // Moving the pane to the other dock builds the list anew: where it was.
+  onMount(() => {
+    if (scroller) {
+      scroller.scrollTop = history().scrollTop;
+    }
+  });
+
+  // A commit selected elsewhere, such as a parent in the changes pane,
+  // scrolls into view when it is loaded; nothing is read to find it.
+  createEffect(
+    on(
+      () => history().selected,
+      () => {
+        const index = selectedIndex();
+        if (index >= 0) {
+          virtualizer.scrollToIndex(index, { align: "auto" });
+        }
+      },
+      { defer: true },
+    ),
+  );
+
   const select = (index: number) => {
     const row = rows().at(index);
     if (row === undefined || row.kind === "placeholder") {
@@ -221,7 +247,7 @@ function HistoryList(props: { workspace: WorkspaceId; history: HistoryStore; sum
                   aria-selected={row().id === history().selected}
                   aria-busy={row().kind === "placeholder" ? true : undefined}
                   data-index={item.index}
-                  style={{ transform: `translateY(${item.start}px)`, height: `${ROW_HEIGHT}px` }}
+                  style={{ transform: `translateY(${item.start}px)` }}
                   onClick={() => select(item.index)}
                 >
                   {rowView(row())}

@@ -231,7 +231,11 @@ main:not(.main) {
   width: 100%;
 }
 
+/* Row heights match ROW_HEIGHT in TreePane.tsx and HistoryPane.tsx and
+   FILE_ROW_HEIGHT in FileList.tsx. They live here: a constant inline style
+   would be a style attribute, which the CSP blocks (SEC-2). */
 .tree-row {
+  height: 22px;
   position: absolute;
   top: 0;
   left: 0;
@@ -597,6 +601,7 @@ main:not(.main) {
 }
 
 .history-row {
+  height: 24px;
   position: absolute;
   top: 0;
   left: 0;
@@ -691,3 +696,420 @@ main:not(.main) {
 .graph-c5 { --lane: var(--graph-5); }
 .graph-c6 { --lane: var(--graph-6); }
 .graph-c7 { --lane: var(--graph-7); }
+
+/* Changes pane (UI-14 to UI-19) */
+
+.pane-changes {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane-stack {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pane-stack > .pane {
+  min-width: 0;
+}
+
+.pane-stack > .pane-history {
+  min-height: 120px;
+}
+
+.splitter-horizontal {
+  cursor: row-resize;
+  border-left: none;
+  border-right: none;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.changes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.changes > [role="alert"] {
+  margin: 4px 8px;
+}
+
+.changes-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.changes-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.changes-toolbar select,
+.commit-header select {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.dock-button {
+  margin-left: auto;
+}
+
+.segmented {
+  display: inline-flex;
+}
+
+.segmented button {
+  border-radius: 0;
+}
+
+.segmented button + button {
+  border-left: none;
+}
+
+.segmented button:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.segmented button:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.segmented button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.changes-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.changes[data-dock="bottom"] .changes-body {
+  flex-direction: row;
+}
+
+.changes-side {
+  flex: 0 1 auto;
+  max-height: 50%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+}
+
+.changes[data-dock="bottom"] .changes-side {
+  flex: 0 0 40%;
+  max-height: none;
+  border-bottom: none;
+  border-right: 1px solid var(--border);
+}
+
+.changes-title {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: inherit;
+}
+
+.commit-header {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.commit-header dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 8px;
+  margin: 0;
+}
+
+.commit-header dt {
+  color: var(--text-secondary);
+}
+
+.commit-header dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hash {
+  font-family: var(--font-code);
+}
+
+.commit-email {
+  color: var(--text-secondary);
+}
+
+.commit-parents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+button.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+button.link:hover:not(:disabled) {
+  background: none;
+}
+
+.commit-message {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.files-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.file-list {
+  flex: 1 1 auto;
+  min-height: 66px;
+  overflow: auto;
+  position: relative;
+}
+
+.file-list:focus-visible {
+  outline-offset: -2px;
+}
+
+.file-rows {
+  position: relative;
+  width: 100%;
+}
+
+.file-row {
+  height: 22px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.file-row-file:hover,
+.file-row-folder:hover {
+  background: var(--bg-2);
+}
+
+.file-row.selected {
+  background: var(--bg-3);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.file-section {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.file-folder {
+  display: flex;
+  gap: 4px;
+  color: var(--text-secondary);
+}
+
+.file-status {
+  flex: 0 0 auto;
+  width: 1.4em;
+  text-align: center;
+  font-family: var(--font-code);
+  color: var(--text-secondary);
+}
+
+.status-added,
+.status-untracked {
+  color: var(--success);
+}
+
+.status-deleted,
+.status-unmerged {
+  color: var(--danger);
+}
+
+.status-renamed,
+.status-modified,
+.status-type_changed {
+  color: var(--warning);
+}
+
+.file-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-old,
+.file-conflict {
+  color: var(--text-secondary);
+}
+
+.file-counts {
+  flex: 0 0 auto;
+  font-family: var(--font-code);
+}
+
+.file-counts .added {
+  color: var(--success);
+}
+
+.file-counts .removed {
+  color: var(--danger);
+}
+
+.changes-diff {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.diff-header {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  font-family: var(--font-code);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.diff-mode {
+  color: var(--text-secondary);
+}
+
+.changes-diff > [role="alert"] {
+  margin: 4px 8px;
+}
+
+.diff-text {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.diff-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.diff-editor[hidden] {
+  display: none;
+}
+
+.diff-editor > .cm-editor,
+.diff-editor > .cm-mergeView {
+  height: 100%;
+}
+
+.diff-editor .cm-mergeView {
+  overflow: auto;
+}
+
+.diff-note {
+  margin: 0;
+  padding: 2px 8px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+}
+
+.diff-special {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+}
+
+.diff-large {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.diff-large p {
+  margin: 0;
+}
+
+.diff-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.diff-image {
+  flex: 1 1 200px;
+  margin: 0;
+  min-width: 0;
+}
+
+.diff-image figcaption {
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+}
+
+.diff-image img {
+  max-width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.diff-submodule {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 8px;
+  margin: 0;
+}
+
+.diff-submodule dt {
+  color: var(--text-secondary);
+}
+
+.diff-submodule dd {
+  margin: 0;
+}
