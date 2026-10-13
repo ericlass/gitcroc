@@ -724,6 +724,7 @@ async fn refresh(app: AppHandle, workspace_id: WorkspaceId, repos: Vec<RepoId>, 
     let summaries = app.state::<Arc<Summaries>>().inner().clone();
     let emit = summary_sink(app);
     refresh_summaries(workspaces, summaries, workspace_id, repos, git, emit).await;
+    perf_mark("first refresh done");
 }
 
 /// Sends each summary read as `repo_summary`. A repo read again also drops
@@ -732,6 +733,9 @@ fn summary_sink(app: AppHandle) -> impl Fn(SummaryView) + Send + Sync + 'static 
     let trees = app.state::<Arc<Trees>>().inner().clone();
     move |view| {
         let read = !view.refreshing;
+        if read {
+            perf_mark("first repo read");
+        }
         let changed = RepoRef {
             workspace_id: view.workspace_id.clone(),
             repo_id: view.repo_id.clone(),
@@ -794,6 +798,13 @@ fn spawn_watch_sync(app: &AppHandle, workspace_id: WorkspaceId) {
 /// starts and when it is done. Window creation never waits for it. With a
 /// usable git, every repo's summary is then read again (PERF-3); until
 /// then the cached summaries stand.
+/// Records a step of the start for `just bench-ui --verbose` (M1-15); does
+/// nothing in release builds.
+pub fn perf_mark(_name: &str) {
+    #[cfg(any(debug_assertions, feature = "perf-trace"))]
+    debug::mark(_name);
+}
+
 pub fn spawn_git_detection(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let setup = app.state::<GitSetup>();
@@ -801,6 +812,7 @@ pub fn spawn_git_detection(app: AppHandle) {
         // either way and `git_status` reads it.
         let _ = GitStatusEvent(GitStatus::Checking).emit(&app);
         let status = setup.detect().await;
+        perf_mark("git detected");
         let _ = GitStatusEvent(status).emit(&app);
         let Some(git) = setup.git().await.map(|git| GitRunner::new(git.path)) else {
             return;
@@ -818,7 +830,7 @@ pub fn spawn_git_detection(app: AppHandle) {
 #[cfg(any(debug_assertions, feature = "perf-trace"))]
 pub mod debug {
     use std::path::PathBuf;
-    use std::sync::OnceLock;
+    use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use gitcroc_core::{JobId, JobIds, JobProgress, WorkspaceId};
@@ -834,10 +846,84 @@ pub mod debug {
 
     static PROCESS_START: OnceLock<SystemTime> = OnceLock::new();
 
+    /// The steps of the start, each the first time it happened (M1-15).
+    static MARKS: Mutex<Vec<(String, SystemTime)>> = Mutex::new(Vec::new());
+
     /// Records when the app started, for the cold start measurement. Called
     /// first thing in [`crate::run`].
     pub fn mark_process_start() {
         PROCESS_START.get_or_init(SystemTime::now);
+    }
+
+    /// Records when `name` first happened, for the phases of the cold start
+    /// that `just bench-ui --verbose` prints. Later calls with the same name
+    /// are ignored, and so is everything after the first 200 marks.
+    pub fn mark(name: &str) {
+        let now = SystemTime::now();
+        let Ok(mut marks) = MARKS.lock() else {
+            return;
+        };
+        if marks.len() < 200 && marks.iter().all(|(seen, _)| seen != name) {
+            marks.push((name.to_owned(), now));
+        }
+    }
+
+    /// Marks each time the app's main loop ran a task posted to it more than
+    /// 15 ms late, during the first 3 s: the window, the webview's frames
+    /// and the IPC answers all wait for that loop (M1-15).
+    pub fn probe_main_loop(app: &AppHandle) {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let begin = std::time::Instant::now();
+            while begin.elapsed() < Duration::from_secs(3) {
+                let posted = SystemTime::now();
+                let (sender, receiver) = std::sync::mpsc::channel();
+                if app
+                    .run_on_main_thread(move || {
+                        let _ = sender.send(SystemTime::now());
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+                let Ok(ran) = receiver.recv() else {
+                    return;
+                };
+                let late = ran.duration_since(posted).unwrap_or_default();
+                if late > Duration::from_millis(15)
+                    && let Ok(mut marks) = MARKS.lock()
+                {
+                    marks.push((format!("main loop stalled {} ms", late.as_millis()), posted));
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+    }
+
+    fn unix_ms(time: SystemTime) -> Option<f64> {
+        time.duration_since(UNIX_EPOCH)
+            .ok()
+            .map(|since| since.as_secs_f64() * 1000.0)
+    }
+
+    /// When the kernel started this process, before the dynamic linker loaded
+    /// the app's libraries; `None` off Linux. In clock ticks since boot, so
+    /// to 10 ms.
+    fn exec_unix_ms() -> Option<f64> {
+        if !cfg!(target_os = "linux") {
+            return None;
+        }
+        let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+        let fields: Vec<&str> = stat.get(stat.rfind(')')? + 2..)?.split(' ').collect();
+        let ticks: f64 = fields.get(19)?.parse().ok()?;
+        let uptime: f64 = std::fs::read_to_string("/proc/uptime")
+            .ok()?
+            .split(' ')
+            .next()?
+            .parse()
+            .ok()?;
+        let now = unix_ms(SystemTime::now())?;
+        Some(now - (uptime - ticks / 100.0) * 1000.0)
     }
 
     /// One measurement the UI took, in milliseconds.
@@ -854,6 +940,17 @@ pub mod debug {
         /// since the Unix epoch; `None` when it never did.
         pub tree_visible_unix_ms: Option<f64>,
         pub samples: Vec<PerfSample>,
+        /// Steps of the start the page saw, as `performance.mark` names
+        /// them, in milliseconds since the Unix epoch (M1-15).
+        pub marks: Vec<PerfMark>,
+    }
+
+    /// One step of the start and when it happened, in milliseconds since the
+    /// Unix epoch.
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    pub struct PerfMark {
+        pub name: String,
+        pub unix_ms: f64,
     }
 
     fn internal(message: String) -> IpcError {
@@ -876,10 +973,7 @@ pub mod debug {
         let path = std::env::var_os(PERF_TRACE_ENV)
             .map(PathBuf::from)
             .ok_or_else(|| internal(format!("{PERF_TRACE_ENV} is not set")))?;
-        let started = PROCESS_START
-            .get()
-            .and_then(|start| start.duration_since(UNIX_EPOCH).ok())
-            .map(|since| since.as_secs_f64() * 1000.0);
+        let started = PROCESS_START.get().copied().and_then(unix_ms);
         let cold_start_ms = trace
             .tree_visible_unix_ms
             .zip(started)
@@ -888,11 +982,29 @@ pub mod debug {
             "process_start_unix_ms": started,
             "cold_start_ms": cold_start_ms,
             "samples": trace.samples,
+            "exec_unix_ms": exec_unix_ms(),
+            "core_marks": core_marks(),
+            "page_marks": trace.marks,
         });
         let text = serde_json::to_vec_pretty(&json).map_err(|error| internal(error.to_string()))?;
         tokio::fs::write(&path, text)
             .await
             .map_err(|error| internal(format!("cannot write {}: {error}", path.display())))
+    }
+
+    fn core_marks() -> Vec<PerfMark> {
+        let Ok(marks) = MARKS.lock() else {
+            return Vec::new();
+        };
+        marks
+            .iter()
+            .filter_map(|(name, time)| {
+                Some(PerfMark {
+                    name: name.clone(),
+                    unix_ms: unix_ms(*time)?,
+                })
+            })
+            .collect()
     }
 
     /// Starts a fake job that reports three steps 100 ms apart, and returns

@@ -5,6 +5,7 @@
 // while scrolling, and writes them through `perf_trace_write`. It measures;
 // it changes nothing the app does.
 import { type PerfSample, perfTraceWrite } from "../ipc";
+import { startMarks } from "./marks";
 
 /** Must match ROW_HEIGHT in src/history/HistoryPane.tsx. */
 const ROW_HEIGHT = 24;
@@ -251,7 +252,7 @@ async function idle(quietMs: number) {
 
 /** Writes everything measured so far through `perf_trace_write`. */
 function flush() {
-  return perfTraceWrite({ tree_visible_unix_ms: treeVisibleUnixMs, samples });
+  return perfTraceWrite({ tree_visible_unix_ms: treeVisibleUnixMs, samples, marks: startMarks() });
 }
 
 const recorder = {
@@ -276,6 +277,14 @@ declare global {
 export function install() {
   treeVisible = until(conditions.tree, performance.now()).then((end) => {
     treeVisibleUnixMs = performance.timeOrigin + end;
+    performance.mark("tree visible", { startTime: end });
+    // For a start without WebDriver (`bench-ui --direct`), which reads the
+    // trace and ends the app. Later flushes write it again.
+    void flush().catch(() => {});
   });
+  // The app replaces "Looking for git…" once the core reports git (M1-15).
+  void until(() => document.querySelector("main.message-screen") === null, performance.now()).then((end) =>
+    performance.mark("past the git check", { startTime: end }),
+  );
   window.__gitcrocPerf = recorder;
 }

@@ -617,6 +617,15 @@ export type PaneLayout = {
 	changes: number | null,
 };
 
+/**
+ *  One step of the start and when it happened, in milliseconds since the
+ *  Unix epoch.
+ */
+export type PerfMark = {
+	name: string,
+	unix_ms: number | null,
+};
+
 /**  One measurement the UI took, in milliseconds. */
 export type PerfSample = {
 	scenario: string,
@@ -631,6 +640,11 @@ export type PerfTrace = {
 	 */
 	tree_visible_unix_ms: number | null,
 	samples: PerfSample[],
+	/**
+	 *  Steps of the start the page saw, as `performance.mark` names
+	 *  them, in milliseconds since the Unix epoch (M1-15).
+	 */
+	marks: PerfMark[],
 };
 
 /**  A commit author or committer. */

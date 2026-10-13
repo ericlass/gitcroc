@@ -114,6 +114,8 @@ Some section 9 budgets need the real app: cold start until the tree shows, selec
 
 It needs `tauri-driver` (`cargo install tauri-driver --locked`) and WebKitWebDriver (`sudo apt install webkit2gtk-driver` on Debian and Ubuntu). Run it pinned to 8 cores, with nothing else busy, before a release and for a milestone sign-off: `taskset -c 0-7 just bench-ui`. It does not run in CI.
 
+`--verbose` also prints where memory goes and a timeline of the start: each step the core and the page mark (window created, page started, first script, each command's first call and answer, tree in the DOM, tree visible) and every stall of the app's main loop or the page's main thread, as the median over the runs. `--start-only` measures the cold start alone and ends each run once the tree shows. `--direct` does the same but starts the app itself, without WebDriver.
+
 ## Integration tests and unwrap (QA-4)
 
 `unsafe` is forbidden. `unwrap` and `expect` are denied outside tests. `clippy.toml` allows them in tests, but clippy's `allow-unwrap-in-tests` does not cover helper functions in integration test files. So every integration test file (`tests/*.rs`) starts with:
