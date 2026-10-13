@@ -1,0 +1,51 @@
+[
+  {
+    "budget_ms": 1000.0,
+    "data_set": "target-project",
+    "median_ms": 2.569,
+    "runs": 3,
+    "scenario": "cold-start-core"
+  },
+  {
+    "budget_ms": null,
+    "data_set": "target-project",
+    "median_ms": 0.189,
+    "runs": 3,
+    "scenario": "open-repo"
+  },
+  {
+    "budget_ms": 200.0,
+    "data_set": "target-project",
+    "median_ms": 32.737,
+    "runs": 3,
+    "scenario": "history-first-page"
+  },
+  {
+    "budget_ms": null,
+    "data_set": "target-project",
+    "median_ms": 29.555,
+    "runs": 3,
+    "scenario": "history-page-10"
+  },
+  {
+    "budget_ms": 150.0,
+    "data_set": "target-project",
+    "median_ms": 16.084,
+    "runs": 3,
+    "scenario": "select-commit"
+  },
+  {
+    "budget_ms": null,
+    "data_set": "target-project",
+    "median_ms": 17.4,
+    "runs": 3,
+    "scenario": "select-commit-large"
+  },
+  {
+    "budget_ms": 500.0,
+    "data_set": "target-project",
+    "median_ms": 181.252,
+    "runs": 3,
+    "scenario": "status-60k"
+  }
+]

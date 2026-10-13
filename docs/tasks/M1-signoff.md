@@ -84,7 +84,7 @@ Memory with `big-history` scrolled 100,000 rows (stretch target 1.2 GB) is not m
 - [x] `just check` runs `just coverage M1`, and M1 has no requirement without a test (QA-3).
 - [ ] The Bench workflow passes on `main`. Run (URL):
 - [ ] The Bench workflow, run on demand on a throwaway branch that slows `history-first-page` by more than 20% with a sleep, fails. Run (URL):
-- [ ] `bench/baseline-linux.json` is committed, made from three runs on the CI runner. Run (URL):
+- [x] `bench/baseline-linux.json` is committed, made from three runs on the CI runner (ubuntu-22.04). Run (URL): https://github.com/ericlass/gitcroc/actions/runs/38362417076
 
 ## Windows (deferred)
 
