@@ -391,14 +391,18 @@ async fn ops_7_external_edit_refreshes_the_selected_repo() {
     std::fs::create_dir_all(app.path().join("new").join("deeper")).unwrap();
     watched.settle().await;
     app.write("new/deeper/file.txt", "x\n").unwrap();
+    // Windows may report the write's last steps after the debounce, as a
+    // second change; what matters is that the new folder is watched.
     let changes = watched.changes_within(SETTLE).await;
-    assert_eq!(
-        changes,
-        vec![RepoChange {
-            workspace_id: watched.id.clone(),
-            repo_id: app_id,
-            refs: false,
-        }]
+    assert!(!changes.is_empty(), "the new folder is not watched");
+    let expected = RepoChange {
+        workspace_id: watched.id.clone(),
+        repo_id: app_id,
+        refs: false,
+    };
+    assert!(
+        changes.iter().all(|change| *change == expected),
+        "{changes:?}"
     );
 }
 
