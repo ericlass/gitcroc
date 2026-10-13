@@ -8,7 +8,7 @@ import { createHistoryStore, sourceOf } from "../stores/history";
 import { createLayoutStore } from "../stores/layout";
 import { createSelectionStore } from "../stores/selection";
 import { createSummaryStore } from "../stores/summaries";
-import HistoryPane from "./HistoryPane";
+import HistoryPane, { ROW_HEIGHT } from "./HistoryPane";
 import { formatDate } from "./rows";
 
 // jsdom lays nothing out; give the list a height so rows are rendered.
@@ -96,6 +96,41 @@ test("UI-9 history columns", async () => {
   expect(row.getByText(commit.short_hash)).toBeDefined();
   // The column header can be resized.
   expect(screen.getByRole("separator", { name: "Resize Author" })).toBeDefined();
+});
+
+test("PERF-1 the rows on screen are reused as the list scrolls", async () => {
+  fakeState.histories = { r1: { length: 300, prefix: "api" } };
+  const { history } = await setup();
+  history.show(id(), sourceOf("repo:r1", repoItem));
+  await settle();
+  const scroller = document.querySelector<HTMLElement>(".history-scroller");
+  if (!scroller) {
+    throw new Error("no list");
+  }
+  let top = 0;
+  Object.defineProperty(scroller, "scrollTop", { get: () => top, set: (value: number) => (top = value) });
+  const scrollTo = async (row: number) => {
+    top = row * ROW_HEIGHT;
+    fireEvent.scroll(scroller);
+    await settle();
+  };
+
+  // Mid-list, as many rows show as ever will at this height.
+  await scrollTo(96);
+  await scrollTo(100);
+  const before = new Set(screen.getAllByRole("option"));
+  const last = Math.max(...[...before].map((row) => Number(row.dataset.index)));
+  await scrollTo(104);
+  const after = screen.getAllByRole("option");
+  // Rows came into view and others left it, in the same elements: new
+  // ones would leave the web process the memory of every row shown (M1-14).
+  const indexes = after.map((row) => Number(row.dataset.index));
+  expect(Math.max(...indexes)).toBeGreaterThan(last);
+  expect(after.every((row) => before.has(row))).toBe(true);
+  // Each shows its own commit, and says where it is.
+  const row = after.find((element) => element.dataset.index === "110");
+  expect(row?.textContent).toContain(commitAt({ length: 300, prefix: "api" }, 110).subject);
+  expect(row?.getAttribute("aria-posinset")).toBe("111");
 });
 
 test("UI-9 dates are the author date as local YYYY-MM-DD HH:MM", () => {

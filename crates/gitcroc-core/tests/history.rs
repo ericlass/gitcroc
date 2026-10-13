@@ -376,3 +376,41 @@ async fn arch_1_a_failed_commit_graph_write_is_reported() {
     let view = run.get(&app, HistoryTarget::Repo, "").await.unwrap();
     assert_eq!(view.rows.len(), 4);
 }
+
+/// How many of `repo`'s pack files this process has mapped into memory.
+#[cfg(target_os = "linux")]
+fn mapped_packs(repo: &Path) -> usize {
+    let packs = repo.canonicalize().unwrap().join(".git/objects/pack/");
+    let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
+    maps.lines()
+        .filter(|line| line.contains(packs.to_str().unwrap()))
+        .count()
+}
+
+#[tokio::test]
+async fn perf_2_a_walk_keeps_no_repo_open_between_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = RepoSpec {
+        name: "long".into(),
+        files: 4,
+        lines: 10,
+        commits: 1200,
+        branches: 2,
+    };
+    let path = dir.path().join("long");
+    repo_gen::generate_repo(&spec, 7, &path).unwrap();
+    let run = Run::with_repos_in(dir.path(), Duration::MAX).await;
+    let long = run.repo("long");
+
+    // An open repo would keep the pack parts the walk read in memory for
+    // as long as the history is shown (M1-14).
+    let first = run.get(&long, HistoryTarget::Repo, "").await.unwrap();
+    assert!(!first.done);
+    #[cfg(target_os = "linux")]
+    assert_eq!(mapped_packs(&path), 0);
+    let second = run.more(first.handle).await.unwrap();
+    assert_eq!(second.rows.len(), PAGE_SIZE);
+    assert!(second.rows.iter().all(|row| row.graph.is_some()));
+    #[cfg(target_os = "linux")]
+    assert_eq!(mapped_packs(&path), 0);
+}

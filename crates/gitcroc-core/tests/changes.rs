@@ -378,3 +378,35 @@ async fn ui_17_whitespace_and_context_are_applied_by_the_core() {
     assert_eq!(text.new_text.as_deref(), Some(changed.as_str()));
     assert_eq!(text.old_text.as_deref(), Some(lines.as_str()));
 }
+
+/// How many of `repo`'s pack files this process has mapped into memory.
+#[cfg(target_os = "linux")]
+fn mapped_packs(repo: &Path) -> usize {
+    let packs = repo.canonicalize().unwrap().join(".git/objects/pack/");
+    let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
+    maps.lines()
+        .filter(|line| line.contains(packs.to_str().unwrap()))
+        .count()
+}
+
+#[tokio::test]
+async fn arch_8_a_view_keeps_no_repo_open_between_diffs() {
+    let fixture = Fixture::new().unwrap();
+    let repo = new_repo(&fixture);
+    repo.commit_file("a.txt", "a\n", "First").unwrap();
+    repo.write("b.txt", "b\n").unwrap();
+    let second = repo.commit_file("a.txt", "a\nb\n", "Second").unwrap();
+    repo.git(["gc", "--quiet"]).unwrap();
+    let run = Run::with_repo(repo.path()).await;
+
+    // An open repo would keep the pack parts the reads used in memory for
+    // as long as the view is shown (M1-14).
+    let view = run.commit(&second, 0).await;
+    #[cfg(target_os = "linux")]
+    assert_eq!(mapped_packs(repo.path()), 0);
+    for id in [0, 1] {
+        assert!(run.diff(view.handle, FileList::Commit, id).await.is_some());
+        #[cfg(target_os = "linux")]
+        assert_eq!(mapped_packs(repo.path()), 0);
+    }
+}

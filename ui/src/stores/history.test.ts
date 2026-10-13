@@ -1,3 +1,4 @@
+import { unwrap } from "solid-js/store";
 import { afterEach, expect, test } from "vitest";
 import { emitRepoSummary, fakeState, reset } from "../ipc/fake";
 import { hashOf, PAGE_SIZE } from "../ipc/fakeHistory";
@@ -31,16 +32,32 @@ test("PERF-2 pages load on demand, never ahead", async () => {
   const { history } = setup();
   history.show(id(), api);
   await settle();
-  expect(history.history(id()).rows).toHaveLength(PAGE_SIZE);
+  expect(history.history(id()).rows.list).toHaveLength(PAGE_SIZE);
   expect(history.history(id()).done).toBe(false);
   expect(fakeState.historyCalls.map((call) => call.command)).toEqual(["get"]);
 
   await history.more(id());
   await history.more(id());
-  expect(history.history(id()).rows).toHaveLength(1200);
+  expect(history.history(id()).rows.list).toHaveLength(1200);
   expect(history.history(id()).done).toBe(true);
   await history.more(id());
   expect(fakeState.historyCalls.map((call) => call.command)).toEqual(["get", "more", "more"]);
+});
+
+test("PERF-2 loaded commits are kept as read, not wrapped by the store", async () => {
+  const { history } = setup();
+  history.show(id(), api);
+  await settle();
+  await history.more(id());
+  // A wrapped row would keep a proxy and signals for as long as the
+  // history is loaded (M1-14).
+  const rows = history.history(id()).rows.list;
+  expect(rows).toHaveLength(2 * PAGE_SIZE);
+  for (const row of [rows[0], rows[PAGE_SIZE]]) {
+    expect(row).toBeDefined();
+    expect(unwrap(row)).toBe(row);
+    expect(unwrap(row?.graph)).toBe(row?.graph);
+  }
 });
 
 test("section 8 tree selections map to what the history shows", () => {
@@ -71,7 +88,7 @@ test("ARCH-9 history position is kept per tree selection", async () => {
   history.show(id(), api);
   await settle();
   await history.more(id());
-  const hash = history.history(id()).rows[700]?.hash ?? "";
+  const hash = history.history(id()).rows.list[700]?.hash ?? "";
   history.select(id(), hash);
   history.setScrollTop(id(), 700 * 24);
   expect(selection.selected(id())).toEqual({ kind: "commit", repo_id: "r1", hash });
@@ -104,7 +121,7 @@ test("UI-12 an older search answer never replaces a newer one", async () => {
   const newer = history.setText(id(), "change 12");
   await Promise.all([older, newer]);
   expect(history.history(id()).text).toBe("change 12");
-  const subjects = history.history(id()).rows.map((row) => row.subject);
+  const subjects = history.history(id()).rows.list.map((row) => row.subject);
   expect(subjects.every((subject) => subject.includes("change 12"))).toBe(true);
   expect(subjects).toContain("api: change 12");
   expect(fakeState.historyCalls.filter((call) => call.command === "get").map((call) => call.text)).toEqual([
@@ -146,7 +163,7 @@ test("OPS-7 the history reads again when its refs change, keeping the position a
   emitRepoSummary(summary(id(), "r1", "main", { refs_version: 1 }));
   await settleAll();
   const shown = history.history(id());
-  expect(shown.rows[0]?.subject).toBe("api: change 1201");
+  expect(shown.rows.list[0]?.subject).toBe("api: change 1201");
   expect(shown.rows.length).toBeGreaterThanOrEqual(1000);
   expect(shown.selected).toBe(hash);
   expect(shown.scrollTop).toBe(700 * 24);
@@ -174,7 +191,7 @@ test("OPS-7 a selected commit that no longer exists is deselected", async () => 
   fakeState.histories = { r1: { length: 600, prefix: "api" } };
   emitRepoSummary(summary(id(), "r1", "main", { refs_version: 1 }));
   await settleAll();
-  expect(history.history(id()).rows).toHaveLength(600);
+  expect(history.history(id()).rows.list).toHaveLength(600);
   expect(history.history(id()).selected).toBeNull();
   expect(selection.selected(id())).toBeNull();
   unsubscribe();

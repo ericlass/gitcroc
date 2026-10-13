@@ -30,7 +30,7 @@ export interface HistoryRows {
 export function historyRows(history: WorkspaceHistory, changes: number): HistoryRows {
   const uncommitted = history.source?.uncommitted === true && changes > 0 && history.text === "";
   const offset = uncommitted ? 1 : 0;
-  const rows = history.rows;
+  const rows = history.rows.list;
   const loaded = offset + rows.length;
   const count = loaded + (history.done ? 0 : PLACEHOLDER_ROWS);
   const at = (index: number): HistoryRow | undefined => {
