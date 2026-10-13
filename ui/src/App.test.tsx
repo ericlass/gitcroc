@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, expect, test } from "vitest";
 import App from "./App";
-import { emitJobProgress, fakeState, reset } from "./ipc/fake";
+import { emitJobProgress, emitWatchWarning, fakeState, reset } from "./ipc/fake";
 
 afterEach(() => {
   cleanup();
@@ -75,4 +75,17 @@ test("settings dialog closes with Escape and the Close button", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
   fireEvent.click(await screen.findByRole("button", { name: "Close" }));
   expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("OPS-7 a file watching failure shows a banner until dismissed", async () => {
+  render(() => <App />);
+  await screen.findByRole("toolbar", { name: "Main" });
+  // Let the workspace's subscriptions start.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  emitWatchWarning({ workspace_id: fakeState.workspace.id, message: "OS file watch limit reached." });
+  const banner = await screen.findByRole("alert");
+  expect(banner.textContent).toContain("OS file watch limit reached.");
+  expect(banner.textContent).toContain("when the window regains focus");
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  expect(screen.queryByRole("alert")).toBeNull();
 });

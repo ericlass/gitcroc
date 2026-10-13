@@ -75,3 +75,19 @@ test("ARCH-6 uncommitted changes are read again when the repo changes, keeping t
   expect(changes.changes(id()).file).toEqual({ list: "unstaged", id: 2 });
   unsubscribe();
 });
+
+test("OPS-7 a repo queued for a refresh is read again only once its summary arrives", async () => {
+  const changes = setup();
+  const unsubscribe = await changes.subscribe(id());
+  await changes.show(id(), { kind: "uncommitted", repo_id: "r1" });
+  const calls = fakeState.changesCalls.length;
+
+  emitRepoSummary(summary(id(), "r1", "main", { refreshing: true }));
+  await settle();
+  expect(fakeState.changesCalls).toHaveLength(calls);
+
+  emitRepoSummary(summary(id(), "r1", "main"));
+  await settle();
+  expect(fakeState.changesCalls.length).toBeGreaterThan(calls);
+  unsubscribe();
+});

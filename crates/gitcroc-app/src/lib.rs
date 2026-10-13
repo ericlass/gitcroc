@@ -8,6 +8,7 @@ use gitcroc_core::{
     Changes, GitSetup, Histories, JobIds, PlatformCacheDir, PlatformConfigDir, SettingsStore,
     Summaries, SummaryCache, Trees, Workspaces,
 };
+use tauri::Manager;
 
 /// Errors returned by `gitcroc-app`.
 #[derive(Debug, thiserror::Error)]
@@ -46,6 +47,9 @@ pub fn run() -> Result<(), Error> {
         .manage(Arc::new(Changes::new()))
         .setup(move |app| {
             ipc.mount_events(app);
+            // The watchers report through the app, so they start with it.
+            app.manage(Arc::new(ipc::watchers(app.handle())));
+            ipc::spawn_watching(app.handle());
             ipc::spawn_git_detection(app.handle().clone());
             Ok(())
         })

@@ -44,7 +44,9 @@ export const commands = {
 	workspaceSummaries: (workspaceId: WorkspaceId) => typedError<SummaryView[], IpcError>(__TAURI_INVOKE("workspace_summaries", { workspaceId })),
 	/**
 	 *  Tells the core which repo of the workspace is selected, so it is read
-	 *  first when its summary waits for a refresh (PERF-4). `None` clears it.
+	 *  first when its summary waits for a refresh (PERF-4) and its working tree
+	 *  is the one watched (PERF-6). `None` clears it. Returns at once; the
+	 *  watch moves in the background.
 	 */
 	repoSelect: (workspaceId: WorkspaceId, repoId: string | null) => typedError<null, IpcError>(__TAURI_INVOKE("repo_select", { workspaceId, repoId })),
 	/**
@@ -154,6 +156,20 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 */
 	settingsSetAppearance: (appearance: Appearance) => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_set_appearance", { appearance })),
 	/**
+	 *  Reads every repo of the workspace again, the selected one first, as when
+	 *  the window regains focus (OPS-7). Returns at once; each summary arrives
+	 *  as `repo_summary`.
+	 */
+	workspaceRefresh: (workspaceId: WorkspaceId) => typedError<null, IpcError>(__TAURI_INVOKE("workspace_refresh", { workspaceId })),
+	/**
+	 *  Why watching the workspace's files failed, if it did; the same warning
+	 *  is also sent once as `watch_warning`.
+	 */
+	watchWarning: (workspaceId: WorkspaceId) => typedError<{
+	workspace_id: WorkspaceId,
+	message: string,
+} | null, IpcError>(__TAURI_INVOKE("watch_warning", { workspaceId })),
+	/**
 	 *  Starts a fake job that reports three steps 100 ms apart, and returns
 	 *  its id without waiting for it.
 	 */
@@ -167,6 +183,7 @@ export const events = {
 	jobProgress: makeEvent<JobProgressEvent>("job_progress"),
 	repoRefsChanged: makeEvent<RepoRefsChangedEvent>("repo_refs_changed"),
 	repoSummary: makeEvent<RepoSummaryEvent>("repo_summary"),
+	watchWarning: makeEvent<WatchWarningEvent>("watch_warning"),
 	workspaceAddReport: makeEvent<WorkspaceAddReportEvent>("workspace_add_report"),
 	workspaceChanged: makeEvent<WorkspaceChangedEvent>("workspace_changed"),
 };
@@ -722,6 +739,11 @@ export type SummaryView = {
 	refreshing: boolean,
 	/**  `summary` says the repo is in conflict state (OPS-1, UI-3). */
 	conflict: boolean,
+	/**
+	 *  Goes up each time the repo's refs or `HEAD` are seen to have changed
+	 *  in this run; the history reads the repo again when it does (OPS-7).
+	 */
+	refs_version: number,
 };
 
 /**  The diff of a text file. */
@@ -822,6 +844,21 @@ export type Upstream = {
 	 */
 	gone: boolean,
 };
+
+/**
+ *  Watching a workspace failed, at least in part. Changes made outside the
+ *  app then show when the window regains focus (OPS-7).
+ */
+export type WatchWarning = {
+	workspace_id: WorkspaceId,
+	message: string,
+};
+
+/**
+ *  Watching a workspace's files failed, sent once as event `watch_warning`;
+ *  changes made outside the app then show when the window regains focus.
+ */
+export type WatchWarningEvent = WatchWarning;
 
 /**
  *  What an add job did, sent as event `workspace_add_report` when it ends,

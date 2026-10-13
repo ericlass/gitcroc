@@ -115,6 +115,8 @@ export function createHistoryStore(selection: SelectionStore) {
   const [state, setState] = createStore<{ byWorkspace: Record<WorkspaceId, WorkspaceHistory> }>({ byWorkspace: {} });
   /** The latest request of each workspace; older answers are dropped. */
   const requests = new Map<WorkspaceId, number>();
+  /** The last `refs_version` heard of each repo, by workspace (OPS-7). */
+  const refsVersions = new Map<WorkspaceId, Map<RepoId, number>>();
 
   const history = (id: WorkspaceId): WorkspaceHistory => state.byWorkspace[id] ?? empty();
 
@@ -271,6 +273,63 @@ export function createHistoryStore(selection: SelectionStore) {
     void load(id, saved?.rows ?? 0, saved?.scrollTop ?? 0);
   };
 
+  /**
+   * Reads the shown history again after its refs or HEAD changed (OPS-7),
+   * keeping the scroll position and the selected commit while it still
+   * exists. As many rows as were loaded are read again, and one page more
+   * when the selected commit moved below them; the rows are replaced only
+   * once all are read, so the list does not empty in between.
+   */
+  const reload = async (id: WorkspaceId) => {
+    const request = begin(id);
+    const [source, text, count, selected] = untrack(() => {
+      const current = history(id);
+      return [current.source, current.text, current.rows.length, current.selected] as const;
+    });
+    if (source === null) {
+      return;
+    }
+    try {
+      const first = await historyGet(id, source.repo, source.target, text);
+      if (first === null || !isLatest(id, request)) {
+        return;
+      }
+      const rows = [...first.rows];
+      let { handle, done } = first;
+      const kept = () => selected === null || selected === UNCOMMITTED_ID || rows.some((row) => row.hash === selected);
+      let extra = 1;
+      while (!done && (rows.length < count || (!kept() && extra-- > 0))) {
+        const page = await historyMore(id, handle);
+        if (page === null || !isLatest(id, request)) {
+          return;
+        }
+        rows.push(...page.rows);
+        ({ handle, done } = page);
+      }
+      const gone = !kept();
+      update(id, (h) => {
+        h.rows = rows;
+        h.handle = handle;
+        h.done = done;
+        h.loading = false;
+        h.error = null;
+        if (gone) {
+          h.selected = null;
+        }
+      });
+      if (gone) {
+        announce(id);
+      }
+    } catch (error) {
+      if (isLatest(id, request)) {
+        update(id, (h) => {
+          h.error = message(error);
+          h.loading = false;
+        });
+      }
+    }
+  };
+
   /** Reads the next page, unless one is being read or none follows. */
   const more = async (id: WorkspaceId) => {
     if (untrack(() => history(id).loading || history(id).done)) {
@@ -332,15 +391,38 @@ export function createHistoryStore(selection: SelectionStore) {
     update(id, (h) => (h.offerErrors[repo] = undefined));
   };
 
-  /** Reports failed commit-graph writes of workspace `id`. */
-  const subscribe = async (id: WorkspaceId) =>
-    core.events.commitGraphWritten.listen((event) => {
+  /**
+   * Reports failed commit-graph writes of workspace `id`, and reads the
+   * shown history again when the core says its repo's refs changed (OPS-7).
+   */
+  const subscribe = async (id: WorkspaceId) => {
+    const written = await core.events.commitGraphWritten.listen((event) => {
       const { workspace_id, repo_id, error, git_stderr } = event.payload;
       if (workspace_id === id && error !== null) {
         const detail = git_stderr ? `${error}\n${git_stderr}` : error;
         update(id, (h) => (h.offerErrors[repo_id] = `Cannot write the commit-graph file: ${detail}`));
       }
     });
+    const summaries = await core.events.repoSummary.listen((event) => {
+      const { workspace_id, repo_id, refreshing, refs_version } = event.payload;
+      if (workspace_id !== id || refreshing) {
+        return;
+      }
+      const versions = refsVersions.get(id) ?? new Map<RepoId, number>();
+      refsVersions.set(id, versions);
+      if (refs_version <= (versions.get(repo_id) ?? 0)) {
+        return;
+      }
+      versions.set(repo_id, refs_version);
+      if (untrack(() => history(id).source?.repo) === repo_id) {
+        void reload(id);
+      }
+    });
+    return () => {
+      written();
+      summaries();
+    };
+  };
 
   return {
     state,

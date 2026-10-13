@@ -68,6 +68,11 @@ same-file = "1.0.6"
 # system library is needed on any platform.
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 
+# File watching (PERF-6, M1-11). The debounce is gitcroc's own, per repo:
+# notify's debouncer crates debounce per path. The exact version is recorded
+# in the M1-11 pull request.
+notify = "8.2.0"
+
 # Image diffs cross IPC as base64 text (M1-09): Tauri's raw byte responses
 # have no generated TypeScript type.
 base64 = "0.23.1"

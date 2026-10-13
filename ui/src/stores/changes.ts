@@ -234,9 +234,10 @@ export function createChangesStore(settings: () => ChangesSettings) {
   /** Reads uncommitted changes again when the core reports the repo changed (ARCH-6). */
   const subscribe = async (id: WorkspaceId) =>
     core.events.repoSummary.listen((event) => {
-      const { workspace_id, repo_id } = event.payload;
+      const { workspace_id, repo_id, refreshing } = event.payload;
       const { selection, view, file } = untrack(() => changes(id));
-      if (workspace_id !== id || selection?.kind !== "uncommitted" || selection.repo_id !== repo_id) {
+      // Only a summary just read says the working copy may have changed.
+      if (refreshing || workspace_id !== id || selection?.kind !== "uncommitted" || selection.repo_id !== repo_id) {
         return;
       }
       const entry = view === null || file === null ? null : entryOf(view.content, file);
