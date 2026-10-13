@@ -73,6 +73,11 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 # in the M1-11 pull request.
 notify = "8.2.0"
 
+# The background refresh runs at the lowest thread priority (PERF-4, M1-13):
+# niceness 19 on Linux, the scheduling priority on macOS, the thread priority
+# on Windows. The exact version is recorded in the M1-13 pull request.
+thread-priority = "3.1.1"
+
 # Image diffs cross IPC as base64 text (M1-09): Tauri's raw byte responses
 # have no generated TypeScript type.
 base64 = "0.23.1"
