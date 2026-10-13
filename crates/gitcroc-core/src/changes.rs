@@ -5,6 +5,7 @@
 //! view supersedes the older one, whose calls then return `None`.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use gitcroc_git::{
@@ -163,11 +164,14 @@ struct Images {
     new: Option<Vec<u8>>,
 }
 
-/// A workspace's view. `repo` and `lists` are `None` while it is read.
+/// A workspace's view. `lists` is `None` while it is read. It keeps the
+/// repo's path, not the open repo: an open repo keeps the parts of its pack
+/// files the reads used mapped into memory for as long as the view is shown
+/// (M1-14). Each diff opens the repo again.
 #[derive(Debug)]
 struct Shown {
     handle: u32,
-    repo: Option<GitRepo>,
+    path: PathBuf,
     lists: Option<Arc<Lists>>,
     images: Option<Images>,
 }
@@ -184,14 +188,14 @@ impl Changes {
     }
 
     /// Makes a new view the latest of workspace `id`.
-    fn begin(&self, id: &WorkspaceId) -> u32 {
+    fn begin(&self, id: &WorkspaceId, path: PathBuf) -> u32 {
         let mut shown = lock(&self.shown);
         let handle = shown.get(id).map_or(1, |view| view.handle.wrapping_add(1));
         shown.insert(
             id.clone(),
             Shown {
                 handle,
-                repo: None,
+                path,
                 lists: None,
                 images: None,
             },
@@ -199,11 +203,12 @@ impl Changes {
         handle
     }
 
-    /// The repo and lists of view `handle`, if it is the latest and read.
-    fn lists(&self, id: &WorkspaceId, handle: u32) -> Option<(GitRepo, Arc<Lists>)> {
+    /// The repo's path and the lists of view `handle`, if it is the latest
+    /// and read.
+    fn lists(&self, id: &WorkspaceId, handle: u32) -> Option<(PathBuf, Arc<Lists>)> {
         let shown = lock(&self.shown);
         let view = shown.get(id).filter(|view| view.handle == handle)?;
-        Some((view.repo.clone()?, view.lists.clone()?))
+        Some((view.path.clone(), view.lists.clone()?))
     }
 
     /// Runs `change` on view `handle` if it is still the latest.
@@ -237,8 +242,8 @@ pub async fn changes_get(
     repo_id: RepoId,
     target: ChangesTarget,
 ) -> Result<Option<ChangesView>, ChangesError> {
-    let handle = changes.begin(&id);
     let path = workspaces.repo_path(&id, &repo_id)?;
+    let handle = changes.begin(&id, path.clone());
     let repo = tokio::task::spawn_blocking(move || GitRepo::open(&path)).await??;
     let (content, lists) = match target {
         ChangesTarget::Commit { hash, parent } => {
@@ -272,10 +277,7 @@ pub async fn changes_get(
             (content, lists)
         }
     };
-    let kept = changes.update(&id, handle, |view| {
-        view.repo = Some(repo);
-        view.lists = Some(Arc::new(lists));
-    });
+    let kept = changes.update(&id, handle, |view| view.lists = Some(Arc::new(lists)));
     Ok(kept.then_some(ChangesView { handle, content }))
 }
 
@@ -288,10 +290,11 @@ pub async fn diff_get(
     file: FileRef,
     request: DiffRequest,
 ) -> Result<Option<FileDiff>, ChangesError> {
-    let Some((repo, lists)) = changes.lists(&id, handle) else {
+    let Some((path, lists)) = changes.lists(&id, handle) else {
         return Ok(None);
     };
     let (source, changed) = lists.file(file).ok_or(ChangesError::UnknownFile(file.id))?;
+    let repo = tokio::task::spawn_blocking(move || GitRepo::open(&path)).await??;
     let diff = crate::file_diff(repo, source, changed, request.into()).await?;
     let images = match &diff {
         FileDiff::Image { old, new } => Some(Images {

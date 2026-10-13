@@ -56,6 +56,22 @@ export function sourceOf(nodeId: string | null, item: TreeItem | null): HistoryS
   }
 }
 
+/**
+ * The loaded commits of a history. The store keeps them as one value and
+ * does not wrap them: rows never change once read, and the store would keep
+ * a proxy and a signal per property of every row the list ever showed, for
+ * as long as the history stays loaded (M1-14).
+ */
+export class Commits {
+  constructor(readonly list: readonly CommitRow[]) {}
+
+  get length(): number {
+    return this.list.length;
+  }
+}
+
+const NO_COMMITS = new Commits([]);
+
 /** Where the user was in one selection's history. */
 export interface Position {
   scrollTop: number;
@@ -70,7 +86,7 @@ export interface WorkspaceHistory {
   source: HistorySource | null;
   /** The search text (UI-12). */
   text: string;
-  rows: CommitRow[];
+  rows: Commits;
   /** The core's walk, for `history_more`. */
   handle: number | null;
   /** No page follows the loaded rows. */
@@ -95,7 +111,7 @@ export interface WorkspaceHistory {
 const empty = (): WorkspaceHistory => ({
   source: null,
   text: "",
-  rows: [],
+  rows: NO_COMMITS,
   handle: null,
   done: true,
   loading: false,
@@ -150,7 +166,7 @@ export function createHistoryStore(selection: SelectionStore) {
 
   const append = (id: WorkspaceId, view: HistoryView) => {
     update(id, (h) => {
-      h.rows.push(...view.rows);
+      h.rows = new Commits([...h.rows.list, ...view.rows]);
       h.handle = view.handle;
       h.done = view.done;
     });
@@ -194,7 +210,7 @@ export function createHistoryStore(selection: SelectionStore) {
       return;
     }
     update(id, (h) => {
-      h.rows = [];
+      h.rows = NO_COMMITS;
       h.handle = null;
       h.done = false;
       h.loading = true;
@@ -207,7 +223,7 @@ export function createHistoryStore(selection: SelectionStore) {
         return;
       }
       update(id, (h) => {
-        h.rows = view.rows;
+        h.rows = new Commits(view.rows);
         h.handle = view.handle;
         h.done = view.done;
         h.loading = false;
@@ -259,7 +275,7 @@ export function createHistoryStore(selection: SelectionStore) {
       h.text = saved?.text ?? "";
       h.selected = saved?.selected ?? null;
       h.scrollTop = saved?.scrollTop ?? 0;
-      h.rows = [];
+      h.rows = NO_COMMITS;
       h.handle = null;
       h.done = true;
       h.error = null;
@@ -308,7 +324,7 @@ export function createHistoryStore(selection: SelectionStore) {
       }
       const gone = !kept();
       update(id, (h) => {
-        h.rows = rows;
+        h.rows = new Commits(rows);
         h.handle = handle;
         h.done = done;
         h.loading = false;

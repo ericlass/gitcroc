@@ -1,6 +1,6 @@
 // One row's graph cell, drawn from the lanes the core computed (ARCH-6):
 // the UI only turns edges into lines. Colors are theme tokens (UI-23).
-import { For, Show } from "solid-js";
+import { Index, Show } from "solid-js";
 import type { Edge, GraphRow } from "../ipc";
 
 /** Horizontal space per lane, in CSS pixels. */
@@ -13,23 +13,27 @@ const x = (lane: number) => LANE_WIDTH / 2 + lane * LANE_WIDTH;
 
 const colorClass = (color: number) => `graph-c${color % GRAPH_COLORS}`;
 
-export default function Graph(props: { graph: GraphRow | null; height: number }) {
-  const middle = () => props.height / 2;
-  const line = (edge: Edge, top: number, bottom: number) => (
+/** One line of the cell; it is kept as the row shows other commits (M1-14). */
+function Line(props: { edge: Edge; top: number; bottom: number }) {
+  return (
     <line
-      class={`graph-line ${colorClass(edge.color)}`}
-      x1={x(edge.from)}
-      y1={top}
-      x2={x(edge.to)}
-      y2={bottom}
+      class={`graph-line ${colorClass(props.edge.color)}`}
+      x1={x(props.edge.from)}
+      y1={props.top}
+      x2={x(props.edge.to)}
+      y2={props.bottom}
     />
   );
+}
+
+export default function Graph(props: { graph: GraphRow | null; height: number }) {
+  const middle = () => props.height / 2;
   return (
     <Show when={props.graph}>
       {(graph) => (
         <svg class="graph" height={props.height} aria-hidden="true">
-          <For each={graph().up}>{(edge) => line(edge, 0, middle())}</For>
-          <For each={graph().down}>{(edge) => line(edge, middle(), props.height)}</For>
+          <Index each={graph().up}>{(edge) => <Line edge={edge()} top={0} bottom={middle()} />}</Index>
+          <Index each={graph().down}>{(edge) => <Line edge={edge()} top={middle()} bottom={props.height} />}</Index>
           <circle class={`graph-dot ${colorClass(graph().color)}`} cx={x(graph().lane)} cy={middle()} r={4} />
         </svg>
       )}

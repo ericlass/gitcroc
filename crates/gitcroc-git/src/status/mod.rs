@@ -209,6 +209,9 @@ pub struct StatusReader {
     repo: GitRepo,
     git: GitRunner,
     engine: Engine,
+    /// At most this many threads compare the index with the working tree;
+    /// `None`: one per core.
+    thread_limit: Option<usize>,
 }
 
 impl StatusReader {
@@ -218,7 +221,24 @@ impl StatusReader {
             repo,
             git,
             engine: Engine::Auto,
+            thread_limit: None,
         }
+    }
+
+    /// Compares the index with the working tree on at most `threads`
+    /// threads; by default `gix` starts one per core. Background reads use
+    /// it: those threads compete with the app, and glibc's malloc keeps the
+    /// memory of each one in an arena of its own (PERF-4, M1-14).
+    pub fn with_thread_limit(self, threads: usize) -> Self {
+        Self {
+            thread_limit: Some(threads),
+            ..self
+        }
+    }
+
+    /// See [`StatusReader::with_thread_limit`].
+    pub fn thread_limit(&self) -> Option<usize> {
+        self.thread_limit
     }
 
     /// Forces one implementation, for tests and measurements.
@@ -274,7 +294,7 @@ impl StatusRead for StatusReader {
             ])?;
             porcelain::parse(&output, repo.object_hash(), self.work_dir()?)?
         } else {
-            worktree::status(&repo, renames)?
+            worktree::status(&repo, renames, self.thread_limit)?
         };
         working_copy.sort();
         Ok(working_copy)

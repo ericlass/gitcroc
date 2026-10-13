@@ -118,11 +118,14 @@ impl From<tokio::task::JoinError> for HistoryViewError {
     }
 }
 
-/// A workspace's walk between pages.
+/// A workspace's walk between pages. It keeps where the walk continues,
+/// not the open repo: an open repo keeps the parts of its pack files the
+/// walk read mapped into memory for as long as the walk is shown (M1-14).
+/// Each page opens the repo again.
 #[derive(Debug)]
 struct Walk {
     handle: u32,
-    repo: Option<GitRepo>,
+    path: PathBuf,
     start: HistoryStart,
     filter: Option<Filter>,
     /// `None` at the end of history and while a page is being read.
@@ -155,14 +158,20 @@ impl Histories {
 
     /// Makes a new walk the latest of workspace `id`; any older one is
     /// dropped.
-    fn begin(&self, id: &WorkspaceId, start: HistoryStart, filter: Option<Filter>) -> u32 {
+    fn begin(
+        &self,
+        id: &WorkspaceId,
+        path: PathBuf,
+        start: HistoryStart,
+        filter: Option<Filter>,
+    ) -> u32 {
         let mut walks = lock(&self.walks);
         let handle = walks.get(id).map_or(1, |walk| walk.handle.wrapping_add(1));
         walks.insert(
             id.clone(),
             Walk {
                 handle,
-                repo: None,
+                path,
                 start,
                 filter,
                 cursor: None,
@@ -173,11 +182,10 @@ impl Histories {
 
     /// Keeps where walk `handle` continues, unless a newer walk replaced
     /// it; returns whether it is still the latest.
-    fn keep(&self, id: &WorkspaceId, handle: u32, repo: GitRepo, cursor: Option<Cursor>) -> bool {
+    fn keep(&self, id: &WorkspaceId, handle: u32, cursor: Option<Cursor>) -> bool {
         let mut walks = lock(&self.walks);
         match walks.get_mut(id) {
             Some(walk) if walk.handle == handle => {
-                walk.repo = Some(repo);
                 walk.cursor = cursor;
                 true
             }
@@ -213,14 +221,13 @@ pub async fn history_get(
 ) -> Result<Option<HistoryView>, HistoryViewError> {
     let start = target.start();
     let filter = filter_of(&text);
-    let handle = histories.begin(&id, start.clone(), filter.clone());
     let path = workspaces.repo_path(&id, &repo_id)?;
+    let handle = histories.begin(&id, path.clone(), start.clone(), filter.clone());
     let declined = workspaces.commit_graph_declined(&id, &repo_id)?;
-    let (repo, page, elapsed) = tokio::task::spawn_blocking(move || {
+    let (page, elapsed) = tokio::task::spawn_blocking(move || {
         let began = Instant::now();
-        let repo = GitRepo::open(&path)?;
-        let page = repo.history(start, None, filter)?;
-        Ok::<_, HistoryViewError>((repo, page, began.elapsed()))
+        let page = GitRepo::open(&path)?.history(start, None, filter)?;
+        Ok::<_, HistoryViewError>((page, began.elapsed()))
     })
     .await??;
     let offer = !declined
@@ -228,7 +235,7 @@ pub async fn history_get(
         && elapsed > histories.threshold
         && !histories.writing(&id, &repo_id);
     let done = page.next.is_none();
-    if !histories.keep(&id, handle, repo, page.next) {
+    if !histories.keep(&id, handle, page.next) {
         return Ok(None);
     }
     Ok(Some(HistoryView {
@@ -246,21 +253,27 @@ pub async fn history_more(
     id: WorkspaceId,
     handle: u32,
 ) -> Result<Option<HistoryView>, HistoryViewError> {
-    let (repo, start, filter, cursor) = {
+    let (path, start, filter, cursor) = {
         let mut walks = lock(&histories.walks);
         let Some(walk) = walks.get_mut(&id).filter(|walk| walk.handle == handle) else {
             return Ok(None);
         };
-        let (Some(repo), Some(cursor)) = (walk.repo.clone(), walk.cursor.take()) else {
+        let Some(cursor) = walk.cursor.take() else {
             return Err(HistoryViewError::NoPage);
         };
-        (repo, walk.start.clone(), walk.filter.clone(), cursor)
+        (
+            walk.path.clone(),
+            walk.start.clone(),
+            walk.filter.clone(),
+            cursor,
+        )
     };
-    let reader = repo.clone();
-    let page =
-        tokio::task::spawn_blocking(move || reader.history(start, Some(cursor), filter)).await??;
+    let page = tokio::task::spawn_blocking(move || {
+        Ok::<_, HistoryViewError>(GitRepo::open(&path)?.history(start, Some(cursor), filter)?)
+    })
+    .await??;
     let done = page.next.is_none();
-    if !histories.keep(&id, handle, repo, page.next) {
+    if !histories.keep(&id, handle, page.next) {
         return Ok(None);
     }
     Ok(Some(HistoryView {

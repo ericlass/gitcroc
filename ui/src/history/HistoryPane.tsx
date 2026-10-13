@@ -3,7 +3,7 @@
 // search results come from the core through the history store; this
 // component lays them out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, For, Match, on, onMount, Show, Switch } from "solid-js";
+import { createEffect, createMemo, For, Index, Match, on, onMount, Show, Switch } from "solid-js";
 import type { CommitRow, RefLabel, RepoId, WorkspaceId } from "../ipc";
 import Splitter from "../layout/Splitter";
 import type { HistoryStore } from "../stores/history";
@@ -100,6 +100,23 @@ function CommitGraphOffer(props: { onWrite: () => void; onDecline: () => void })
   );
 }
 
+/** One row's content; it updates in place when the row shows another commit. */
+function RowView(props: { row: HistoryRow }) {
+  return (
+    <Switch>
+      <Match when={props.row.kind === "uncommitted" && props.row}>
+        {(uncommitted) => (
+          <span class="history-cell history-uncommitted">Uncommitted changes ({uncommitted().count})</span>
+        )}
+      </Match>
+      <Match when={props.row.kind === "commit" && props.row}>{(commit) => <CommitCells commit={commit().commit} />}</Match>
+      <Match when={props.row.kind === "placeholder"}>
+        <span class="history-cell history-skeleton" aria-label="Loading" />
+      </Match>
+    </Switch>
+  );
+}
+
 /** The commit list, virtualized (PERF-1) and paged as it scrolls (PERF-2). */
 function HistoryList(props: { workspace: WorkspaceId; history: HistoryStore; summaries: SummaryStore }) {
   let scroller: HTMLDivElement | undefined;
@@ -122,6 +139,23 @@ function HistoryList(props: { workspace: WorkspaceId; history: HistoryStore; sum
     getScrollElement: () => scroller ?? null,
     estimateSize: () => ROW_HEIGHT,
     overscan: OVERSCAN,
+  });
+
+  // Each row element keeps a slot, its index modulo the number of slots, and
+  // shows the row of that slot. Scrolling gives new content only to the rows
+  // that come into view, and no element is made anew: new ones would leave
+  // the web process the memory of every row ever shown (M1-14). Rows are
+  // positioned, so their order in the DOM does not matter; `aria-posinset`
+  // tells assistive technology where each one is.
+  let slotCount = 0;
+  const slots = createMemo(() => {
+    const items = virtualizer.getVirtualItems();
+    slotCount = Math.max(slotCount, items.length);
+    const slots = new Array<(typeof items)[number] | undefined>(slotCount).fill(undefined);
+    for (const item of items) {
+      slots[item.index % slotCount] = item;
+    }
+    return slots;
   });
 
   // Near the end of the loaded rows, ask for the next page.
@@ -206,20 +240,6 @@ function HistoryList(props: { workspace: WorkspaceId; history: HistoryStore; sum
     event.preventDefault();
   };
 
-  const rowView = (row: HistoryRow) => (
-    <Switch>
-      <Match when={row.kind === "uncommitted" && row}>
-        {(uncommitted) => (
-          <span class="history-cell history-uncommitted">Uncommitted changes ({uncommitted().count})</span>
-        )}
-      </Match>
-      <Match when={row.kind === "commit" && row}>{(commit) => <CommitCells commit={commit().commit} />}</Match>
-      <Match when={row.kind === "placeholder"}>
-        <span class="history-cell history-skeleton" aria-label="Loading" />
-      </Match>
-    </Switch>
-  );
-
   return (
     <div
       class="history-scroller"
@@ -232,30 +252,36 @@ function HistoryList(props: { workspace: WorkspaceId; history: HistoryStore; sum
       onScroll={(event) => props.history.setScrollTop(props.workspace, event.currentTarget.scrollTop)}
     >
       <div class="history-rows" style={{ height: `${virtualizer.getTotalSize()}px` }}>
-        <For each={virtualizer.getVirtualItems()}>
-          {(item) => (
-            <Show when={rows().at(item.index)}>
-              {(row) => (
-                <div
-                  id={`history-row-${item.index}`}
-                  class="history-row"
-                  classList={{
-                    selected: row().id === history().selected,
-                    placeholder: row().kind === "placeholder",
-                  }}
-                  role="option"
-                  aria-selected={row().id === history().selected}
-                  aria-busy={row().kind === "placeholder" ? true : undefined}
-                  data-index={item.index}
-                  style={{ transform: `translateY(${item.start}px)` }}
-                  onClick={() => select(item.index)}
-                >
-                  {rowView(row())}
-                </div>
+        <Index each={slots()}>
+          {(slot) => (
+            <Show when={slot()}>
+              {(item) => (
+                <Show when={rows().at(item().index)}>
+                  {(row) => (
+                    <div
+                      id={`history-row-${item().index}`}
+                      class="history-row"
+                      classList={{
+                        selected: row().id === history().selected,
+                        placeholder: row().kind === "placeholder",
+                      }}
+                      role="option"
+                      aria-selected={row().id === history().selected}
+                      aria-busy={row().kind === "placeholder" ? true : undefined}
+                      aria-posinset={item().index + 1}
+                      aria-setsize={rows().count}
+                      data-index={item().index}
+                      style={{ transform: `translateY(${item().start}px)` }}
+                      onClick={() => select(item().index)}
+                    >
+                      <RowView row={row()} />
+                    </div>
+                  )}
+                </Show>
               )}
             </Show>
           )}
-        </For>
+        </Index>
       </div>
     </div>
   );

@@ -475,6 +475,18 @@ impl Drop for Worker {
     }
 }
 
+/// How many threads one background status read uses at most. Unlimited,
+/// each of up to [`MAX_REFRESHES`] reads starts one per core, and glibc's
+/// malloc keeps memory for each of them after the refresh. Four keep a
+/// refresh of `target-project` within 1 s, measured pinned to 8 cores; one
+/// took 1.9 s (M1-14).
+const STATUS_THREADS: usize = 4;
+
+/// The status reader of the background refresh (PERF-4).
+fn background_reader(repo: GitRepo, git: &GitRunner) -> StatusReader {
+    StatusReader::new(repo, git.clone()).with_thread_limit(STATUS_THREADS)
+}
+
 fn read(path: &Path, git: &GitRunner) -> Outcome {
     match path.try_exists() {
         Ok(true) => {}
@@ -485,7 +497,7 @@ fn read(path: &Path, git: &GitRunner) -> Outcome {
         Ok(repo) => repo,
         Err(error) => return Outcome::Failed(error.to_string()),
     };
-    match StatusReader::new(repo, git.clone()).summary() {
+    match background_reader(repo, git).summary() {
         Ok(summary) => Outcome::Read(summary),
         Err(error) => Outcome::Failed(error.to_string()),
     }
@@ -511,6 +523,18 @@ mod tests {
         assert_eq!(state.workers, 1);
         assert_eq!(state.next(), None);
         assert_eq!(state.workers, 0);
+    }
+
+    #[test]
+    fn perf_4_background_status_reads_use_few_threads() {
+        let fixture = repo_gen::Fixture::new().unwrap();
+        let git = fixture.repo("app").unwrap();
+        let repo = GitRepo::open(git.path()).unwrap();
+        let runner = GitRunner::new(std::path::PathBuf::from("git"));
+        assert_eq!(
+            background_reader(repo, &runner).thread_limit(),
+            Some(STATUS_THREADS)
+        );
     }
 
     /// The niceness of the calling thread, from `/proc`.

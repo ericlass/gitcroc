@@ -19,6 +19,7 @@ use crate::diff::{ChangedFile, Origin, Side, same_type};
 pub(super) fn status(
     repo: &gix::Repository,
     renames: Option<gix::diff::Rewrites>,
+    thread_limit: Option<usize>,
 ) -> Result<WorkingCopy, StatusError> {
     let work_dir = repo.workdir().ok_or(StatusError::NoWorkTree)?.to_owned();
     let hash = repo.object_hash();
@@ -26,6 +27,7 @@ pub(super) fn status(
     let items = repo
         .status(gix::progress::Discard)?
         .tree_index_track_renames(renames.map_or(TrackRenames::Disabled, TrackRenames::Given))
+        .index_worktree_options_mut(|options| options.thread_limit = thread_limit)
         .into_iter(Vec::<BString>::new())?;
     for item in items {
         match item? {
