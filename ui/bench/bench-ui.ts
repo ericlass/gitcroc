@@ -52,6 +52,10 @@ interface Options {
   runs: number;
   /** Logs where cold start time and memory go. */
   verbose: boolean;
+  /** Measures the cold start only, ending each run once the tree shows. */
+  startOnly: boolean;
+  /** With `startOnly`: starts the app itself, without WebDriver. */
+  direct: boolean;
   data: string;
   app: string;
   cli: string;
@@ -61,18 +65,29 @@ function parseArgs(args: string[]): Options {
   const options: Options = {
     runs: 5,
     verbose: false,
+    startOnly: false,
+    direct: false,
     data: process.env.GITCROC_BENCH_DATA || join(ROOT, "target/bench-data"),
     app: join(ROOT, "target/bench-ui/release/gitcroc"),
     cli: join(ROOT, "target/release/gitcroc-cli"),
   };
   for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--start-only") {
+      options.startOnly = true;
+      continue;
+    }
+    if (args[i] === "--direct") {
+      options.startOnly = true;
+      options.direct = true;
+      continue;
+    }
     if (args[i] === "--verbose") {
       options.verbose = true;
       continue;
     }
     const value = args[i + 1];
     if (value === undefined) {
-      throw new Error(`usage: bench-ui [--runs <n>] [--verbose] [--data <dir>] [--app <path>] [--cli <path>]`);
+      throw new Error(`usage: bench-ui [--runs <n>] [--verbose] [--start-only] [--direct] [--data <dir>] [--app <path>] [--cli <path>]`);
     }
     switch (args[i]) {
       case "--runs":
@@ -342,10 +357,64 @@ function memoryMb(pids: number[]): { name: string; mb: number }[] {
 
 // --- One run of the app -----------------------------------------------------
 
+interface Mark {
+  name: string;
+  unix_ms: number;
+}
+
 interface Trace {
   process_start_unix_ms: number | null;
   cold_start_ms: number | null;
   samples: { scenario: string; ms: number }[];
+  /** When the kernel started the process, to 10 ms. */
+  exec_unix_ms: number | null;
+  /** Steps of the start the core saw, and those the page saw (M1-15). */
+  core_marks: Mark[];
+  page_marks: Mark[];
+}
+
+/** Each step of the start, in ms since `run()` started, earliest first. */
+function startSteps(trace: Trace): [string, number][] {
+  const start = trace.process_start_unix_ms;
+  if (start === null) {
+    return [];
+  }
+  const steps: [string, number][] = [["run() starts", 0]];
+  if (trace.exec_unix_ms !== null) {
+    steps.push(["process exec (to 10 ms)", trace.exec_unix_ms - start]);
+  }
+  for (const mark of trace.core_marks) {
+    steps.push([`core: ${mark.name}`, mark.unix_ms - start]);
+  }
+  for (const mark of trace.page_marks) {
+    steps.push([`page: ${mark.name}`, mark.unix_ms - start]);
+  }
+  return steps.sort((a, b) => a[1] - b[1]);
+}
+
+/**
+ * Starts the app without WebDriver and returns its trace once the tree
+ * shows: the cold start as a user gets it, with no automation session.
+ */
+async function startDirect(options: Options, env: NodeJS.ProcessEnv, tracePath: string): Promise<Trace> {
+  rmSync(tracePath, { force: true });
+  const app = spawn(options.app, [], { env, stdio: "ignore" });
+  try {
+    for (let wait = 0; ; wait++) {
+      if (wait > 300) {
+        throw new Error("the app wrote no trace within 30 s");
+      }
+      await sleep(100);
+      try {
+        return JSON.parse(readFileSync(tracePath, "utf8")) as Trace;
+      } catch {
+        // Not written yet, or only partly.
+      }
+    }
+  } finally {
+    app.kill();
+    await new Promise((resolve) => app.once("exit", resolve));
+  }
 }
 
 async function runOnce(
@@ -365,6 +434,12 @@ async function runOnce(
       `const nav = performance.getEntriesByType("navigation")[0];
        return { origin: performance.timeOrigin, loaded: nav ? nav.domContentLoadedEventEnd : -1 };`,
     );
+
+    if (options.startOnly) {
+      rmSync(tracePath, { force: true });
+      await session.page(`await p.flush();`);
+      return { ...(JSON.parse(readFileSync(tracePath, "utf8")) as Trace), memory: 0 };
+    }
 
     // Tree rows are found again before each click: a refresh may re-render them.
     const repoRow = (repo: Repo) => session.page<Element>(`return p.repoRow(args[0]);`, repo.name);
@@ -551,12 +626,13 @@ async function main() {
   const commits = pickCommits(largest.path);
   log(`select-commit: ${commits.map((commit) => `${commit.hash.slice(0, 10)} (${commit.lines} lines)`).join(", ")}`);
 
-  const driver = startDriver({
+  const env = {
     ...process.env,
     XDG_CONFIG_HOME: config,
     XDG_CACHE_HOME: cache,
     GITCROC_PERF_TRACE: tracePath,
-  });
+  };
+  const driver = startDriver(env);
   try {
     for (let wait = 0; !(await driverUp()); wait++) {
       if (wait > 100) {
@@ -565,11 +641,14 @@ async function main() {
       await sleep(100);
     }
     const samples = new Map<string, number[]>();
+    const steps = new Map<string, number[]>();
     const add = (scenario: string, value: number) => samples.set(scenario, [...(samples.get(scenario) ?? []), value]);
     // One warm-up run, as `just bench` does, then the timed runs.
     for (let run = 0; run <= options.runs; run++) {
       log(run === 0 ? "warm-up run" : `run ${run} of ${options.runs}`);
-      const trace = await runOnce(options, repos, commits, tracePath);
+      const trace = options.direct
+        ? { ...(await startDirect(options, env, tracePath)), memory: 0 }
+        : await runOnce(options, repos, commits, tracePath);
       if (run === 0) {
         continue;
       }
@@ -577,10 +656,30 @@ async function main() {
         throw new Error("the tree never showed the cached repos");
       }
       add("cold-start", trace.cold_start_ms);
+      for (const [name, ms] of startSteps(trace)) {
+        steps.set(name, [...(steps.get(name) ?? []), ms]);
+      }
+      if (options.startOnly) {
+        continue;
+      }
       for (const sample of trace.samples) {
         add(sample.scenario, sample.ms);
       }
       add("memory-idle", trace.memory);
+    }
+    if (options.verbose) {
+      log("the start, median and range in ms since run() started:");
+      const rows = [...steps].map(([name, values]) => ({
+        name,
+        median: summarize(values)[0],
+        min: Math.min(...values),
+        max: Math.max(...values),
+      }));
+      for (const row of rows.sort((a, b) => a.median - b.median)) {
+        log(
+          `  ${row.median.toFixed(0).padStart(6)}  (${row.min.toFixed(0)} to ${row.max.toFixed(0)})  ${row.name}`,
+        );
+      }
     }
     const report = results(options.runs, samples);
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
