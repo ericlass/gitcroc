@@ -93,6 +93,27 @@ The helpers are in `tools/repo-gen` (`repo_gen::Fixture` and `repo_gen::Repo`): 
 
 To add a scenario, add an entry to `SCENARIOS` in `crates/gitcroc-cli/src/bench.rs`: a name, its section 9 budget if it has one, the sets it runs on, and a function that does the untimed setup and returns the operation to time.
 
+Measure on 8 cores, as section 9's reference machine has: on a bigger machine run `taskset -c 0-7 just bench`, and note the RAM.
+
+### Nightly bench workflow
+
+`.github/workflows/bench.yml` runs `just bench` on `target-project` every night and on demand (Actions → Bench → Run workflow), on Linux only. It builds `target-project` once per generator version and caches it. A scenario with a section 9 budget fails the run when its median is over the budget, or more than 20% and also at least 2 ms slower than in `bench/baseline-linux.json`. Hosted runners vary by more than 20% on scenarios of a few milliseconds, so smaller slowdowns, and those of scenarios without a budget, are only reported as `slow`; `gitcroc-cli bench-compare <results.json> <baseline.json>` is the same check, and you can run it locally. A scenario the baseline does not have yet is reported as `new` and passes. The stretch sets never run in CI. The workflow uploads the results as the `bench-linux` artifact and writes the comparison to the run's summary.
+
+Hosted runners have no fixed speed, so this is the only workflow that times anything, and it is not a pull request check. A pull request that changes the workflow runs it once to prove it works, and that run only reports a regression.
+
+### Updating the baseline
+
+The baseline is the CI runner's own speed, not the reference machine's. To make a new one, run the Bench workflow with **baseline** ticked: it runs the bench three times and uploads `baseline-linux.json`, the median of the three (`gitcroc-cli bench-baseline <results.json>...` computes it). The workflow does this on its own when no baseline is committed. Commit the file in a pull request that says why the baseline changed: a deliberate trade-off, a new scenario, a change of runner image. Never update it to make a regression pass.
+
+### UI-side budgets: `just bench-ui`
+
+Some section 9 budgets need the real app: cold start until the tree shows, selecting a repo or a commit until it is drawn, frame times while scrolling, switching repos, input latency while a refresh runs, and memory including the webview. `just bench-ui` measures them on `target-project`, on Linux only:
+
+1. It builds the app with the `perf-trace` Cargo feature and `vite build --mode perf` into `target/bench-ui` and `ui/dist-perf`, so a measuring build never ends up in a bundle. The feature adds a recorder to the UI (`ui/src/perf/trace.ts`). The recorder times each action from its first input event to the frame after the result is drawn, records frame times, and writes them through the debug-only `perf_trace_write` command.
+2. `ui/bench/bench-ui.ts` sets up a throwaway workspace of the 20 repos with a filled summary cache. It then starts the app through `tauri-driver` and WebKitWebDriver, once to warm up and five times to measure (`--runs <n>`), and prints JSON like `just bench` does. Memory is the proportional set size of the app and its WebKit processes once the workspace is idle.
+
+It needs `tauri-driver` (`cargo install tauri-driver --locked`) and WebKitWebDriver (`sudo apt install webkit2gtk-driver` on Debian and Ubuntu). Run it pinned to 8 cores, with nothing else busy, before a release and for a milestone sign-off: `taskset -c 0-7 just bench-ui`. It does not run in CI.
+
 ## Integration tests and unwrap (QA-4)
 
 `unsafe` is forbidden. `unwrap` and `expect` are denied outside tests. `clippy.toml` allows them in tests, but clippy's `allow-unwrap-in-tests` does not cover helper functions in integration test files. So every integration test file (`tests/*.rs`) starts with:

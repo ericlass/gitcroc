@@ -6,6 +6,7 @@ use gitcroc_core::GitSetup;
 
 mod bench;
 mod diff;
+mod gate;
 mod history;
 mod status;
 mod summaries;
@@ -13,14 +14,16 @@ mod workspace;
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {} | {}",
+        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {} | {} | {} | {}",
         history::USAGE,
         diff::USAGE,
         status::STATUS_USAGE,
         status::SUMMARY_USAGE,
         workspace::USAGE,
         summaries::USAGE,
-        bench::USAGE
+        bench::USAGE,
+        gate::COMPARE_USAGE,
+        gate::BASELINE_USAGE
     );
     ExitCode::from(2)
 }
@@ -59,6 +62,16 @@ fn main() -> ExitCode {
         },
         [command, rest @ ..] if command == "bench" => match bench::parse_args(rest) {
             Some(options) => bench::run(&options),
+            None => usage(),
+        },
+        [command, rest @ ..] if command == "bench-compare" => {
+            match gate::parse_files(rest).as_deref() {
+                Some([results, baseline]) => gate::run_compare(results, baseline),
+                _ => usage(),
+            }
+        }
+        [command, rest @ ..] if command == "bench-baseline" => match gate::parse_files(rest) {
+            Some(files) => gate::run_baseline(&files),
             None => usage(),
         },
         _ => usage(),

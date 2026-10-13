@@ -11,6 +11,7 @@ check:
     pnpm --dir ui exec vitest run
     pnpm --dir ui exec playwright test
     just coverage M0
+    just coverage M1
 
 # One-time setup after cloning: front-end packages and Playwright's Chromium.
 setup:
@@ -54,3 +55,13 @@ bench-data set:
 # sets that exist locally. Prints JSON.
 bench *flags:
     cargo run --quiet --release -p gitcroc-cli -- bench {{flags}}
+
+# UI-side budgets of section 9 (PERF-8) on the real app and target-project,
+# Linux only. Builds the app with the `perf-trace` feature into its own target
+# dir, never where `just bundle` builds, and drives it through tauri-driver
+# and WebKitWebDriver. Prints JSON like `just bench`. Run by hand before a
+# release, pinned to 8 cores: `taskset -c 0-7 just bench-ui`.
+bench-ui *flags:
+    CARGO_TARGET_DIR="{{justfile_directory()}}/target/bench-ui" TAURI_APP_PATH="{{justfile_directory()}}/crates/gitcroc-app" pnpm --dir ui exec tauri build --no-bundle --features perf-trace --config "{{justfile_directory()}}/crates/gitcroc-app/tauri.perf.conf.json" >&2
+    cargo build --quiet --release -p gitcroc-cli
+    node ui/bench/bench-ui.ts {{flags}}

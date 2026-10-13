@@ -1,0 +1,134 @@
+# PERF-8: the core-side benchmarks on target-project, nightly and on demand,
+# Linux only. A scenario with a section 9 budget fails when its median is
+# over the budget, or more than 20% and at least 2 ms slower than
+# bench/baseline-linux.json; other slowdowns are reported. The stretch sets
+# never run here.
+#
+# Hosted runners have no fixed speed, so this is the only workflow that
+# times anything, and it is not a pull request check: a pull request that
+# changes this file runs it to prove it works, but only reports the result.
+#
+# Without a baseline, or when dispatched with `baseline`, it runs the bench
+# three times and uploads `baseline-linux.json`, the median of the three, to
+# commit by a pull request that says why.
+name: Bench
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: Make a new baseline from three runs instead of comparing
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - .github/workflows/bench.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  GITCROC_BENCH_DATA: ${{ github.workspace }}/../bench-data
+  BASELINE: bench/baseline-linux.json
+
+jobs:
+  bench:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs the version pinned in rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.58.0
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+
+      # The data is rebuilt only when the generator's output changes.
+      - name: Read the generator version
+        id: generator
+        run: |
+          version=$(sed -nE 's/^pub const GENERATOR_VERSION: u32 = ([0-9]+);/\1/p' tools/repo-gen/src/sets.rs)
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache target-project
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.GITCROC_BENCH_DATA }}/target-project
+          key: bench-data-target-project-${{ steps.generator.outputs.version }}
+
+      - name: Build target-project
+        run: just bench-data target-project
+
+      - name: Choose the mode
+        id: mode
+        run: |
+          if [ "${{ inputs.baseline }}" = "true" ] || [ ! -f "$BASELINE" ]; then
+            echo "mode=baseline" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=compare" >> "$GITHUB_OUTPUT"
+          fi
+
+      # `just bench` exits 1 when a scenario is over its budget; the compare
+      # step reports that. 2 means it could not run.
+      - name: Run the bench
+        run: |
+          mkdir -p bench-results
+          runs=1
+          if [ "${{ steps.mode.outputs.mode }}" = "baseline" ]; then runs=3; fi
+          for run in $(seq "$runs"); do
+            status=0
+            just bench > "bench-results/run-$run.json" || status=$?
+            if [ "$status" -gt 1 ]; then exit "$status"; fi
+          done
+
+      - name: Make the baseline
+        if: steps.mode.outputs.mode == 'baseline'
+        run: |
+          target/release/gitcroc-cli bench-baseline bench-results/run-*.json > bench-results/baseline-linux.json
+          {
+            echo '### New baseline (median of three runs)'
+            echo '```json'
+            cat bench-results/baseline-linux.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compare with the baseline
+        if: steps.mode.outputs.mode == 'compare'
+        run: |
+          status=0
+          target/release/gitcroc-cli bench-compare bench-results/run-1.json "$BASELINE" > bench-results/compare.txt || status=$?
+          cat bench-results/compare.txt
+          {
+            echo '### Bench against the baseline'
+            echo '```'
+            cat bench-results/compare.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$status" -eq 1 ]; then
+            echo "::warning::A scenario regressed; a pull request run only reports it"
+            exit 0
+          fi
+          exit "$status"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-linux
+          path: bench-results/
+          if-no-files-found: ignore

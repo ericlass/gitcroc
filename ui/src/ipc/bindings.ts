@@ -174,6 +174,12 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 *  its id without waiting for it.
 	 */
 	debugEmitProgress: (workspaceId: WorkspaceId) => typedError<JobId, IpcError>(__TAURI_INVOKE("debug_emit_progress", { workspaceId })),
+	/**
+	 *  Writes the UI's measurements to the JSON file `$GITCROC_PERF_TRACE`
+	 *  names, with the cold start (process start to tree visible) worked
+	 *  out. Fails in builds without the `perf-trace` feature.
+	 */
+	perfTraceWrite: (trace: PerfTrace) => typedError<null, IpcError>(__TAURI_INVOKE("perf_trace_write", { trace })),
 };
 
 /** Events */
@@ -609,6 +615,22 @@ export type PaneLayout = {
 	history: number | null,
 	/**  The changes pane's height while it is docked at the bottom. */
 	changes: number | null,
+};
+
+/**  One measurement the UI took, in milliseconds. */
+export type PerfSample = {
+	scenario: string,
+	ms: number | null,
+};
+
+/**  What the UI measured in one run of the app. */
+export type PerfTrace = {
+	/**
+	 *  When the tree first showed the cached repos, in milliseconds
+	 *  since the Unix epoch; `None` when it never did.
+	 */
+	tree_visible_unix_ms: number | null,
+	samples: PerfSample[],
 };
 
 /**  A commit author or committer. */

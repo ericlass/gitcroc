@@ -812,16 +812,88 @@ pub fn spawn_git_detection(app: AppHandle) {
     });
 }
 
-/// Debug builds only: commands to exercise the IPC plumbing by hand.
-#[cfg(debug_assertions)]
+/// Debug and `perf-trace` builds only: commands to exercise the IPC
+/// plumbing by hand, and the UI-side measurements of `just bench-ui`
+/// (PERF-8, M1-12).
+#[cfg(any(debug_assertions, feature = "perf-trace"))]
 pub mod debug {
-    use std::time::Duration;
+    use std::path::PathBuf;
+    use std::sync::OnceLock;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use gitcroc_core::{JobId, JobIds, JobProgress, WorkspaceId};
+    use serde::{Deserialize, Serialize};
+    use specta::Type;
     use tauri::{AppHandle, Manager};
     use tauri_specta::Event;
 
-    use super::{IpcError, JobProgressEvent};
+    use super::{IpcError, IpcErrorCode, JobProgressEvent};
+
+    /// Where `perf_trace_write` writes; set by `just bench-ui`.
+    pub const PERF_TRACE_ENV: &str = "GITCROC_PERF_TRACE";
+
+    static PROCESS_START: OnceLock<SystemTime> = OnceLock::new();
+
+    /// Records when the app started, for the cold start measurement. Called
+    /// first thing in [`crate::run`].
+    pub fn mark_process_start() {
+        PROCESS_START.get_or_init(SystemTime::now);
+    }
+
+    /// One measurement the UI took, in milliseconds.
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    pub struct PerfSample {
+        pub scenario: String,
+        pub ms: f64,
+    }
+
+    /// What the UI measured in one run of the app.
+    #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+    pub struct PerfTrace {
+        /// When the tree first showed the cached repos, in milliseconds
+        /// since the Unix epoch; `None` when it never did.
+        pub tree_visible_unix_ms: Option<f64>,
+        pub samples: Vec<PerfSample>,
+    }
+
+    fn internal(message: String) -> IpcError {
+        IpcError {
+            code: IpcErrorCode::Internal,
+            message,
+            git_stderr: None,
+        }
+    }
+
+    /// Writes the UI's measurements to the JSON file `$GITCROC_PERF_TRACE`
+    /// names, with the cold start (process start to tree visible) worked
+    /// out. Fails in builds without the `perf-trace` feature.
+    #[tauri::command]
+    #[specta::specta]
+    pub async fn perf_trace_write(trace: PerfTrace) -> Result<(), IpcError> {
+        if !cfg!(feature = "perf-trace") {
+            return Err(internal("this build has no perf-trace feature".into()));
+        }
+        let path = std::env::var_os(PERF_TRACE_ENV)
+            .map(PathBuf::from)
+            .ok_or_else(|| internal(format!("{PERF_TRACE_ENV} is not set")))?;
+        let started = PROCESS_START
+            .get()
+            .and_then(|start| start.duration_since(UNIX_EPOCH).ok())
+            .map(|since| since.as_secs_f64() * 1000.0);
+        let cold_start_ms = trace
+            .tree_visible_unix_ms
+            .zip(started)
+            .map(|(visible, started)| visible - started);
+        let json = serde_json::json!({
+            "process_start_unix_ms": started,
+            "cold_start_ms": cold_start_ms,
+            "samples": trace.samples,
+        });
+        let text = serde_json::to_vec_pretty(&json).map_err(|error| internal(error.to_string()))?;
+        tokio::fs::write(&path, text)
+            .await
+            .map_err(|error| internal(format!("cannot write {}: {error}", path.display())))
+    }
 
     /// Starts a fake job that reports three steps 100 ms apart, and returns
     /// its id without waiting for it.
@@ -856,7 +928,7 @@ pub mod debug {
 /// handler and the checks on the command list cannot drift apart.
 macro_rules! with_commands {
     ($collect:ident) => {{
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, feature = "perf-trace"))]
         {
             $collect![
                 app_info,
@@ -885,10 +957,11 @@ macro_rules! with_commands {
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,
-                debug::debug_emit_progress
+                debug::debug_emit_progress,
+                debug::perf_trace_write
             ]
         }
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(any(debug_assertions, feature = "perf-trace")))]
         {
             $collect![
                 app_info,

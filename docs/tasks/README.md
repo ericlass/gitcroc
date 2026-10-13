@@ -47,6 +47,12 @@ are met on `target-project`, the stretch results for `big-history` and
 | [M1-10](M1-10-code-themes-and-fonts.md) | Eight code themes with contrast test, fonts | M1-09 |
 | [M1-11](M1-11-file-watching.md) | File watching and refresh on change and focus | M1-07, M1-08, M1-09 |
 | [M1-12](M1-12-budgets-and-signoff.md) | Nightly bench with regression gate, UI-side measurement, M1 sign-off | M1-01 to M1-11 |
+| [M1-13](M1-13-input-latency-during-refresh.md) | Input latency within 50 ms while a refresh runs (missed in M1-12) | M1-12 |
+| [M1-14](M1-14-idle-memory.md) | Idle memory within 400 MB (missed in M1-12) | M1-12 |
+| [M1-15](M1-15-cold-start-investigation.md) | Investigation: can the cold start reach 1 s, and how | M1-12 |
+
+M1-13 to M1-15 come from the budgets M1-12 found missed; M1 is signed off after
+them. They are independent of each other.
 
 M1-02 and M1-03 are the spikes of section 14 and run first: they carry the
 performance risk. If either misses its budget, M1 stops for a decision on D2
@@ -143,4 +149,9 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | History refresh | `SummaryView.refs_version` goes up when the watcher saw `HEAD` or a ref change, or a read in this run finds `HEAD` moved (so a focus refresh catches commits too). The history reads the shown repo again when it goes up, as many rows as were loaded plus one page if the selected commit moved below them, and replaces the rows only when all are read | M1-11 |
 | Focus refresh | The UI calls `workspace_refresh` for the open workspace when the window gains focus; the core reads every repo, the selected one first | M1-11 |
 | Watch failures | Sent once per workspace as `watch_warning` and kept for `watch_warning`; printed on stderr until the log file (section 10) exists. A repo whose folder is missing is not watched and gives no warning | M1-11 |
+| Regression gate | Only `target-project` scenarios with a section 9 budget are gated, as PERF-8 says "budget". They fail when over the budget, or when more than 20% and also at least 2 ms slower than the baseline: hosted runners vary by more than 20% on scenarios of a few milliseconds. Other slowdowns are reported as `slow`. A scenario missing from the baseline is reported as new and passes, so it can land before its baseline does. `gitcroc-cli bench-compare` judges, `gitcroc-cli bench-baseline` takes the median of three runs' medians | M1-12 |
+| Bench workflow runs | Nightly at 03:00 UTC and on demand, on `ubuntu-22.04`. Without a committed baseline, or when dispatched with `baseline`, it makes one instead of comparing. A pull request that changes the workflow runs it but only reports a regression, so no pull request check depends on timing | M1-12 |
+| UI measurement | An action is timed from its first `pointerdown`, `mousedown` or `keydown` to the frame after its result is in the DOM. Cold start runs from the start of `run()` to the frame after the tree shows a repo's cached branch. Scroll: 100 px a frame through the largest repo's history; 60 fps means a median frame of at most 16.7 ms. Switching alternates the two largest repos and ends when the history's top row changes. Input latency is a key in the tree filter while the focus refresh of every repo runs. Memory is the proportional set size of the app and its WebKit processes after 3 s with no refresh. Five runs after one warm-up | M1-12 |
+| UI bench driver | `ui/bench/bench-ui.ts`, run by Node without a build step, speaks W3C WebDriver to `tauri-driver` over HTTP with no packages | M1-12 |
+| Writes in M1 | `git commit-graph write`, offered by M1-08, is the one git write in M1: it writes a cache file in the git directory and changes no ref, object, index or working file. The read-only test allows it by name | M1-08, M1-12 |
 | Libraries | `gix`, `rusqlite` with bundled SQLite, `notify` with a debouncer, CodeMirror 6 with `@codemirror/merge`, TanStack Virtual; versions recorded in each pull request | M1-02 to M1-11 |

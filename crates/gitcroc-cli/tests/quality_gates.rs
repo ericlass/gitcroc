@@ -69,12 +69,15 @@ fn qa_5_check_recipe_does_not_ignore_failures() {
 
 #[test]
 fn qa_3_check_recipe_runs_coverage_script() {
-    assert!(
-        recipe("check")
-            .iter()
-            .any(|line| line.starts_with("just coverage M0")),
-        "QA-3: `just check` does not run the coverage script"
-    );
+    // Every finished milestone stays covered.
+    for milestone in ["M0", "M1"] {
+        assert!(
+            recipe("check")
+                .iter()
+                .any(|line| *line == format!("just coverage {milestone}")),
+            "QA-3: `just check` does not run the coverage script for {milestone}"
+        );
+    }
     assert!(
         recipe("coverage")
             .iter()

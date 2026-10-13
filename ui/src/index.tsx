@@ -9,4 +9,8 @@ if (!root) {
   throw new Error("index.html has no #root element");
 }
 applyInitialTheme();
+// A build-time constant: only `just bench-ui` builds carry the recorder.
+if (__PERF_TRACE__) {
+  void import("./perf/trace").then((trace) => trace.install());
+}
 render(() => <App />, root);

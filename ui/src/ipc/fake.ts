@@ -612,6 +612,12 @@ export const fake: Core = {
       }
       return Promise.resolve({ status: "ok", data: jobId });
     },
+    // Only `just bench-ui` builds measure; the fake has nowhere to write.
+    perfTraceWrite: () =>
+      Promise.resolve({
+        status: "error",
+        error: { code: "internal", message: "the fake core has no perf-trace", git_stderr: null },
+      }),
   },
   events: {
     commitGraphWritten: fakeEvent(commitGraphWrittenListeners),
