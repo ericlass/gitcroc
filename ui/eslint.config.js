@@ -37,7 +37,7 @@ const ipcOnly = {
 };
 
 export default defineConfig(
-  { ignores: ["dist", "dist-fake", "playwright-report", "test-results", "blob-report", "src/ipc/bindings.ts"] },
+  { ignores: ["dist", "dist-fake", "dist-perf", "playwright-report", "test-results", "blob-report", "src/ipc/bindings.ts"] },
   js.configs.recommended,
   tseslint.configs.strict,
   {
@@ -58,7 +58,7 @@ export default defineConfig(
     rules: { "no-restricted-imports": ["error", { patterns: [ipcOnly["no-restricted-imports"][1].patterns[0]] }] },
   },
   {
-    files: ["*.config.{js,ts}"],
+    files: ["*.config.{js,ts}", "bench/**/*.ts"],
     languageOptions: {
       globals: { ...globals.node },
     },

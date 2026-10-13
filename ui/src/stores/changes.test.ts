@@ -4,6 +4,7 @@ import { textFile } from "../ipc/fakeChanges";
 import { hashOf } from "../ipc/fakeHistory";
 import { summary } from "../ipc/fakeTree";
 import { createChangesStore, diffRequest } from "./changes";
+import { createSelectionStore } from "./selection";
 import { DEFAULT_CHANGES_SETTINGS } from "./settings";
 
 afterEach(reset);
@@ -45,6 +46,18 @@ test("ARCH-8 an older answer never replaces a newer selection", async () => {
   expect(fakeState.changesCalls).toHaveLength(calls);
   // Another workspace has its own.
   expect(changes.changes("elsewhere").selection).toBeNull();
+});
+
+test("UI-14 selecting another commit shows it", async () => {
+  // As App passes them: the selection store's own objects.
+  const selection = createSelectionStore();
+  const changes = setup();
+  for (const n of [1, 2]) {
+    selection.select(id(), { kind: "commit", repo_id: "r1", hash: hashOf(n) });
+    await changes.show(id(), selection.selected(id()));
+    const view = changes.changes(id()).view;
+    expect(view?.content.kind === "commit" && view.content.details.hash).toBe(hashOf(n));
+  }
 });
 
 test("ARCH-6 uncommitted changes are read again when the repo changes, keeping the file", async () => {

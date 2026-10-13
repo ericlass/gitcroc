@@ -19,7 +19,7 @@ use gitcroc_core::{
 use serde_json::{Value, json};
 
 /// The set every budget is measured on (section 9).
-const GATING_SET: &str = "target-project";
+pub const GATING_SET: &str = "target-project";
 
 /// Stretch sets, measured when they exist locally and `--stretch` is given.
 const STRETCH_SETS: [&str; 3] = ["big-history", "big-tree", "many-repos"];

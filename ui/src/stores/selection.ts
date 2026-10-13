@@ -15,7 +15,10 @@ export function createSelectionStore() {
   const selected = (workspace: WorkspaceId): CommitSelection | null => state.byWorkspace[workspace] ?? null;
 
   const select = (workspace: WorkspaceId, selection: CommitSelection | null) => {
-    setState("byWorkspace", workspace, selection);
+    // Replaces the old selection object. Setting the path itself would merge
+    // into it, and the changes store, which keeps the object it was shown,
+    // would then see the new commit as the one it already shows.
+    setState("byWorkspace", { [workspace]: selection });
   };
 
   return { selected, select };

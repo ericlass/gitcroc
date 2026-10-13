@@ -19,17 +19,22 @@ thiserror.workspace = true
 tauri = { workspace = true, features = ["specta"] }
 tauri-plugin-dialog.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 specta.workspace = true
 specta-typescript.workspace = true
 tauri-specta.workspace = true
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["fs", "time"] }
 gitcroc-git.workspace = true
 gitcroc-core.workspace = true
 gitcroc-ai.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
 toml.workspace = true
+
+[features]
+# M1-12: the UI-side measurements of `just bench-ui`. Never in a release
+# bundle; `just bench-ui` builds with it into its own target dir.
+perf-trace = []
 
 [lints]
 workspace = true

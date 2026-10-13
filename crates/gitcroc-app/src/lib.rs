@@ -21,6 +21,8 @@ pub enum Error {
 
 /// Opens the main window and runs the event loop until the app exits.
 pub fn run() -> Result<(), Error> {
+    #[cfg(any(debug_assertions, feature = "perf-trace"))]
+    ipc::debug::mark_process_start();
     let ipc = ipc::builder();
     // Small files, read once so the first paint has the workspace.
     let workspaces = Arc::new(Workspaces::load(&PlatformConfigDir));

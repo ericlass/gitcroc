@@ -10,6 +10,7 @@ import type {
   ImageSide,
   IpcError,
   PaneLayout,
+  PerfTrace,
   RepoId,
   Theme,
   WorkspaceId,
@@ -59,6 +60,8 @@ export type {
   LineKind,
   ModeChange,
   PaneLayout,
+  PerfSample,
+  PerfTrace,
   Person,
   RefKind,
   RefLabel,
@@ -177,3 +180,6 @@ export const diffImage = (workspaceId: WorkspaceId, handle: number, file: FileRe
   unwrap(core.commands.diffImage(workspaceId, handle, file, side));
 
 export const debugEmitProgress = (workspaceId: string) => unwrap(core.commands.debugEmitProgress(workspaceId));
+
+/** `perf-trace` builds only (`just bench-ui`): writes what the UI measured. */
+export const perfTraceWrite = (trace: PerfTrace) => unwrap(core.commands.perfTraceWrite(trace));

@@ -5,6 +5,7 @@
 node_modules/
 ui/dist/
 ui/dist-fake/
+ui/dist-perf/
 *.tsbuildinfo
 npm-debug.log*
 pnpm-debug.log*
