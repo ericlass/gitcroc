@@ -59,6 +59,37 @@ performance risk. If either misses its budget, M1 stops for a decision on D2
 and D3 (section 13) before the UI tasks start. M1-02, M1-03 and M1-05 can run in
 parallel after M1-01.
 
+## M2 Single-repo writes
+
+Milestone goal (docs/spec/13-milestones.md): every operation in section 6 works
+on a single repo, through the job engine, with the status bar and job list, the
+askpass helper, and the manual conflict editor (OPS-1 to OPS-9). Done when each
+operation has integration tests for success, failure and conflict, and a merge
+conflict can be resolved and continued by hand.
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| [M2-01](M2-01-job-engine.md) | Job engine: per-repo write queue, outcomes, cancel, re-read after a job, shared pool, `gitcroc.log` | M1 |
+| [M2-02](M2-02-status-bar-and-job-list.md) | Status bar with running jobs, job list with outcomes and git's output | M2-01 |
+| [M2-03](M2-03-askpass.md) | Askpass helper: credential and host-key prompts in a dialog, never stored | M2-01 |
+| [M2-04](M2-04-stage-unstage-discard.md) | Stage, unstage and discard by file and by hunk | M2-01 |
+| [M2-05](M2-05-commit-and-amend.md) | Commit message box, commit and amend, hooks as on the command line | M2-04 |
+| [M2-06](M2-06-branches.md) | Checkout, create, rename, delete, upstream, remote and detached checkout; tree context menus | M2-01, M2-03 |
+| [M2-07](M2-07-fetch-pull-push.md) | Fetch, pull, push with progress; toolbar | M2-02, M2-03, M2-06 |
+| [M2-08](M2-08-merge-rebase-cherry-pick-revert.md) | Merge, rebase, cherry-pick, revert, abort and continue; conflict banner; commit context menu | M2-06 |
+| [M2-09](M2-09-conflict-model.md) | Conflict hunks from the index stages, side labels, Mark resolved, choice conflicts (core) | M2-08 |
+| [M2-10](M2-10-conflict-editor.md) | Conflict editor with take ours, theirs and both; unsaved state kept until Abort | M2-04, M2-09 |
+| [M2-11](M2-11-stash.md) | Stash, apply, pop, drop; stash apply conflicts | M2-10 |
+| [M2-12](M2-12-tags-and-reset.md) | Create, delete and push tags; reset soft, mixed, hard | M2-07, M2-08 |
+| [M2-13](M2-13-remotes-and-fsmonitor-offer.md) | Add, rename, remove remotes and edit URLs; the PERF-7 offer | M2-07 |
+| [M2-14](M2-14-clone-and-open.md) | Clone with progress; open in file manager and in terminal | M2-03, M2-07 |
+| [M2-15](M2-15-signoff.md) | Operation test matrix, end-to-end merge conflict test, M2 sign-off | M2-01 to M2-14 |
+
+M2-02, M2-03 and M2-04 can run in parallel after M2-01, and M2-05 and M2-06
+after them. M2-09 is the risky part of the milestone (hunks from index stages,
+detecting a file edited outside); it can start as soon as M2-08's conflicts
+exist, while M2-12 to M2-14 run beside it.
+
 ## Choices made in these tasks that the spec does not cover
 
 Each is a default so the tasks have no gaps. Veto any of them before the first
@@ -155,3 +186,27 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | UI bench driver | `ui/bench/bench-ui.ts`, run by Node without a build step, speaks W3C WebDriver to `tauri-driver` over HTTP with no packages | M1-12 |
 | Writes in M1 | `git commit-graph write`, offered by M1-08, is the one git write in M1: it writes a cache file in the git directory and changes no ref, object, index or working file. The read-only test allows it by name | M1-08, M1-12 |
 | Libraries | `gix`, `rusqlite` with bundled SQLite, `notify` with a debouncer, CodeMirror 6 with `@codemirror/merge`, TanStack Virtual; versions recorded in each pull request | M1-02 to M1-11 |
+| What M2 completes | Single-repo forms of UI-7 (without dragging repos between groups), UI-13, UI-15 and UI-20; UI-21 in full. GRP-7's outcomes without *skipped*, and GRP-8, GRP-9, GRP-10 and GRP-12 apply to single-repo jobs and are completed for groups in M3. The command palette (UI-22) is M5. Group commit (GRP-15, UI-34) is M3 | M2-01 to M2-14 |
+| Where writes live | `gitcroc-git::ops`, one function per operation; `gitcroc-core` runs them as jobs. `arch_1_writes_go_through_the_runner` replaces M1's read-only test: outside `ops`, runner calls are read-only | M2-01 |
+| Write environment | Writes run with `GIT_EDITOR=true` besides `LC_ALL=C` and `GIT_TERMINAL_PROMPT=0`, so git never waits on an editor; messages are passed explicitly, and Continue keeps git's prepared message | M2-01, M2-05, M2-08 |
+| Job pool | One pool of 8 workers runs jobs and the background refresh; user jobs before the refresh, which keeps its PERF-4 order and lowest priority. The 1 to 32 setting of section 5 arrives with group operations in M3 | M2-01 |
+| Busy repo | Writes on one repo queue in the order they were started (ARCH-4). `RepoSummary.busy` is set while one waits or runs; the UI disables operations for a busy repo (GRP-8), but staging controls stay enabled and queue | M2-01, M2-04 |
+| Outcome rules | *Nothing to do* is decided from refs and `HEAD` before and after, never from git's wording; *conflict* from the repo's conflict state after the run (OPS-1) | M2-01 |
+| Operations over IPC | One command per area (for example `op_branch`, `op_sync`) taking a generated tagged enum of that area's operations and returning a job id at once; the outcome arrives as `job_ended` | M2-01 to M2-14 |
+| Destructive operations | The core decides which requests need confirmation and refuses them without `confirmed: true`; the UI only shows the dialog. GRP-9's list (discard, force delete, remote branch delete, hard reset, force-with-lease push), plus four that also cannot be undone from the app: stash drop, stash apply abort, remote remove, tag delete on the remote | M2-04, M2-06, M2-07, M2-11, M2-12, M2-13 |
+| Job list | Lists jobs the user started and the commit-graph write, not background refresh reads; kept in memory until the app closes. A *failed* or *conflict* outcome stays in the status bar until the job list is opened | M2-02 |
+| `gitcroc.log` | Every git process, read or write: arguments, working directory, duration, exit code; never stdin, stdout or file content. Watcher warnings go there instead of stderr | M2-01 |
+| Askpass helper | The gitcroc executable started by git with `GITCROC_ASKPASS` set; it relays git's prompt to the running app over a local socket with a per-job token, and the app asks in a modal dialog of its own window. Section 4 says "a native dialog"; this reads it as the app's own dialog, since the operating systems have no common native text-input dialog. `SSH_ASKPASS_REQUIRE=prefer`. Set on network writes only | M2-03 |
+| Commit message | Subject, blank line, body, passed with `git commit -F -` on stdin; the unsent message is kept per workspace and repo while the app runs. Amend fills an empty box with the last message | M2-05 |
+| Remote branch checkout | Switches to a local branch of the same name when one exists, otherwise creates a tracking branch; never resets an existing local branch | M2-06 |
+| Push target | The upstream; without one, `origin`, or the only remote when there is no `origin`; with several remotes and no `origin` the dialog asks. Tag push the same way | M2-07, M2-12 |
+| Cherry-pick and revert | A multi-selection is cherry-picked oldest first in one `git cherry-pick`. Reverting a merge commit asks for the mainline parent, the first by default | M2-08 |
+| Conflict merge | Hunks from `gix`'s blob merge of stages 1 to 3 in diff3 style, checked against `git merge-file` in tests. A file is a choice conflict (OPS-6) when it is binary, not UTF-8, over 1 MB on a side, or the stages are not two regular files of the same mode | M2-09 |
+| Edited outside | The file on disk is compared with the stages rendered in the repo's `merge.conflictStyle`, ignoring the label text after each marker; any other difference (an edit, rerere, a merge driver) makes the editor ask. "Keep the file as it is" opens it as plain editable text without hunk buttons | M2-09, M2-10 |
+| Conflict markers | A marker line starts with exactly seven `<`, `=`, `\|` or `>` followed by a space or the line end; Mark resolved refuses while one remains, unless overridden | M2-09 |
+| Mark resolved write | The core writes the text keeping the file's mode and its line endings (CRLF when the file on disk used CRLF), then runs `git add` | M2-09 |
+| Stash apply conflicts | Named "stash apply" from the unmerged entries alone. Abort runs `git reset --merge` after a confirmation; Continue is never needed, because the conflict state ends with the last Mark resolved; after a pop, the app offers to drop the stash git kept | M2-11 |
+| fsmonitor offer | Shown in the changes pane; "don't ask again" kept as `fsmonitor = "declined"` on the `[[repo]]`, schema unchanged. On Linux only `core.untrackedCache` is offered | M2-13 |
+| Clone | Into a parent folder and a name defaulting to the URL's last segment; a non-empty target is refused; cancel and failure remove the folder the clone created. Added to the open workspace and selected | M2-14 |
+| Terminal | Linux: `x-terminal-emulator`, then `gnome-terminal`, `konsole`, `xterm`; macOS: Terminal; Windows: Windows Terminal, else `cmd` | M2-14 |
+| End-to-end smoke | Linux only for now, locally and in CI's Linux job; Windows deferred like the other Windows runs. It waits for results in the DOM, never for a time | M2-15 |
