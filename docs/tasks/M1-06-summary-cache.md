@@ -15,7 +15,7 @@ Respects: ARCH-6, ARCH-7, ARCH-9, PERF-4, UI-3, section 10 "Files" table, sectio
 - Content: one row per repo path with the M1-04 `RepoSummary` and the time it was read. A schema version is stored in the database; a database with another version, or one that fails to open, is deleted and recreated, since the cache is disposable (section 10). Deleting `cache.db` loses nothing.
 - Start sequence in `gitcroc-core`:
   1. Load the workspace file and the cached summaries, and emit them at once, each marked stale (PERF-3).
-  2. Refresh each repo's summary in the background, selected repo first, then the rest in workspace order. Run at most as many refreshes at once as the machine has cores, capped at 8. Each fresh summary is emitted as an event and written to the cache.
+  2. Refresh each repo's summary in the background, selected repo first, then the rest in workspace order. Run at most as many refreshes at once as the machine has cores, capped at 8. (M2-01 changed this to one at a time: see "Background refresh reads" in the README.) Each fresh summary is emitted as an event and written to the cache.
   3. A repo whose path is missing gets a "missing" summary (UI-3 warning icon) and keeps its cached data for display.
   - This scheduler is the minimal one M1 needs. M2's job engine replaces it with the shared job pool and the full PERF-4 priority order.
 - IPC: `workspace_summaries` returns the cached state; the event `repo_summary` carries one fresh summary with its workspace id and repo id (ARCH-9).

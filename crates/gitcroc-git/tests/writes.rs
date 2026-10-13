@@ -1,7 +1,8 @@
-//! Milestone M1 has no write operation (section 13). The crates that ship in
-//! the app start git only through the runner (ARCH-1), and every runner call
-//! in their non-test code runs a read-only subcommand. This reads their
-//! source, so a new git call cannot slip past it. M2 replaces this test.
+//! Every write goes through the runner and lives in `gitcroc-git::ops`
+//! (ARCH-1, M2-01). The crates that ship in the app start a process only in
+//! the runner, and every runner call in their non-test code outside `ops`
+//! runs a read-only subcommand. This reads their source, so a new git call
+//! cannot slip past it.
 
 // Integration test crate: helpers outside #[test] fns are test code too (QA-4).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -16,18 +17,24 @@ const SHIPPED: [&str; 4] = ["gitcroc-git", "gitcroc-core", "gitcroc-ai", "gitcro
 const RUNNER: &str = "gitcroc-git/src/runner.rs";
 
 /// The runner's methods that take git's arguments first.
-const RUNNER_CALLS: [&str; 3] = ["run", "run_blocking", "command"];
+const RUNNER_CALLS: [&str; 5] = [
+    "run",
+    "run_blocking",
+    "run_write",
+    "command",
+    "write_command",
+];
 
-/// The git subcommands M1 runs, none of which changes a repo: detection
-/// (M0-06), the trust check (M1-04, M1-05) and the status fallback (M1-04).
-/// `diff` and `log` are read with `gix`, not git.
+/// The runner's methods for writes, called only in [`OPS`].
+const WRITE_CALLS: [&str; 2] = ["run_write", "write_command"];
+
+/// The home of every write.
+const OPS: &str = "gitcroc-git/src/ops/";
+
+/// The git subcommands run outside [`OPS`], none of which changes a repo:
+/// detection (M0-06), the trust check (M1-04, M1-05) and the status
+/// fallback (M1-04). `diff` and `log` are read with `gix`, not git.
 const READ_ONLY: [&str; 3] = ["--version", "rev-parse", "status"];
-
-/// Writes M1 allows: `git commit-graph write --reachable` writes only the
-/// commit-graph cache in the git directory, never a ref, an object, the index
-/// or a working file. The app offers it and runs it only when the user
-/// accepts (M1-08).
-const CACHE_WRITES: [&str; 1] = ["commit-graph"];
 
 /// A source file's non-test code, comment lines removed.
 struct Source {
@@ -188,15 +195,28 @@ fn subcommand(arguments: &[String]) -> Option<&str> {
         .map(String::as_str)
 }
 
-/// Every runner call in shipped non-test code, as (place, subcommand).
-/// Calls inside functions that only pass their own arguments on are
-/// followed to those functions' callers.
-fn git_calls(sources: &[Source]) -> Vec<(String, String)> {
-    let mut wrappers: Vec<String> = RUNNER_CALLS.iter().map(|&name| name.to_owned()).collect();
+/// A runner call in shipped non-test code.
+#[derive(Debug, PartialEq, Eq)]
+struct Call {
+    place: String,
+    subcommand: String,
+    /// The runner method it reaches.
+    method: String,
+}
+
+/// Every runner call in shipped non-test code. Calls inside functions that
+/// only pass their own arguments on are followed to those functions'
+/// callers.
+fn git_calls(sources: &[Source]) -> Vec<Call> {
+    // Each wrapper with the runner method it reaches.
+    let mut wrappers: Vec<(String, String)> = RUNNER_CALLS
+        .iter()
+        .map(|&name| (name.to_owned(), name.to_owned()))
+        .collect();
     let mut checked = 0;
     let mut calls = Vec::new();
     while checked < wrappers.len() {
-        let name = wrappers[checked].clone();
+        let (name, method) = wrappers[checked].clone();
         checked += 1;
         for source in sources.iter().filter(|source| source.path != RUNNER) {
             for (at, line) in source.lines.iter().enumerate() {
@@ -206,15 +226,19 @@ fn git_calls(sources: &[Source]) -> Vec<(String, String)> {
                 let place = format!("{}:{}", source.path, at + 1);
                 let arguments = call_arguments(&source.lines, at, start);
                 match subcommand(&arguments) {
-                    Some(subcommand) => calls.push((place, subcommand.to_owned())),
+                    Some(subcommand) => calls.push(Call {
+                        place,
+                        subcommand: subcommand.to_owned(),
+                        method: method.clone(),
+                    }),
                     None => {
                         let (wrapper, _) = enclosing_fn(&source.lines, at);
                         assert!(
                             !RUNNER_CALLS.contains(&wrapper.as_str()),
                             "{place}: cannot tell what git runs"
                         );
-                        if !wrappers.contains(&wrapper) {
-                            wrappers.push(wrapper);
+                        if !wrappers.iter().any(|(known, _)| *known == wrapper) {
+                            wrappers.push((wrapper, method.clone()));
                         }
                     }
                 }
@@ -225,14 +249,14 @@ fn git_calls(sources: &[Source]) -> Vec<(String, String)> {
 }
 
 #[test]
-fn m1_no_write_operation_exists_yet() {
+fn arch_1_writes_go_through_the_runner() {
     let sources = sources();
     assert!(
         sources.iter().any(|source| source.path == RUNNER),
         "the runner is not at {RUNNER}"
     );
 
-    // ARCH-1: no process is started outside the runner.
+    // No process is started outside the runner.
     for source in &sources {
         if source.path == RUNNER {
             continue;
@@ -248,23 +272,44 @@ fn m1_no_write_operation_exists_yet() {
     }
 
     let calls = git_calls(&sources);
-    let ran: Vec<&str> = calls.iter().map(|(_, sub)| sub.as_str()).collect();
-    for subcommand in READ_ONLY.iter().chain(&CACHE_WRITES) {
+    let (writes, reads): (Vec<&Call>, Vec<&Call>) =
+        calls.iter().partition(|call| call.place.starts_with(OPS));
+    let ran: Vec<&str> = reads.iter().map(|call| call.subcommand.as_str()).collect();
+    for subcommand in READ_ONLY {
         assert!(
-            ran.contains(subcommand),
+            ran.contains(&subcommand),
             "no call runs `{subcommand}`, so the scan missed it; calls: {calls:?}"
         );
     }
-    for (place, subcommand) in &calls {
+    assert!(
+        writes.iter().any(|call| call.subcommand == "commit-graph"),
+        "the scan found no write in {OPS}; calls: {calls:?}"
+    );
+    for call in reads {
         assert!(
-            READ_ONLY.contains(&subcommand.as_str()) || CACHE_WRITES.contains(&subcommand.as_str()),
-            "{place}: runs `git {subcommand}`, which is not a read-only subcommand of M1"
+            READ_ONLY.contains(&call.subcommand.as_str()),
+            "{}: runs `git {}` outside {OPS}, which is not a read-only subcommand",
+            call.place,
+            call.subcommand
+        );
+        assert!(
+            !WRITE_CALLS.contains(&call.method.as_str()),
+            "{}: runs a write outside {OPS}",
+            call.place
+        );
+    }
+    for call in writes {
+        assert!(
+            WRITE_CALLS.contains(&call.method.as_str()),
+            "{}: a write in {OPS} must run with `run_write`, not `{}`",
+            call.place,
+            call.method
         );
     }
 }
 
 #[test]
-fn m1_the_scan_reads_wrapped_and_inline_arguments() {
+fn arch_1_the_scan_reads_wrapped_and_inline_arguments() {
     let lines = |text: &str| text.lines().map(str::to_owned).collect::<Vec<_>>();
     let source = |path: &str, text| Source {
         path: path.into(),
@@ -280,12 +325,18 @@ fn m1_the_scan_reads_wrapped_and_inline_arguments() {
             "fn write() {\n    progress(format!(\"label\"));\n    let args = [\"commit\", \"-m\"].map(Into::into);\n    git.run(&args, None).await\n}",
         ),
     ];
-    let calls = git_calls(&sources);
+    let calls: Vec<(String, String, String)> = git_calls(&sources)
+        .into_iter()
+        .map(|call| (call.place, call.subcommand, call.method))
+        .collect();
+    let call = |place: &str, subcommand: &str, method: &str| {
+        (place.to_owned(), subcommand.to_owned(), method.to_owned())
+    };
     assert_eq!(
         calls,
         vec![
-            ("b.rs:4".to_owned(), "commit".to_owned()),
-            ("a.rs:6".to_owned(), "status".to_owned()),
+            call("b.rs:4", "commit", "run"),
+            call("a.rs:6", "status", "run_blocking"),
         ]
     );
 }

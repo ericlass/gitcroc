@@ -465,3 +465,27 @@ async fn ops_7_external_commit_shows_within_one_second() {
     eprintln!("slowest of 5 commits: {slowest:?}");
     assert!(slowest < Duration::from_secs(1), "{slowest:?}");
 }
+
+#[tokio::test]
+async fn ops_7_a_write_jobs_own_changes_are_not_refreshed_again() {
+    let fixture = Fixture::new().unwrap();
+    let app = repo_at(fixture.path().join("app"));
+    let lib = repo_at(fixture.path().join("lib"));
+    let watched = Watched::start(fixture.path()).await;
+    let (app_id, lib_id) = (watched.repo(app.path()), watched.repo(lib.path()));
+
+    // A write job holds `app`: its changes are dropped, since the job reads
+    // the repo again itself. `lib`'s change, made after, marks that the
+    // watcher has seen them.
+    watched.watchers.hold(&watched.id, &app_id, true);
+    app.commit_file("two.txt", "two\n", "Second").unwrap();
+    lib.commit_file("two.txt", "two\n", "Second").unwrap();
+    let change = watched.change_within(EVENTUALLY, |_| true).await.unwrap();
+    assert_eq!(change.repo_id, lib_id);
+
+    // Released, `app` is watched again.
+    watched.watchers.hold(&watched.id, &app_id, false);
+    app.commit_file("three.txt", "three\n", "Third").unwrap();
+    let change = watched.change_within(EVENTUALLY, |_| true).await.unwrap();
+    assert_eq!(change.repo_id, app_id);
+}

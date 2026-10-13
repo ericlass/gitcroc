@@ -10,13 +10,14 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use gitcroc_core::{
-    AddReport, AppInfo, Appearance, Changes, ChangesError, ChangesSettings, ChangesTarget,
-    ChangesView, CommitGraphError, DiffRequest, FileDiff, FileRef, GitError, GitRunner, GitSetup,
-    GitStatus, Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, JobId, JobIds,
-    JobProgress, PaneLayout, Refusal, RepoChange, RepoId, SettingsError, SettingsStore,
-    SettingsView, StatusError, StatusReadError, Summaries, SummaryView, Theme, TreeError, TreeNode,
-    Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces,
-    add_path, commit_graph_begin, refresh_summaries, refresh_workspace, tree_refs,
+    AddReport, AppInfo, AppLog, Appearance, CancelResult, Changes, ChangesError, ChangesSettings,
+    ChangesTarget, ChangesView, CommitGraphError, DiffRequest, FileDiff, FileRef, GitRunner,
+    GitSetup, GitStatus, Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide,
+    JobError, JobEvents, JobId, JobProgress, JobView, Jobs, Outcome, PaneLayout, Refusal,
+    RepoChange, RepoId, SettingsError, SettingsStore, SettingsView, StatusError, StatusReadError,
+    Summaries, SummaryView, Theme, TreeError, TreeNode, Trees, WatchWarning, Watchers,
+    WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path, refresh_summaries,
+    refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -115,6 +116,20 @@ impl From<TreeError> for IpcError {
     }
 }
 
+impl From<CommitGraphError> for IpcError {
+    fn from(error: CommitGraphError) -> Self {
+        match error {
+            CommitGraphError::Workspace(error)
+            | CommitGraphError::Job(JobError::Workspace(error)) => error.into(),
+            CommitGraphError::Job(JobError::NoRepo) => Self {
+                code: IpcErrorCode::Internal,
+                message: error.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
 impl From<HistoryViewError> for IpcError {
     fn from(error: HistoryViewError) -> Self {
         match error {
@@ -153,6 +168,12 @@ impl From<ChangesError> for IpcError {
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "job_progress")]
 pub struct JobProgressEvent(pub JobProgress);
+
+/// A job ended, sent as event `job_ended` with its outcome and git's
+/// output, after its repos' fresh summaries.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "job_ended")]
+pub struct JobEndedEvent(pub JobView);
 
 /// The result of git detection, sent as event `git_status` whenever it
 /// changes: `checking` when detection starts, then the result (PLAT-3).
@@ -355,7 +376,7 @@ pub async fn workspace_pick_and_add(
                     spawn_add(picked, workspace_id, path, git);
                 }
                 Err(error) => {
-                    let job_id = picked.state::<JobIds>().next();
+                    let job_id = picked.state::<Arc<Jobs>>().next_id();
                     let report = AddReport {
                         workspace_id,
                         job_id,
@@ -512,9 +533,10 @@ pub async fn history_more(
     Ok(gitcroc_core::history_more(histories, workspace_id, handle).await?)
 }
 
-/// Starts writing a repo's commit-graph file and returns the job id at
-/// once; a write already running for the repo returns its id. Progress
-/// arrives as `job_progress`, the result as `commit_graph_written`.
+/// Starts writing a repo's commit-graph file as a job and returns its id
+/// at once; a write already running for the repo returns its id. Progress
+/// arrives as `job_progress`, the end as `job_ended` and
+/// `commit_graph_written`.
 #[tauri::command]
 #[specta::specta]
 pub async fn commit_graph_write(
@@ -526,44 +548,60 @@ pub async fn commit_graph_write(
     workspaces.repo_path(&workspace_id, &repo_id)?;
     let git = usable_git(&app).await?;
     let histories = app.state::<Arc<Histories>>().inner().clone();
-    let next = app.state::<JobIds>().next();
-    let (job_id, new) = commit_graph_begin(&histories, &workspace_id, &repo_id, next);
-    if new {
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let write = gitcroc_core::commit_graph_write(
+        &histories,
+        &jobs,
+        &workspaces,
+        &workspace_id,
+        &repo_id,
+        git,
+    )?;
+    if let Some(ended) = write.ended {
         tauri::async_runtime::spawn(async move {
-            let progress = {
-                let app = app.clone();
-                // An emit fails only while the app shuts down.
-                move |progress| {
-                    let _ = JobProgressEvent(progress).emit(&app);
-                }
+            let Ok(view) = ended.await else {
+                return;
             };
-            let result = gitcroc_core::commit_graph_write(
-                histories,
-                workspaces,
-                workspace_id.clone(),
-                repo_id.clone(),
-                git,
-                job_id,
-                progress,
-            )
-            .await;
-            let git_stderr = match &result {
-                Err(CommitGraphError::Git(GitError::Failed { stderr, .. })) => {
-                    Some(String::from_utf8_lossy(stderr).trim_end().to_owned())
-                }
-                _ => None,
-            };
+            let failed = view.outcome != Some(Outcome::Succeeded);
+            // An emit fails only while the app shuts down.
             let _ = CommitGraphWrittenEvent {
                 workspace_id,
                 repo_id,
-                job_id,
-                error: result.err().map(|error| error.to_string()),
-                git_stderr,
+                job_id: view.job_id,
+                error: failed.then(|| {
+                    view.message
+                        .clone()
+                        .unwrap_or_else(|| "the job did not finish".to_owned())
+                }),
+                git_stderr: (failed && !view.output.is_empty()).then(|| view.output.clone()),
             }
             .emit(&app);
         });
     }
-    Ok(job_id)
+    Ok(write.job_id)
+}
+
+/// This run's jobs of the workspace, newest first, with their outcome and
+/// git's output, for the job list.
+#[tauri::command]
+#[specta::specta]
+pub async fn jobs_get(
+    jobs: State<'_, Arc<Jobs>>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<JobView>, IpcError> {
+    Ok(jobs.views(&workspace_id))
+}
+
+/// Cancels a job: one that has not started never runs, a running fetch or
+/// clone is killed, any other running job finishes (GRP-10). The end
+/// arrives as `job_ended`.
+#[tauri::command]
+#[specta::specta]
+pub async fn job_cancel(
+    jobs: State<'_, Arc<Jobs>>,
+    job_id: JobId,
+) -> Result<CancelResult, IpcError> {
+    Ok(jobs.cancel(job_id))
 }
 
 /// Keeps "don't ask again" for a repo's commit-graph offer (PERF-2).
@@ -727,7 +765,7 @@ async fn usable_git(app: &AppHandle) -> Result<GitRunner, IpcError> {
 
 /// Runs an add job in the background and returns its id.
 fn spawn_add(app: AppHandle, workspace_id: WorkspaceId, path: PathBuf, git: GitRunner) -> JobId {
-    let job_id = app.state::<JobIds>().next();
+    let job_id = app.state::<Arc<Jobs>>().next_id();
     tauri::async_runtime::spawn(async move {
         let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
         let progress = {
@@ -790,19 +828,66 @@ fn summary_sink(app: AppHandle) -> impl Fn(SummaryView) + Send + Sync + 'static 
     let trees = app.state::<Arc<Trees>>().inner().clone();
     move |view| {
         let read = !view.refreshing;
-        if read {
-            perf_mark("first repo read");
-        }
-        let changed = RepoRef {
-            workspace_id: view.workspace_id.clone(),
-            repo_id: view.repo_id.clone(),
-        };
-        // An emit fails only while the app shuts down.
-        let _ = RepoSummaryEvent(view).emit(&app);
-        if read && trees.invalidate(&changed.workspace_id, &changed.repo_id) {
-            let _ = RepoRefsChangedEvent(changed).emit(&app);
-        }
+        send_summary(&app, &trees, view, read);
     }
+}
+
+/// Sends `view` as `repo_summary`; when the repo was `read` again, its
+/// loaded refs are dropped too, announced as `repo_refs_changed`.
+fn send_summary(app: &AppHandle, trees: &Trees, view: SummaryView, read: bool) {
+    if read {
+        perf_mark("first repo read");
+    }
+    let changed = RepoRef {
+        workspace_id: view.workspace_id.clone(),
+        repo_id: view.repo_id.clone(),
+    };
+    // An emit fails only while the app shuts down.
+    let _ = RepoSummaryEvent(view).emit(app);
+    if read && trees.invalidate(&changed.workspace_id, &changed.repo_id) {
+        let _ = RepoRefsChangedEvent(changed).emit(app);
+    }
+}
+
+/// The job engine's events, sent to the window (ARCH-6, ARCH-7).
+struct AppJobEvents {
+    app: AppHandle,
+    trees: Arc<Trees>,
+    watchers: Arc<Watchers>,
+}
+
+impl JobEvents for AppJobEvents {
+    fn progress(&self, progress: JobProgress) {
+        // An emit fails only while the app shuts down.
+        let _ = JobProgressEvent(progress).emit(&self.app);
+    }
+
+    fn ended(&self, job: &JobView) {
+        let _ = JobEndedEvent(job.clone()).emit(&self.app);
+    }
+
+    fn summary(&self, view: SummaryView, read: bool) {
+        send_summary(&self.app, &self.trees, view, read);
+    }
+
+    fn hold_watch(&self, workspace: &WorkspaceId, repo: &RepoId, held: bool) {
+        self.watchers.hold(workspace, repo, held);
+    }
+}
+
+/// The job engine (M2-01), sending its events to the window. Needs the
+/// watchers managed first.
+pub fn jobs(app: &AppHandle) -> Arc<Jobs> {
+    let events = AppJobEvents {
+        app: app.clone(),
+        trees: app.state::<Arc<Trees>>().inner().clone(),
+        watchers: app.state::<Arc<Watchers>>().inner().clone(),
+    };
+    Jobs::new(
+        app.state::<Arc<Workspaces>>().inner().clone(),
+        app.state::<Arc<Summaries>>().inner().clone(),
+        Arc::new(events),
+    )
 }
 
 /// The file watchers (PERF-6). A repo that changed on disk is read again
@@ -830,8 +915,9 @@ pub fn watchers(app: &AppHandle) -> Watchers {
             });
         },
         move |warning: WatchWarning| {
-            // The log file arrives with its own task; stderr until then.
-            eprintln!("gitcroc: file watching: {}", warning.message);
+            warned
+                .state::<Arc<AppLog>>()
+                .warn(&format!("file watching: {}", warning.message));
             let _ = WatchWarningEvent(warning).emit(&warned);
         },
     )
@@ -890,13 +976,11 @@ pub mod debug {
     use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use gitcroc_core::{JobId, JobIds, JobProgress, WorkspaceId};
     use serde::{Deserialize, Serialize};
     use specta::Type;
-    use tauri::{AppHandle, Manager};
-    use tauri_specta::Event;
+    use tauri::AppHandle;
 
-    use super::{IpcError, IpcErrorCode, JobProgressEvent};
+    use super::{IpcError, IpcErrorCode};
 
     /// Where `perf_trace_write` writes; set by `just bench-ui`.
     pub const PERF_TRACE_ENV: &str = "GITCROC_PERF_TRACE";
@@ -1063,34 +1147,6 @@ pub mod debug {
             })
             .collect()
     }
-
-    /// Starts a fake job that reports three steps 100 ms apart, and returns
-    /// its id without waiting for it.
-    #[tauri::command]
-    #[specta::specta]
-    pub async fn debug_emit_progress(
-        app: AppHandle,
-        workspace_id: WorkspaceId,
-    ) -> Result<JobId, IpcError> {
-        let job_id = app.state::<JobIds>().next();
-        tauri::async_runtime::spawn(async move {
-            const TOTAL: u32 = 3;
-            for done in 1..=TOTAL {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                let progress = JobProgress {
-                    job_id,
-                    workspace_id: workspace_id.clone(),
-                    label: "Debug job".to_owned(),
-                    done,
-                    total: TOTAL,
-                };
-                if JobProgressEvent(progress).emit(&app).is_err() {
-                    break;
-                }
-            }
-        });
-        Ok(job_id)
-    }
 }
 
 /// Expands `$collect![...]` with every registered command, so the invoke
@@ -1118,6 +1174,8 @@ macro_rules! with_commands {
                 history_more,
                 commit_graph_write,
                 commit_graph_decline,
+                jobs_get,
+                job_cancel,
                 settings_set_changes,
                 workspace_set_layout,
                 changes_get,
@@ -1126,7 +1184,6 @@ macro_rules! with_commands {
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,
-                debug::debug_emit_progress,
                 debug::perf_trace_write
             ]
         }
@@ -1151,6 +1208,8 @@ macro_rules! with_commands {
                 history_more,
                 commit_graph_write,
                 commit_graph_decline,
+                jobs_get,
+                job_cancel,
                 settings_set_changes,
                 workspace_set_layout,
                 changes_get,
@@ -1176,7 +1235,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             RepoSummaryEvent,
             RepoRefsChangedEvent,
             CommitGraphWrittenEvent,
-            WatchWarningEvent
+            WatchWarningEvent,
+            JobEndedEvent
         ])
 }
 

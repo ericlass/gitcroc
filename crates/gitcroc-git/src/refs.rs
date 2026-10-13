@@ -110,6 +110,36 @@ impl RefsRead for GitRepo {
     }
 }
 
+/// `HEAD` and every ref with what it points at: an object id, or `ref: `
+/// and the ref a symbolic one names. Two snapshots of a repo, taken before
+/// and after a write, tell whether the write changed any ref (GRP-7's
+/// *nothing to do*).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RefSnapshot(BTreeMap<Vec<u8>, String>);
+
+impl GitRepo {
+    /// The repo's refs now; see [`RefSnapshot`].
+    pub fn ref_snapshot(&self) -> Result<RefSnapshot, RefsError> {
+        let repo = self.thread_local();
+        let mut refs = BTreeMap::new();
+        let target = |target: gix::refs::TargetRef<'_>| match target {
+            gix::refs::TargetRef::Object(id) => id.to_string(),
+            gix::refs::TargetRef::Symbolic(name) => format!("ref: {}", name.as_bstr()),
+        };
+        if let Some(head) = repo.try_find_reference("HEAD")? {
+            refs.insert(b"HEAD".to_vec(), target(head.target()));
+        }
+        for reference in repo.references()?.all()? {
+            let reference = reference?;
+            refs.insert(
+                reference.name().as_bstr().to_vec(),
+                target(reference.target()),
+            );
+        }
+        Ok(RefSnapshot(refs))
+    }
+}
+
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }

@@ -7,6 +7,7 @@ mod diff;
 mod git;
 mod history;
 mod job;
+mod log;
 mod settings;
 mod status;
 mod summary;
@@ -31,12 +32,18 @@ pub use gitcroc_git::{
     RefsRead, RemoteBranches, RepoRead, RepoState, RepoSummary, SearchEnv, StashEntry, StatusError,
     StatusRead, StatusReader, Tag, TextDiff, Time, UnmergedFile, Upstream, WorkingCopy,
 };
+pub use gitcroc_git::{CommandRecord, Exit, Kill, Output, RefSnapshot, log_commands_to, ops};
 pub use history::{
-    COMMIT_GRAPH_THRESHOLD, CommitGraphError, Histories, HistoryPageError, HistoryTarget,
-    HistoryView, HistoryViewError, commit_graph_begin, commit_graph_write, history_get,
-    history_more, history_page,
+    COMMIT_GRAPH_THRESHOLD, CommitGraphError, CommitGraphWrite, Histories, HistoryPageError,
+    HistoryTarget, HistoryView, HistoryViewError, commit_graph_write, history_get, history_more,
+    history_page,
 };
-pub use job::{JobId, JobIds, JobProgress, WorkspaceId};
+pub use job::{
+    CancelResult, JobError, JobEvents, JobHandle, JobId, JobIds, JobProgress, JobRun, JobState,
+    JobView, Jobs, MAX_ENDED_JOBS, MAX_OUTPUT, NothingToDo, OnCancel, Outcome, POOL_SIZE, Pool,
+    Priority, SkipReason, Worker, WorkspaceId, WriteJob,
+};
+pub use log::{AppLog, LOG_FILE, LOG_FILE_SIZE, LOG_FILES, LogDir, PlatformLogDir};
 pub use settings::{
     Appearance, ChangesSettings, CodeTheme, ConfigDir, DEFAULT_FONT_SIZE, DiffMode, FileListMode,
     MAX_FONT_SIZE, MIN_FONT_SIZE, PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Settings,
@@ -44,7 +51,7 @@ pub use settings::{
 };
 pub use status::{StatusReadError, repo_state, repo_summary, working_copy};
 pub use summary::{
-    CACHE_FILE, CACHE_SCHEMA, CacheDir, MAX_REFRESHES, PlatformCacheDir, Summaries, SummaryCache,
+    CACHE_FILE, CACHE_SCHEMA, CacheDir, PlatformCacheDir, REFRESH_READS, Summaries, SummaryCache,
     SummaryView, refresh_summaries, refresh_workspace,
 };
 pub use tree::{TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, tree_filter, tree_refs};

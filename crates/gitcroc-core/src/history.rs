@@ -9,12 +9,16 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use gitcroc_git::{
-    CommitRow, Cursor, Filter, GitError, GitRepo, GitRunner, HistoryError, HistoryStart, OpenError,
-    Page, RepoRead,
+    CommitRow, Cursor, Filter, GitRepo, GitRunner, HistoryError, HistoryStart, OpenError, Page,
+    RepoRead, ops,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
 
-use crate::{JobId, JobProgress, RepoId, WorkspaceError, WorkspaceId, Workspaces};
+use crate::{
+    JobError, JobId, JobView, Jobs, NothingToDo, OnCancel, RepoId, WorkspaceError, WorkspaceId,
+    Workspaces, WriteJob,
+};
 
 /// A first page slower than this, read without a commit-graph file, earns
 /// the offer to write one: the section 9 budget for the first page.
@@ -284,82 +288,78 @@ pub async fn history_more(
     }))
 }
 
-/// Why writing a commit-graph file failed.
+/// Why a commit-graph write could not start.
 #[derive(Debug, thiserror::Error)]
 pub enum CommitGraphError {
     #[error(transparent)]
     Workspace(#[from] WorkspaceError),
-    #[error("git could not write the commit-graph file: {0}")]
-    Git(#[from] GitError),
+    #[error(transparent)]
+    Job(#[from] JobError),
 }
 
-/// Starts writing `repo`'s commit-graph file as job `job_id`, unless one
-/// is being written already: returns the job that writes it and whether
-/// it is new. A new job must then be run with [`commit_graph_write`].
-pub fn commit_graph_begin(
-    histories: &Histories,
-    id: &WorkspaceId,
-    repo: &RepoId,
-    job_id: JobId,
-) -> (JobId, bool) {
-    let mut writes = lock(&histories.writes);
-    match writes.get(&(id.clone(), repo.clone())) {
-        Some(running) => (*running, false),
-        None => {
-            writes.insert((id.clone(), repo.clone()), job_id);
-            (job_id, true)
-        }
-    }
+/// A commit-graph write: the job that writes the file, and its view when it
+/// ends; `None` when the request joined a write already running.
+#[derive(Debug)]
+pub struct CommitGraphWrite {
+    pub job_id: JobId,
+    pub ended: Option<oneshot::Receiver<JobView>>,
 }
 
-/// Writes `repo`'s commit-graph file with `git commit-graph write
-/// --reachable` through the runner (ARCH-1), reporting progress as job
-/// `job_id`: unknown at start, done at the end. The job must have been
-/// started with [`commit_graph_begin`]. Nothing else changes: no git
-/// config, and the file is not kept current afterwards.
-pub async fn commit_graph_write(
-    histories: Arc<Histories>,
-    workspaces: Arc<Workspaces>,
-    id: WorkspaceId,
-    repo: RepoId,
-    git: GitRunner,
-    job_id: JobId,
-    progress: impl Fn(JobProgress),
-) -> Result<(), CommitGraphError> {
-    let result = write(&workspaces, &id, &repo, &git, job_id, &progress).await;
-    lock(&histories.writes).remove(&(id, repo));
-    result
-}
-
-async fn write(
+/// Starts a job of `jobs` that writes `repo`'s commit-graph file with `git
+/// commit-graph write --reachable` (ARCH-1), unless one is running for the
+/// repo already: then that job is returned. Nothing else changes: no git
+/// config, and the file is not kept current afterwards. Needs a tokio
+/// runtime.
+pub fn commit_graph_write(
+    histories: &Arc<Histories>,
+    jobs: &Arc<Jobs>,
     workspaces: &Workspaces,
     id: &WorkspaceId,
     repo: &RepoId,
-    git: &GitRunner,
-    job_id: JobId,
-    progress: &impl Fn(JobProgress),
-) -> Result<(), CommitGraphError> {
-    let path: PathBuf = workspaces.repo_path(id, repo)?;
+    git: GitRunner,
+) -> Result<CommitGraphWrite, CommitGraphError> {
+    let path = workspaces.repo_path(id, repo)?;
     let name = workspaces
         .view(id)?
         .repos
         .into_iter()
         .find(|view| view.id == *repo)
         .map_or_else(|| repo.to_string(), |view| view.name);
-    let report = |done, total| {
-        progress(JobProgress {
-            job_id,
-            workspace_id: id.clone(),
-            label: format!("Writing the commit-graph file of {name}"),
-            done,
-            total,
+    let key = (id.clone(), repo.clone());
+    let mut writes = lock(&histories.writes);
+    if let Some(running) = writes.get(&key) {
+        return Ok(CommitGraphWrite {
+            job_id: *running,
+            ended: None,
         });
+    }
+    let job = WriteJob {
+        workspace_id: id.clone(),
+        repos: vec![repo.clone()],
+        label: format!("Writing the commit-graph file of {name}"),
+        on_cancel: OnCancel::Finish,
+        may_conflict: false,
+        nothing_to_do: NothingToDo::Never,
     };
-    report(0, 0);
-    let args = ["commit-graph", "write", "--reachable"].map(Into::into);
-    git.run(&args, Some(&path)).await?;
-    report(1, 1);
-    Ok(())
+    let handle = jobs.start(git, job, move |run| async move {
+        ops::commit_graph_write(&run.git, &path, run.write()).await
+    })?;
+    writes.insert(key.clone(), handle.job_id);
+    drop(writes);
+    let (forward, ended) = oneshot::channel();
+    let histories = histories.clone();
+    tokio::spawn(async move {
+        let view = handle.ended.await;
+        lock(&histories.writes).remove(&key);
+        if let Ok(view) = view {
+            // The caller may not wait for the end.
+            let _ = forward.send(view);
+        }
+    });
+    Ok(CommitGraphWrite {
+        job_id: handle.job_id,
+        ended: Some(ended),
+    })
 }
 
 #[cfg(test)]

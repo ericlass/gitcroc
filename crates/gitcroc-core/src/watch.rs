@@ -9,11 +9,15 @@
 //! [`DEBOUNCE`] after its last event, or [`MAX_DELAY`] after its first when
 //! events keep coming. Lock files in the git directory are not changes.
 //!
+//! While a write job runs on a repo, the repo's events are dropped: the
+//! job reads the repo again when it ends (OPS-7), so the watcher does not
+//! refresh it a second time.
+//!
 //! The OS watcher hands its events to a thread per workspace, which sorts
 //! them by repo and debounces them; it never takes a lock the OS watcher
 //! may wait for, so adding a watch cannot deadlock with an event.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
@@ -132,11 +136,26 @@ struct Shared {
     routes: Mutex<Routes>,
     /// The warning given, at most one per workspace.
     warning: Mutex<Option<WatchWarning>>,
+    /// Repos a write job holds, with how many hold them, and those whose
+    /// events pending since must be dropped.
+    held: Mutex<Held>,
     on_change: Arc<ChangeFn>,
     on_warning: Arc<WarningFn>,
 }
 
+/// See [`Shared::held`].
+#[derive(Debug, Default)]
+struct Held {
+    holds: HashMap<RepoId, u32>,
+    released: HashSet<RepoId>,
+}
+
 impl Shared {
+    fn held(&self) -> MutexGuard<'_, Held> {
+        // Each change is a single insert or removal.
+        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn routes(&self) -> MutexGuard<'_, Routes> {
         // Each change is a single assignment; a panic leaves no half state.
         self.routes.lock().unwrap_or_else(PoisonError::into_inner)
@@ -365,6 +384,7 @@ impl WorkspaceWatch {
             id,
             routes: Mutex::new(Routes::default()),
             warning: Mutex::new(None),
+            held: Mutex::new(Held::default()),
             on_change,
             on_warning,
         });
@@ -483,6 +503,27 @@ impl Watchers {
         lock_watch(&watch).follow_selection(&shared);
     }
 
+    /// Drops the events of `repo` of workspace `id` while a write job runs
+    /// on it (`held`). When the last job lets go, the events still pending
+    /// are dropped too: the job has read the repo again (OPS-7).
+    pub fn hold(&self, id: &WorkspaceId, repo: &RepoId, held: bool) {
+        let Some(shared) = self.lock().get(id).map(|watch| watch.shared.clone()) else {
+            return;
+        };
+        let mut state = shared.held();
+        if held {
+            *state.holds.entry(repo.clone()).or_default() += 1;
+            return;
+        }
+        if let Some(holds) = state.holds.get_mut(repo) {
+            *holds = holds.saturating_sub(1);
+            if *holds == 0 {
+                state.holds.remove(repo);
+                state.released.insert(repo.clone());
+            }
+        }
+    }
+
     /// Stops watching workspace `id`, as for a background tab (UI-30).
     pub fn stop(&self, id: &WorkspaceId) {
         let stopped = self.lock().remove(id);
@@ -596,9 +637,13 @@ fn debounce(shared: &Shared, watch: &Weak<Mutex<Watch>>, events: &Receiver<notif
             Ok(Ok(event)) => {
                 let now = Instant::now();
                 let (changed, created) = route(&shared.routes(), &event);
+                let held = shared.held();
                 for (repo, refs) in changed {
-                    debouncer.add(repo, refs, now);
+                    if !held.holds.contains_key(&repo) {
+                        debouncer.add(repo, refs, now);
+                    }
                 }
+                drop(held);
                 if !created.is_empty()
                     && let Some(watch) = watch.upgrade()
                 {
@@ -608,6 +653,9 @@ fn debounce(shared: &Shared, watch: &Weak<Mutex<Watch>>, events: &Receiver<notif
             Ok(Err(error)) => shared.warn(format!("file watching failed: {error}")),
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
+        }
+        for repo in std::mem::take(&mut shared.held().released) {
+            debouncer.pending.remove(&repo);
         }
         for (repo, refs) in debouncer.take_due(Instant::now()) {
             (shared.on_change)(RepoChange {

@@ -103,13 +103,25 @@ export const commands = {
 	offer_commit_graph: boolean,
 } | null, IpcError>(__TAURI_INVOKE("history_more", { workspaceId, handle })),
 	/**
-	 *  Starts writing a repo's commit-graph file and returns the job id at
-	 *  once; a write already running for the repo returns its id. Progress
-	 *  arrives as `job_progress`, the result as `commit_graph_written`.
+	 *  Starts writing a repo's commit-graph file as a job and returns its id
+	 *  at once; a write already running for the repo returns its id. Progress
+	 *  arrives as `job_progress`, the end as `job_ended` and
+	 *  `commit_graph_written`.
 	 */
 	commitGraphWrite: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<JobId, IpcError>(__TAURI_INVOKE("commit_graph_write", { workspaceId, repoId })),
 	/**  Keeps "don't ask again" for a repo's commit-graph offer (PERF-2). */
 	commitGraphDecline: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<null, IpcError>(__TAURI_INVOKE("commit_graph_decline", { workspaceId, repoId })),
+	/**
+	 *  This run's jobs of the workspace, newest first, with their outcome and
+	 *  git's output, for the job list.
+	 */
+	jobsGet: (workspaceId: WorkspaceId) => typedError<JobView[], IpcError>(__TAURI_INVOKE("jobs_get", { workspaceId })),
+	/**
+	 *  Cancels a job: one that has not started never runs, a running fetch or
+	 *  clone is killed, any other running job finishes (GRP-10). The end
+	 *  arrives as `job_ended`.
+	 */
+	jobCancel: (jobId: JobId) => typedError<CancelResult, IpcError>(__TAURI_INVOKE("job_cancel", { jobId })),
 	/**
 	 *  Saves the changes pane's view: diff mode and options and the file list
 	 *  toggle, the same for every workspace (UI-14, UI-17).
@@ -173,11 +185,6 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	message: string,
 } | null, IpcError>(__TAURI_INVOKE("watch_warning", { workspaceId })),
 	/**
-	 *  Starts a fake job that reports three steps 100 ms apart, and returns
-	 *  its id without waiting for it.
-	 */
-	debugEmitProgress: (workspaceId: WorkspaceId) => typedError<JobId, IpcError>(__TAURI_INVOKE("debug_emit_progress", { workspaceId })),
-	/**
 	 *  Writes the UI's measurements to the JSON file `$GITCROC_PERF_TRACE`
 	 *  names, with the cold start (process start to tree visible) worked
 	 *  out. Fails in builds without the `perf-trace` feature.
@@ -189,6 +196,7 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 export const events = {
 	commitGraphWritten: makeEvent<CommitGraphWrittenEvent>("commit_graph_written"),
 	gitStatus: makeEvent<GitStatusEvent>("git_status"),
+	jobEnded: makeEvent<JobEndedEvent>("job_ended"),
 	jobProgress: makeEvent<JobProgressEvent>("job_progress"),
 	repoRefsChanged: makeEvent<RepoRefsChangedEvent>("repo_refs_changed"),
 	repoSummary: makeEvent<RepoSummaryEvent>("repo_summary"),
@@ -249,6 +257,17 @@ export type Appearance = {
 	/**  In CSS pixels, [`MIN_FONT_SIZE`] to [`MAX_FONT_SIZE`]. */
 	code_font_size: number,
 };
+
+/**  What [`Jobs::cancel`] did. */
+export type CancelResult = 
+/**  It had not started and never will. */
+"cancelled" | 
+/**  Its git process is being killed. */
+"killing" | 
+/**  It runs to its end (GRP-10). */
+"finishing" | 
+/**  It has ended, or never existed. */
+"ended";
 
 /**  One entry of a changed-file list. It holds no content (ARCH-8). */
 export type ChangedFile = {
@@ -563,6 +582,12 @@ export type IpcErrorCode =
 /**  No usable git was found (PLAT-3); `git_status` says why. */
 "git_unavailable";
 
+/**
+ *  A job ended, sent as event `job_ended` with its outcome and git's
+ *  output, after its repos' fresh summaries.
+ */
+export type JobEndedEvent = JobView;
+
 /**  Identifies a job, unique while the app runs. */
 export type JobId = number;
 
@@ -580,6 +605,29 @@ export type JobProgress = {
 
 /**  Progress of a running job, sent as event `job_progress` (ARCH-7). */
 export type JobProgressEvent = JobProgress;
+
+/**  Where a job is. */
+export type JobState = 
+/**  Waiting for its repos or for a worker. */
+"queued" | "running" | "ended";
+
+/**  A job as the job list shows it. */
+export type JobView = {
+	job_id: JobId,
+	workspace_id: WorkspaceId,
+	label: string,
+	repos: RepoId[],
+	state: JobState,
+	/**  Set when the job has ended. */
+	outcome: Outcome | null,
+	/**
+	 *  What git printed, stdout then stderr, progress lines folded to their
+	 *  last state; at most [`MAX_OUTPUT`] bytes, the end kept.
+	 */
+	output: string,
+	/**  Why a failed or skipped job did not succeed. */
+	message: string | null,
+};
 
 /**  One line of a hunk, without its line terminator. */
 export type Line = {
@@ -615,6 +663,12 @@ export type Operation =
 "cherry_pick" | 
 /**  `REVERT_HEAD`. */
 "revert";
+
+/**
+ *  How a job ended (GRP-7). *Conflict* is not a failure: git left the repo
+ *  in conflict state (OPS-1).
+ */
+export type Outcome = { kind: "succeeded" } | { kind: "nothing_to_do" } | { kind: "skipped"; reason: SkipReason } | { kind: "failed" } | { kind: "conflict" };
 
 /**
  *  The workspace's pane layout (section 10, UI-19): where the changes pane
@@ -764,6 +818,11 @@ export type SettingsView = {
 	warning: ConfigWarning | null,
 };
 
+/**  Why a job was skipped. */
+export type SkipReason = 
+/**  Cancelled before it started, or killed while it ran (GRP-10). */
+"cancelled";
+
 /**  A repo's summary as the UI sees it. */
 export type SummaryView = {
 	workspace_id: WorkspaceId,
@@ -794,6 +853,11 @@ export type SummaryView = {
 	 *  in this run; the history reads the repo again when it does (OPS-7).
 	 */
 	refs_version: number,
+	/**
+	 *  A write job waits or runs on the repo, so other writes are disabled
+	 *  (GRP-8) and the row shows the spinner (UI-3).
+	 */
+	busy: boolean,
 };
 
 /**  The diff of a text file. */
