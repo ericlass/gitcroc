@@ -1,4 +1,10 @@
 //! File watching and refresh (PERF-6, OPS-7).
+//!
+//! These run on hosted CI runners, whose speed varies, so they assert what
+//! happens, never how fast (see "Timing in CI" in docs/tasks/README.md):
+//! what must happen gets a deadline far beyond any budget, and the time it
+//! took is only reported. The debounce times are tested on a simulated
+//! clock in `src/watch.rs`.
 
 // Integration test crate: helpers outside #[test] fns are test code too (QA-4).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -11,14 +17,19 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use gitcroc_core::{
-    CacheDir, ConfigDir, GitRunner, Head, JobId, MAX_DELAY, RepoChange, RepoId, Summaries,
-    SummaryCache, SummaryView, WatchedPath, Watchers, WorkspaceId, Workspaces, add_path,
-    refresh_summaries, refresh_workspace,
+    CacheDir, ConfigDir, GitRunner, Head, JobId, RepoChange, RepoId, Summaries, SummaryCache,
+    SummaryView, WatchedPath, Watchers, WorkspaceId, Workspaces, add_path, refresh_summaries,
+    refresh_workspace,
 };
 use repo_gen::{Fixture, Repo};
 
-/// Long enough for any event of the setup to have been reported.
+/// How long a check that nothing happens waits. A slow runner can only make
+/// such a check weaker, never fail it.
 const SETTLE: Duration = Duration::from_millis(600);
+
+/// A deadline for what must happen, not a budget: far beyond the 200 ms
+/// debounce and a summary read on any runner.
+const EVENTUALLY: Duration = Duration::from_secs(20);
 
 struct Dirs {
     root: tempfile::TempDir,
@@ -162,6 +173,29 @@ impl Watched {
                 found.push(change);
             }
             found
+        })
+        .await
+        .unwrap()
+    }
+
+    /// The first change that passes `test`, if one comes within `time`.
+    async fn change_within(
+        &self,
+        time: Duration,
+        test: impl Fn(&RepoChange) -> bool + Send + 'static,
+    ) -> Option<RepoChange> {
+        let changes = self.changes.clone();
+        tokio::task::spawn_blocking(move || {
+            let changes = changes.lock().unwrap();
+            let end = Instant::now() + time;
+            while let Ok(change) =
+                changes.recv_timeout(end.saturating_duration_since(Instant::now()))
+            {
+                if test(&change) {
+                    return Some(change);
+                }
+            }
+            None
         })
         .await
         .unwrap()
@@ -313,13 +347,12 @@ async fn perf_6_a_linked_worktree_is_watched_in_its_real_git_directory() {
     let id = watched.repo(&linked_path);
     watched.settle().await;
     linked.commit_file("topic.txt", "topic\n", "Topic").unwrap();
-    let changes = watched.changes_within(SETTLE).await;
-    assert!(
-        changes
-            .iter()
-            .any(|change| change.repo_id == id && change.refs),
-        "{changes:?}"
-    );
+    watched
+        .change_within(EVENTUALLY, move |change| {
+            change.repo_id == id && change.refs
+        })
+        .await
+        .expect("the worktree's commit is seen");
 }
 
 #[tokio::test]
@@ -336,12 +369,14 @@ async fn ops_7_external_commit_refreshes_the_summary() {
     let committed = Instant::now();
     let expected = hash.clone();
     let view = watched
-        .view_within(Duration::from_secs(1), move |view| {
+        .view_within(EVENTUALLY, move |view| {
             head_hash(view).as_deref() == Some(expected.as_str())
         })
         .await
-        .expect("a new summary within one second");
-    assert!(committed.elapsed() < Duration::from_secs(1));
+        .expect("a new summary");
+    // The 1 s of the acceptance is checked by hand (`just dev`); a hosted
+    // runner only reports it.
+    eprintln!("new summary {:?} after the commit", committed.elapsed());
     assert_eq!(view.repo_id, id);
     assert!(!view.stale);
     // HEAD moved: the history reads the repo again.
@@ -351,7 +386,7 @@ async fn ops_7_external_commit_refreshes_the_summary() {
     watched.settle().await;
     app.tag("v1").unwrap();
     let view = watched
-        .view_within(Duration::from_secs(1), |view| view.refs_version == 2)
+        .view_within(EVENTUALLY, |view| view.refs_version == 2)
         .await
         .expect("the tag raises the refs version");
     assert_eq!(head_hash(&view), Some(hash));
@@ -369,11 +404,11 @@ async fn ops_7_external_edit_refreshes_the_selected_repo() {
 
     app.write("notes.txt", "edited\n").unwrap();
     let view = watched
-        .view_within(Duration::from_secs(1), |view| {
+        .view_within(EVENTUALLY, |view| {
             view.summary.as_ref().is_some_and(|summary| summary.dirty)
         })
         .await
-        .expect("a new working copy state within one second");
+        .expect("a new working copy state");
     assert_eq!(view.repo_id, app_id);
     // Only the working tree changed: the history stays.
     assert_eq!(view.refs_version, 0);
@@ -391,18 +426,17 @@ async fn ops_7_external_edit_refreshes_the_selected_repo() {
     std::fs::create_dir_all(app.path().join("new").join("deeper")).unwrap();
     watched.settle().await;
     app.write("new/deeper/file.txt", "x\n").unwrap();
-    // Windows may report the write's last steps after the debounce, as a
-    // second change; what matters is that the new folder is watched.
-    let changes = watched.changes_within(SETTLE).await;
-    assert!(!changes.is_empty(), "the new folder is not watched");
-    let expected = RepoChange {
-        workspace_id: watched.id.clone(),
-        repo_id: app_id,
-        refs: false,
-    };
-    assert!(
-        changes.iter().all(|change| *change == expected),
-        "{changes:?}"
+    let change = watched
+        .change_within(EVENTUALLY, |_| true)
+        .await
+        .expect("the new folder is watched");
+    assert_eq!(
+        change,
+        RepoChange {
+            workspace_id: watched.id.clone(),
+            repo_id: app_id,
+            refs: false,
+        }
     );
 }
 
@@ -459,32 +493,8 @@ async fn perf_6_lock_files_alone_trigger_nothing() {
 
     // In the working tree a lock file is an ordinary file.
     app.write("Cargo.lock", "# locked\n").unwrap();
-    let changes = watched.changes_within(SETTLE).await;
-    assert_eq!(changes.len(), 1, "{changes:?}");
-}
-
-#[tokio::test]
-async fn perf_6_a_burst_of_changes_gives_one_refresh() {
-    let fixture = Fixture::new().unwrap();
-    let app = repo_at(fixture.path().join("app"));
-    let watched = Watched::start(fixture.path()).await;
-    let id = watched.repo(app.path());
-    watched.select(Some(&id)).await;
-    watched.settle().await;
-
-    // 100 writes back to back: sleeping between them overshoots on CI
-    // runners (a 1 ms sleep took 9 ms on macOS).
-    let start = Instant::now();
-    for index in 0..100 {
-        app.write(&format!("burst/{}.txt", index % 10), format!("{index}\n"))
-            .unwrap();
-    }
-    // A burst longer than MAX_DELAY is meant to give a second refresh.
-    assert!(
-        start.elapsed() < MAX_DELAY,
-        "the burst took {:?}",
-        start.elapsed()
-    );
-    let changes = watched.changes_within(Duration::from_millis(1500)).await;
-    assert_eq!(changes.len(), 1, "{changes:?}");
+    watched
+        .change_within(EVENTUALLY, move |change| change.repo_id == id)
+        .await
+        .expect("Cargo.lock is a change");
 }

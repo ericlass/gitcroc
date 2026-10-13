@@ -542,13 +542,53 @@ impl Pending {
     }
 }
 
+/// The per-repo debounce, on a clock its caller passes in, so tests drive
+/// it without waiting.
+#[derive(Debug, Default)]
+struct Debouncer {
+    pending: HashMap<RepoId, Pending>,
+}
+
+impl Debouncer {
+    /// Notes an event of `repo` at `now`.
+    fn add(&mut self, repo: RepoId, refs: bool, now: Instant) {
+        let entry = self.pending.entry(repo).or_insert(Pending {
+            first: now,
+            last: now,
+            refs: false,
+        });
+        entry.last = now;
+        entry.refs |= refs;
+    }
+
+    /// When the next repo is due, if any is pending.
+    fn next_due(&self) -> Option<Instant> {
+        self.pending.values().map(Pending::due).min()
+    }
+
+    /// The repos due at `now`, each with whether its refs changed, in repo
+    /// order; they are no longer pending.
+    fn take_due(&mut self, now: Instant) -> Vec<(RepoId, bool)> {
+        let mut due: Vec<(RepoId, bool)> = self
+            .pending
+            .iter()
+            .filter(|(_, pending)| pending.due() <= now)
+            .map(|(repo, pending)| (repo.clone(), pending.refs))
+            .collect();
+        due.sort();
+        for (repo, _) in &due {
+            self.pending.remove(repo);
+        }
+        due
+    }
+}
+
 /// The event thread: sorts events by repo and reports each repo's change
 /// once its events settled. Ends when the OS watcher is dropped.
 fn debounce(shared: &Shared, watch: &Weak<Mutex<Watch>>, events: &Receiver<notify::Result<Event>>) {
-    let mut pending: HashMap<RepoId, Pending> = HashMap::new();
+    let mut debouncer = Debouncer::default();
     loop {
-        let next = pending.values().map(Pending::due).min();
-        let received = match next {
+        let received = match debouncer.next_due() {
             Some(due) => events.recv_timeout(due.saturating_duration_since(Instant::now())),
             None => events.recv().map_err(|_| RecvTimeoutError::Disconnected),
         };
@@ -557,13 +597,7 @@ fn debounce(shared: &Shared, watch: &Weak<Mutex<Watch>>, events: &Receiver<notif
                 let now = Instant::now();
                 let (changed, created) = route(&shared.routes(), &event);
                 for (repo, refs) in changed {
-                    let entry = pending.entry(repo).or_insert(Pending {
-                        first: now,
-                        last: now,
-                        refs: false,
-                    });
-                    entry.last = now;
-                    entry.refs |= refs;
+                    debouncer.add(repo, refs, now);
                 }
                 if !created.is_empty()
                     && let Some(watch) = watch.upgrade()
@@ -575,20 +609,12 @@ fn debounce(shared: &Shared, watch: &Weak<Mutex<Watch>>, events: &Receiver<notif
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
         }
-        let now = Instant::now();
-        let due: Vec<RepoId> = pending
-            .iter()
-            .filter(|(_, pending)| pending.due() <= now)
-            .map(|(repo, _)| repo.clone())
-            .collect();
-        for repo in due {
-            if let Some(done) = pending.remove(&repo) {
-                (shared.on_change)(RepoChange {
-                    workspace_id: shared.id.clone(),
-                    repo_id: repo,
-                    refs: done.refs,
-                });
-            }
+        for (repo, refs) in debouncer.take_due(Instant::now()) {
+            (shared.on_change)(RepoChange {
+                workspace_id: shared.id.clone(),
+                repo_id: repo,
+                refs,
+            });
         }
     }
 }
@@ -696,20 +722,65 @@ mod tests {
         assert!(!shared_ref(Path::new("index")));
     }
 
+    fn repo(id: &str) -> RepoId {
+        RepoId(id.to_owned())
+    }
+
     #[test]
-    fn perf_6_pending_is_due_after_quiet_or_at_most_a_second() {
+    fn perf_6_a_burst_of_100_changes_in_100_ms_gives_one_refresh() {
         let start = Instant::now();
-        let quiet = Pending {
-            first: start,
-            last: start + Duration::from_millis(50),
-            refs: false,
-        };
-        assert_eq!(quiet.due(), start + Duration::from_millis(250));
-        let busy = Pending {
-            first: start,
-            last: start + Duration::from_millis(900),
-            refs: false,
-        };
-        assert_eq!(busy.due(), start + MAX_DELAY);
+        let mut debouncer = Debouncer::default();
+        for index in 0..100u32 {
+            let now = start + Duration::from_millis(u64::from(index));
+            debouncer.add(repo("r1"), index == 50, now);
+            assert_eq!(debouncer.take_due(now), Vec::new(), "event {index}");
+        }
+        // Quiet for 200 ms after the last event.
+        let last = start + Duration::from_millis(99);
+        assert_eq!(debouncer.next_due(), Some(last + DEBOUNCE));
+        assert_eq!(
+            debouncer.take_due(last + DEBOUNCE - Duration::from_millis(1)),
+            Vec::new()
+        );
+        assert_eq!(
+            debouncer.take_due(last + DEBOUNCE),
+            vec![(repo("r1"), true)]
+        );
+        assert_eq!(debouncer.next_due(), None);
+    }
+
+    #[test]
+    fn perf_6_changes_that_keep_coming_refresh_every_second() {
+        let start = Instant::now();
+        let mut debouncer = Debouncer::default();
+        let mut fired = Vec::new();
+        // An event every 100 ms for 2.5 s, as a build writing its output.
+        for tick in 0..=25u32 {
+            let now = start + Duration::from_millis(u64::from(tick) * 100);
+            debouncer.add(repo("r1"), false, now);
+            if !debouncer.take_due(now).is_empty() {
+                fired.push(now - start);
+            }
+        }
+        assert_eq!(
+            fired,
+            vec![MAX_DELAY, MAX_DELAY * 2 + Duration::from_millis(100)]
+        );
+    }
+
+    #[test]
+    fn perf_6_each_repo_is_debounced_on_its_own() {
+        let start = Instant::now();
+        let mut debouncer = Debouncer::default();
+        debouncer.add(repo("r1"), false, start);
+        debouncer.add(repo("r2"), true, start + Duration::from_millis(150));
+        assert_eq!(
+            debouncer.take_due(start + DEBOUNCE),
+            vec![(repo("r1"), false)]
+        );
+        assert_eq!(
+            debouncer.take_due(start + Duration::from_millis(350)),
+            vec![(repo("r2"), true)]
+        );
     }
 }
