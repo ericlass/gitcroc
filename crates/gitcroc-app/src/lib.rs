@@ -73,6 +73,8 @@ pub fn run() -> Result<(), Error> {
             ipc::perf_mark("setup");
             #[cfg(feature = "perf-trace")]
             ipc::debug::probe_main_loop(app.handle());
+            // Before the page loads, so its first `app_info` has it.
+            app.manage(ipc::DesktopFont::read());
             ipc.mount_events(app);
             // The watchers report through the app, so they start with it.
             app.manage(Arc::new(ipc::watchers(app.handle())));

@@ -40,6 +40,8 @@ tauri-build = { version = "2.7.2", features = [] }
 # The folder picker, opened from Rust only (SEC-2, M1-05). The front end gets
 # no dialog permission.
 tauri-plugin-dialog = "2.8.0"
+# The GTK that Tauri uses on Linux, for the desktop's UI font (UI-26).
+gtk = "0.18.2"
 # Async runtime and child processes; the same tokio Tauri runs on. Crates add
 # the features they use.
 tokio = { version = "1.53.2", features = [] }

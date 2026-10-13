@@ -28,6 +28,9 @@ gitcroc-git.workspace = true
 gitcroc-core.workspace = true
 gitcroc-ai.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk.workspace = true
+
 [dev-dependencies]
 toml.workspace = true
 

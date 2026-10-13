@@ -30,7 +30,7 @@ import { createSummaryStore } from "./stores/summaries";
 import { createTreeStore } from "./stores/tree";
 import { createWatchStore } from "./stores/watch";
 import { createWorkspaceStore } from "./stores/workspaces";
-import { followAppearance, followTheme } from "./theme/theme";
+import { followAppearance, followDesktopFont, followTheme } from "./theme/theme";
 
 export default function App() {
   const [info] = createResource(appInfo);
@@ -52,6 +52,7 @@ export default function App() {
   const workspace = () => workspaces.state.views?.[0];
 
   followAppearance(settings.appearance, followTheme(settings.theme));
+  followDesktopFont(() => info()?.ui_font ?? null);
 
   // The open workspace's tree and summaries, kept current while it is open;
   // its repos are read again when the window regains focus (OPS-7).

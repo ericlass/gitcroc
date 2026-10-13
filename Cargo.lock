@@ -1300,6 +1300,7 @@ dependencies = [
  "gitcroc-ai",
  "gitcroc-core",
  "gitcroc-git",
+ "gtk",
  "serde",
  "serde_json",
  "specta",
