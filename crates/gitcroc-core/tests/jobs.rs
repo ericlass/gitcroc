@@ -480,6 +480,12 @@ async fn grp_10_a_queued_job_is_cancelled_before_it_starts() {
 
 /// A repo with a branch whose change to `file.txt` conflicts with `main`'s.
 fn conflicting(repo: &Repo) {
+    // The job's merge runs through the runner, without the fixture's own
+    // identity: git needs one to start a merge, as on a CI runner without
+    // a global config.
+    repo.git(["config", "user.name", "Test"]).unwrap();
+    repo.git(["config", "user.email", "test@example.com"])
+        .unwrap();
     repo.commit_file("file.txt", "base\n", "Base").unwrap();
     repo.branch("topic").unwrap();
     repo.switch("topic").unwrap();
