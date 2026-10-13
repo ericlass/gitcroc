@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
-import { fakeState, reset } from "../ipc/fake";
-import { PAGE_SIZE } from "../ipc/fakeHistory";
+import { emitRepoSummary, fakeState, reset } from "../ipc/fake";
+import { hashOf, PAGE_SIZE } from "../ipc/fakeHistory";
+import { summary } from "../ipc/fakeTree";
 import { createHistoryStore, type HistorySource, sourceOf } from "./history";
 import { createSelectionStore } from "./selection";
 
@@ -111,4 +112,70 @@ test("UI-12 an older search answer never replaces a newer one", async () => {
     "change 1",
     "change 12",
   ]);
+});
+
+/** Settles every pending page read. */
+const settleAll = async () => {
+  for (let round = 0; round < 8; round++) {
+    await settle();
+  }
+};
+
+test("OPS-7 the history reads again when its refs change, keeping the position and the selection", async () => {
+  const { history, selection } = setup();
+  const unsubscribe = await history.subscribe(id());
+  history.show(id(), api);
+  await settle();
+  await history.more(id());
+  const hash = hashOf(700);
+  history.select(id(), hash);
+  history.setScrollTop(id(), 700 * 24);
+  const calls = fakeState.historyCalls.length;
+
+  // Only the working tree changed: nothing to read.
+  emitRepoSummary(summary(id(), "r1", "main"));
+  // Another repo's refs changed: not the one shown.
+  emitRepoSummary(summary(id(), "r2", "main", { refs_version: 1 }));
+  // Queued, not read yet.
+  emitRepoSummary(summary(id(), "r1", "main", { refs_version: 1, refreshing: true }));
+  await settleAll();
+  expect(fakeState.historyCalls).toHaveLength(calls);
+
+  // A commit made elsewhere: one more commit on top.
+  fakeState.histories = { r1: { length: 1201, prefix: "api" } };
+  emitRepoSummary(summary(id(), "r1", "main", { refs_version: 1 }));
+  await settleAll();
+  const shown = history.history(id());
+  expect(shown.rows[0]?.subject).toBe("api: change 1201");
+  expect(shown.rows.length).toBeGreaterThanOrEqual(1000);
+  expect(shown.selected).toBe(hash);
+  expect(shown.scrollTop).toBe(700 * 24);
+  expect(shown.loading).toBe(false);
+  expect(selection.selected(id())).toEqual({ kind: "commit", repo_id: "r1", hash });
+
+  // The same version again is not news.
+  const after = fakeState.historyCalls.length;
+  emitRepoSummary(summary(id(), "r1", "main", { refs_version: 1 }));
+  await settleAll();
+  expect(fakeState.historyCalls).toHaveLength(after);
+  unsubscribe();
+});
+
+test("OPS-7 a selected commit that no longer exists is deselected", async () => {
+  const { history, selection } = setup();
+  const unsubscribe = await history.subscribe(id());
+  history.show(id(), api);
+  await settle();
+  await history.more(id());
+  await history.more(id());
+  history.select(id(), hashOf(1100));
+
+  // A reset elsewhere dropped the older half of the branch.
+  fakeState.histories = { r1: { length: 600, prefix: "api" } };
+  emitRepoSummary(summary(id(), "r1", "main", { refs_version: 1 }));
+  await settleAll();
+  expect(history.history(id()).rows).toHaveLength(600);
+  expect(history.history(id()).selected).toBeNull();
+  expect(selection.selected(id())).toBeNull();
+  unsubscribe();
 });

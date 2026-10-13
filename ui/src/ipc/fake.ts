@@ -20,6 +20,8 @@ import type {
   SettingsView,
   SummaryView,
   TreeNode,
+  WatchWarning,
+  WorkspaceId,
   WorkspaceView,
 } from "./bindings";
 import type { Core } from "./core";
@@ -95,6 +97,7 @@ const workspaceAddReportListeners: Listeners<AddReport> = new Set();
 const repoSummaryListeners: Listeners<SummaryView> = new Set();
 const repoRefsChangedListeners: Listeners<RepoRef> = new Set();
 const commitGraphWrittenListeners: Listeners<CommitGraphWrittenEvent> = new Set();
+const watchWarningListeners: Listeners<WatchWarning> = new Set();
 
 /** Each workspace's changes view, as the core keeps it. */
 const views = new Map<string, { handle: number; lists: Partial<Record<FileRef["list"], FakeFile[]>> }>();
@@ -148,6 +151,10 @@ export const fakeState: {
   changesDelay: number;
   /** Every `workspace_set_layout`, oldest first. */
   layouts: PaneLayout[];
+  /** Every `workspace_refresh`, oldest first. */
+  refreshes: WorkspaceId[];
+  /** What `watch_warning` returns. */
+  watchWarning: WatchWarning | null;
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -170,6 +177,8 @@ export const fakeState: {
   changesCalls: [],
   changesDelay: 0,
   layouts: [],
+  refreshes: [],
+  watchWarning: null,
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -204,6 +213,11 @@ export function emitRepoRefsChanged(payload: RepoRef): void {
   emit(repoRefsChangedListeners, "repo_refs_changed", payload);
 }
 
+/** Delivers a `watch_warning` event to every listener, as the core would. */
+export function emitWatchWarning(payload: WatchWarning): void {
+  emit(watchWarningListeners, "watch_warning", payload);
+}
+
 export function reset(): void {
   fakeState.appInfo = defaultAppInfo;
   fakeState.gitStatus = defaultGitStatus;
@@ -226,6 +240,8 @@ export function reset(): void {
   fakeState.changesCalls = [];
   fakeState.changesDelay = 0;
   fakeState.layouts = [];
+  fakeState.refreshes = [];
+  fakeState.watchWarning = null;
   walks.clear();
   views.clear();
   imageFiles.clear();
@@ -236,6 +252,7 @@ export function reset(): void {
   repoSummaryListeners.clear();
   repoRefsChangedListeners.clear();
   commitGraphWrittenListeners.clear();
+  watchWarningListeners.clear();
 }
 
 // Playwright runs the fake build; `?fake=<name>` picks a data set.
@@ -373,6 +390,26 @@ export const fake: Core = {
       fakeState.selected[workspaceId] = repoId;
       return Promise.resolve({ status: "ok", data: null });
     },
+    workspaceRefresh: (workspaceId) => {
+      if (workspaceId !== fakeState.workspace.id) {
+        return notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      fakeState.refreshes.push(workspaceId);
+      // Like the core: every repo read again, the selected one first.
+      const selected = fakeState.selected[workspaceId] ?? null;
+      const views = fakeState.summaries.filter((view) => view.workspace_id === workspaceId);
+      const ordered = [
+        ...views.filter((view) => view.repo_id === selected),
+        ...views.filter((view) => view.repo_id !== selected),
+      ];
+      setTimeout(() => ordered.forEach(emitRepoSummary), 0);
+      return Promise.resolve({ status: "ok", data: null });
+    },
+    watchWarning: (workspaceId) =>
+      Promise.resolve({
+        status: "ok",
+        data: fakeState.watchWarning?.workspace_id === workspaceId ? fakeState.watchWarning : null,
+      }),
     treeGet: (workspaceId) => {
       if (workspaceId !== fakeState.workspace.id) {
         return notFound(`no open workspace has the id ${workspaceId}`);
@@ -582,6 +619,7 @@ export const fake: Core = {
     jobProgress: fakeEvent(jobProgressListeners),
     repoRefsChanged: fakeEvent(repoRefsChangedListeners),
     repoSummary: fakeEvent(repoSummaryListeners),
+    watchWarning: fakeEvent(watchWarningListeners),
     workspaceAddReport: fakeEvent(workspaceAddReportListeners),
     workspaceChanged: fakeEvent(workspaceChangedListeners),
   },

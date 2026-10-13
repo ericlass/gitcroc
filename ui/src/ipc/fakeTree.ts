@@ -158,6 +158,7 @@ export function summary(workspaceId: string, repoId: RepoId, branch: string, cha
     error: null,
     refreshing: false,
     conflict: false,
+    refs_version: 0,
   };
   return { ...view, ...change };
 }

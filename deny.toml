@@ -34,6 +34,12 @@ confidence-threshold = 0.93
 # The allowlist is the policy; not every license is in use yet.
 unused-allowed-license = "allow"
 
+# notify, the file watcher section 4 names (PERF-6), is CC0-1.0: a public
+# domain dedication, compatible with MIT. Allowed for this crate only (M1-11).
+[[licenses.exceptions]]
+crate = "notify"
+allow = ["CC0-1.0"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

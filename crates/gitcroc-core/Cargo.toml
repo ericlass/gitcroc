@@ -19,6 +19,7 @@ uuid.workspace = true
 dunce.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
+notify.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 same-file.workspace = true

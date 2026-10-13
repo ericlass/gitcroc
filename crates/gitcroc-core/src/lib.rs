@@ -11,6 +11,7 @@ mod settings;
 mod status;
 mod summary;
 mod tree;
+mod watch;
 mod workspace;
 
 pub use app_info::AppInfo;
@@ -44,9 +45,10 @@ pub use settings::{
 pub use status::{StatusReadError, repo_state, repo_summary, working_copy};
 pub use summary::{
     CACHE_FILE, CACHE_SCHEMA, CacheDir, MAX_REFRESHES, PlatformCacheDir, Summaries, SummaryCache,
-    SummaryView, refresh_summaries,
+    SummaryView, refresh_summaries, refresh_workspace,
 };
 pub use tree::{TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, tree_filter, tree_refs};
+pub use watch::{DEBOUNCE, MAX_DELAY, RepoChange, WatchWarning, WatchedPath, Watchers};
 pub use workspace::{
     AddReport, DEFAULT_WORKSPACE_NAME, Dock, PaneLayout, Refusal, RepoId, RepoView, SCAN_DEPTH,
     WORKSPACE_SCHEMA, WORKSPACES_DIR, WorkspaceError, WorkspaceView, Workspaces, add_path,

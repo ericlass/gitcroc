@@ -10,7 +10,7 @@
 
 mod cache;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZero;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -46,6 +46,9 @@ pub struct SummaryView {
     pub refreshing: bool,
     /// `summary` says the repo is in conflict state (OPS-1, UI-3).
     pub conflict: bool,
+    /// Goes up each time the repo's refs or `HEAD` are seen to have changed
+    /// in this run; the history reads the repo again when it does (OPS-7).
+    pub refs_version: u32,
 }
 
 /// One repo's summary state.
@@ -56,6 +59,7 @@ struct Entry {
     missing: bool,
     error: Option<String>,
     refreshing: bool,
+    refs_version: u32,
 }
 
 impl Entry {
@@ -66,6 +70,7 @@ impl Entry {
             missing: false,
             error: None,
             refreshing: false,
+            refs_version: 0,
         }
     }
 
@@ -82,6 +87,7 @@ impl Entry {
                 .summary
                 .as_ref()
                 .is_some_and(|summary| summary.state.in_conflict()),
+            refs_version: self.refs_version,
         }
     }
 }
@@ -96,6 +102,8 @@ struct WorkspaceState {
     queue: VecDeque<RepoId>,
     /// Reads running now.
     workers: usize,
+    /// Repos whose refs the watcher saw change since their last read began.
+    refs_changed: HashSet<RepoId>,
 }
 
 impl WorkspaceState {
@@ -197,6 +205,24 @@ impl Summaries {
         self.lock().entry(id.clone()).or_default().selected = repo;
     }
 
+    /// Notes that the refs or `HEAD` of `repo` changed on disk, so its next
+    /// read raises its `refs_version` (OPS-7).
+    pub fn refs_changed(&self, id: &WorkspaceId, repo: &RepoId) {
+        self.lock()
+            .entry(id.clone())
+            .or_default()
+            .refs_changed
+            .insert(repo.clone());
+    }
+
+    /// Takes the note of [`Summaries::refs_changed`] as a read of `repo`
+    /// begins, so a change during the read is kept for the next one.
+    fn take_refs_changed(&self, id: &WorkspaceId, repo: &RepoId) -> bool {
+        self.lock()
+            .get_mut(id)
+            .is_some_and(|workspace| workspace.refs_changed.remove(repo))
+    }
+
     fn lock(&self) -> MutexGuard<'_, HashMap<WorkspaceId, WorkspaceState>> {
         // Every change below is a single assignment, so a panic leaves no
         // half-changed state.
@@ -243,25 +269,49 @@ impl Summaries {
     }
 
     /// Keeps what reading `repo` gave and returns its new view.
-    fn store(&self, id: &WorkspaceId, repo: &RepoId, path: &Path, outcome: Outcome) -> SummaryView {
+    /// `refs_changed` says the watcher saw its refs change before the read.
+    fn store(
+        &self,
+        id: &WorkspaceId,
+        repo: &RepoId,
+        path: &Path,
+        outcome: Outcome,
+        refs_changed: bool,
+    ) -> SummaryView {
         if let Outcome::Read(summary) = &outcome {
             self.cache.put(path, summary);
         }
         let mut state = self.lock();
-        let entry = state
-            .entry(id.clone())
-            .or_default()
+        let workspace = state.entry(id.clone()).or_default();
+        if refs_changed && !matches!(outcome, Outcome::Read(_)) {
+            // Counted at the next read that succeeds.
+            workspace.refs_changed.insert(repo.clone());
+        }
+        let entry = workspace
             .entries
             .entry(repo.clone())
             .or_insert_with(|| Entry::cached(None));
         match outcome {
             Outcome::Read(summary) => {
+                // A summary read in this run shows `HEAD` moving even when
+                // no watcher saw it, as after a focus refresh.
+                let head_moved = !entry.stale
+                    && entry
+                        .summary
+                        .as_ref()
+                        .is_some_and(|known| known.head != summary.head);
+                let refs_version = if refs_changed || head_moved {
+                    entry.refs_version.wrapping_add(1)
+                } else {
+                    entry.refs_version
+                };
                 *entry = Entry {
                     summary: Some(summary),
                     stale: false,
                     missing: false,
                     error: None,
                     refreshing: false,
+                    refs_version,
                 };
             }
             Outcome::Missing => {
@@ -324,12 +374,15 @@ pub async fn refresh_summaries(
                     let Ok(path) = workspaces.repo_path(&worker.workspace, &repo) else {
                         continue;
                     };
+                    let refs_changed = worker.summaries.take_refs_changed(&worker.workspace, &repo);
                     let outcome = read(&path, &git);
-                    emit(
-                        worker
-                            .summaries
-                            .store(&worker.workspace, &repo, &path, outcome),
-                    );
+                    emit(worker.summaries.store(
+                        &worker.workspace,
+                        &repo,
+                        &path,
+                        outcome,
+                        refs_changed,
+                    ));
                 }
             })
         })
@@ -339,6 +392,25 @@ pub async fn refresh_summaries(
         // others go on.
         let _ = worker.await;
     }
+}
+
+/// Reads the summary of every repo of workspace `workspace` again, the
+/// selected repo first, as when the window regains focus (OPS-7). Sends
+/// each view to `emit` as [`refresh_summaries`] does.
+pub async fn refresh_workspace(
+    workspaces: Arc<Workspaces>,
+    summaries: Arc<Summaries>,
+    workspace: WorkspaceId,
+    git: GitRunner,
+    emit: impl Fn(SummaryView) + Send + Sync + 'static,
+) -> Result<(), WorkspaceError> {
+    let repos = workspaces
+        .repo_paths(&workspace)?
+        .into_iter()
+        .map(|(repo, _)| repo)
+        .collect();
+    refresh_summaries(workspaces, summaries, workspace, repos, git, emit).await;
+    Ok(())
 }
 
 /// A running read loop's place in its workspace's worker count.

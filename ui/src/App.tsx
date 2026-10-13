@@ -28,6 +28,7 @@ import { createSelectionStore } from "./stores/selection";
 import { createSettingsStore } from "./stores/settings";
 import { createSummaryStore } from "./stores/summaries";
 import { createTreeStore } from "./stores/tree";
+import { createWatchStore } from "./stores/watch";
 import { createWorkspaceStore } from "./stores/workspaces";
 import { followAppearance, followTheme } from "./theme/theme";
 
@@ -43,6 +44,7 @@ export default function App() {
   const selection = createSelectionStore();
   const history = createHistoryStore(selection);
   const changes = createChangesStore(settings.changes);
+  const watch = createWatchStore();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   // The open tab's workspace: the only one until tabs exist (M3). It is
@@ -51,7 +53,8 @@ export default function App() {
 
   followAppearance(settings.appearance, followTheme(settings.theme));
 
-  // The open workspace's tree and summaries, kept current while it is open.
+  // The open workspace's tree and summaries, kept current while it is open;
+  // its repos are read again when the window regains focus (OPS-7).
   createEffect(
     on(
       () => workspace()?.id,
@@ -59,7 +62,13 @@ export default function App() {
         if (id === undefined) {
           return;
         }
-        const unlisten = [tree.subscribe(id), summaries.subscribe(id), history.subscribe(id), changes.subscribe(id)];
+        const unlisten = [
+          tree.subscribe(id),
+          summaries.subscribe(id),
+          history.subscribe(id),
+          changes.subscribe(id),
+          watch.subscribe(id),
+        ];
         onCleanup(() => {
           for (const pending of unlisten) {
             void pending.then((stop) => stop());
@@ -152,6 +161,23 @@ export default function App() {
             </div>
           </Show>
           <Show when={settings.state.view?.warning}>{(warning) => <SettingsBanner warning={warning()} />}</Show>
+          <Show when={workspace()?.id}>
+            {(id) => (
+              <Show when={!watch.watch(id()).dismissed && watch.watch(id()).warning}>
+                {(warning) => (
+                  <div role="alert" class="banner banner-dismissible">
+                    <span>
+                      Changes made outside gitcroc show only when the window regains focus: watching files failed (
+                      {warning().message}).
+                    </span>
+                    <button type="button" onClick={() => watch.dismiss(id())}>
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+              </Show>
+            )}
+          </Show>
           <Show
             when={workspace()?.id}
             fallback={

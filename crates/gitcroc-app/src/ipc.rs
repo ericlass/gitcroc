@@ -13,10 +13,10 @@ use gitcroc_core::{
     AddReport, AppInfo, Appearance, Changes, ChangesError, ChangesSettings, ChangesTarget,
     ChangesView, CommitGraphError, DiffRequest, FileDiff, FileRef, GitError, GitRunner, GitSetup,
     GitStatus, Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, JobId, JobIds,
-    JobProgress, PaneLayout, Refusal, RepoId, SettingsError, SettingsStore, SettingsView,
-    StatusError, StatusReadError, Summaries, SummaryView, Theme, TreeError, TreeNode, Trees,
-    WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path, commit_graph_begin,
-    refresh_summaries, tree_refs,
+    JobProgress, PaneLayout, Refusal, RepoChange, RepoId, SettingsError, SettingsStore,
+    SettingsView, StatusError, StatusReadError, Summaries, SummaryView, Theme, TreeError, TreeNode,
+    Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces,
+    add_path, commit_graph_begin, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -191,6 +191,12 @@ pub struct RepoRef {
 #[tauri_specta(event_name = "repo_refs_changed")]
 pub struct RepoRefsChangedEvent(pub RepoRef);
 
+/// Watching a workspace's files failed, sent once as event `watch_warning`;
+/// changes made outside the app then show when the window regains focus.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "watch_warning")]
+pub struct WatchWarningEvent(pub WatchWarning);
+
 /// A commit-graph write job ended, sent as event `commit_graph_written`.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "commit_graph_written")]
@@ -324,16 +330,54 @@ pub async fn workspace_summaries(
 }
 
 /// Tells the core which repo of the workspace is selected, so it is read
-/// first when its summary waits for a refresh (PERF-4). `None` clears it.
+/// first when its summary waits for a refresh (PERF-4) and its working tree
+/// is the one watched (PERF-6). `None` clears it. Returns at once; the
+/// watch moves in the background.
 #[tauri::command]
 #[specta::specta]
 pub async fn repo_select(
-    summaries: State<'_, Arc<Summaries>>,
+    app: AppHandle,
     workspace_id: WorkspaceId,
     repo_id: Option<RepoId>,
 ) -> Result<(), IpcError> {
-    summaries.select(&workspace_id, repo_id);
+    app.state::<Arc<Summaries>>()
+        .select(&workspace_id, repo_id.clone());
+    let watchers = app.state::<Arc<Watchers>>().inner().clone();
+    // Recorded here, so selections keep their order; the watch follows in
+    // the background, as a large working tree takes a watch per folder
+    // (ARCH-7).
+    watchers.select(&workspace_id, repo_id);
+    tauri::async_runtime::spawn_blocking(move || watchers.follow_selection(&workspace_id));
     Ok(())
+}
+
+/// Reads every repo of the workspace again, the selected one first, as when
+/// the window regains focus (OPS-7). Returns at once; each summary arrives
+/// as `repo_summary`.
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_refresh(app: AppHandle, workspace_id: WorkspaceId) -> Result<(), IpcError> {
+    app.state::<Arc<Workspaces>>().view(&workspace_id)?;
+    let git = usable_git(&app).await?;
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let emit = summary_sink(app);
+        // The workspace was checked above; one closed since has nothing to read.
+        let _ = refresh_workspace(workspaces, summaries, workspace_id, git, emit).await;
+    });
+    Ok(())
+}
+
+/// Why watching the workspace's files failed, if it did; the same warning
+/// is also sent once as `watch_warning`.
+#[tauri::command]
+#[specta::specta]
+pub async fn watch_warning(
+    watchers: State<'_, Arc<Watchers>>,
+    workspace_id: WorkspaceId,
+) -> Result<Option<WatchWarning>, IpcError> {
+    Ok(watchers.warning(&workspace_id))
 }
 
 /// The workspace's tree (UI-1): Ungrouped with every repo, each with its
@@ -598,6 +642,7 @@ pub async fn workspace_remove_repo(
     })
     .await??;
     let _ = WorkspaceChangedEvent(view.clone()).emit(&app);
+    spawn_watch_sync(&app, view.id.clone());
     Ok(view)
 }
 
@@ -658,8 +703,11 @@ fn spawn_add(app: AppHandle, workspace_id: WorkspaceId, path: PathBuf, git: GitR
         if let Ok(view) = workspaces.view(&workspace_id) {
             let _ = WorkspaceChangedEvent(view).emit(&app);
         }
-        let added = report.added.iter().map(|repo| repo.id.clone()).collect();
+        let added: Vec<RepoId> = report.added.iter().map(|repo| repo.id.clone()).collect();
         let _ = WorkspaceAddReportEvent(report).emit(&app);
+        if !added.is_empty() {
+            spawn_watch_sync(&app, workspace_id.clone());
+        }
         refresh(app, workspace_id, added, git).await;
     });
     job_id
@@ -674,27 +722,72 @@ async fn refresh(app: AppHandle, workspace_id: WorkspaceId, repos: Vec<RepoId>, 
     }
     let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
     let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    let emit = summary_sink(app);
+    refresh_summaries(workspaces, summaries, workspace_id, repos, git, emit).await;
+}
+
+/// Sends each summary read as `repo_summary`. A repo read again also drops
+/// its loaded refs, announced as `repo_refs_changed`.
+fn summary_sink(app: AppHandle) -> impl Fn(SummaryView) + Send + Sync + 'static {
     let trees = app.state::<Arc<Trees>>().inner().clone();
-    refresh_summaries(
-        workspaces,
-        summaries,
-        workspace_id,
-        repos,
-        git,
-        move |view| {
-            let read = !view.refreshing;
-            let changed = RepoRef {
-                workspace_id: view.workspace_id.clone(),
-                repo_id: view.repo_id.clone(),
-            };
-            // An emit fails only while the app shuts down.
-            let _ = RepoSummaryEvent(view).emit(&app);
-            if read && trees.invalidate(&changed.workspace_id, &changed.repo_id) {
-                let _ = RepoRefsChangedEvent(changed).emit(&app);
-            }
+    move |view| {
+        let read = !view.refreshing;
+        let changed = RepoRef {
+            workspace_id: view.workspace_id.clone(),
+            repo_id: view.repo_id.clone(),
+        };
+        // An emit fails only while the app shuts down.
+        let _ = RepoSummaryEvent(view).emit(&app);
+        if read && trees.invalidate(&changed.workspace_id, &changed.repo_id) {
+            let _ = RepoRefsChangedEvent(changed).emit(&app);
+        }
+    }
+}
+
+/// The file watchers (PERF-6). A repo that changed on disk is read again
+/// (OPS-7); a ref or `HEAD` that changed also raises its `refs_version`, so
+/// the history reads it again. A failure is logged and sent once as
+/// `watch_warning`.
+pub fn watchers(app: &AppHandle) -> Watchers {
+    let changed = app.clone();
+    let warned = app.clone();
+    Watchers::new(
+        move |change: RepoChange| {
+            let app = changed.clone();
+            tauri::async_runtime::spawn(async move {
+                // Without a usable git there is nothing to read with yet;
+                // the refresh after detection reads every repo.
+                let Some(git) = app.state::<GitSetup>().git().await else {
+                    return;
+                };
+                if change.refs {
+                    app.state::<Arc<Summaries>>()
+                        .refs_changed(&change.workspace_id, &change.repo_id);
+                }
+                let git = GitRunner::new(git.path);
+                refresh(app, change.workspace_id, vec![change.repo_id], git).await;
+            });
+        },
+        move |warning: WatchWarning| {
+            // The log file arrives with its own task; stderr until then.
+            eprintln!("gitcroc: file watching: {}", warning.message);
+            let _ = WatchWarningEvent(warning).emit(&warned);
         },
     )
-    .await;
+}
+
+/// Watches every open workspace's repos, in the background (ARCH-7).
+pub fn spawn_watching(app: &AppHandle) {
+    for workspace in app.state::<Arc<Workspaces>>().views() {
+        spawn_watch_sync(app, workspace.id);
+    }
+}
+
+/// Brings the workspace's watches in line with its repos, in the background.
+fn spawn_watch_sync(app: &AppHandle, workspace_id: WorkspaceId) {
+    let watchers = app.state::<Arc<Watchers>>().inner().clone();
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || watchers.sync(&workspaces, &workspace_id));
 }
 
 /// Detects git in the background (ARCH-7), sending `git_status` events when it
@@ -790,6 +883,8 @@ macro_rules! with_commands {
                 diff_get,
                 diff_image,
                 settings_set_appearance,
+                workspace_refresh,
+                watch_warning,
                 debug::debug_emit_progress
             ]
         }
@@ -819,7 +914,9 @@ macro_rules! with_commands {
                 changes_get,
                 diff_get,
                 diff_image,
-                settings_set_appearance
+                settings_set_appearance,
+                workspace_refresh,
+                watch_warning
             ]
         }
     }};
@@ -836,7 +933,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             WorkspaceAddReportEvent,
             RepoSummaryEvent,
             RepoRefsChangedEvent,
-            CommitGraphWrittenEvent
+            CommitGraphWrittenEvent,
+            WatchWarningEvent
         ])
 }
 

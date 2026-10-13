@@ -114,6 +114,13 @@ main:not(.main) {
   border-bottom: 1px solid var(--warning);
 }
 
+.banner-dismissible {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 /* Panes */
 
 .main {

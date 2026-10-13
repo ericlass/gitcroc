@@ -35,6 +35,15 @@ impl GitRepo {
         self.repo.git_dir()
     }
 
+    /// The directory with the refs and objects: the git directory, or for a
+    /// linked worktree the main repo's.
+    pub fn common_dir(&self) -> &Path {
+        self.repo
+            .common_dir
+            .as_deref()
+            .unwrap_or_else(|| self.repo.git_dir())
+    }
+
     /// A handle for reading on the current thread.
     pub(crate) fn thread_local(&self) -> gix::Repository {
         self.repo.to_thread_local()

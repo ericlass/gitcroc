@@ -78,6 +78,7 @@ export type {
   TreeNode,
   UnmergedFile,
   Upstream,
+  WatchWarning,
   WorkspaceId,
   WorkspaceView,
 } from "./bindings";
@@ -127,6 +128,12 @@ export const workspaceSummaries = (workspaceId: WorkspaceId) => unwrap(core.comm
 
 export const repoSelect = (workspaceId: WorkspaceId, repoId: RepoId | null) =>
   unwrap(core.commands.repoSelect(workspaceId, repoId));
+
+/** Reads every repo again, as when the window regains focus (OPS-7). */
+export const workspaceRefresh = (workspaceId: WorkspaceId) => unwrap(core.commands.workspaceRefresh(workspaceId));
+
+/** Why watching the workspace's files failed, if it did. */
+export const watchWarning = (workspaceId: WorkspaceId) => unwrap(core.commands.watchWarning(workspaceId));
 
 export const treeGet = (workspaceId: WorkspaceId) => unwrap(core.commands.treeGet(workspaceId));
 
