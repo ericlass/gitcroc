@@ -13,6 +13,8 @@ import Splitter from "../layout/Splitter";
 import type { BranchStore } from "../stores/branch";
 import type { HistoryStore } from "../stores/history";
 import type { IntegrateStore } from "../stores/integrate";
+import type { ResetStore } from "../stores/reset";
+import type { TagStore } from "../stores/tag";
 import { type HistoryColumn, type LayoutStore, MIN_COLUMN_WIDTH } from "../stores/layout";
 import { isBlocked, type SummaryStore } from "../stores/summaries";
 import CommitMenu, { type CommitAction, commitMenu } from "./CommitMenu";
@@ -131,6 +133,8 @@ function HistoryList(props: {
   summaries: SummaryStore;
   branch: BranchStore;
   integrate: IntegrateStore;
+  tag: TagStore;
+  reset: ResetStore;
 }) {
   let scroller: HTMLDivElement | undefined;
   const history = () => props.history.history(props.workspace);
@@ -261,7 +265,8 @@ function HistoryList(props: {
     select(index);
   };
 
-  const [menu, setMenu] = createSignal<{ x: number; y: number; commits: string[] } | null>(null);
+  /** `text` names the row the menu was opened on, as `1a2b3c4 Subject`. */
+  const [menu, setMenu] = createSignal<{ x: number; y: number; commits: string[]; text: string } | null>(null);
 
   /** Opens the menu of commit row `index`: for the multi-selection when the row is in it, else for the row alone. */
   const openMenu = (index: number, x: number, y: number) => {
@@ -274,10 +279,10 @@ function HistoryList(props: {
       select(index);
       commits = [row.id];
     }
-    setMenu({ x, y, commits });
+    setMenu({ x, y, commits, text: `${row.commit.short_hash} ${row.commit.subject}` });
   };
 
-  const act = (action: CommitAction, commits: string[]) => {
+  const act = (action: CommitAction, commits: string[], text: string) => {
     setMenu(null);
     const shown = repo();
     const [hash] = commits;
@@ -303,8 +308,14 @@ function HistoryList(props: {
         });
         return;
       case "create_tag":
-      case "reset":
+        props.tag.open(props.workspace, { kind: "create", repo: shown, commit: hash, at: text });
         return;
+      case "reset": {
+        const head = view()?.summary?.head;
+        const branch = head?.kind === "branch" ? head.name : null;
+        props.reset.open(props.workspace, { kind: "reset", repo: shown, commit: hash, text, branch });
+        return;
+      }
     }
   };
 
@@ -414,7 +425,7 @@ function HistoryList(props: {
           x={open().x}
           y={open().y}
           entries={commitMenu(open().commits.length, isBlocked(view()))}
-          onAction={(action) => act(action, open().commits)}
+          onAction={(action) => act(action, open().commits, open().text)}
           onClose={() => setMenu(null)}
         />
       )}
@@ -430,6 +441,8 @@ export default function HistoryPane(props: {
   layout: LayoutStore;
   branch: BranchStore;
   integrate: IntegrateStore;
+  tag: TagStore;
+  reset: ResetStore;
 }) {
   const history = () => props.history.history(props.workspace);
   const repo = (): RepoId | undefined => history().source?.repo;
@@ -523,6 +536,8 @@ export default function HistoryPane(props: {
           summaries={props.summaries}
           branch={props.branch}
           integrate={props.integrate}
+          tag={props.tag}
+          reset={props.reset}
         />
       </Show>
     </div>

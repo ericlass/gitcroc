@@ -1,7 +1,7 @@
 // The context menu of a commit row (UI-13). Entries that cannot apply are
 // disabled, not hidden: with several commits selected only Cherry-pick
 // applies, and a blocked repo (GRP-8) has every write disabled; the core
-// refuses them as well. Tags and reset arrive with M2-12.
+// refuses them as well.
 import { For, onCleanup } from "solid-js";
 
 export type CommitAction = "checkout" | "create_branch" | "create_tag" | "cherry_pick" | "revert" | "reset" | "copy_hash";
@@ -23,10 +23,10 @@ export function commitMenu(count: number, blocked: boolean): CommitMenuEntry[] {
   return [
     write("checkout", "Check out (detached)"),
     write("create_branch", "Create branch here…"),
-    { action: "create_tag", label: "Create tag here…", disabled: true },
+    write("create_tag", "Create tag here…"),
     write("cherry_pick", one ? "Cherry-pick" : `Cherry-pick ${count} commits`, count > 0),
     write("revert", "Revert"),
-    { action: "reset", label: "Reset current branch to here…", disabled: true },
+    write("reset", "Reset current branch to here…"),
     { action: "copy_hash", label: "Copy hash", disabled: !one },
   ];
 }

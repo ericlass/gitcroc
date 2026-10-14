@@ -13,12 +13,14 @@ mod integrate;
 mod job;
 mod log;
 mod ref_name;
+mod reset;
 mod settings;
 mod stage;
 mod stash;
 mod status;
 mod summary;
 mod sync;
+mod tag;
 mod tree;
 mod unblocked;
 mod watch;
@@ -72,7 +74,8 @@ pub use job::{
     WriteJob,
 };
 pub use log::{AppLog, LOG_FILE, LOG_FILE_SIZE, LOG_FILES, LogDir, PlatformLogDir};
-pub use ref_name::{RefNameError, check_branch_name};
+pub use ref_name::{RefNameError, check_branch_name, check_tag_name};
+pub use reset::{ResetError, ResetMode, ResetRequest, ResetStart, op_reset};
 pub use settings::{
     Appearance, ChangesSettings, CodeTheme, ConfigDir, DEFAULT_FONT_SIZE, DiffMode, FileListMode,
     MAX_FONT_SIZE, MIN_FONT_SIZE, PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Settings,
@@ -89,6 +92,7 @@ pub use sync::{
     Prune, PullStrategy, PushChoices, SyncError, SyncOp, SyncRequest, SyncStart, op_sync,
     push_choices,
 };
+pub use tag::{TagError, TagOp, TagRequest, TagStart, op_tag, tag_name_check};
 pub use tree::{TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, tree_filter, tree_refs};
 pub use watch::{DEBOUNCE, MAX_DELAY, RepoChange, WatchWarning, WatchedPath, Watchers};
 pub use workspace::{

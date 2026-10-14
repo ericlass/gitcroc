@@ -36,6 +36,11 @@ impl GitRepo {
         self.has_ref(&format!("refs/remotes/{remote}/{branch}"))
     }
 
+    /// `refs/tags/<name>` exists.
+    pub fn has_tag(&self, name: &str) -> bool {
+        self.has_ref(&format!("refs/tags/{name}"))
+    }
+
     fn has_ref(&self, full_name: &str) -> bool {
         self.thread_local()
             .try_find_reference(full_name)

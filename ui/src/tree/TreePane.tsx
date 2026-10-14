@@ -1,7 +1,8 @@
 // The tree pane (UI-1, UI-3, UI-7, UI-8): filter box, add button and the
 // tree, virtualized (PERF-1), with a context menu on each row that has
 // operations and double-click to check out a local branch; a stash row's
-// menu applies, pops or drops it. Everything
+// menu applies, pops or drops it, a tag row's pushes or deletes it.
+// Everything
 // shown comes from the stores, which take it from the core; this component
 // only lays it out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
@@ -9,6 +10,7 @@ import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { type RepoId, type TreeItem, type TreeNode, type WorkspaceId, workspacePickAndAdd, workspaceRemoveRepo } from "../ipc";
 import type { BranchStore } from "../stores/branch";
 import type { StashStore } from "../stores/stash";
+import type { TagStore } from "../stores/tag";
 import { isBlocked, type SummaryStore } from "../stores/summaries";
 import type { TreeStore } from "../stores/tree";
 import type { WorkspaceStore } from "../stores/workspaces";
@@ -300,6 +302,7 @@ export default function TreePane(props: {
   workspaces: WorkspaceStore;
   branch: BranchStore;
   stash: StashStore;
+  tag: TagStore;
 }) {
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [menu, setMenu] = createSignal<{ item: TreeItem; x: number; y: number } | null>(null);
@@ -376,6 +379,19 @@ export default function TreePane(props: {
           void props.stash.run(props.workspace, repo, { kind, stash }, false, item.message);
         }
         return;
+      case "tag_create":
+        props.tag.open(props.workspace, { kind: "create", repo, commit: null, at: "HEAD" });
+        return;
+      case "tag_push":
+        if (item.kind === "tag") {
+          void props.tag.run(props.workspace, repo, { kind: "push", name: item.name, remote: null });
+        }
+        return;
+      case "tag_delete":
+        if (item.kind === "tag") {
+          props.tag.open(props.workspace, { kind: "delete", repo, name: item.name });
+        }
+        return;
       case "rename":
       case "delete":
       case "set_upstream":
@@ -424,6 +440,16 @@ export default function TreePane(props: {
           <div role="alert" class="tree-refusal">
             <span>{error()}</span>
             <button type="button" onClick={() => props.stash.dismissError(props.workspace)}>
+              Dismiss
+            </button>
+          </div>
+        )}
+      </Show>
+      <Show when={props.tag.dialog(props.workspace) === null && props.tag.error(props.workspace)}>
+        {(error) => (
+          <div role="alert" class="tree-refusal">
+            <span>{error()}</span>
+            <button type="button" onClick={() => props.tag.dismissError(props.workspace)}>
               Dismiss
             </button>
           </div>

@@ -3,65 +3,12 @@
 // one (GRP-9). Names are checked by the core as the user types (SEC-4) and
 // its reason shown under the field. Lists to pick from come from the core.
 // Repo and ref names are shown as text only (SEC-3).
-import { createEffect, createResource, createSignal, For, on, Show, untrack } from "solid-js";
+import { createResource, createSignal, For, Show, untrack } from "solid-js";
 import { branchChoices, branchNameCheck, type RepoId, type StartPoint, type WorkspaceId } from "../ipc";
 import type { BranchDialog, BranchStore } from "../stores/branch";
-import { Actions, ConfirmDialog, Frame, Refusal } from "../dialogs/parts";
+import { Actions, ConfirmDialog, createNameCheck, Frame, NameField, Refusal } from "../dialogs/parts";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
-/** The core's verdict on `name` as a branch name, the latest one only. */
-function createNameCheck(name: () => string) {
-  const [verdict, setVerdict] = createSignal<{ name: string; error: string | null } | null>(null);
-  createEffect(
-    on(name, (text) => {
-      branchNameCheck(text)
-        .then((error) => {
-          if (name() === text) {
-            setVerdict({ name: text, error });
-          }
-        })
-        .catch((failure) => {
-          if (name() === text) {
-            setVerdict({ name: text, error: message(failure) });
-          }
-        });
-    }),
-  );
-  const current = () => {
-    const known = verdict();
-    return known?.name === name() ? known : null;
-  };
-  return {
-    valid: () => current()?.error === null,
-    /** Shown once something was typed. */
-    error: () => (name() === "" ? null : (current()?.error ?? null)),
-  };
-}
-
-function NameField(props: { label: string; value: string; error: string | null; onInput: (value: string) => void }) {
-  return (
-    <label class="field">
-      <span>{props.label}</span>
-      <input
-        type="text"
-        autocomplete="off"
-        spellcheck={false}
-        value={props.value}
-        aria-invalid={props.error !== null}
-        aria-describedby={props.error === null ? undefined : "branch-name-error"}
-        onInput={(event) => props.onInput(event.currentTarget.value)}
-      />
-      <Show when={props.error}>
-        {(error) => (
-          <span id="branch-name-error" class="field-error">
-            {error()}
-          </span>
-        )}
-      </Show>
-    </label>
-  );
-}
 
 interface DialogProps<K extends BranchDialog["kind"]> {
   workspace: WorkspaceId;
@@ -77,7 +24,7 @@ function CreateDialog(props: DialogProps<"create">) {
   const [start, setStart] = createSignal<StartPoint["kind"]>(initial.kind);
   const [revision, setRevision] = createSignal(initial.kind === "revision" ? initial.revision : "");
   const [checkout, setCheckout] = createSignal(true);
-  const check = createNameCheck(name);
+  const check = createNameCheck(name, branchNameCheck);
   const close = () => props.branch.close(props.workspace);
 
   const startPoint = (): StartPoint =>
@@ -155,7 +102,7 @@ function CreateDialog(props: DialogProps<"create">) {
 
 function RenameDialog(props: DialogProps<"rename">) {
   const [name, setName] = createSignal(untrack(() => props.dialog.name));
-  const check = createNameCheck(name);
+  const check = createNameCheck(name, branchNameCheck);
   const close = () => props.branch.close(props.workspace);
   const ready = () => check.valid() && name() !== props.dialog.name && !props.branch.sending(props.workspace);
   return (

@@ -8,8 +8,10 @@ import { createBranchStore } from "../stores/branch";
 import { createHistoryStore, sourceOf } from "../stores/history";
 import { createIntegrateStore } from "../stores/integrate";
 import { createLayoutStore } from "../stores/layout";
+import { createResetStore } from "../stores/reset";
 import { createSelectionStore } from "../stores/selection";
 import { createSummaryStore } from "../stores/summaries";
+import { createTagStore } from "../stores/tag";
 import HistoryPane, { ROW_HEIGHT } from "./HistoryPane";
 import { formatDate } from "./rows";
 
@@ -55,6 +57,8 @@ async function setup(options: { changes?: number } = {}) {
       layout={layout}
       branch={createBranchStore()}
       integrate={createIntegrateStore()}
+      tag={createTagStore()}
+      reset={createResetStore()}
     />
   ));
   return { history, selection, summaries };

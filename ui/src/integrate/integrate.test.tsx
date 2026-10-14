@@ -203,10 +203,10 @@ test("ui_13_commit_context_menu", async () => {
   expect(menuEntries()).toEqual([
     ["Check out (detached)", true],
     ["Create branch here…", true],
-    ["Create tag here…", false],
+    ["Create tag here…", true],
     ["Cherry-pick", true],
     ["Revert", true],
-    ["Reset current branch to here…", false],
+    ["Reset current branch to here…", true],
     ["Copy hash", true],
   ]);
   fireEvent.click(screen.getByRole("menuitem", { name: "Cherry-pick" }));
