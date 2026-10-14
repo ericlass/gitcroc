@@ -19,6 +19,10 @@ export type MenuAction =
   | "tag_create"
   | "tag_push"
   | "tag_delete"
+  | "remote_add"
+  | "remote_rename"
+  | "remote_url"
+  | "remote_remove"
   | "remove_repo";
 
 export interface MenuEntry {
@@ -49,6 +53,14 @@ export function menuFor(item: TreeItem, blocked: boolean): MenuEntry[] {
         entry("delete", "Delete…", item.current),
         entry("set_upstream", "Set upstream…"),
         entry("unset_upstream", "Unset upstream", item.upstream === null),
+      ];
+    case "remotes":
+      return [entry("remote_add", "Add remote…")];
+    case "remote":
+      return [
+        entry("remote_rename", "Rename…"),
+        entry("remote_url", "Edit URL…"),
+        entry("remote_remove", "Remove…"),
       ];
     case "remote_branch":
       return [

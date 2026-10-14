@@ -1,7 +1,8 @@
 //! Branch and tag names the user types, checked against git's ref format
 //! rules before any command runs (SEC-4): the rules of `git
 //! check-ref-format --branch`, in Rust, each failure naming its rule.
-//! Tags (M2-12) use the same rules.
+//! Tags (M2-12) use the same rules; a remote name (M2-13) is one
+//! component of a ref name.
 
 /// The rule a name breaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -30,6 +31,8 @@ pub enum RefNameError {
     LockPart,
     #[error("the name cannot end with '.'")]
     TrailingDot,
+    #[error("a remote name cannot contain '/'")]
+    Slash,
 }
 
 /// Characters no ref name may contain, besides spaces and control
@@ -58,6 +61,16 @@ pub fn check_branch_name(name: &str) -> Result<(), RefNameError> {
 /// `@` and a leading `-` are refused as well.
 pub fn check_tag_name(name: &str) -> Result<(), RefNameError> {
     check_branch_name(name)
+}
+
+/// Checks `name` as the name of a new remote: a valid ref component, as in
+/// `refs/remotes/<name>/`, so the rules of a branch name without `/`.
+pub fn check_remote_name(name: &str) -> Result<(), RefNameError> {
+    check_branch_name(name)?;
+    if name.contains('/') {
+        return Err(RefNameError::Slash);
+    }
+    Ok(())
 }
 
 /// The rules of `check_refname_format` for a name below `refs/heads/` or
@@ -99,7 +112,7 @@ fn check_ref_format(name: &str) -> Result<(), RefNameError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{RefNameError, check_branch_name};
+    use super::{RefNameError, check_branch_name, check_remote_name};
 
     #[test]
     fn sec_4_each_rule_names_itself() {
@@ -126,5 +139,12 @@ mod tests {
             "the name cannot contain ':'"
         );
         assert_eq!(check_branch_name("feature/x-1"), Ok(()));
+    }
+
+    #[test]
+    fn sec_4_a_remote_name_is_one_component() {
+        assert_eq!(check_remote_name("up/stream"), Err(RefNameError::Slash));
+        assert_eq!(check_remote_name("-x"), Err(RefNameError::LeadingDash));
+        assert_eq!(check_remote_name("upstream-2"), Ok(()));
     }
 }

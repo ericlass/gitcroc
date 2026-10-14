@@ -18,6 +18,9 @@ import {
   type DiffRequest,
   diffGet,
   type FileDiff,
+  fsmonitorDecline,
+  fsmonitorEnable,
+  type RepoId,
   type WorkspaceId,
 } from "../ipc";
 import { entryOf, type FileKey, firstFile, sameFile } from "../changes/fileRows";
@@ -46,6 +49,10 @@ export interface WorkspaceChanges {
   confirm: { request: ChangeRequest; repo: string; files: string[] } | null;
   /** A short message about the last action, such as a hunk refused because its file changed. */
   notice: string | null;
+  /** Repos whose fsmonitor offer (PERF-7) was answered this session; it is not shown again. */
+  offerAnswered: Record<RepoId, boolean | undefined>;
+  /** Why the last answer to the offer failed. */
+  offerError: string | null;
 }
 
 const empty = (): WorkspaceChanges => ({
@@ -63,6 +70,8 @@ const empty = (): WorkspaceChanges => ({
   marked: [],
   confirm: null,
   notice: null,
+  offerAnswered: {},
+  offerError: null,
 });
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -319,6 +328,25 @@ export function createChangesStore(settings: () => ChangesSettings) {
     update(id, (c) => (c.collapsed[key] = !c.collapsed[key]));
   };
 
+  /**
+   * Answers the fsmonitor offer of `repo` (PERF-7): the core turns the
+   * settings on as a job, or keeps "don't ask again".
+   */
+  const answerOffer = async (id: WorkspaceId, repo: RepoId, accept: boolean) => {
+    update(id, (c) => {
+      c.offerAnswered[repo] = true;
+      c.offerError = null;
+    });
+    try {
+      await (accept ? fsmonitorEnable(id, repo) : fsmonitorDecline(id, repo));
+    } catch (error) {
+      const what = accept ? "Cannot turn the settings on" : "Cannot keep the answer";
+      update(id, (c) => (c.offerError = `${what}: ${message(error)}`));
+    }
+  };
+
+  const dismissOfferError = (id: WorkspaceId) => update(id, (c) => (c.offerError = null));
+
   /** Reads uncommitted changes again when the core reports the repo changed (ARCH-6). */
   const subscribe = async (id: WorkspaceId) =>
     core.events.repoSummary.listen((event) => {
@@ -345,6 +373,8 @@ export function createChangesStore(settings: () => ChangesSettings) {
     apply,
     confirmDiscard,
     cancelDiscard,
+    answerOffer,
+    dismissOfferError,
   };
 }
 

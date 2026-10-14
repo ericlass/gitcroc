@@ -1,7 +1,16 @@
 // Trees for the fake core (fake.ts): the skeleton, ref nodes built like the
 // core builds them, the filter, and the scenarios Playwright picks with
 // `?fake=<name>`. Test support only; the real tree comes from the core.
-import type { ConflictDetails, RepoId, RepoView, SummaryView, TreeItem, TreeNode, WorkspaceView } from "./bindings";
+import type {
+  ConflictDetails,
+  RemoteUrlsView,
+  RepoId,
+  RepoView,
+  SummaryView,
+  TreeItem,
+  TreeNode,
+  WorkspaceView,
+} from "./bindings";
 import { upstreamOf } from "./fakeBranches";
 import { defaultDetails, type FakeCommit, type FakeWorkingCopy, keep, textFile } from "./fakeChanges";
 import { type FakeHistory, hashOf } from "./fakeHistory";
@@ -41,6 +50,8 @@ export interface FakeRefs {
   /** What local branches track, by name, over what `counts` implies; `null` is nothing. */
   upstreams?: Record<string, string | null>;
   remotes?: Record<string, string[]>;
+  /** Remote URLs by remote; a remote without an entry has none set. */
+  urls?: Record<string, RemoteUrlsView>;
   tags?: string[];
   stashes?: string[];
 }

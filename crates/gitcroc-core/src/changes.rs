@@ -4,7 +4,7 @@
 //! so the UI names a file by list and id, never by path (PLAT-2). A newer
 //! view supersedes the older one, whose calls then return `None`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -48,6 +48,9 @@ pub enum ChangesContent {
         /// In conflict state (OPS-1): no commit box, as Continue makes the
         /// commit (M2-08).
         in_conflict: bool,
+        /// The config keys the offer to speed up status would turn on
+        /// (PERF-7); `None` when there is no offer.
+        offer_fsmonitor: Option<Vec<String>>,
     },
 }
 
@@ -222,15 +225,34 @@ pub(crate) struct ViewState {
     pub diff: Option<ShownDiff>,
 }
 
-/// The view of every open workspace.
-#[derive(Debug, Default)]
+/// The view of every open workspace, and the repos whose status settings
+/// are being turned on (PERF-7).
+#[derive(Debug)]
 pub struct Changes {
     shown: Mutex<HashMap<WorkspaceId, Shown>>,
+    pub(crate) enabling: Mutex<HashSet<(WorkspaceId, RepoId)>>,
+    fsmonitor_threshold: usize,
+}
+
+impl Default for Changes {
+    fn default() -> Self {
+        Self::with_fsmonitor_threshold(crate::FSMONITOR_THRESHOLD)
+    }
 }
 
 impl Changes {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// `threshold`: see [`crate::FSMONITOR_THRESHOLD`]; tests make it
+    /// small.
+    pub fn with_fsmonitor_threshold(threshold: usize) -> Self {
+        Self {
+            shown: Mutex::new(HashMap::new()),
+            enabling: Mutex::new(HashSet::new()),
+            fsmonitor_threshold: threshold,
+        }
     }
 
     /// Makes a new view the latest of workspace `id`.
@@ -284,7 +306,7 @@ impl Changes {
     }
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // Every change replaces whole fields, so a panic leaves no half-changed
     // state.
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -303,7 +325,7 @@ pub async fn changes_get(
     target: ChangesTarget,
 ) -> Result<Option<ChangesView>, ChangesError> {
     let path = workspaces.repo_path(&id, &repo_id)?;
-    let handle = changes.begin(&id, repo_id, path.clone());
+    let handle = changes.begin(&id, repo_id.clone(), path.clone());
     let repo = tokio::task::spawn_blocking(move || GitRepo::open(&path)).await??;
     let (content, lists) = match target {
         ChangesTarget::Commit { hash, parent } => {
@@ -325,7 +347,14 @@ pub async fn changes_get(
         ChangesTarget::Uncommitted => {
             let reader = StatusReader::new(repo.clone(), git);
             let working = crate::working_copy(reader.clone()).await?;
-            let in_conflict = crate::repo_state(reader).await?.in_conflict();
+            let in_conflict = crate::repo_state(reader.clone()).await?.in_conflict();
+            let offer_fsmonitor = if in_conflict {
+                None
+            } else {
+                let threshold = changes.fsmonitor_threshold;
+                crate::fsmonitor::offer(&changes, &workspaces, &id, &repo_id, reader, threshold)
+                    .await?
+            };
             let last_message = crate::commit::last_message(repo.clone()).await?;
             let lists = Lists::Uncommitted {
                 staged: working.staged.clone(),
@@ -338,6 +367,7 @@ pub async fn changes_get(
                 unmerged: working.unmerged,
                 last_message,
                 in_conflict,
+                offer_fsmonitor,
             };
             (content, lists)
         }

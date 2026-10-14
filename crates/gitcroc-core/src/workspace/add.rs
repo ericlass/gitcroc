@@ -284,6 +284,7 @@ fn insert(
             path: candidate.path,
             remote: candidate.remote,
             commit_graph: None,
+            fsmonitor: None,
         };
         new.push(entry.view());
         next.repos.push(entry);

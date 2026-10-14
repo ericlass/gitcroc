@@ -26,6 +26,18 @@ pub use state::{Head, Operation, RepoState, RepoSummary, Upstream};
 use crate::diff::{ChangedFile, Origin, Side};
 use crate::{GitError, GitRepo, GitRunner};
 
+/// How many files a repo's index tracks and which of the settings that
+/// speed up its status are on (PERF-7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FsmonitorState {
+    /// Index entries; a sparse index counts a folder it collapsed as one.
+    pub tracked: usize,
+    /// `core.fsmonitor` is on, as the built-in monitor or a hook.
+    pub fsmonitor: bool,
+    /// git uses the untracked cache.
+    pub untracked_cache: bool,
+}
+
 /// The uncommitted state of a repo (UI-15). Each list is sorted by path and
 /// numbered from 0, as a commit's changed files are.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -259,6 +271,19 @@ impl StatusReader {
         fallback(&self.repo.thread_local())
     }
 
+    /// What the offer to turn on `core.fsmonitor` and `core.untrackedCache`
+    /// reads (PERF-7). Reads only; nothing is written.
+    pub fn fsmonitor_state(&self) -> Result<FsmonitorState, StatusError> {
+        let repo = self.repo.thread_local();
+        let config = repo.config_snapshot();
+        let index = repo.index_or_empty()?;
+        Ok(FsmonitorState {
+            tracked: index.entries().len(),
+            fsmonitor: fsmonitor_on(&config),
+            untracked_cache: untracked_cache_on(&config, &index),
+        })
+    }
+
     fn run_git(&self, args: &[&str]) -> Result<Vec<u8>, StatusError> {
         let work_dir = self.repo.work_dir().ok_or(StatusError::NoWorkTree)?;
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
@@ -363,27 +388,14 @@ fn fallback(repo: &gix::Repository) -> Result<Option<Fallback>, StatusError> {
         return Ok(Some(Fallback::Untrusted));
     }
     let config = repo.config_snapshot();
-    if let Some(value) = config.string("core.fsmonitor") {
-        let off = gix::config::Boolean::try_from(value.as_bstr()).is_ok_and(|b| !b.0);
-        if !off {
-            return Ok(Some(Fallback::Fsmonitor));
-        }
+    if fsmonitor_on(&config) {
+        return Ok(Some(Fallback::Fsmonitor));
     }
     let index = repo.index_or_empty()?;
     if index.is_sparse() {
         return Ok(Some(Fallback::SparseIndex));
     }
-    let untracked_cache = config.string("core.untrackedCache").map(|value| {
-        gix::config::Boolean::try_from(value.as_bstr())
-            .ok()
-            .map(|b| b.0)
-    });
-    let untracked_cache = match untracked_cache {
-        Some(Some(on)) => on,
-        // Unset or `keep`: git uses the cache the index has.
-        None | Some(None) => index.untracked().is_some(),
-    };
-    if untracked_cache {
+    if untracked_cache_on(&config, &index) {
         return Ok(Some(Fallback::UntrackedCache));
     }
     let unmerged = index
@@ -394,6 +406,28 @@ fn fallback(repo: &gix::Repository) -> Result<Option<Fallback>, StatusError> {
         return Ok(Some(Fallback::Unmerged));
     }
     Ok(None)
+}
+
+/// `core.fsmonitor` is set to anything but false: the built-in monitor or
+/// a hook.
+fn fsmonitor_on(config: &gix::config::Snapshot<'_>) -> bool {
+    config
+        .string("core.fsmonitor")
+        .is_some_and(|value| gix::config::Boolean::try_from(value.as_bstr()).map_or(true, |b| b.0))
+}
+
+/// git uses the untracked cache: `core.untrackedCache` is true, or unset or
+/// `keep` with the cache already in the index.
+fn untracked_cache_on(config: &gix::config::Snapshot<'_>, index: &gix::index::File) -> bool {
+    let setting = config.string("core.untrackedCache").map(|value| {
+        gix::config::Boolean::try_from(value.as_bstr())
+            .ok()
+            .map(|b| b.0)
+    });
+    match setting {
+        Some(Some(on)) => on,
+        None | Some(None) => index.untracked().is_some(),
+    }
 }
 
 /// An unstaged entry: the index side, if any, against the working tree.

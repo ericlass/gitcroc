@@ -127,14 +127,19 @@ struct RepoEntry {
     /// The user's answer to the offer to write a commit-graph file
     /// (PERF-2). Optional, so the schema stays 1: older builds ignore it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    commit_graph: Option<CommitGraphAnswer>,
+    commit_graph: Option<OfferAnswer>,
+    /// The user's answer to the offer to turn on `core.fsmonitor` and
+    /// `core.untrackedCache` (PERF-7), kept the same way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fsmonitor: Option<OfferAnswer>,
 }
 
-/// An answer to the commit-graph offer worth keeping. Accepting keeps
-/// nothing: once the file exists, there is nothing to offer.
+/// An answer to the commit-graph or the fsmonitor offer worth keeping.
+/// Accepting keeps nothing: once the file exists or the settings are on,
+/// there is nothing to offer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum CommitGraphAnswer {
+enum OfferAnswer {
     Declined,
 }
 
@@ -310,7 +315,7 @@ impl Workspaces {
         repo: &RepoId,
     ) -> Result<bool, WorkspaceError> {
         self.with(id, |workspace| {
-            Ok(entry(&workspace.file, repo)?.commit_graph == Some(CommitGraphAnswer::Declined))
+            Ok(entry(&workspace.file, repo)?.commit_graph == Some(OfferAnswer::Declined))
         })
     }
 
@@ -327,7 +332,34 @@ impl Workspaces {
                     .iter_mut()
                     .find(|entry| entry.id == *repo)
                     .ok_or_else(|| WorkspaceError::UnknownRepo(repo.clone()))?;
-                found.commit_graph = Some(CommitGraphAnswer::Declined);
+                found.commit_graph = Some(OfferAnswer::Declined);
+                Ok(())
+            })
+        })
+    }
+
+    /// Whether the user declined the offer to turn on `core.fsmonitor` and
+    /// `core.untrackedCache` for `repo` (PERF-7).
+    pub fn fsmonitor_declined(
+        &self,
+        id: &WorkspaceId,
+        repo: &RepoId,
+    ) -> Result<bool, WorkspaceError> {
+        self.with(id, |workspace| {
+            Ok(entry(&workspace.file, repo)?.fsmonitor == Some(OfferAnswer::Declined))
+        })
+    }
+
+    /// Keeps "don't ask again" for the fsmonitor offer of `repo`.
+    pub fn decline_fsmonitor(&self, id: &WorkspaceId, repo: &RepoId) -> Result<(), WorkspaceError> {
+        self.with(id, |workspace| {
+            workspace.update(|file| {
+                let found = file
+                    .repos
+                    .iter_mut()
+                    .find(|entry| entry.id == *repo)
+                    .ok_or_else(|| WorkspaceError::UnknownRepo(repo.clone()))?;
+                found.fsmonitor = Some(OfferAnswer::Declined);
                 Ok(())
             })
         })
@@ -518,12 +550,14 @@ mod tests {
                     path: PathBuf::from("/home/eric/src/platform/api"),
                     remote: Some("git@example.com:platform/api.git".to_owned()),
                     commit_graph: None,
+                    fsmonitor: Some(OfferAnswer::Declined),
                 },
                 RepoEntry {
                     id: RepoId("r2".to_owned()),
                     path: PathBuf::from("/home/eric/src/platform/web"),
                     remote: None,
                     commit_graph: None,
+                    fsmonitor: None,
                 },
             ],
             groups: vec![Group {
@@ -542,6 +576,7 @@ name = "Platform"
 id = "r1"
 path = "/home/eric/src/platform/api"
 remote = "git@example.com:platform/api.git"
+fsmonitor = "declined"
 
 [[repo]]
 id = "r2"
@@ -566,6 +601,7 @@ repos = ["r1"]
             path: PathBuf::from("/a"),
             remote: None,
             commit_graph: None,
+            fsmonitor: None,
         });
         file.groups.push(Group {
             name: "G".to_owned(),

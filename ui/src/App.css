@@ -880,7 +880,8 @@ button.danger:hover:not(:disabled) {
   margin: 4px 8px;
 }
 
-.history-offer {
+.history-offer,
+.changes-offer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -890,17 +891,20 @@ button.danger:hover:not(:disabled) {
   border-bottom: 1px solid var(--border);
 }
 
-.history-offer p {
+.history-offer p,
+.changes-offer p {
   flex: 1 1 200px;
   margin: 0;
   white-space: pre-wrap;
 }
 
-.history-offer.error p {
+.history-offer.error p,
+.changes-offer.error p {
   color: var(--danger);
 }
 
-.history-offer-actions {
+.history-offer-actions,
+.changes-offer-actions {
   display: flex;
   gap: 6px;
 }

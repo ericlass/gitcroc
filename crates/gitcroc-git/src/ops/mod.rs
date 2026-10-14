@@ -14,6 +14,7 @@ use crate::{GitError, GitRunner, Output, Write};
 mod branch;
 pub mod conflict;
 mod integrate;
+mod remote;
 mod reset;
 mod stash;
 mod sync;
@@ -24,6 +25,7 @@ pub use branch::{
     switch_detach, switch_track,
 };
 pub use integrate::{FastForward, Resume, cherry_pick, merge, rebase, resume, revert};
+pub use remote::{remote_add, remote_remove, remote_rename, remote_set_url};
 pub use reset::{ResetMode, reset};
 pub use stash::{stash_apply, stash_drop, stash_push};
 pub use sync::{PullMode, PushTo, fetch_all, fetch_remote, pull_fetched, push};
@@ -39,6 +41,41 @@ pub async fn commit_graph_write(
 ) -> Result<Output, GitError> {
     let args = ["commit-graph", "write", "--reachable"].map(OsString::from);
     git.run_write(&args, repo, write).await
+}
+
+/// Git has a built-in file system monitor on this platform. On Linux it
+/// has none (M1-04), so only the untracked cache is turned on there.
+pub const BUILTIN_FSMONITOR: bool = cfg!(any(target_os = "macos", target_os = "windows"));
+
+/// The local config keys [`fsmonitor_enable`] sets to `true` (PERF-7).
+pub fn fsmonitor_keys() -> Vec<&'static str> {
+    let mut keys = Vec::new();
+    if BUILTIN_FSMONITOR {
+        keys.push("core.fsmonitor");
+    }
+    keys.push("core.untrackedCache");
+    keys
+}
+
+/// Turns on the keys of [`fsmonitor_keys`] in the repo's local config
+/// (`git config --local <key> true`), only after the user accepted the
+/// offer (PERF-7). No other config is written.
+pub async fn fsmonitor_enable(
+    git: &GitRunner,
+    repo: &Path,
+    write: Write<'_>,
+) -> Result<Output, GitError> {
+    let mut all = Output {
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    };
+    for key in fsmonitor_keys() {
+        let args = ["config", "--local", key, "true"].map(OsString::from);
+        let output = git.run_write(&args, repo, write).await?;
+        all.stdout.extend(output.stdout);
+        all.stderr.extend(output.stderr);
+    }
+    Ok(all)
 }
 
 /// What a patch does to the working copy (UI-15).

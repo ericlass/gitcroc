@@ -7,12 +7,14 @@ mod commit;
 mod config_file;
 mod conflict;
 mod diff;
+mod fsmonitor;
 mod git;
 mod history;
 mod integrate;
 mod job;
 mod log;
 mod ref_name;
+mod remote;
 mod reset;
 mod settings;
 mod stage;
@@ -42,6 +44,7 @@ pub use conflict::{
     conflict_get, conflict_resolve,
 };
 pub use diff::{DiffReadError, changed_files, commit_details, file_diff};
+pub use fsmonitor::{FSMONITOR_THRESHOLD, FsmonitorError, fsmonitor_enable};
 pub use git::{GitSetup, GitStatus};
 pub use gitcroc_git::{
     AheadBehind, BranchUpstream, ChangedFile, ChoiceKind, CommitDetails, CommitRow, Conflict,
@@ -74,7 +77,11 @@ pub use job::{
     WriteJob,
 };
 pub use log::{AppLog, LOG_FILE, LOG_FILE_SIZE, LOG_FILES, LogDir, PlatformLogDir};
-pub use ref_name::{RefNameError, check_branch_name, check_tag_name};
+pub use ref_name::{RefNameError, check_branch_name, check_remote_name, check_tag_name};
+pub use remote::{
+    RemoteError, RemoteOp, RemoteRequest, RemoteStart, RemoteUrlsView, op_remote,
+    remote_name_check, remote_urls,
+};
 pub use reset::{ResetError, ResetMode, ResetRequest, ResetStart, op_reset};
 pub use settings::{
     Appearance, ChangesSettings, CodeTheme, ConfigDir, DEFAULT_FONT_SIZE, DiffMode, FileListMode,

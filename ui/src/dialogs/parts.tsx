@@ -1,8 +1,8 @@
-// The parts the operation dialogs share (branches, sync, tags, reset): a
-// modal frame, a name field the core checks as the user types (SEC-4), the
-// Cancel and submit buttons, the core's refusal, and the confirmation the
-// core asks for before a destructive operation (GRP-9). Names are shown as
-// text only (SEC-3).
+// The parts the operation dialogs share (branches, sync, tags, reset,
+// remotes): a modal frame, a name field the core checks as the user types
+// (SEC-4), the Cancel and submit buttons, the core's refusal, and the
+// confirmation the core asks for before a destructive operation (GRP-9).
+// Names are shown as text only (SEC-3).
 import { createEffect, createSignal, For, type JSX, on, onMount, Show } from "solid-js";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));

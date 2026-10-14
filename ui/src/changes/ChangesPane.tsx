@@ -1,7 +1,8 @@
 // The changes pane (UI-14 to UI-19): a header with the diff mode, options
 // and dock button, then the commit header or the uncommitted lists, the
-// changed files and the selected file's diff. The core reads and diffs;
-// this component lays out its answers and forwards input (ARCH-6).
+// changed files and the selected file's diff, and for a large repo the
+// offer to speed up its status (PERF-7). The core reads and diffs; this
+// component lays out its answers and forwards input (ARCH-6).
 import { createEffect, createMemo, For, Match, Show, Switch } from "solid-js";
 import type { ChangeAction, Context, FileDiff, WorkspaceId } from "../ipc";
 import { ACTION_LIST, type ChangesStore } from "../stores/changes";
@@ -90,6 +91,26 @@ function Toolbar(props: { workspace: WorkspaceId; settings: SettingsStore; layou
   );
 }
 
+/** The offer to turn on the settings `keys` that speed up a large repo's status (PERF-7). */
+function FsmonitorOffer(props: { keys: string[]; onEnable: () => void; onDecline: () => void }) {
+  return (
+    <div class="changes-offer" role="group" aria-label="Status settings offer">
+      <p>
+        This repo tracks many files, so reading its status is slow. Git can speed it up with{" "}
+        {props.keys.join(" and ")}, turned on in the repo's own config; nothing else changes.
+      </p>
+      <div class="changes-offer-actions">
+        <button type="button" onClick={() => props.onEnable()}>
+          Turn on
+        </button>
+        <button type="button" onClick={() => props.onDecline()}>
+          Don't ask again
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ChangesPane(props: {
   workspace: WorkspaceId;
   changes: ChangesStore;
@@ -171,6 +192,17 @@ export default function ChangesPane(props: {
       },
     };
   });
+  /** The keys the fsmonitor offer turns on, while it is shown (PERF-7), with its repo. */
+  const offer = () => {
+    const content = changes().view?.content;
+    const repo = changes().selection?.repo_id;
+    return content?.kind === "uncommitted" &&
+      content.offer_fsmonitor !== null &&
+      repo !== undefined &&
+      !changes().offerAnswered[repo]
+      ? { keys: content.offer_fsmonitor, repo }
+      : null;
+  };
   /** The uncommitted lists, while the repo can take a commit: not in conflict state (M2-08 continues those). */
   const committable = () => {
     const content = changes().view?.content;
@@ -201,6 +233,25 @@ export default function ChangesPane(props: {
           {(shown) => (
             <div class="changes-body">
               <div class="changes-side">
+                <Show when={offer()}>
+                  {(shown) => (
+                    <FsmonitorOffer
+                      keys={shown().keys}
+                      onEnable={() => void props.changes.answerOffer(props.workspace, shown().repo, true)}
+                      onDecline={() => void props.changes.answerOffer(props.workspace, shown().repo, false)}
+                    />
+                  )}
+                </Show>
+                <Show when={changes().offerError}>
+                  {(error) => (
+                    <div class="changes-offer error" role="alert">
+                      <p>{error()}</p>
+                      <button type="button" onClick={() => props.changes.dismissOfferError(props.workspace)}>
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
+                </Show>
                 <Show when={commit()} fallback={<h2 class="changes-title">Uncommitted changes</h2>}>
                   {(content) => (
                     <CommitHeader
