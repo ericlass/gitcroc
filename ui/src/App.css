@@ -1684,3 +1684,89 @@ button.primary:disabled {
   margin: 0;
   padding: 3px 8px;
 }
+
+/* The conflict editor (OPS-3, OPS-6, OPS-8). */
+.conflict-view,
+.conflict-editor-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.conflict-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.conflict-count {
+  margin-right: auto;
+}
+
+.conflict-refusal,
+.conflict-view > [role="alert"] {
+  margin: 4px 8px;
+}
+
+.conflict-refusal button {
+  margin-left: 8px;
+}
+
+.conflict-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.conflict-editor > .cm-editor {
+  height: 100%;
+}
+
+.conflict-ask,
+.conflict-choice {
+  padding: 12px;
+  overflow: auto;
+}
+
+.conflict-ask p,
+.conflict-choice > p {
+  margin: 0 0 8px;
+}
+
+.conflict-ask button {
+  margin-right: 8px;
+}
+
+.conflict-sides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.conflict-side {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.conflict-side h3 {
+  margin: 0 0 4px;
+  font-size: 1em;
+  overflow-wrap: anywhere;
+}
+
+.conflict-side p {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.file-unsaved {
+  margin-left: 4px;
+}

@@ -41,6 +41,7 @@ fn ops_8_cli_prints_a_conflict_as_json() {
                 "chunks": [{ "kind": "hunk", "ours": "main\n", "base": "a\n", "theirs": "feature\n" }],
             },
             "edited_outside": false,
+            "on_disk": null,
         })
     );
 

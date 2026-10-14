@@ -34,7 +34,7 @@ export const CONFLICTS: Record<UnmergedKind, string> = {
   both_modified: "both modified",
 };
 
-function FileCells(props: { row: FileEntry }) {
+function FileCells(props: { row: FileEntry; unsaved: boolean }) {
   const status = () => STATUS[props.row.status];
   const title = () => {
     const parts = [`${status()[1]}: ${props.row.path}`];
@@ -58,6 +58,11 @@ function FileCells(props: { row: FileEntry }) {
         {props.row.name}
         <Show when={props.row.oldPath}>{(old) => <span class="file-old"> ← {old()}</span>}</Show>
         <Show when={props.row.conflict}>{(conflict) => <span class="file-conflict"> ({CONFLICTS[conflict()]})</span>}</Show>
+        <Show when={props.unsaved}>
+          <span class="file-unsaved" role="img" aria-label="unsaved edits" title="Unsaved edits">
+            ●
+          </span>
+        </Show>
       </span>
       <Show when={props.row.added !== null || props.row.removed !== null}>
         <span class="file-counts">
@@ -91,6 +96,8 @@ export default function FileList(props: {
   onToggleFolder: (key: string) => void;
   /** Stage, unstage or discard files of one list; absent for a commit. */
   onAction?: (action: ChangeAction, files: FileKey[]) => void;
+  /** Whether the conflict editor holds unsaved edits of an unmerged file, by path (OPS-9). */
+  unsaved?: (path: string) => boolean;
 }) {
   let scroller: HTMLDivElement | undefined;
   const rows = createMemo(() => fileRows(props.content, props.mode, props.collapsed));
@@ -158,7 +165,10 @@ export default function FileList(props: {
     }
   };
 
-  /** A row's list when it has stage controls: not a commit's, not an unmerged file (M2-10). */
+  /** A section's list when its files can be staged or unstaged together: not the unmerged files. */
+  const changeableList = (list: FileKey["list"]) => (list === "staged" || list === "unstaged" ? list : null);
+
+  /** A row's list when it has stage controls: not a commit's, not an unmerged file (OPS-3 resolves those). */
   const changeable = (file: FileKey): "staged" | "unstaged" | null =>
     props.onAction !== undefined && (file.list === "staged" || file.list === "unstaged") ? file.list : null;
 
@@ -209,17 +219,21 @@ export default function FileList(props: {
             <span class="file-section">
               {section().label} ({section().count})
             </span>
-            <Show when={props.onAction !== undefined && listFiles(section().list).length > 0}>
-              <button
-                type="button"
-                class="file-list-action"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  act(MOVE[section().list], listFiles(section().list));
-                }}
-              >
-                {section().list === "staged" ? "Unstage all" : "Stage all"}
-              </button>
+            <Show when={props.onAction !== undefined && changeableList(section().list)}>
+              {(list) => (
+                <Show when={listFiles(list()).length > 0}>
+                  <button
+                    type="button"
+                    class="file-list-action"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      act(MOVE[list()], listFiles(list()));
+                    }}
+                  >
+                    {list() === "staged" ? "Unstage all" : "Stage all"}
+                  </button>
+                </Show>
+              )}
             </Show>
           </>
         )}
@@ -237,7 +251,7 @@ export default function FileList(props: {
       <Match when={row.kind === "file" && row}>
         {(file) => (
           <>
-            <FileCells row={file()} />
+            <FileCells row={file()} unsaved={file().file.list === "unmerged" && (props.unsaved?.(file().path) ?? false)} />
             <Show when={changeable(file().file)}>
               {(list) => (
                 <span class="file-actions">

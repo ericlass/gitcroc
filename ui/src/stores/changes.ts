@@ -339,6 +339,7 @@ export function createChangesStore(settings: () => ChangesSettings) {
     selectFile,
     loadAnyway,
     reloadDiff,
+    reload,
     toggleFolder,
     subscribe,
     apply,

@@ -36,6 +36,10 @@ pub struct Conflict {
     /// The file on disk is not what git wrote for the conflict: it was
     /// edited outside the app (OPS-8). Only for a text conflict.
     pub edited_outside: bool,
+    /// The file's text when it was edited outside, is UTF-8 and has at
+    /// most [`MAX_CONFLICT_TEXT`] bytes: what the editor opens to keep the
+    /// file as it is (OPS-8).
+    pub on_disk: Option<String>,
     /// Ours and theirs as the index has them, for choosing a side.
     #[serde(skip)]
     stages: [Option<StageEntry>; 2],
@@ -250,14 +254,14 @@ impl GitRepo {
         }
         let labels = conflict_labels(&repo)?;
         let reader = Reader { repo: &repo, path };
-        let (content, edited_outside) = match reader.choice(base, ours, theirs)? {
+        let (content, edited) = match reader.choice(base, ours, theirs)? {
             Some(reason) => (
                 ConflictContent::Choice {
                     reason,
                     ours: reader.holds(ours)?,
                     theirs: reader.holds(theirs)?,
                 },
-                false,
+                None,
             ),
             None => reader.text(base, ours, theirs)?,
         };
@@ -271,7 +275,8 @@ impl GitRepo {
             path: path.to_str_lossy().into_owned(),
             labels,
             content,
-            edited_outside,
+            edited_outside: edited.is_some(),
+            on_disk: edited.flatten(),
             stages: [entry(ours), entry(theirs)],
         }))
     }
@@ -380,14 +385,14 @@ impl Reader<'_> {
         Ok(None)
     }
 
-    /// The text conflict and whether the file on disk differs from what git
-    /// wrote for it (OPS-8).
+    /// The text conflict and, when the file on disk differs from what git
+    /// wrote for it, its text if it can be shown (OPS-8).
     fn text(
         &self,
         base: Option<Entry>,
         ours: Option<Entry>,
         theirs: Option<Entry>,
-    ) -> Result<(ConflictContent, bool), ConflictError> {
+    ) -> Result<(ConflictContent, Option<Option<String>>), ConflictError> {
         // A missing or non-file base (both added) merges against nothing.
         let base = self.blob(base.filter(|base| is_file(base.mode)))?;
         let ours = self.blob(ours)?;
@@ -404,7 +409,7 @@ impl Reader<'_> {
                     executable: false,
                 },
             };
-            return Ok((content, false));
+            return Ok((content, None));
         };
         let work_dir = self.repo.workdir().ok_or(ConflictError::NoWorkTree)?;
         let edited = self.edited_outside(work_dir, &ours, &base, &theirs)?;
@@ -413,26 +418,34 @@ impl Reader<'_> {
 
     /// Whether the file on disk differs from the stages rendered as git
     /// renders them, ignoring the labels after the markers and line
-    /// endings. A missing or unreadable file counts as edited.
+    /// endings: `None` when it does not, else its text when it is UTF-8
+    /// and at most [`MAX_CONFLICT_TEXT`] bytes. A missing or unreadable
+    /// file counts as edited, without text.
     fn edited_outside(
         &self,
         work_dir: &Path,
         ours: &[u8],
         base: &[u8],
         theirs: &[u8],
-    ) -> Result<bool, ConflictError> {
+    ) -> Result<Option<Option<String>>, ConflictError> {
         let Ok(relative) = gix::path::from_bstr(self.path) else {
-            return Ok(true);
+            return Ok(Some(None));
         };
         let Ok(on_disk) = std::fs::read(work_dir.join(relative)) else {
-            return Ok(true);
+            return Ok(Some(None));
         };
         let size = attributes(self.repo, self.path)?.marker_size;
         let style = conflict_style(self.repo);
-        let Some(rendered) = text::render(ours, base, theirs, style, size) else {
-            return Ok(true);
-        };
+        let rendered = text::render(ours, base, theirs, style, size);
         let size = usize::from(size);
-        Ok(text::without_labels(&on_disk, size) != text::without_labels(&rendered, size))
+        if rendered.is_some_and(|rendered| {
+            text::without_labels(&on_disk, size) == text::without_labels(&rendered, size)
+        }) {
+            return Ok(None);
+        }
+        let shown = u64::try_from(on_disk.len()).is_ok_and(|len| len <= MAX_CONFLICT_TEXT);
+        Ok(Some(
+            shown.then(|| String::from_utf8(on_disk).ok()).flatten(),
+        ))
     }
 }

@@ -4,6 +4,7 @@ import { fakeState, finishCommit, reset } from "../ipc/fake";
 import { type FakeWorkingCopy, textFile } from "../ipc/fakeChanges";
 import { createChangesStore } from "../stores/changes";
 import { COMMIT_FAILED, createCommitStore } from "../stores/commit";
+import { createConflictStore } from "../stores/conflicts";
 import { createLayoutStore } from "../stores/layout";
 import { createSettingsStore } from "../stores/settings";
 import ChangesPane from "./ChangesPane";
@@ -58,6 +59,7 @@ async function setup() {
       workspace={id()}
       changes={changes}
       commit={commit}
+      conflicts={createConflictStore(() => {})}
       settings={settings}
       layout={createLayoutStore()}
       onSelectCommit={() => undefined}

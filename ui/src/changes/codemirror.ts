@@ -1,6 +1,7 @@
-// What every diff editor shares (UI-17, SEC-2, SEC-3, UI-24, UI-26):
-// read-only, styled only through the code theme's and the fonts' variables,
-// so a change of either restyles open editors at once, its injected styles carrying the
+// What every diff editor and the conflict editor share (UI-17, SEC-2,
+// SEC-3, UI-24, UI-26): read-only but for the conflict editor, styled
+// only through the code theme's and the fonts' variables, so a change of
+// either restyles open editors at once, its injected styles carrying the
 // page's CSP nonce, and the syntax of the file's extension. CodeMirror
 // renders the document as text, never as HTML.
 import { LanguageDescription, HighlightStyle, syntaxHighlighting } from "@codemirror/language";
@@ -86,13 +87,12 @@ export interface EditorParts {
 
 export const newParts = (): EditorParts => ({ wrap: new Compartment(), language: new Compartment() });
 
-/** The extensions of a read-only diff editor. */
-export function baseExtensions(parts: EditorParts, wrap: boolean): Extension[] {
+/** The extensions of a diff editor: read-only, or `editable` for the conflict editor (OPS-3). */
+export function baseExtensions(parts: EditorParts, wrap: boolean, editable = false): Extension[] {
   const nonce = cspNonce();
   return [
     ...(nonce === "" ? [] : [EditorView.cspNonce.of(nonce)]),
-    EditorState.readOnly.of(true),
-    EditorView.editable.of(false),
+    ...(editable ? [] : [EditorState.readOnly.of(true), EditorView.editable.of(false)]),
     theme,
     syntaxHighlighting(highlight),
     parts.wrap.of(wrap ? EditorView.lineWrapping : []),

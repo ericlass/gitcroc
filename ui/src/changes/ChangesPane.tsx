@@ -2,17 +2,19 @@
 // and dock button, then the commit header or the uncommitted lists, the
 // changed files and the selected file's diff. The core reads and diffs;
 // this component lays out its answers and forwards input (ARCH-6).
-import { createMemo, For, Match, Show, Switch } from "solid-js";
+import { createEffect, createMemo, For, Match, Show, Switch } from "solid-js";
 import type { ChangeAction, Context, FileDiff, WorkspaceId } from "../ipc";
 import { ACTION_LIST, type ChangesStore } from "../stores/changes";
 import type { CommitStore } from "../stores/commit";
+import type { ConflictStore } from "../stores/conflicts";
+import ConflictView from "../conflict/ConflictView";
 import type { LayoutStore } from "../stores/layout";
 import type { SettingsStore } from "../stores/settings";
 import CommitBox from "./CommitBox";
 import CommitHeader from "./CommitHeader";
 import DiffView, { type HunkControls } from "./DiffView";
 import DiscardDialog from "./DiscardDialog";
-import FileList, { CONFLICTS } from "./FileList";
+import FileList from "./FileList";
 import { entryOf } from "./fileRows";
 import SpecialDiff from "./SpecialDiff";
 
@@ -92,6 +94,7 @@ export default function ChangesPane(props: {
   workspace: WorkspaceId;
   changes: ChangesStore;
   commit: CommitStore;
+  conflicts: ConflictStore;
   settings: SettingsStore;
   layout: LayoutStore;
   /** Selects a commit in the history, as a parent link asks. */
@@ -120,6 +123,28 @@ export default function ChangesPane(props: {
     const file = changes().file;
     return file === null || file.list === "unmerged" ? null : { list: file.list, id: file.id };
   };
+  /** The unmerged file shown in the conflict editor, as the core's conflict calls name it (OPS-3). */
+  const conflictTarget = createMemo(() => {
+    const shown = changes().view;
+    const file = changes().file;
+    const selection = changes().selection;
+    const path = entry()?.path;
+    return shown === null || file?.list !== "unmerged" || selection === null || path === undefined
+      ? null
+      : { repo: selection.repo_id, handle: shown.handle, id: file.id, path };
+  });
+  // Once the lists are read, the editor's state of files no longer unmerged is dropped.
+  createEffect(() => {
+    const content = changes().view?.content;
+    const selection = changes().selection;
+    if (content?.kind === "uncommitted" && selection !== null) {
+      props.conflicts.prune(
+        props.workspace,
+        selection.repo_id,
+        content.unmerged.map((file) => file.path),
+      );
+    }
+  });
   /** Uncommitted changes: their files and hunks can be staged, unstaged and discarded. */
   const uncommitted = () => changes().view?.content.kind === "uncommitted";
   const onFiles = (action: ChangeAction, files: { list: string; id: number }[]) => {
@@ -216,6 +241,10 @@ export default function ChangesPane(props: {
                   onSelect={(file, marked) => void props.changes.selectFile(props.workspace, file, marked)}
                   onToggleFolder={(key) => props.changes.toggleFolder(props.workspace, key)}
                   onAction={uncommitted() ? onFiles : undefined}
+                  unsaved={(path) => {
+                    const repo = changes().selection?.repo_id;
+                    return repo !== undefined && props.conflicts.unsaved(props.workspace, repo, path);
+                  }}
                 />
                 <Show when={committable()}>
                   {(target) => (
@@ -242,7 +271,7 @@ export default function ChangesPane(props: {
                   )}
                 </Show>
               </div>
-              <section class="changes-diff" aria-label="Diff">
+              <section class="changes-diff" aria-label={conflictTarget() === null ? "Diff" : "Conflict"}>
                 <Show when={entry()} fallback={<p class="placeholder">No file changed.</p>}>
                   {(file) => (
                     <>
@@ -265,11 +294,14 @@ export default function ChangesPane(props: {
                         <p class="diff-note">Hunks can be staged with "Ignore whitespace" off.</p>
                       </Show>
                       <Switch>
-                        <Match when={file().conflict}>
-                          {(conflict) => (
-                            <p class="diff-special">
-                              Conflict: {CONFLICTS[conflict()]}. A conflicted file shows no diff here.
-                            </p>
+                        <Match when={conflictTarget()}>
+                          {(target) => (
+                            <ConflictView
+                              workspace={props.workspace}
+                              target={target()}
+                              conflicts={props.conflicts}
+                              wrap={view().wrap_lines}
+                            />
                           )}
                         </Match>
                         <Match when={textDiff()}>

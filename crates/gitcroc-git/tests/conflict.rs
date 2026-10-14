@@ -176,12 +176,17 @@ fn ops_8_detects_a_file_edited_outside() {
             repo.git(["config", "merge.conflictStyle", style]).unwrap();
             repo.switch(branch).unwrap();
             stops(&repo, args);
-            assert!(!conflict(&repo, "a.txt").edited_outside, "{case}");
+            let read = conflict(&repo, "a.txt");
+            assert!(!read.edited_outside, "{case}");
+            assert_eq!(read.on_disk, None, "{case}");
 
             let on_disk = std::fs::read_to_string(repo.path().join("a.txt")).unwrap();
-            repo.write("a.txt", on_disk.replacen("one\n", "one!\n", 1))
-                .unwrap();
-            assert!(conflict(&repo, "a.txt").edited_outside, "{case}");
+            let edited = on_disk.replacen("one\n", "one!\n", 1);
+            repo.write("a.txt", &edited).unwrap();
+            let read = conflict(&repo, "a.txt");
+            assert!(read.edited_outside, "{case}");
+            // What keeping the file as it is opens.
+            assert_eq!(read.on_disk, Some(edited), "{case}");
         }
     }
 }

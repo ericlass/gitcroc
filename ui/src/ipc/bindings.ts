@@ -733,6 +733,12 @@ export type Conflict = {
 	 *  edited outside the app (OPS-8). Only for a text conflict.
 	 */
 	edited_outside: boolean,
+	/**
+	 *  The file's text when it was edited outside, is UTF-8 and has at
+	 *  most [`MAX_CONFLICT_TEXT`] bytes: what the editor opens to keep the
+	 *  file as it is (OPS-8).
+	 */
+	on_disk: string | null,
 };
 
 /**  A side of a conflict. */

@@ -50,7 +50,7 @@ import {
 } from "./fakeChanges";
 import { defaultHistory, type FakeHistory, type FakeWalk, historyKey, nextPage, parentOf } from "./fakeHistory";
 import { applyBranchOp, choicesOf, destructiveOf, fakeNameCheck, labelOf, refusalOf } from "./fakeBranches";
-import { planResolution, textConflict } from "./fakeConflict";
+import { labelsOf, planResolution, textConflict } from "./fakeConflict";
 import { mergeTargetsOf, planIntegrate } from "./fakeIntegrate";
 import { fakeJob, jobsScenario } from "./fakeJobs";
 import { applySync, planSync, pushChoicesOf } from "./fakeSync";
@@ -129,6 +129,8 @@ const views = new Map<
     lists: Partial<Record<FileRef["list"], FakeFile[]>>;
     /** The unmerged paths by id, for the conflict calls. */
     unmerged: string[];
+    /** The repo the view is of. */
+    repo: RepoId;
   }
 >();
 /** The file whose image diff was read last, by workspace. */
@@ -318,11 +320,9 @@ function endJob(workspaceId: WorkspaceId, repoId: RepoId, job: JobView): void {
   });
 }
 
-/** The unmerged paths of the selected repo's working copy now. */
-function unmergedPaths(workspaceId: WorkspaceId): string[] {
-  const repoId = fakeState.selected[workspaceId] ?? fakeState.workspace.repos[0]?.id;
-  return (repoId === undefined ? undefined : fakeState.workingCopies[repoId])?.unmerged.map((file) => file.path) ?? [];
-}
+/** The unmerged paths of `repoId`'s working copy now. */
+const unmergedPaths = (repoId: RepoId): string[] =>
+  fakeState.workingCopies[repoId]?.unmerged.map((file) => file.path) ?? [];
 
 /**
  * Mark resolved or a chosen side, like the core: refused for a file no
@@ -336,8 +336,7 @@ function fakeResolve(workspaceId: WorkspaceId, request: ResolveRequest | ChooseR
     return Promise.resolve({ status: "ok" as const, data: null });
   }
   const path = view.unmerged[request.file];
-  const repoId = fakeState.selected[workspaceId] ?? fakeState.workspace.repos[0]?.id;
-  const repo = fakeState.workspace.repos.find((known) => known.id === repoId);
+  const repo = fakeState.workspace.repos.find((known) => known.id === view.repo);
   if (path === undefined || repo === undefined) {
     return Promise.resolve({
       status: "error" as const,
@@ -346,12 +345,14 @@ function fakeResolve(workspaceId: WorkspaceId, request: ResolveRequest | ChooseR
   }
   const text = "text" in request ? request.text : null;
   const override = "override_markers" in request && request.override_markers;
-  const refusal = planResolution(unmergedPaths(workspaceId), path, text, override);
+  const refusal = planResolution(unmergedPaths(repo.id), path, text, override);
   if (refusal) {
     return Promise.resolve({ status: "ok" as const, data: refusal });
   }
   const working = fakeState.workingCopies[repo.id] ?? { staged: [], unstaged: [], unmerged: [] };
-  fakeState.workingCopies[repo.id] = { ...working, unmerged: working.unmerged.filter((file) => file.path !== path) };
+  const unmerged = working.unmerged.filter((file) => file.path !== path);
+  fakeState.workingCopies[repo.id] = { ...working, unmerged };
+  const details = fakeState.conflicts[repo.id];
   const jobId = nextJobId++;
   const job = fakeJob(fakeState.workspace, {
     job_id: jobId,
@@ -364,7 +365,13 @@ function fakeResolve(workspaceId: WorkspaceId, request: ResolveRequest | ChooseR
     started_at: Date.now(),
     duration_ms: 5,
   });
-  setTimeout(() => endJob(workspaceId, repo.id, job), 0);
+  setTimeout(() => {
+    // The banner's count of unmerged paths, read again (OPS-2).
+    if (details !== undefined) {
+      setConflict(repo.id, { ...details, unmerged_paths: unmerged.length });
+    }
+    endJob(workspaceId, repo.id, job);
+  }, 0);
   return Promise.resolve({ status: "ok" as const, data: { kind: "started" as const, job_id: jobId } });
 }
 
@@ -622,6 +629,11 @@ function fakeIntegrateOp(workspaceId: WorkspaceId, request: IntegrateRequest) {
   const jobId = nextJobId++;
   const stops = request.op.kind === "abort" ? null : fakeState.integrateConflict;
   setTimeout(() => {
+    const working = fakeState.workingCopies[repo.id];
+    if (stops === null && resuming && working !== undefined) {
+      // Abort puts the files back; Continue needs none unmerged.
+      fakeState.workingCopies[repo.id] = { ...working, unmerged: [], inConflict: false };
+    }
     setConflict(repo.id, stops);
     const job = fakeJob(fakeState.workspace, {
       job_id: jobId,
@@ -757,6 +769,7 @@ if (data) {
   fakeState.commits = data.commits ?? {};
   fakeState.workingCopies = data.workingCopies ?? {};
   fakeState.refModels = data.refModels ?? {};
+  fakeState.conflicts = data.conflicts ?? {};
 }
 
 /** Resolves after the fake's paging delay, as a slow disk would. */
@@ -1092,7 +1105,7 @@ export const fake: Core = {
         lists = { staged, unstaged };
         unmerged = working.unmerged.map((file) => file.path);
       }
-      views.set(workspaceId, { handle, lists, unmerged });
+      views.set(workspaceId, { handle, lists, unmerged, repo: repoId });
       imageFiles.delete(workspaceId);
       // Like the core: `null` once a newer view of the workspace began.
       return slowly(() => ({
@@ -1265,8 +1278,11 @@ export const fake: Core = {
       }
       return Promise.resolve({
         status: "ok",
-        data: unmergedPaths(workspaceId).includes(path)
-          ? { kind: "conflict", conflict: fakeState.fileConflicts[path] ?? textConflict(path) }
+        data: unmergedPaths(view.repo).includes(path)
+          ? {
+              kind: "conflict",
+              conflict: fakeState.fileConflicts[path] ?? textConflict(path, labelsOf(fakeState.conflicts[view.repo])),
+            }
           : { kind: "already_resolved" },
       });
     },

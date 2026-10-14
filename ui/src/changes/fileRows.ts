@@ -21,7 +21,7 @@ export interface FileKey {
 export const sameFile = (a: FileKey | null, b: FileKey | null) => a?.list === b?.list && a?.id === b?.id;
 
 export type FileRow =
-  | { kind: "section"; key: string; label: string; count: number; list: "staged" | "unstaged" }
+  | { kind: "section"; key: string; label: string; count: number; list: "staged" | "unstaged" | "unmerged" }
   | { kind: "folder"; key: string; name: string; depth: number; collapsed: boolean }
   | {
       kind: "file";
@@ -144,19 +144,25 @@ function listRows(
 
 /**
  * The rows of `content`'s file lists. A commit has one list; uncommitted
- * changes have a Staged and an Unstaged section, the unmerged files first
- * in Unstaged, always by full path.
+ * changes have a Staged and an Unstaged section, and before them, while
+ * files are unmerged, an Unmerged section, always by full path (OPS-3).
  */
 export function fileRows(content: ChangesContent, mode: FileListMode, collapsed: Record<string, boolean>): FileRow[] {
   if (content.kind === "commit") {
     return listRows("commit", content.files, mode, collapsed);
   }
-  const unstaged = content.unstaged.length + content.unmerged.length;
+  const unmerged: FileRow[] =
+    content.unmerged.length === 0
+      ? []
+      : [
+          { kind: "section", key: "section:unmerged", label: "Unmerged", count: content.unmerged.length, list: "unmerged" },
+          ...content.unmerged.map(unmergedRow),
+        ];
   return [
+    ...unmerged,
     { kind: "section", key: "section:staged", label: "Staged", count: content.staged.length, list: "staged" },
     ...listRows("staged", content.staged, mode, collapsed),
-    { kind: "section", key: "section:unstaged", label: "Unstaged", count: unstaged, list: "unstaged" },
-    ...content.unmerged.map(unmergedRow),
+    { kind: "section", key: "section:unstaged", label: "Unstaged", count: content.unstaged.length, list: "unstaged" },
     ...listRows("unstaged", content.unstaged, mode, collapsed),
   ];
 }

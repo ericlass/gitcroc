@@ -1,13 +1,33 @@
 // The conflict editor's calls for the fake core (fake.ts): the answers of
 // the core's `conflict_get`, `conflict_resolve` and `conflict_choose`,
 // simplified. Test support only; the real rules are the core's.
-import type { Conflict, ConflictStart } from "./bindings";
+import type { Conflict, ConflictDetails, ConflictLabels, ConflictStart } from "./bindings";
 
-/** A text conflict with one hunk, between `main` and `feature`, for `path`. */
-export function textConflict(path: string): Conflict {
+/**
+ * The labels of the sides in a repo in conflict state `details`, as the
+ * core names them (OPS-4): a rebase's ours is what it rebases onto.
+ */
+export function labelsOf(details: ConflictDetails | undefined): ConflictLabels {
+  const onto = details?.onto ?? "main";
+  const applying = details?.applying ?? "feature";
+  switch (details?.operation) {
+    case "revert":
+      return { ours: onto, theirs: `revert of ${applying}` };
+    case "apply_mailbox":
+      return { ours: onto, theirs: "patch" };
+    case undefined:
+    case null:
+      return { ours: onto, theirs: "stash" };
+    default:
+      return { ours: onto, theirs: applying };
+  }
+}
+
+/** A text conflict with one hunk for `path`, labelled `labels`. */
+export function textConflict(path: string, labels: ConflictLabels = { ours: "main", theirs: "feature" }): Conflict {
   return {
     path,
-    labels: { ours: "main", theirs: "feature" },
+    labels,
     content: {
       kind: "text",
       chunks: [
@@ -17,6 +37,7 @@ export function textConflict(path: string): Conflict {
       ],
     },
     edited_outside: false,
+    on_disk: null,
   };
 }
 

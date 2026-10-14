@@ -1,7 +1,7 @@
 // Trees for the fake core (fake.ts): the skeleton, ref nodes built like the
 // core builds them, the filter, and the scenarios Playwright picks with
 // `?fake=<name>`. Test support only; the real tree comes from the core.
-import type { RepoId, RepoView, SummaryView, TreeItem, TreeNode, WorkspaceView } from "./bindings";
+import type { ConflictDetails, RepoId, RepoView, SummaryView, TreeItem, TreeNode, WorkspaceView } from "./bindings";
 import { upstreamOf } from "./fakeBranches";
 import { defaultDetails, type FakeCommit, type FakeWorkingCopy, keep, textFile } from "./fakeChanges";
 import { type FakeHistory, hashOf } from "./fakeHistory";
@@ -187,6 +187,8 @@ export interface Scenario {
   workingCopies?: Record<RepoId, FakeWorkingCopy>;
   /** See `fakeState.refModels`. */
   refModels?: Record<RepoId, FakeRefs>;
+  /** See `fakeState.conflicts`. */
+  conflicts?: Record<RepoId, ConflictDetails>;
 }
 
 const repo = (id: string, name: string): RepoView => ({ id, name, path: `/src/${name}`, remote: null });
@@ -247,9 +249,37 @@ export function scenario(name: string, workspaceId: string): Scenario | null {
               ...keep(24, 2),
             ]),
           ],
-          unmerged: [{ path: "conflict.txt", conflict: "both_modified" }],
+          unmerged: [],
         },
       },
+    };
+  }
+  if (name === "conflict") {
+    // api is merging feature/login and stopped on two files (OPS-3).
+    const base = scenario("tree", workspaceId);
+    if (base === null) {
+      return null;
+    }
+    const state = { operation: "merge" as const, unmerged_paths: 2 };
+    return {
+      ...base,
+      summaries: base.summaries.map((known) =>
+        known.repo_id === "r1" && known.summary !== null
+          ? { ...known, conflict: true, summary: { ...known.summary, state } }
+          : known,
+      ),
+      workingCopies: {
+        r1: {
+          staged: [],
+          unstaged: [],
+          unmerged: [
+            { path: "README.md", conflict: "both_modified" },
+            { path: "src/app.ts", conflict: "both_modified" },
+          ],
+          inConflict: true,
+        },
+      },
+      conflicts: { r1: { ...state, applying: "feature/login", onto: "main", step: null } },
     };
   }
   if (name === "big-history") {
