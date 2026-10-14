@@ -12,14 +12,15 @@ use base64::Engine as _;
 use gitcroc_core::{
     AddReport, AppInfo, AppLog, Appearance, BranchChoices, BranchError, BranchRequest, BranchStart,
     CancelResult, ChangeRequest, ChangeStart, Changes, ChangesError, ChangesSettings,
-    ChangesTarget, ChangesView, CommitGraphError, CommitRequest, ConflictDetails, DiffRequest,
-    FileDiff, FileRef, GitRunner, GitSetup, GitStatus, Histories, HistoryTarget, HistoryView,
-    HistoryViewError, ImageSide, IntegrateError, IntegrateRequest, IntegrateStart, JobError,
-    JobEvents, JobId, JobProgress, JobView, Jobs, Outcome, PaneLayout, PushChoices, Refusal,
-    RepoChange, RepoId, SettingsError, SettingsStore, SettingsView, StatusError, StatusReadError,
-    Summaries, SummaryView, SyncError, SyncRequest, SyncStart, Theme, TrackedJob, TreeError,
-    TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView,
-    Workspaces, add_path, refresh_summaries, refresh_workspace, tree_refs,
+    ChangesTarget, ChangesView, ChooseRequest, CommitGraphError, CommitRequest, ConflictDetails,
+    ConflictRead, ConflictStart, DiffRequest, FileDiff, FileRef, GitRunner, GitSetup, GitStatus,
+    Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, IntegrateError,
+    IntegrateRequest, IntegrateStart, JobError, JobEvents, JobId, JobProgress, JobView, Jobs,
+    Outcome, PaneLayout, PushChoices, Refusal, RepoChange, RepoId, ResolveRequest, SettingsError,
+    SettingsStore, SettingsView, StatusError, StatusReadError, Summaries, SummaryView, SyncError,
+    SyncRequest, SyncStart, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers,
+    WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path, refresh_summaries,
+    refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -808,6 +809,57 @@ pub async fn changes_apply(
     Ok(gitcroc_core::changes_apply(changes, jobs, workspaces, git, workspace_id, request).await?)
 }
 
+/// Unmerged file `file` of changes view `handle` as the conflict editor
+/// shows it (OPS-4, OPS-6, OPS-8): text hunks from the index stages, or a
+/// choice between the two sides, each side labelled with its branch or
+/// commit. `already_resolved` when it is no longer in conflict: read the
+/// lists again. `null` when a newer view of the workspace replaced it.
+#[tauri::command]
+#[specta::specta]
+pub async fn conflict_get(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    handle: u32,
+    file: u32,
+) -> Result<Option<ConflictRead>, IpcError> {
+    let changes = app.state::<Arc<Changes>>().inner().clone();
+    Ok(gitcroc_core::conflict_get(changes, workspace_id, handle, file).await?)
+}
+
+/// Mark resolved (OPS-5): writes the editor's text to the file and stages
+/// it, as a job. `markers_remain` names the first conflict marker line
+/// unless the request overrides it; `already_resolved` when the file is no
+/// longer in conflict. `null` when a newer view of the workspace replaced
+/// it.
+#[tauri::command]
+#[specta::specta]
+pub async fn conflict_resolve(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: ResolveRequest,
+) -> Result<Option<ConflictStart>, IpcError> {
+    let changes = app.state::<Arc<Changes>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::conflict_resolve(changes, jobs, git, workspace_id, request).await?)
+}
+
+/// Resolves a file with one side (OPS-6), as a job. `already_resolved` when
+/// it is no longer in conflict. `null` when a newer view of the workspace
+/// replaced it.
+#[tauri::command]
+#[specta::specta]
+pub async fn conflict_choose(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: ChooseRequest,
+) -> Result<Option<ConflictStart>, IpcError> {
+    let changes = app.state::<Arc<Changes>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::conflict_choose(changes, jobs, git, workspace_id, request).await?)
+}
+
 /// Commits the staged changes of view `handle`, or amends the last commit
 /// with them, as a job (UI-15). Refused without a subject, in conflict
 /// state, for a commit with nothing staged and for an amend with no
@@ -1423,6 +1475,9 @@ macro_rules! with_commands {
                 op_integrate,
                 merge_targets,
                 conflict_details,
+                conflict_get,
+                conflict_resolve,
+                conflict_choose,
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,
@@ -1468,6 +1523,9 @@ macro_rules! with_commands {
                 op_integrate,
                 merge_targets,
                 conflict_details,
+                conflict_get,
+                conflict_resolve,
+                conflict_choose,
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,

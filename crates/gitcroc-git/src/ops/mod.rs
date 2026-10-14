@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::{GitError, GitRunner, Output, Write};
 
 mod branch;
+pub mod conflict;
 mod integrate;
 mod sync;
 

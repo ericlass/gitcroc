@@ -138,7 +138,10 @@ export const commands = {
 	 *  when a newer `changes_get` of the workspace superseded this one.
 	 */
 	changesGet: (workspaceId: WorkspaceId, repoId: RepoId, target: ChangesTarget) => typedError<{
-	/**  Names this view for `diff_get` and `diff_image`. */
+	/**
+	 *  Names this view for `diff_get`, `diff_image` and the conflict
+	 *  editor's calls.
+	 */
 	handle: number,
 	content: ChangesContent,
 } | null, IpcError>(__TAURI_INVOKE("changes_get", { workspaceId, repoId, target })),
@@ -238,6 +241,56 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	mergeTargets: (workspaceId: WorkspaceId, repoId: RepoId, filter: string) => typedError<string[], IpcError>(__TAURI_INVOKE("merge_targets", { workspaceId, repoId, filter })),
 	/**  What the conflict banner names for a repo in conflict state (OPS-2). */
 	conflictDetails: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<ConflictDetails, IpcError>(__TAURI_INVOKE("conflict_details", { workspaceId, repoId })),
+	/**
+	 *  Unmerged file `file` of changes view `handle` as the conflict editor
+	 *  shows it (OPS-4, OPS-6, OPS-8): text hunks from the index stages, or a
+	 *  choice between the two sides, each side labelled with its branch or
+	 *  commit. `already_resolved` when it is no longer in conflict: read the
+	 *  lists again. `null` when a newer view of the workspace replaced it.
+	 */
+	conflictGet: (workspaceId: WorkspaceId, handle: number, file: number) => typedError<{ kind: "conflict"; conflict: Conflict } | 
+/**  The file is no longer in conflict; read the lists again. */
+{ kind: "already_resolved" } | null, IpcError>(__TAURI_INVOKE("conflict_get", { workspaceId, handle, file })),
+	/**
+	 *  Mark resolved (OPS-5): writes the editor's text to the file and stages
+	 *  it, as a job. `markers_remain` names the first conflict marker line
+	 *  unless the request overrides it; `already_resolved` when the file is no
+	 *  longer in conflict. `null` when a newer view of the workspace replaced
+	 *  it.
+	 */
+	conflictResolve: (workspaceId: WorkspaceId, request: ResolveRequest) => typedError<
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  The file is no longer in conflict; nothing ran. Read the lists
+ *  again.
+ */
+{ kind: "already_resolved" } | 
+/**
+ *  Mark resolved was refused: line `line`, from 1, of the text is a
+ *  conflict marker line (OPS-5). Ask again with the override when the
+ *  file legitimately has such lines.
+ */
+{ kind: "markers_remain"; line: number } | null, IpcError>(__TAURI_INVOKE("conflict_resolve", { workspaceId, request })),
+	/**
+	 *  Resolves a file with one side (OPS-6), as a job. `already_resolved` when
+	 *  it is no longer in conflict. `null` when a newer view of the workspace
+	 *  replaced it.
+	 */
+	conflictChoose: (workspaceId: WorkspaceId, request: ChooseRequest) => typedError<
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  The file is no longer in conflict; nothing ran. Read the lists
+ *  again.
+ */
+{ kind: "already_resolved" } | 
+/**
+ *  Mark resolved was refused: line `line`, from 1, of the text is a
+ *  conflict marker line (OPS-5). Ask again with the override when the
+ *  file legitimately has such lines.
+ */
+{ kind: "markers_remain"; line: number } | null, IpcError>(__TAURI_INVOKE("conflict_choose", { workspaceId, request })),
 	/**
 	 *  Changes the code themes and fonts (UI-24, UI-26) and saves the settings.
 	 *  Font sizes outside 8 to 32 are moved to the nearest limit.
@@ -538,9 +591,52 @@ export type ChangesTarget =
 
 /**  A view of the changes pane. */
 export type ChangesView = {
-	/**  Names this view for `diff_get` and `diff_image`. */
+	/**
+	 *  Names this view for `diff_get`, `diff_image` and the conflict
+	 *  editor's calls.
+	 */
 	handle: number,
 	content: ChangesContent,
+};
+
+/**  Why a conflict is a choice and not text hunks (OPS-6). */
+export type ChoiceKind = 
+/**
+ *  Binary content: a NUL in the first 8,000 bytes of a side, or the
+ *  `binary`, `-diff` or `-merge` attribute.
+ */
+"binary" | "deleted_by_us" | "deleted_by_them" | 
+/**  Neither side kept the file, as after a rename on each side. */
+"both_deleted" | 
+/**
+ *  Both sides are files whose modes differ, and neither kept the
+ *  base's: both added with different modes.
+ */
+"mode" | 
+/**  A side is a submodule. */
+"submodule" | 
+/**  A file on one side and a symbolic link on the other. */
+"type_change" | 
+/**  A symbolic link on both sides. */
+"symlink" | 
+/**
+ *  A side is not UTF-8. Shown as text it would be rewritten in another
+ *  encoding.
+ */
+"not_utf8" | 
+/**  A side has over [`MAX_CONFLICT_TEXT`] bytes (ARCH-8). */
+"too_large" | 
+/**
+ *  A line starts with a run of marker characters too long to tell
+ *  conflict markers from text.
+ */
+"marker_like";
+
+/**  Resolve with one side (OPS-6). */
+export type ChooseRequest = {
+	handle: number,
+	file: number,
+	side: ConflictChoice,
 };
 
 /**
@@ -626,8 +722,38 @@ export type ConfigWarning =
 /**  The platform has no config dir, so nothing can be saved. */
 { kind: "no_config_dir" };
 
-/**  How the two sides of a merge left a path, as `git status` names it. */
-export type Conflict = "both_deleted" | "added_by_us" | "deleted_by_them" | "added_by_them" | "deleted_by_us" | "both_added" | "both_modified";
+/**  A conflicted file (OPS-3, OPS-8). */
+export type Conflict = {
+	/**  The path for display, decoded lossily (PLAT-2). */
+	path: string,
+	labels: ConflictLabels,
+	content: ConflictContent,
+	/**
+	 *  The file on disk is not what git wrote for the conflict: it was
+	 *  edited outside the app (OPS-8). Only for a text conflict.
+	 */
+	edited_outside: boolean,
+};
+
+/**  A side of a conflict. */
+export type ConflictChoice = "ours" | "theirs";
+
+/**  A part of a conflicted text file (OPS-3, OPS-8). */
+export type ConflictChunk = 
+/**  Text both sides agree on, or that only one side changed. */
+{ kind: "resolved"; text: string } | 
+/**
+ *  Lines the two sides changed differently, with the base they started
+ *  from, in diff3 style. Each part ends with its line ending.
+ */
+{ kind: "hunk"; ours: string; base: string; theirs: string };
+
+/**  What the editor shows of a conflicted file. */
+export type ConflictContent = 
+/**  The file merged in diff3 style, in order (OPS-8). */
+{ kind: "text"; chunks: ConflictChunk[] } | 
+/**  A choice between the two versions (OPS-6). */
+{ kind: "choice"; reason: ChoiceKind; ours: SideHolds; theirs: SideHolds };
 
 /**
  *  An operation in conflict state as the banner names it (OPS-2). Each part
@@ -651,6 +777,38 @@ export type ConflictDetails = {
 	/**  Paths with conflict stages in the index; Continue waits for 0. */
 	unmerged_paths: number,
 };
+
+/**
+ *  What "ours" and "theirs" of a conflicted file are (OPS-4): the real
+ *  branch or commit each side comes from, as the conflict state names it
+ *  (OPS-1). A commit with a branch at it reads as the branch, else as
+ *  `1a2b3c4 Subject`.
+ */
+export type ConflictLabels = {
+	ours: string,
+	theirs: string,
+};
+
+/**  What `conflict_get` found. */
+export type ConflictRead = { kind: "conflict"; conflict: Conflict } | 
+/**  The file is no longer in conflict; read the lists again. */
+{ kind: "already_resolved" };
+
+/**  What a resolution request did. */
+export type ConflictStart = 
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  The file is no longer in conflict; nothing ran. Read the lists
+ *  again.
+ */
+{ kind: "already_resolved" } | 
+/**
+ *  Mark resolved was refused: line `line`, from 1, of the text is a
+ *  conflict marker line (OPS-5). Ask again with the override when the
+ *  file legitimately has such lines.
+ */
+{ kind: "markers_remain"; line: number };
 
 /**  How much unchanged text surrounds each change (UI-17). */
 export type Context = "three" | "ten" | 
@@ -1176,6 +1334,16 @@ export type RepoView = {
 	remote: string | null,
 };
 
+/**  Mark resolved with the editor's text (OPS-5). */
+export type ResolveRequest = {
+	/**  The changes view whose unmerged list `file` is from. */
+	handle: number,
+	file: number,
+	text: string,
+	/**  Mark resolved although the text has conflict marker lines. */
+	override_markers: boolean,
+};
+
 /**
  *  Every setting. A key missing from the file takes its default (see
  *  [`decode`]).
@@ -1192,6 +1360,13 @@ export type SettingsView = {
 	read_only: boolean,
 	warning: ConfigWarning | null,
 };
+
+/**  What a side of a choice conflict holds (OPS-6). */
+export type SideHolds = { kind: "deleted" } | 
+/**  Sizes in bytes, typed for specta like [`crate::Image::size`]. */
+{ kind: "file"; size: number; executable: boolean } | { kind: "symlink"; size: number } | 
+/**  The submodule's commit, a full hash. */
+{ kind: "submodule"; commit: string };
 
 /**  Why a job was skipped. */
 export type SkipReason = 
@@ -1375,8 +1550,11 @@ export type UnmergedFile = {
 	id: number,
 	/**  The path for display, decoded lossily; never sent back (PLAT-2). */
 	path: string,
-	conflict: Conflict,
+	conflict: UnmergedKind,
 };
+
+/**  How the two sides of a merge left a path, as `git status` names it. */
+export type UnmergedKind = "both_deleted" | "added_by_us" | "deleted_by_them" | "added_by_them" | "deleted_by_us" | "both_added" | "both_modified";
 
 /**  The branch the current branch tracks. */
 export type Upstream = {

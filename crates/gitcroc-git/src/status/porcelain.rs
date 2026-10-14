@@ -7,7 +7,7 @@ use gix::bstr::{BString, ByteSlice};
 use gix::hash::ObjectId;
 use gix::object::tree::EntryMode;
 
-use super::{Conflict, Stage, StatusError, UnmergedFile, WorkingCopy, unstaged, untracked};
+use super::{Stage, StatusError, UnmergedFile, UnmergedKind, WorkingCopy, unstaged, untracked};
 use crate::FileStatus;
 use crate::diff::{ChangedFile, Origin, Side, same_type};
 
@@ -166,15 +166,15 @@ fn kind_of_change(old: Option<EntryMode>, new: Option<EntryMode>) -> FileStatus 
     }
 }
 
-fn conflict(xy: &[u8]) -> Option<Conflict> {
+fn conflict(xy: &[u8]) -> Option<UnmergedKind> {
     Some(match xy {
-        b"DD" => Conflict::BothDeleted,
-        b"AU" => Conflict::AddedByUs,
-        b"UD" => Conflict::DeletedByThem,
-        b"UA" => Conflict::AddedByThem,
-        b"DU" => Conflict::DeletedByUs,
-        b"AA" => Conflict::BothAdded,
-        b"UU" => Conflict::BothModified,
+        b"DD" => UnmergedKind::BothDeleted,
+        b"AU" => UnmergedKind::AddedByUs,
+        b"UD" => UnmergedKind::DeletedByThem,
+        b"UA" => UnmergedKind::AddedByThem,
+        b"DU" => UnmergedKind::DeletedByUs,
+        b"AA" => UnmergedKind::BothAdded,
+        b"UU" => UnmergedKind::BothModified,
         _ => return None,
     })
 }

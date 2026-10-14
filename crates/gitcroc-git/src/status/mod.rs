@@ -20,7 +20,7 @@ use gix::hash::ObjectId;
 use gix::object::tree::EntryMode;
 use serde::Serialize;
 
-pub use conflict::{ConflictDetails, Step};
+pub use conflict::{ConflictDetails, ConflictLabels, Step};
 pub use state::{Head, Operation, RepoState, RepoSummary, Upstream};
 
 use crate::diff::{ChangedFile, Origin, Side};
@@ -72,7 +72,7 @@ impl WorkingCopy {
 /// How the two sides of a merge left a path, as `git status` names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
-pub enum Conflict {
+pub enum UnmergedKind {
     BothDeleted,
     AddedByUs,
     DeletedByThem,
@@ -97,7 +97,7 @@ pub struct UnmergedFile {
     pub id: usize,
     /// The path for display, decoded lossily; never sent back (PLAT-2).
     pub path: String,
-    pub conflict: Conflict,
+    pub conflict: UnmergedKind,
     /// Base, ours and theirs (stages 1 to 3), each absent when that side
     /// has no file; for the conflict editor (OPS-8).
     #[serde(skip)]
@@ -107,7 +107,7 @@ pub struct UnmergedFile {
 }
 
 impl UnmergedFile {
-    fn new(git_path: BString, conflict: Conflict, stages: [Option<Stage>; 3]) -> Self {
+    fn new(git_path: BString, conflict: UnmergedKind, stages: [Option<Stage>; 3]) -> Self {
         Self {
             id: 0,
             path: String::from_utf8_lossy(&git_path).into_owned(),
@@ -152,7 +152,9 @@ impl From<GitError> for StatusError {
             GitError::Failed { stderr, .. } => Self::Refused {
                 message: String::from_utf8_lossy(&stderr).trim_end().to_owned(),
             },
-            other @ (GitError::Spawn { .. } | GitError::Killed) => Self::Git(other),
+            other @ (GitError::Spawn { .. } | GitError::Killed | GitError::Write { .. }) => {
+                Self::Git(other)
+            }
         }
     }
 }

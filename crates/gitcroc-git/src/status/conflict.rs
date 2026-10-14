@@ -177,3 +177,71 @@ pub(super) fn conflict_details(repo: &gix::Repository) -> Result<ConflictDetails
         unmerged_paths: state.unmerged_paths,
     })
 }
+
+/// What "ours" and "theirs" of a conflicted file are (OPS-4): the real
+/// branch or commit each side comes from, as the conflict state names it
+/// (OPS-1). A commit with a branch at it reads as the branch, else as
+/// `1a2b3c4 Subject`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+pub struct ConflictLabels {
+    pub ours: String,
+    pub theirs: String,
+}
+
+/// The commit a rebase is replaying: `REBASE_HEAD`, else what the backend
+/// recorded of it.
+fn replayed(repo: &gix::Repository) -> Option<ObjectId> {
+    let git_dir = repo.git_dir();
+    head_file(repo, "REBASE_HEAD")
+        .or_else(|| {
+            first_line(&git_dir.join("rebase-merge"), "stopped-sha").and_then(|hex| object_id(&hex))
+        })
+        .or_else(|| {
+            first_line(&git_dir.join("rebase-apply"), "original-commit")
+                .and_then(|hex| object_id(&hex))
+        })
+}
+
+pub(crate) fn conflict_labels(repo: &gix::Repository) -> Result<ConflictLabels, StatusError> {
+    let state = repo_state(repo)?;
+    let git_dir = repo.git_dir();
+    let current = || current(repo).unwrap_or_else(|| "ours".to_owned());
+    let named = |file: &str| head_file(repo, file).map(|id| name_of(repo, id));
+    let (ours, theirs) = match state.operation {
+        Some(Operation::Merge) => (current(), named("MERGE_HEAD")),
+        Some(Operation::CherryPick) => (current(), named("CHERRY_PICK_HEAD")),
+        Some(Operation::Revert) => (
+            current(),
+            named("REVERT_HEAD").map(|name| format!("revert of {name}")),
+        ),
+        Some(Operation::Rebase) => {
+            // ours is what the rebase builds on, theirs the commit it replays:
+            // the reverse of a merge.
+            let merge = git_dir.join("rebase-merge");
+            let dir = if merge.is_dir() {
+                merge
+            } else {
+                git_dir.join("rebase-apply")
+            };
+            let onto = first_line(&dir, "onto")
+                .and_then(|hex| object_id(&hex))
+                .map_or_else(current, |id| name_of(repo, id));
+            let branch = first_line(&dir, "head-name")
+                .and_then(|head| head.strip_prefix("refs/heads/").map(str::to_owned));
+            let commit = replayed(repo).map(|id| commit_text(repo, id));
+            let theirs = match (commit, branch) {
+                (Some(commit), Some(branch)) => Some(format!("{commit} ({branch})")),
+                (Some(commit), None) => Some(commit),
+                (None, branch) => branch,
+            };
+            (onto, theirs)
+        }
+        Some(Operation::ApplyMailbox) => (current(), Some("patch".to_owned())),
+        // Unmerged paths with no operation: a stash apply or pop stopped.
+        None => (current(), Some("stash".to_owned())),
+    };
+    Ok(ConflictLabels {
+        ours,
+        theirs: theirs.unwrap_or_else(|| "theirs".to_owned()),
+    })
+}
