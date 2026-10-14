@@ -2,6 +2,7 @@
 // core builds them, the filter, and the scenarios Playwright picks with
 // `?fake=<name>`. Test support only; the real tree comes from the core.
 import type { RepoId, RepoView, SummaryView, TreeItem, TreeNode, WorkspaceView } from "./bindings";
+import { upstreamOf } from "./fakeBranches";
 import { defaultDetails, type FakeCommit, type FakeWorkingCopy, keep, textFile } from "./fakeChanges";
 import { type FakeHistory, hashOf } from "./fakeHistory";
 
@@ -35,8 +36,10 @@ function repoNode(repo: RepoView): TreeNode {
 export interface FakeRefs {
   local?: string[];
   current?: string;
-  /** Ahead and behind of local branches, by name. */
+  /** Ahead and behind of local branches, by name; such a branch tracks `origin/<name>`. */
   counts?: Record<string, [number, number]>;
+  /** What local branches track, by name, over what `counts` implies; `null` is nothing. */
+  upstreams?: Record<string, string | null>;
   remotes?: Record<string, string[]>;
   tags?: string[];
   stashes?: string[];
@@ -78,7 +81,7 @@ export function refNodes(repoId: RepoId, refs: FakeRefs): TreeNode[] {
     repo_id: repoId,
     name,
     current: name === refs.current,
-    upstream: refs.counts?.[name] ? `origin/${name}` : null,
+    upstream: upstreamOf(refs, name),
     gone: false,
     ahead: refs.counts?.[name]?.[0] ?? null,
     behind: refs.counts?.[name]?.[1] ?? null,
@@ -91,6 +94,8 @@ export function refNodes(repoId: RepoId, refs: FakeRefs): TreeNode[] {
       kind: "remote_branch",
       repo_id: repoId,
       name: `${remote}/${name}`,
+      remote,
+      branch: name,
     })),
   }));
   const tags = (refs.tags ?? []).map((name) =>
@@ -180,6 +185,8 @@ export interface Scenario {
   commits?: Record<string, FakeCommit>;
   /** See `fakeState.workingCopies`. */
   workingCopies?: Record<RepoId, FakeWorkingCopy>;
+  /** See `fakeState.refModels`. */
+  refModels?: Record<RepoId, FakeRefs>;
 }
 
 const repo = (id: string, name: string): RepoView => ({ id, name, path: `/src/${name}`, remote: null });
@@ -187,21 +194,23 @@ const repo = (id: string, name: string): RepoView => ({ id, name, path: `/src/${
 /** Named data sets for Playwright, picked with `?fake=<name>`. */
 export function scenario(name: string, workspaceId: string): Scenario | null {
   if (name === "tree") {
+    const refModels: Record<RepoId, FakeRefs> = {
+      r1: {
+        local: ["main", "feature/login", "bugfix/crash"],
+        current: "main",
+        counts: { main: [1, 2] },
+        remotes: { origin: ["main", "feature/login"] },
+        tags: ["v1.0"],
+        stashes: ["On main: work"],
+      },
+      r2: { local: ["main", "release"], current: "main" },
+      r3: { local: ["main"], current: "main" },
+    };
     return {
       repos: [repo("r1", "api"), repo("r2", "web"), repo("r3", "login-service")],
       pickedFolder: "/src/new-repo",
-      refs: {
-        r1: refNodes("r1", {
-          local: ["main", "feature/login", "bugfix/crash"],
-          current: "main",
-          counts: { main: [1, 2] },
-          remotes: { origin: ["main", "feature/login"] },
-          tags: ["v1.0"],
-          stashes: ["On main: work"],
-        }),
-        r2: refNodes("r2", { local: ["main", "release"], current: "main" }),
-        r3: refNodes("r3", { local: ["main"], current: "main" }),
-      },
+      refModels,
+      refs: Object.fromEntries(Object.entries(refModels).map(([id, refs]) => [id, refNodes(id, refs)])),
       summaries: [
         summary(workspaceId, "r1", "main", {
           summary: {

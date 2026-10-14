@@ -8,6 +8,7 @@ import type {
   AskpassPrompt,
   AppInfo,
   Appearance,
+  BranchRequest,
   ChangeRequest,
   ChangesContent,
   ChangesSettings,
@@ -42,8 +43,9 @@ import {
   numbered,
 } from "./fakeChanges";
 import { defaultHistory, type FakeHistory, type FakeWalk, historyKey, nextPage, parentOf } from "./fakeHistory";
+import { applyBranchOp, choicesOf, destructiveOf, fakeNameCheck, labelOf, refusalOf } from "./fakeBranches";
 import { fakeJob, jobsScenario } from "./fakeJobs";
-import { filterTree, scenario, skeleton } from "./fakeTree";
+import { type FakeRefs, filterTree, refNodes, scenario, skeleton } from "./fakeTree";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch", ui_font: null, code_font: null };
 const defaultGitStatus: GitStatus = { kind: "usable", path: "/fake/bin/git", version: "2.47.0" };
@@ -182,6 +184,12 @@ export const fakeState: {
   commitRejection: string | null;
   /** Commit jobs wait for `finishCommit` instead of ending at once. */
   holdCommits: boolean;
+  /** The refs `refs_get` is built from, by repo; branch operations change them. */
+  refModels: Record<RepoId, FakeRefs>;
+  /** Every `op_branch`, oldest first. */
+  branchRequests: BranchRequest[];
+  /** What git printed when a branch operation failed; `null` lets them succeed. */
+  branchFailure: string | null;
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -214,6 +222,9 @@ export const fakeState: {
   commitRequests: [],
   commitRejection: null,
   holdCommits: false,
+  refModels: {},
+  branchRequests: [],
+  branchFailure: null,
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -267,6 +278,79 @@ function endJob(workspaceId: WorkspaceId, repoId: RepoId, job: JobView): void {
     refs_version: summary?.refs_version ?? 0,
     busy: false,
   });
+}
+
+/**
+ * Runs branch operation `request` on the fake's ref model, like the core:
+ * refused for a blocked repo or an invalid request, a confirmation first
+ * when destructive, then a job whose end re-reads the repo's refs.
+ */
+function fakeBranchOp(workspaceId: WorkspaceId, request: BranchRequest) {
+  fakeState.branchRequests.push(request);
+  const repo = fakeState.workspace.repos.find((known) => known.id === request.repo_id);
+  const refs = fakeState.refModels[request.repo_id];
+  const summary = fakeState.summaries.find((known) => known.repo_id === request.repo_id);
+  const refusal =
+    repo === undefined || refs === undefined
+      ? "the repo has no branches"
+      : summary?.busy
+        ? "another operation is running on the repo"
+        : summary?.missing
+          ? "the repo's folder is missing"
+          : summary?.conflict
+            ? "the repo is in conflict state; continue or abort first"
+            : refusalOf(refs, request.op);
+  if (repo === undefined || refs === undefined || refusal !== null) {
+    return Promise.resolve({
+      status: "error" as const,
+      error: { code: "internal" as const, message: refusal ?? "", git_stderr: null },
+    });
+  }
+  const actions = destructiveOf(refs, request.op);
+  if (actions.length > 0 && !request.confirmed) {
+    return Promise.resolve({ status: "ok" as const, data: { kind: "confirm" as const, repo: repo.name, actions } });
+  }
+  const jobId = nextJobId++;
+  const failure = fakeState.branchFailure;
+  setTimeout(() => {
+    const after = applyBranchOp(refs, request.op);
+    if (failure === null) {
+      fakeState.refModels[repo.id] = after.refs;
+      fakeState.refs[repo.id] = refNodes(repo.id, after.refs);
+      fakeState.summaries = fakeState.summaries.map((known) =>
+        known.repo_id === repo.id && known.summary !== null
+          ? {
+              ...known,
+              summary: {
+                ...known.summary,
+                head:
+                  after.refs.current === undefined
+                    ? { kind: "detached", hash: known.summary.head.hash ?? "0123456789abcdef0123456789abcdef01234567" }
+                    : { kind: "branch", name: after.refs.current, hash: known.summary.head.hash },
+              },
+              refs_version: known.refs_version + 1,
+            }
+          : known,
+      );
+    }
+    const job = fakeJob(fakeState.workspace, {
+      job_id: jobId,
+      workspace_id: workspaceId,
+      label: labelOf(request.op),
+      repos: [repo.id],
+      repo_names: [repo.name],
+      state: "ended",
+      outcome:
+        failure !== null ? { kind: "failed" } : after.nothingToDo ? { kind: "nothing_to_do" } : { kind: "succeeded" },
+      output: failure ?? "",
+      message: failure === null ? null : "git exited with code 1",
+      started_at: Date.now(),
+      duration_ms: 5,
+    });
+    endJob(workspaceId, repo.id, job);
+    emitRepoRefsChanged({ workspace_id: workspaceId, repo_id: repo.id });
+  }, 0);
+  return Promise.resolve({ status: "ok" as const, data: { kind: "started" as const, job_id: jobId } });
 }
 
 /** Keeps `view` in the fake's job list and sends it as the core would. */
@@ -331,6 +415,9 @@ export function reset(): void {
   fakeState.commitRejection = null;
   fakeState.holdCommits = false;
   heldCommits.length = 0;
+  fakeState.refModels = {};
+  fakeState.branchRequests = [];
+  fakeState.branchFailure = null;
   fakeState.changesDelay = 0;
   fakeState.layouts = [];
   fakeState.refreshes = [];
@@ -372,6 +459,7 @@ if (data) {
   fakeState.slowRepos = data.slowRepos ?? {};
   fakeState.commits = data.commits ?? {};
   fakeState.workingCopies = data.workingCopies ?? {};
+  fakeState.refModels = data.refModels ?? {};
 }
 
 /** Resolves after the fake's paging delay, as a slow disk would. */
@@ -848,6 +936,14 @@ export const fake: Core = {
       }
       return Promise.resolve({ status: "ok", data: jobId });
     },
+    opBranch: (workspaceId, request) => fakeBranchOp(workspaceId, request),
+    branchChoices: (_workspaceId, repoId) => {
+      const refs = fakeState.refModels[repoId];
+      return refs === undefined
+        ? notFound(`no repo ${repoId}`)
+        : Promise.resolve({ status: "ok" as const, data: choicesOf(refs) });
+    },
+    branchNameCheck: (name) => Promise.resolve({ status: "ok", data: fakeNameCheck(name) }),
     diffImage: (workspaceId, handle, file, side) => {
       const last = imageFiles.get(workspaceId);
       const same = last?.handle === handle && last.ref.list === file.list && last.ref.id === file.id;

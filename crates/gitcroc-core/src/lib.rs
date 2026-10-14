@@ -1,6 +1,7 @@
 //! Workspace, group and repo model, job engine, preflight, result reports, config and cache.
 
 mod app_info;
+mod branch;
 mod changes;
 mod commit;
 mod config_file;
@@ -9,6 +10,7 @@ mod git;
 mod history;
 mod job;
 mod log;
+mod ref_name;
 mod settings;
 mod stage;
 mod status;
@@ -18,6 +20,10 @@ mod watch;
 mod workspace;
 
 pub use app_info::AppInfo;
+pub use branch::{
+    BranchChoices, BranchError, BranchOp, BranchRequest, BranchStart, RemoteBranchRef, StartPoint,
+    branch_choices, branch_name_check, op_branch,
+};
 pub use changes::{
     Changes, ChangesContent, ChangesError, ChangesTarget, ChangesView, DiffRequest, FileList,
     FileRef, ImageSide, changes_get, diff_get, diff_image,
@@ -51,6 +57,7 @@ pub use job::{
     WriteJob,
 };
 pub use log::{AppLog, LOG_FILE, LOG_FILE_SIZE, LOG_FILES, LogDir, PlatformLogDir};
+pub use ref_name::{RefNameError, check_branch_name};
 pub use settings::{
     Appearance, ChangesSettings, CodeTheme, ConfigDir, DEFAULT_FONT_SIZE, DiffMode, FileListMode,
     MAX_FONT_SIZE, MIN_FONT_SIZE, PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Settings,

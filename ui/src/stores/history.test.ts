@@ -77,7 +77,7 @@ test("section 8 tree selections map to what the history shows", () => {
     kind: "stash",
     index: 2,
   });
-  expect(sourceOf("o", { kind: "remote_branch", repo_id: "r1", name: "origin/x" })?.target).toEqual({
+  expect(sourceOf("o", { kind: "remote_branch", repo_id: "r1", name: "origin/x", remote: "origin", branch: "x" })?.target).toEqual({
     kind: "remote_branch",
     name: "origin/x",
   });

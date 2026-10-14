@@ -255,6 +255,14 @@ impl Summaries {
         (refs_changed, epoch)
     }
 
+    /// A write job waits or runs on `repo` of workspace `id` (GRP-8).
+    pub fn busy(&self, id: &WorkspaceId, repo: &RepoId) -> bool {
+        self.lock()
+            .get(id)
+            .and_then(|workspace| workspace.entries.get(repo))
+            .is_some_and(|entry| entry.busy > 0)
+    }
+
     /// Notes that a write job waits or runs on `repo` (`busy`), or that one
     /// ended, and returns the repo's new view.
     pub fn set_busy(&self, id: &WorkspaceId, repo: &RepoId, busy: bool) -> SummaryView {

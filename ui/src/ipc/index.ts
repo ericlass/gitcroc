@@ -2,6 +2,7 @@
 // `@tauri-apps/api` or `./bindings` directly (enforced by eslint.config.js).
 import type {
   Appearance,
+  BranchRequest,
   ChangeRequest,
   ChangesSettings,
   ChangesTarget,
@@ -27,6 +28,10 @@ export type {
   AppInfo,
   Appearance,
   AskpassPrompt,
+  BranchChoices,
+  BranchOp,
+  BranchRequest,
+  BranchStart,
   CancelResult,
   ChangeAction,
   ChangeRequest,
@@ -80,6 +85,7 @@ export type {
   RefKind,
   RefLabel,
   Refusal,
+  RemoteBranchRef,
   RepoId,
   RepoRef,
   RepoState,
@@ -87,6 +93,7 @@ export type {
   RepoView,
   Settings,
   SettingsView,
+  StartPoint,
   SummaryView,
   TextDiff,
   Theme,
@@ -206,6 +213,17 @@ export const changesApply = (workspaceId: WorkspaceId, request: ChangeRequest) =
 /** Commits or amends as a job (UI-15); `null` when a newer view replaced the request's. */
 export const changesCommit = (workspaceId: WorkspaceId, request: CommitRequest) =>
   unwrap(core.commands.changesCommit(workspaceId, request));
+
+/** Runs a branch operation as a job; a destructive one answers `confirm` until confirmed (GRP-9). */
+export const opBranch = (workspaceId: WorkspaceId, request: BranchRequest) =>
+  unwrap(core.commands.opBranch(workspaceId, request));
+
+/** What the branch dialogs offer for a repo: start points, default branch, remote branches. */
+export const branchChoices = (workspaceId: WorkspaceId, repoId: RepoId) =>
+  unwrap(core.commands.branchChoices(workspaceId, repoId));
+
+/** Why `name` is not a valid branch name, or `null` (SEC-4). */
+export const branchNameCheck = (name: string) => unwrap(core.commands.branchNameCheck(name));
 
 /** One side of the image diff last read for `file`, as base64; `null` when there is none. */
 export const diffImage = (workspaceId: WorkspaceId, handle: number, file: FileRef, side: ImageSide) =>
