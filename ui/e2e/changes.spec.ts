@@ -129,7 +129,8 @@ test("UI-24 UI-26 the open diff follows the code theme and the code font at once
   await page.getByRole("spinbutton", { name: "Code font size" }).fill("18");
   await page.getByRole("spinbutton", { name: "Code font size" }).press("Tab");
   await expect.poll(async () => (await style()).size).toBe("18px");
-  expect((await style()).font).toMatch(/^"Courier New", ui-monospace/);
+  // The font and size settings arrive as two changes; the editor may still apply the second.
+  await expect.poll(async () => (await style()).font).toMatch(/^"Courier New", ui-monospace/);
 });
 
 /** The app's content security policy from `tauri.conf.json`, as a header. */
