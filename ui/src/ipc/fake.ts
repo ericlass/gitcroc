@@ -27,6 +27,8 @@ import type {
   JobView,
   Outcome,
   PaneLayout,
+  RemoteRequest,
+  RemoteStart,
   RepoId,
   RepoRef,
   ResetRequest,
@@ -66,6 +68,7 @@ import {
 import { applyBranchOp, choicesOf, destructiveOf, fakeNameCheck, labelOf, refusalOf } from "./fakeBranches";
 import { labelsOf, planResolution, textConflict } from "./fakeConflict";
 import { mergeTargetsOf, planIntegrate } from "./fakeIntegrate";
+import { fakeRemoteNameCheck, planRemote } from "./fakeRemotes";
 import { planReset, planTag, type TagPlan } from "./fakeTags";
 import { fakeJob, jobsScenario } from "./fakeJobs";
 import { applySync, planSync, pushChoicesOf } from "./fakeSync";
@@ -242,6 +245,12 @@ export const fakeState: {
   tagRequests: TagRequest[];
   /** Every `op_reset`, oldest first. */
   resetRequests: ResetRequest[];
+  /** Every `op_remote`, oldest first. */
+  remoteRequests: RemoteRequest[];
+  /** The keys each repo's working copy offers to turn on (PERF-7); others get no offer. */
+  fsmonitorOffers: Record<RepoId, string[]>;
+  /** The answers to the fsmonitor offer, oldest first. */
+  fsmonitorAnswers: { repo: RepoId; answer: "enable" | "decline" }[];
   /** What `conflict_get` answers by path; others get `textConflict`. */
   fileConflicts: Record<string, Conflict>;
   /** Every `conflict_resolve` and `conflict_choose`, oldest first. */
@@ -290,6 +299,9 @@ export const fakeState: {
   stashConflict: null,
   tagRequests: [],
   resetRequests: [],
+  remoteRequests: [],
+  fsmonitorOffers: {},
+  fsmonitorAnswers: [],
   fileConflicts: {},
   conflictRequests: [],
 };
@@ -755,6 +767,31 @@ function fakeTagOp(workspaceId: WorkspaceId, request: TagRequest) {
   });
 }
 
+/** Runs remote operation `request` on the fake's ref model, like the core. */
+function fakeRemoteOp(workspaceId: WorkspaceId, request: RemoteRequest) {
+  fakeState.remoteRequests.push(request);
+  const refs = fakeState.refModels[request.repo_id];
+  const blocked = blockedWhy(request.repo_id);
+  if (refs === undefined || blocked !== null) {
+    return refused(blocked ?? "the repo has no refs");
+  }
+  const plan = planRemote(refs, request.op, request.confirmed);
+  return startPlanned(workspaceId, request.repo_id, plan, () => {
+    if (plan.kind === "run") {
+      fakeState.refModels[request.repo_id] = plan.refs;
+      fakeState.refs[request.repo_id] = refNodes(request.repo_id, plan.refs);
+    }
+  });
+}
+
+/** Answers the fsmonitor offer of `repo` like the core: either way it is not made again. */
+function fakeFsmonitorAnswer(repo: RepoId, answer: "enable" | "decline") {
+  fakeState.fsmonitorAnswers.push({ repo, answer });
+  fakeState.fsmonitorOffers = Object.fromEntries(
+    Object.entries(fakeState.fsmonitorOffers).filter(([known]) => known !== repo),
+  );
+}
+
 /**
  * Runs reset `request` like the core: a hard reset asks first, naming the
  * fake history's commit and the tracked files of the repo's working copy;
@@ -961,6 +998,9 @@ export function reset(): void {
   fakeState.stashConflict = null;
   fakeState.tagRequests = [];
   fakeState.resetRequests = [];
+  fakeState.remoteRequests = [];
+  fakeState.fsmonitorOffers = {};
+  fakeState.fsmonitorAnswers = [];
   fakeState.changesDelay = 0;
   fakeState.layouts = [];
   fakeState.refreshes = [];
@@ -1335,6 +1375,7 @@ export const fake: Core = {
           unmerged: working.unmerged.map((file, id) => ({ id, ...file })),
           last_message: working.lastMessage === undefined ? LAST_MESSAGE : working.lastMessage,
           in_conflict: working.inConflict ?? false,
+          offer_fsmonitor: fakeState.fsmonitorOffers[repoId] ?? null,
         };
         lists = { staged, unstaged };
         unmerged = working.unmerged.map((file) => file.path);
@@ -1502,6 +1543,33 @@ export const fake: Core = {
     opTag: (workspaceId, request) => fakeTagOp(workspaceId, request),
     tagNameCheck: (name) => Promise.resolve({ status: "ok", data: fakeNameCheck(name) }),
     // A reset never asks for a remote.
+    opRemote: (workspaceId, request) =>
+      // A remote operation never asks for a remote.
+      fakeRemoteOp(workspaceId, request) as Promise<
+        { status: "ok"; data: RemoteStart } | { status: "error"; error: IpcError }
+      >,
+    remoteNameCheck: (name) => Promise.resolve({ status: "ok", data: fakeRemoteNameCheck(name) }),
+    remoteUrls: (_workspaceId, repoId, name) => {
+      const refs = fakeState.refModels[repoId];
+      if (refs?.remotes?.[name] === undefined) {
+        return refused(`there is no remote ${name}`);
+      }
+      return Promise.resolve({ status: "ok", data: refs.urls?.[name] ?? { url: null, push_url: null } });
+    },
+    // The settings are on at once; no job is shown.
+    fsmonitorEnable: (_workspaceId, repoId) => {
+      const blocked = blockedWhy(repoId);
+      if (blocked !== null) {
+        return refused(blocked);
+      }
+      fakeFsmonitorAnswer(repoId, "enable");
+      const jobId = nextJobId++;
+      return Promise.resolve({ status: "ok", data: jobId });
+    },
+    fsmonitorDecline: (_workspaceId, repoId) => {
+      fakeFsmonitorAnswer(repoId, "decline");
+      return Promise.resolve({ status: "ok", data: null });
+    },
     opReset: (workspaceId, request) =>
       fakeResetOp(workspaceId, request) as Promise<{ status: "ok"; data: ResetStart } | { status: "error"; error: IpcError }>,
     conflictGet: (workspaceId, handle, file) => {

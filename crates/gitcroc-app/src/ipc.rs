@@ -13,15 +13,16 @@ use gitcroc_core::{
     AddReport, AppInfo, AppLog, Appearance, BranchChoices, BranchError, BranchRequest, BranchStart,
     CancelResult, ChangeRequest, ChangeStart, Changes, ChangesError, ChangesSettings,
     ChangesTarget, ChangesView, ChooseRequest, CommitGraphError, CommitRequest, ConflictDetails,
-    ConflictRead, ConflictStart, DiffRequest, FileDiff, FileRef, GitRunner, GitSetup, GitStatus,
-    Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, IntegrateError,
-    IntegrateRequest, IntegrateStart, JobError, JobEvents, JobId, JobProgress, JobView, Jobs,
-    Outcome, PaneLayout, PushChoices, Refusal, RepoChange, RepoId, ResetError, ResetRequest,
-    ResetStart, ResolveRequest, SettingsError, SettingsStore, SettingsView, StashError,
-    StashRequest, StashStart, StatusError, StatusReadError, Summaries, SummaryView, SyncError,
-    SyncRequest, SyncStart, TagError, TagRequest, TagStart, Theme, TrackedJob, TreeError, TreeNode,
-    Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces,
-    add_path, refresh_summaries, refresh_workspace, tree_refs,
+    ConflictRead, ConflictStart, DiffRequest, FileDiff, FileRef, FsmonitorError, GitRunner,
+    GitSetup, GitStatus, Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide,
+    IntegrateError, IntegrateRequest, IntegrateStart, JobError, JobEvents, JobId, JobProgress,
+    JobView, Jobs, Outcome, PaneLayout, PushChoices, Refusal, RemoteError, RemoteRequest,
+    RemoteStart, RemoteUrlsView, RepoChange, RepoId, ResetError, ResetRequest, ResetStart,
+    ResolveRequest, SettingsError, SettingsStore, SettingsView, StashError, StashRequest,
+    StashStart, StatusError, StatusReadError, Summaries, SummaryView, SyncError, SyncRequest,
+    SyncStart, TagError, TagRequest, TagStart, Theme, TrackedJob, TreeError, TreeNode, Trees,
+    WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path,
+    refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -247,6 +248,50 @@ impl From<ResetError> for IpcError {
                 message: "git refused to read the repo".to_owned(),
                 git_stderr: Some(message),
             },
+            other => Self {
+                code: IpcErrorCode::Internal,
+                message: other.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
+impl From<RemoteError> for IpcError {
+    fn from(error: RemoteError) -> Self {
+        match error {
+            RemoteError::Workspace(error) | RemoteError::Job(JobError::Workspace(error)) => {
+                error.into()
+            }
+            // git refused the repo; its message is for the user (SEC-6).
+            RemoteError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
+                code: IpcErrorCode::Internal,
+                message: "git refused to read the repo".to_owned(),
+                git_stderr: Some(message),
+            },
+            other => Self {
+                code: IpcErrorCode::Internal,
+                message: other.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
+impl From<FsmonitorError> for IpcError {
+    fn from(error: FsmonitorError) -> Self {
+        match error {
+            FsmonitorError::Workspace(error) | FsmonitorError::Job(JobError::Workspace(error)) => {
+                error.into()
+            }
+            // git refused the repo; its message is for the user (SEC-6).
+            FsmonitorError::Status(StatusReadError::Read(StatusError::Refused { message })) => {
+                Self {
+                    code: IpcErrorCode::Internal,
+                    message: "git refused to read the repo".to_owned(),
+                    git_stderr: Some(message),
+                }
+            }
             other => Self {
                 code: IpcErrorCode::Internal,
                 message: other.to_string(),
@@ -1096,6 +1141,90 @@ pub async fn op_reset(
     Ok(gitcroc_core::op_reset(workspaces, summaries, jobs, git, workspace_id, request).await?)
 }
 
+/// Adds, renames or removes a remote of one repo or sets its URLs, as a
+/// job (section 6 "Remotes"). Refused for an invalid or taken name (SEC-4),
+/// a URL that starts with `-`, a missing remote and a repo that is busy,
+/// missing or in conflict state (GRP-8). A remove sent without `confirmed`
+/// answers `confirm`, naming the upstreams it unsets, and runs nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn op_remote(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: RemoteRequest,
+) -> Result<RemoteStart, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::op_remote(workspaces, summaries, jobs, git, workspace_id, request).await?)
+}
+
+/// Why `name` is not a valid name for a new remote, or `null` when it is
+/// (SEC-4). Checked as the user types.
+#[tauri::command]
+#[specta::specta]
+pub async fn remote_name_check(name: String) -> Result<Option<String>, IpcError> {
+    Ok(gitcroc_core::remote_name_check(&name))
+}
+
+/// A remote's URLs, for the edit dialog.
+#[tauri::command]
+#[specta::specta]
+pub async fn remote_urls(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+    name: String,
+) -> Result<RemoteUrlsView, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    Ok(gitcroc_core::remote_urls(workspaces, workspace_id, repo_id, name).await?)
+}
+
+/// The user accepted the offer to speed up a large repo's status (PERF-7):
+/// turns on the offered keys in its local config as a job. Refused for a
+/// repo that is busy, missing or in conflict state (GRP-8).
+#[tauri::command]
+#[specta::specta]
+pub async fn fsmonitor_enable(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+) -> Result<JobId, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    let changes = app.state::<Arc<Changes>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::fsmonitor_enable(
+        workspaces,
+        summaries,
+        changes,
+        jobs,
+        git,
+        workspace_id,
+        repo_id,
+    )
+    .await?)
+}
+
+/// Keeps "don't ask again" for a repo's fsmonitor offer (PERF-7).
+#[tauri::command]
+#[specta::specta]
+pub async fn fsmonitor_decline(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+) -> Result<(), IpcError> {
+    // Saving touches the disk; keep it off the async workers (ARCH-7).
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        workspaces.decline_fsmonitor(&workspace_id, &repo_id)
+    })
+    .await??;
+    Ok(())
+}
+
 /// The refs the merge dialog offers for a repo, filtered by `filter`
 /// (UI-20).
 #[tauri::command]
@@ -1606,6 +1735,11 @@ macro_rules! with_commands {
                 op_tag,
                 tag_name_check,
                 op_reset,
+                op_remote,
+                remote_name_check,
+                remote_urls,
+                fsmonitor_enable,
+                fsmonitor_decline,
                 conflict_details,
                 conflict_get,
                 conflict_resolve,
@@ -1658,6 +1792,11 @@ macro_rules! with_commands {
                 op_tag,
                 tag_name_check,
                 op_reset,
+                op_remote,
+                remote_name_check,
+                remote_urls,
+                fsmonitor_enable,
+                fsmonitor_decline,
                 conflict_details,
                 conflict_get,
                 conflict_resolve,

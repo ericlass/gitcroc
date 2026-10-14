@@ -269,6 +269,29 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 *  (GRP-9).
 	 */
 	opReset: (workspaceId: WorkspaceId, request: ResetRequest) => typedError<ResetStart, IpcError>(__TAURI_INVOKE("op_reset", { workspaceId, request })),
+	/**
+	 *  Adds, renames or removes a remote of one repo or sets its URLs, as a
+	 *  job (section 6 "Remotes"). Refused for an invalid or taken name (SEC-4),
+	 *  a URL that starts with `-`, a missing remote and a repo that is busy,
+	 *  missing or in conflict state (GRP-8). A remove sent without `confirmed`
+	 *  answers `confirm`, naming the upstreams it unsets, and runs nothing.
+	 */
+	opRemote: (workspaceId: WorkspaceId, request: RemoteRequest) => typedError<RemoteStart, IpcError>(__TAURI_INVOKE("op_remote", { workspaceId, request })),
+	/**
+	 *  Why `name` is not a valid name for a new remote, or `null` when it is
+	 *  (SEC-4). Checked as the user types.
+	 */
+	remoteNameCheck: (name: string) => typedError<string | null, IpcError>(__TAURI_INVOKE("remote_name_check", { name })),
+	/**  A remote's URLs, for the edit dialog. */
+	remoteUrls: (workspaceId: WorkspaceId, repoId: RepoId, name: string) => typedError<RemoteUrlsView, IpcError>(__TAURI_INVOKE("remote_urls", { workspaceId, repoId, name })),
+	/**
+	 *  The user accepted the offer to speed up a large repo's status (PERF-7):
+	 *  turns on the offered keys in its local config as a job. Refused for a
+	 *  repo that is busy, missing or in conflict state (GRP-8).
+	 */
+	fsmonitorEnable: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<JobId, IpcError>(__TAURI_INVOKE("fsmonitor_enable", { workspaceId, repoId })),
+	/**  Keeps "don't ask again" for a repo's fsmonitor offer (PERF-7). */
+	fsmonitorDecline: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<null, IpcError>(__TAURI_INVOKE("fsmonitor_decline", { workspaceId, repoId })),
 	/**  What the conflict banner names for a repo in conflict state (OPS-2). */
 	conflictDetails: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<ConflictDetails, IpcError>(__TAURI_INVOKE("conflict_details", { workspaceId, repoId })),
 	/**
@@ -598,7 +621,12 @@ last_message: CommitMessage | null;
  *  In conflict state (OPS-1): no commit box, as Continue makes the
  *  commit (M2-08).
  */
-in_conflict: boolean };
+in_conflict: boolean; 
+/**
+ *  The config keys the offer to speed up status would turn on
+ *  (PERF-7); `None` when there is no offer.
+ */
+offer_fsmonitor: string[] | null };
 
 /**
  *  The changes pane's view, remembered for every workspace (UI-14,
@@ -1324,6 +1352,55 @@ export type RemoteBranchRef = {
 	remote: string,
 	/**  Without the remote. */
 	branch: string,
+};
+
+/**
+ *  A remote operation (section 6 "Remotes"). URLs are passed to git as
+ *  typed, without spaces around them.
+ */
+export type RemoteOp = 
+/**
+ *  Adds remote `name` at `url`; with `fetch`, the same job then
+ *  fetches it.
+ */
+{ kind: "add"; name: string; url: string; fetch: boolean } | 
+/**
+ *  Renames remote `name` to `new_name`; git moves its remote-tracking
+ *  branches and the upstreams on it.
+ */
+{ kind: "rename"; name: string; new_name: string } | 
+/**
+ *  Removes remote `name` with its remote-tracking branches; the
+ *  upstreams on it are unset.
+ */
+{ kind: "remove"; name: string } | 
+/**  Sets remote `name`'s URL, and its push URL when `push_url` is given. */
+{ kind: "set_url"; name: string; url: string; push_url: string | null };
+
+/**  A remote operation on one repo. */
+export type RemoteRequest = {
+	repo_id: RepoId,
+	op: RemoteOp,
+	/**  The user confirmed what a remove unsets. */
+	confirmed: boolean,
+};
+
+/**  What a request did. */
+export type RemoteStart = 
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  A remove: ask again with `confirmed` once the user agreed. `actions`
+ *  says what it removes and which upstreams it unsets.
+ */
+{ kind: "confirm"; repo: string; actions: string[] };
+
+/**  A remote's URLs, for the edit dialog. */
+export type RemoteUrlsView = {
+	/**  The fetch URL, and the push URL unless `push_url` is set. */
+	url: string | null,
+	/**  A separate push URL, when one is set. */
+	push_url: string | null,
 };
 
 /**  Identifies a repo inside its workspace: `r1`, `r2` and so on. */

@@ -14,7 +14,7 @@ mod refs;
 mod runner;
 mod status;
 
-pub use branches::TrackedBranch;
+pub use branches::{RemoteUrls, TrackedBranch};
 pub use conflict::{
     ChoiceKind, Conflict, ConflictChunk, ConflictContent, ConflictError, MARKER_SIZE,
     MAX_CONFLICT_TEXT, SideHolds, StageEntry, first_marker_line,
@@ -43,8 +43,9 @@ pub use runner::{
     WRITE_ENV, Write, log_commands_to,
 };
 pub use status::{
-    ConflictDetails, ConflictLabels, Engine, Fallback, Head, Operation, RepoState, RepoSummary,
-    StatusError, StatusRead, StatusReader, Step, UnmergedFile, UnmergedKind, Upstream, WorkingCopy,
+    ConflictDetails, ConflictLabels, Engine, Fallback, FsmonitorState, Head, Operation, RepoState,
+    RepoSummary, StatusError, StatusRead, StatusReader, Step, UnmergedFile, UnmergedKind, Upstream,
+    WorkingCopy,
 };
 
 /// Errors returned by `gitcroc-git`.

@@ -217,10 +217,13 @@ async fn ui_15_uncommitted_lists_and_their_diffs() {
         unmerged,
         last_message,
         in_conflict,
+        offer_fsmonitor,
     } = &view.content
     else {
         panic!("not an uncommitted view");
     };
+    // Far below the 50,000 files of PERF-7.
+    assert_eq!(offer_fsmonitor, &None);
     assert_eq!(
         last_message.as_ref().map(|m| m.subject.as_str()),
         Some("First")

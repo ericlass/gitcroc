@@ -21,6 +21,7 @@ import Toolbar from "./layout/Toolbar";
 import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
 import StashDialogs, { StashOffer } from "./stash/StashDialogs";
+import RemoteDialogs from "./remote/RemoteDialogs";
 import TagDialogs from "./tag/TagDialogs";
 import ResetDialogs from "./reset/ResetDialogs";
 import SyncDialogs, { SyncRefusal } from "./sync/SyncDialogs";
@@ -39,6 +40,7 @@ import { createLayoutStore } from "./stores/layout";
 import { createSelectionStore } from "./stores/selection";
 import { createSettingsStore } from "./stores/settings";
 import { createStashStore } from "./stores/stash";
+import { createRemoteStore } from "./stores/remote";
 import { createTagStore } from "./stores/tag";
 import { createResetStore } from "./stores/reset";
 import { createSummaryStore, isBlocked } from "./stores/summaries";
@@ -67,6 +69,7 @@ export default function App() {
   const sync = createSyncStore();
   const stash = createStashStore();
   const tag = createTagStore();
+  const remote = createRemoteStore();
   const reset = createResetStore();
   // An aborted stash apply leaves nothing to offer dropping.
   const integrate = createIntegrateStore((id, repo) => stash.forget(id, repo));
@@ -326,6 +329,7 @@ export default function App() {
                     branch={branch}
                     stash={stash}
                     tag={tag}
+                    remote={remote}
                     reset={reset}
                     integrate={integrate}
                     settings={settings}
@@ -335,6 +339,7 @@ export default function App() {
                 <SyncDialogs workspace={id()} sync={sync} repoName={repoName} />
                 <StashDialogs workspace={id()} stash={stash} repoName={repoName} />
                 <TagDialogs workspace={id()} tag={tag} repoName={repoName} />
+                <RemoteDialogs workspace={id()} remote={remote} repoName={repoName} />
                 <ResetDialogs workspace={id()} reset={reset} repoName={repoName} />
                 <IntegrateDialogs workspace={id()} integrate={integrate} repoName={repoName} branchOf={branchOf} />
                 <StatusBar workspace={id()} jobs={jobs} onOpenJobs={() => setJobsOpen(true)} />

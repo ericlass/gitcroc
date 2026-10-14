@@ -1,15 +1,16 @@
 // The tree pane (UI-1, UI-3, UI-7, UI-8): filter box, add button and the
 // tree, virtualized (PERF-1), with a context menu on each row that has
 // operations and double-click to check out a local branch; a stash row's
-// menu applies, pops or drops it, a tag row's pushes or deletes it.
-// Everything
-// shown comes from the stores, which take it from the core; this component
-// only lays it out and forwards input.
+// menu applies, pops or drops it, a tag row's pushes or deletes it, the
+// Remotes node's adds a remote and a remote row's renames, edits or
+// removes it. Everything shown comes from the stores, which take it from
+// the core; this component only lays it out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { type RepoId, type TreeItem, type TreeNode, type WorkspaceId, workspacePickAndAdd, workspaceRemoveRepo } from "../ipc";
 import type { BranchStore } from "../stores/branch";
 import type { StashStore } from "../stores/stash";
+import type { RemoteStore } from "../stores/remote";
 import type { TagStore } from "../stores/tag";
 import { isBlocked, type SummaryStore } from "../stores/summaries";
 import type { TreeStore } from "../stores/tree";
@@ -35,6 +36,8 @@ const MENU_NAMES: Partial<Record<TreeItem["kind"], string>> = {
   remote_branch: "Remote branch",
   tag: "Tag",
   stash: "Stash",
+  remotes: "Remotes",
+  remote: "Remote",
 };
 
 const asNode = (row: Row) => (row.kind === "node" ? row : undefined);
@@ -303,6 +306,7 @@ export default function TreePane(props: {
   branch: BranchStore;
   stash: StashStore;
   tag: TagStore;
+  remote: RemoteStore;
 }) {
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [menu, setMenu] = createSignal<{ item: TreeItem; x: number; y: number } | null>(null);
@@ -392,6 +396,24 @@ export default function TreePane(props: {
           props.tag.open(props.workspace, { kind: "delete", repo, name: item.name });
         }
         return;
+      case "remote_add":
+        props.remote.open(props.workspace, { kind: "add", repo });
+        return;
+      case "remote_rename":
+        if (item.kind === "remote") {
+          props.remote.open(props.workspace, { kind: "rename", repo, name: item.remote });
+        }
+        return;
+      case "remote_url":
+        if (item.kind === "remote") {
+          void props.remote.openUrl(props.workspace, repo, item.remote);
+        }
+        return;
+      case "remote_remove":
+        if (item.kind === "remote") {
+          void props.remote.run(props.workspace, repo, { kind: "remove", name: item.remote });
+        }
+        return;
       case "rename":
       case "delete":
       case "set_upstream":
@@ -450,6 +472,16 @@ export default function TreePane(props: {
           <div role="alert" class="tree-refusal">
             <span>{error()}</span>
             <button type="button" onClick={() => props.tag.dismissError(props.workspace)}>
+              Dismiss
+            </button>
+          </div>
+        )}
+      </Show>
+      <Show when={props.remote.dialog(props.workspace) === null && props.remote.error(props.workspace)}>
+        {(error) => (
+          <div role="alert" class="tree-refusal">
+            <span>{error()}</span>
+            <button type="button" onClick={() => props.remote.dismissError(props.workspace)}>
               Dismiss
             </button>
           </div>

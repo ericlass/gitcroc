@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { fakeState, reset } from "../ipc/fake";
 import { type FakeRefs, refNodes, summary } from "../ipc/fakeTree";
 import { createBranchStore } from "../stores/branch";
+import { createRemoteStore } from "../stores/remote";
 import { createStashStore } from "../stores/stash";
 import { createSummaryStore } from "../stores/summaries";
 import { createTagStore } from "../stores/tag";
@@ -65,6 +66,7 @@ async function setup(change: { busy?: boolean } = {}) {
         branch={branch}
         stash={createStashStore()}
         tag={createTagStore()}
+        remote={createRemoteStore()}
       />
       <BranchDialogs workspace={id()} branch={branch} repoName={() => "api"} />
     </>

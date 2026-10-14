@@ -17,6 +17,7 @@ import type {
   JobId,
   PaneLayout,
   PerfTrace,
+  RemoteRequest,
   RepoId,
   ResetRequest,
   ResolveRequest,
@@ -111,6 +112,10 @@ export type {
   RefLabel,
   Refusal,
   RemoteBranchRef,
+  RemoteOp,
+  RemoteRequest,
+  RemoteStart,
+  RemoteUrlsView,
   RepoId,
   RepoRef,
   RepoState,
@@ -285,6 +290,23 @@ export const tagNameCheck = (name: string) => unwrap(core.commands.tagNameCheck(
 
 export const opReset = (workspaceId: WorkspaceId, request: ResetRequest) =>
   unwrap(core.commands.opReset(workspaceId, request));
+
+export const opRemote = (workspaceId: WorkspaceId, request: RemoteRequest) =>
+  unwrap(core.commands.opRemote(workspaceId, request));
+
+/** Why `name` is not a valid name for a new remote, or `null` (SEC-4). */
+export const remoteNameCheck = (name: string) => unwrap(core.commands.remoteNameCheck(name));
+
+/** A remote's URLs, for the edit dialog. */
+export const remoteUrls = (workspaceId: WorkspaceId, repoId: RepoId, name: string) =>
+  unwrap(core.commands.remoteUrls(workspaceId, repoId, name));
+
+/** Accepts the offer to speed up a large repo's status (PERF-7); the core turns the settings on as a job. */
+export const fsmonitorEnable = (workspaceId: WorkspaceId, repoId: RepoId) =>
+  unwrap(core.commands.fsmonitorEnable(workspaceId, repoId));
+
+export const fsmonitorDecline = (workspaceId: WorkspaceId, repoId: RepoId) =>
+  unwrap(core.commands.fsmonitorDecline(workspaceId, repoId));
 
 /** The refs the merge dialog offers for a repo, filtered in the core (UI-20). */
 export const mergeTargets = (workspaceId: WorkspaceId, repoId: RepoId, filter: string) =>

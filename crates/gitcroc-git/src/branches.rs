@@ -16,6 +16,16 @@ pub struct TrackedBranch {
     pub branch: String,
 }
 
+/// The URLs of a remote as its config sets them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteUrls {
+    /// The first `remote.<name>.url`: the fetch URL, and the push URL
+    /// unless `push_url` is set.
+    pub url: Option<String>,
+    /// The first `remote.<name>.pushurl`.
+    pub push_url: Option<String>,
+}
+
 impl GitRepo {
     /// The short name of the branch `HEAD` points to, also when it has no
     /// commit yet; `None` when `HEAD` is detached.
@@ -54,6 +64,47 @@ impl GitRepo {
             .into_iter()
             .map(|name| name.to_str_lossy().into_owned())
             .collect()
+    }
+
+    /// Remote `name`'s URLs; `None` when no such remote is configured.
+    pub fn remote_urls(&self, name: &str) -> Option<RemoteUrls> {
+        if !self.remote_names().iter().any(|known| known == name) {
+            return None;
+        }
+        let repo = self.thread_local();
+        let config = repo.config_snapshot();
+        let config = config.plumbing();
+        let first = |key: &str| {
+            config
+                .string_by("remote", Some(name.as_bytes().as_bstr()), key)
+                .map(|value| value.to_str_lossy().into_owned())
+        };
+        Some(RemoteUrls {
+            url: first("url"),
+            push_url: first("pushurl"),
+        })
+    }
+
+    /// The local branches whose upstream is on remote `remote`, sorted by
+    /// name.
+    pub fn branches_tracking(&self, remote: &str) -> Vec<String> {
+        let repo = self.thread_local();
+        let Ok(references) = repo.references() else {
+            return Vec::new();
+        };
+        let Ok(locals) = references.local_branches() else {
+            return Vec::new();
+        };
+        let mut names: Vec<String> = locals
+            .filter_map(Result::ok)
+            .map(|reference| reference.name().shorten().to_str_lossy().into_owned())
+            .filter(|name| {
+                self.tracked_branch(name)
+                    .is_some_and(|tracked| tracked.remote == remote)
+            })
+            .collect();
+        names.sort();
+        names
     }
 
     /// What local branch `name` tracks on a remote; `None` when it tracks
