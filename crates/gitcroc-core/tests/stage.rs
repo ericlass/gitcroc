@@ -58,6 +58,10 @@ fn git() -> GitRunner {
 
 impl Run {
     async fn new(repo: Repo) -> Self {
+        // The fixture's git reads no system config, the app's git does: Git
+        // for Windows sets `core.autocrlf` there. The repo's own setting
+        // makes both read the working tree alike.
+        repo.git(["config", "core.autocrlf", "false"]).unwrap();
         let dirs = Dirs {
             root: tempfile::tempdir().unwrap(),
         };
@@ -246,25 +250,25 @@ async fn ui_15_stage_and_unstage_a_file() {
     repo.commit_all("First").unwrap();
     repo.write("modified.txt", "two\n").unwrap();
     repo.remove("deleted.txt").unwrap();
-    repo.write("untracked *.txt", "new\n").unwrap();
+    // `[a]` is a glob that would match `a.txt` too, were it not literal.
+    repo.write("[a].txt", "new\n").unwrap();
+    repo.write("a.txt", "other\n").unwrap();
     let mut run = Run::new(repo).await;
 
     // Modified, deleted and untracked: staged, then unstaged again.
     for (path, staged, unstaged) in [
         ("modified.txt", "M  modified.txt", " M modified.txt"),
         ("deleted.txt", "D  deleted.txt", " D deleted.txt"),
-        (
-            "untracked *.txt",
-            "A  \"untracked *.txt\"",
-            "?? \"untracked *.txt\"",
-        ),
+        ("[a].txt", "A  [a].txt", "?? [a].txt"),
     ] {
         run.file(ChangeAction::Stage, path).await;
         assert!(run.status().contains(staged), "{}", run.status());
+        // `[a].txt` was taken literally: `a.txt` stays untracked.
+        assert!(run.status().contains("?? a.txt"), "{}", run.status());
         run.file(ChangeAction::Unstage, path).await;
         assert!(run.status().contains(unstaged), "{}", run.status());
     }
-    // The name with `*` was taken literally: nothing else was staged.
+    // The name with `[a]` was taken literally: nothing else was staged.
     assert_eq!(run.cached_diff(), "");
 
     // Added: unstaged back to untracked.
@@ -436,6 +440,43 @@ async fn ui_15_a_hunk_of_a_file_whose_name_git_quotes() {
         .git(["-c", "core.quotePath=false", "status", "--porcelain"])
         .unwrap();
     assert_eq!(status, "M  \"two words é.txt\"\n");
+}
+
+#[tokio::test]
+async fn ui_15_hunks_of_a_file_checked_out_with_crlf() {
+    let fixture = Fixture::new().unwrap();
+    let repo = new_repo(&fixture);
+    let _ = three_hunks(&repo);
+    let mut run = Run::new(repo).await;
+    // As on Windows: the working tree has CRLF, the index LF.
+    run.repo.git(["config", "core.autocrlf", "true"]).unwrap();
+    let crlf = |text: &str| text.replace('\n', "\r\n");
+    let changed = numbered(1..=30)
+        .replace("line 2\n", "line two\n")
+        .replace("line 15\n", "line fifteen\n")
+        .replace("line 28\n", "line twenty-eight\n");
+    run.repo.write("f.txt", crlf(&changed)).unwrap();
+
+    let view = run.view().await;
+    let file = find(&view, FileList::Unstaged, "f.txt");
+    assert_eq!(run.diff(&view, file).await.hunks.len(), 3);
+    let target = ChangeTarget::Hunk { file, hunk: 1 };
+    let ended = run.apply(&view, ChangeAction::Stage, target).await;
+    assert_eq!(ended.outcome, Some(Outcome::Succeeded), "{ended:?}");
+    let staged = run.repo.git(["show", ":f.txt"]).unwrap();
+    assert_eq!(
+        staged,
+        numbered(1..=30).replace("line 15\n", "line fifteen\n")
+    );
+
+    let view = run.view().await;
+    let file = find(&view, FileList::Unstaged, "f.txt");
+    run.diff(&view, file).await;
+    let target = ChangeTarget::Hunk { file, hunk: 0 };
+    let ended = run.apply(&view, ChangeAction::Discard, target).await;
+    assert_eq!(ended.outcome, Some(Outcome::Succeeded), "{ended:?}");
+    let on_disk = std::fs::read_to_string(run.repo.path().join("f.txt")).unwrap();
+    assert_eq!(on_disk, crlf(&changed.replace("line two\n", "line 2\n")));
 }
 
 #[tokio::test]
