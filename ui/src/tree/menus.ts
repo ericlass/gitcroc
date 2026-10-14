@@ -13,6 +13,9 @@ export type MenuAction =
   | "delete_remote"
   | "set_upstream"
   | "unset_upstream"
+  | "stash_apply"
+  | "stash_pop"
+  | "stash_drop"
   | "remove_repo";
 
 export interface MenuEntry {
@@ -48,6 +51,8 @@ export function menuFor(item: TreeItem, blocked: boolean): MenuEntry[] {
       ];
     case "tag":
       return [entry("checkout_detached", "Check out (detached)"), entry("create", "New branch from here…")];
+    case "stash":
+      return [entry("stash_apply", "Apply"), entry("stash_pop", "Pop"), entry("stash_drop", "Drop…")];
     default:
       return [];
   }

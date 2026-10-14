@@ -256,7 +256,7 @@ test("OPS-9 unsaved edits are dropped on abort", async () => {
   await show("r2");
   type(0, "kept ");
 
-  await opIntegrate(id(), { repo_id: "r1", op: { kind: "abort" } });
+  await opIntegrate(id(), { repo_id: "r1", op: { kind: "abort" }, confirmed: false });
   await settleAll();
 
   // The same files conflict again, as after merging once more.

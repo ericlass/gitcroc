@@ -26,8 +26,8 @@ pub struct Step {
 pub struct ConflictDetails {
     pub operation: Option<Operation>,
     /// What is applied: the merged branch or commit, the branch being
-    /// rebased, the commit being cherry-picked or reverted. A commit reads
-    /// `1a2b3c4 Subject`.
+    /// rebased, the commit being cherry-picked or reverted; never a stash,
+    /// which git does not record. A commit reads `1a2b3c4 Subject`.
     pub applying: Option<String>,
     /// Where: the current branch, or for a rebase the branch or commit it
     /// rebases onto.
@@ -168,6 +168,8 @@ pub(super) fn conflict_details(repo: &gix::Repository) -> Result<ConflictDetails
             current(repo),
             step(&git_dir.join("rebase-apply"), "next", "last"),
         ),
+        // git records no stash for an apply: only where it was applied.
+        Some(Operation::StashApply) => (None, current(repo), None),
     };
     Ok(ConflictDetails {
         operation: state.operation,
@@ -237,8 +239,7 @@ pub(crate) fn conflict_labels(repo: &gix::Repository) -> Result<ConflictLabels, 
             (onto, theirs)
         }
         Some(Operation::ApplyMailbox) => (current(), Some("patch".to_owned())),
-        // Unmerged paths with no operation: a stash apply or pop stopped.
-        None => (current(), Some("stash".to_owned())),
+        Some(Operation::StashApply) | None => (current(), Some("stash".to_owned())),
     };
     Ok(ConflictLabels {
         ours,

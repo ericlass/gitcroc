@@ -108,7 +108,10 @@ pub enum Resume {
 /// Aborts or continues `operation`, the one the repo's state shows (OPS-1):
 /// `git merge`, `rebase`, `cherry-pick`, `revert` or `am` with `--abort`
 /// or `--continue`. A continue that stops on the next conflict leaves the
-/// repo in conflict state again.
+/// repo in conflict state again. A stash apply has no state of its own:
+/// its abort is `git reset --merge`, which puts the files the apply touched
+/// back to `HEAD` and keeps other local changes, and it has nothing to
+/// continue, as it ends when the last path is staged.
 pub async fn resume(
     git: &GitRunner,
     repo: &Path,
@@ -122,6 +125,15 @@ pub async fn resume(
         Operation::ApplyMailbox => "am",
         Operation::CherryPick => "cherry-pick",
         Operation::Revert => "revert",
+        Operation::StashApply => {
+            return match resume {
+                Resume::Abort => integrate_write(git, repo, &["reset", "--merge"], write).await,
+                Resume::Continue => Ok(Output {
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                }),
+            };
+        }
     };
     let flag = match resume {
         Resume::Abort => "--abort",

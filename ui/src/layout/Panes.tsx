@@ -5,6 +5,7 @@ import ChangesPane from "../changes/ChangesPane";
 import HistoryPane from "../history/HistoryPane";
 import type { WorkspaceId } from "../ipc";
 import type { BranchStore } from "../stores/branch";
+import type { StashStore } from "../stores/stash";
 import type { IntegrateStore } from "../stores/integrate";
 import type { ChangesStore } from "../stores/changes";
 import type { ConflictStore } from "../stores/conflicts";
@@ -29,6 +30,7 @@ export default function Panes(props: {
   conflicts: ConflictStore;
   commit: CommitStore;
   branch: BranchStore;
+  stash: StashStore;
   integrate: IntegrateStore;
   settings: SettingsStore;
 }) {
@@ -92,6 +94,7 @@ export default function Panes(props: {
           summaries={props.summaries}
           workspaces={props.workspaces}
           branch={props.branch}
+          stash={props.stash}
         />
       </section>
       {splitter("tree", "Resize Tree")}

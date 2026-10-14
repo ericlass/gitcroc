@@ -1,12 +1,14 @@
 // The tree pane (UI-1, UI-3, UI-7, UI-8): filter box, add button and the
 // tree, virtualized (PERF-1), with a context menu on each row that has
-// operations and double-click to check out a local branch. Everything
+// operations and double-click to check out a local branch; a stash row's
+// menu applies, pops or drops it. Everything
 // shown comes from the stores, which take it from the core; this component
 // only lays it out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { type RepoId, type TreeItem, type TreeNode, type WorkspaceId, workspacePickAndAdd, workspaceRemoveRepo } from "../ipc";
 import type { BranchStore } from "../stores/branch";
+import type { StashStore } from "../stores/stash";
 import { isBlocked, type SummaryStore } from "../stores/summaries";
 import type { TreeStore } from "../stores/tree";
 import type { WorkspaceStore } from "../stores/workspaces";
@@ -30,6 +32,7 @@ const MENU_NAMES: Partial<Record<TreeItem["kind"], string>> = {
   branch: "Branch",
   remote_branch: "Remote branch",
   tag: "Tag",
+  stash: "Stash",
 };
 
 const asNode = (row: Row) => (row.kind === "node" ? row : undefined);
@@ -296,6 +299,7 @@ export default function TreePane(props: {
   summaries: SummaryStore;
   workspaces: WorkspaceStore;
   branch: BranchStore;
+  stash: StashStore;
 }) {
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [menu, setMenu] = createSignal<{ item: TreeItem; x: number; y: number } | null>(null);
@@ -362,6 +366,16 @@ export default function TreePane(props: {
           run(repo, { kind: "delete_remote", branch: { remote: item.remote, branch: item.branch } });
         }
         return;
+      case "stash_apply":
+      case "stash_pop":
+      case "stash_drop":
+        if (item.kind === "stash") {
+          // Named by the hash read with the tree: the core refuses it if the list changed since.
+          const stash = { index: item.index, hash: item.hash };
+          const kind = action === "stash_apply" ? "apply" : action === "stash_pop" ? "pop" : "drop";
+          void props.stash.run(props.workspace, repo, { kind, stash }, false, item.message);
+        }
+        return;
       case "rename":
       case "delete":
       case "set_upstream":
@@ -405,6 +419,16 @@ export default function TreePane(props: {
         </button>
       </div>
       <Show when={actionError()}>{(error) => <p role="alert">{error()}</p>}</Show>
+      <Show when={props.stash.dialog(props.workspace) === null && props.stash.error(props.workspace)}>
+        {(error) => (
+          <div role="alert" class="tree-refusal">
+            <span>{error()}</span>
+            <button type="button" onClick={() => props.stash.dismissError(props.workspace)}>
+              Dismiss
+            </button>
+          </div>
+        )}
+      </Show>
       <Show when={props.branch.dialog(props.workspace) === null && props.branch.error(props.workspace)}>
         {(error) => (
           <div role="alert" class="tree-refusal">

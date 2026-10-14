@@ -1,10 +1,11 @@
 // The Merge dialog of the toolbar (UI-20, section 5 "Merge X into current"
 // and "Rebase current onto X"), the choice of mainline the core asks for
-// before a merge commit's revert, and why the core refused a request.
+// before a merge commit's revert, the confirmation it asks for before an
+// abort that cannot be undone, and why the core refused a request.
 // The refs to pick from are filtered in the core as the user types. Names
 // are shown as text only (SEC-3).
 import { createEffect, createSignal, For, on, Show } from "solid-js";
-import { Actions, Frame, Refusal } from "../dialogs/parts";
+import { Actions, ConfirmDialog, Frame, Refusal } from "../dialogs/parts";
 import { mergeTargets, type MergeFastForward, type RepoId, type WorkspaceId } from "../ipc";
 import type { IntegrateDialog, IntegrateStore } from "../stores/integrate";
 
@@ -166,6 +167,21 @@ function MainlineDialog(props: DialogProps<"mainline">) {
   );
 }
 
+/** The abort of a stash apply cannot be undone: what it does, before it runs. */
+function IntegrateConfirm(props: DialogProps<"confirm">) {
+  return (
+    <ConfirmDialog
+      repoName={props.dialog.repoName}
+      actions={props.dialog.actions}
+      submit="Abort"
+      error={props.integrate.error(props.workspace)}
+      sending={props.integrate.sending(props.workspace)}
+      onConfirm={() => void props.integrate.run(props.workspace, props.dialog.repo, props.dialog.op, true)}
+      onClose={() => props.integrate.close(props.workspace)}
+    />
+  );
+}
+
 /** Why the core refused a request made outside a dialog, until dismissed. */
 export function IntegrateRefusal(props: { workspace: WorkspaceId; integrate: IntegrateStore }) {
   return (
@@ -207,6 +223,9 @@ export default function IntegrateDialogs(props: {
       </Show>
       <Show when={as("mainline")} keyed>
         {(open) => <MainlineDialog {...common(open.repo)} dialog={open} />}
+      </Show>
+      <Show when={as("confirm")} keyed>
+        {(open) => <IntegrateConfirm {...common(open.repo)} dialog={open} />}
       </Show>
     </>
   );

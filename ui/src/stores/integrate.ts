@@ -3,8 +3,8 @@
 // OPS-2, UI-13, UI-20): which dialog is open, why the last request was
 // refused and what the banner names, per workspace (ARCH-9). The core
 // checks every request, sorts a cherry-pick's commits and reads the
-// conflict state from the repo (OPS-1); this store only sends requests and
-// shows what came back.
+// conflict state from the repo (OPS-1) and decides what needs a
+// confirmation; this store only sends requests and shows what came back.
 import { createStore, produce } from "solid-js/store";
 import {
   type ConflictDetails,
@@ -18,7 +18,9 @@ import {
 export type IntegrateDialog =
   | { kind: "merge"; repo: RepoId }
   /** The core asked which parent of merge commit `commit` a revert keeps. */
-  | { kind: "mainline"; repo: RepoId; commit: string; parents: string[] };
+  | { kind: "mainline"; repo: RepoId; commit: string; parents: string[] }
+  /** The core asked for the user's confirmation of `op`. */
+  | { kind: "confirm"; repo: RepoId; op: IntegrateOp; repoName: string; actions: string[] };
 
 interface WorkspaceIntegrate {
   dialog: IntegrateDialog | null;
@@ -42,7 +44,8 @@ const empty = (): WorkspaceIntegrate => ({
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export function createIntegrateStore() {
+/** `onAbort` is called with the workspace and repo of each abort that started. */
+export function createIntegrateStore(onAbort: (id: WorkspaceId, repo: RepoId) => void = () => {}) {
   const [state, setState] = createStore<{ byWorkspace: Record<WorkspaceId, WorkspaceIntegrate> }>({
     byWorkspace: {},
   });
@@ -82,22 +85,28 @@ export function createIntegrateStore() {
   /**
    * Sends `op` on `repo`. Started, the dialog closes and the job's end
    * arrives as `job_ended`; a revert of a merge commit opens the choice of
-   * mainline the core asked for; refused, the reason is kept for the dialog
-   * or the history pane.
+   * mainline the core asked for, an abort that cannot be undone the
+   * confirmation; refused, the reason is kept for the dialog or the
+   * history pane.
    */
-  const run = async (id: WorkspaceId, repo: RepoId, op: IntegrateOp) => {
+  const run = async (id: WorkspaceId, repo: RepoId, op: IntegrateOp, confirmed = false) => {
     update(id, (i) => {
       i.error = null;
       i.sending = true;
     });
     try {
-      const start = await opIntegrate(id, { repo_id: repo, op });
+      const start = await opIntegrate(id, { repo_id: repo, op, confirmed });
       update(id, (i) => {
         i.dialog =
           start.kind === "choose_mainline"
             ? { kind: "mainline", repo, commit: start.commit, parents: start.parents }
-            : null;
+            : start.kind === "confirm"
+              ? { kind: "confirm", repo, op, repoName: start.repo, actions: start.actions }
+              : null;
       });
+      if (start.kind === "started" && op.kind === "abort") {
+        onAbort(id, repo);
+      }
     } catch (failure) {
       update(id, (i) => (i.error = message(failure)));
     } finally {

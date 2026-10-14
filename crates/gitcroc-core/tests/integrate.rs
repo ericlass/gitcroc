@@ -117,6 +117,7 @@ impl Run {
             IntegrateRequest {
                 repo_id: self.repo_id.clone(),
                 op,
+                confirmed: false,
             },
         )
         .await

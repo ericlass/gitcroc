@@ -63,6 +63,9 @@ pub struct Tag {
 pub struct StashEntry {
     /// `n` in `stash@{n}`.
     pub index: u32,
+    /// The stash commit's full hash, which tells this entry from the one
+    /// at the same index after the stash list changed.
+    pub hash: String,
     /// As `git stash list` shows it, for example `On main: work`.
     pub message: String,
     pub time: Time,
@@ -107,6 +110,13 @@ impl RefsRead for GitRepo {
             tags: tags(&repo)?,
             stashes: stashes(&repo),
         })
+    }
+}
+
+impl GitRepo {
+    /// The stash entries, newest first, without reading other refs.
+    pub fn stashes(&self) -> Vec<StashEntry> {
+        stashes(&self.thread_local())
     }
 }
 
@@ -284,6 +294,7 @@ fn stashes(repo: &gix::Repository) -> Vec<StashEntry> {
         .zip(0u32..)
         .map(|(line, index)| StashEntry {
             index,
+            hash: line.new_oid.to_string(),
             message: text(line.message.trim()),
             time: Time {
                 seconds: line.signature.time.seconds,

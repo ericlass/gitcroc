@@ -109,6 +109,11 @@ test.each([
     details: conflict("apply_mailbox", { step: { current: 1, total: 4 } }),
     text: "Patch application in progress: patch 1 of 4",
   },
+  {
+    // git records no stash for an apply, only where it was applied (OPS-1).
+    details: conflict("stash_apply", { onto: "main" }),
+    text: "Stash apply stopped with conflicts on main",
+  },
 ])("ops_2_banner_names_the_operation_with_abort_and_continue: $details.operation", async ({ details, text }) => {
   await setup();
   expect(banner()).toBeNull();
@@ -122,6 +127,15 @@ test.each([
   // OPS-2: Continue waits until no path is unmerged.
   expect(bannerButton("Continue").disabled).toBe(true);
 
+  if (details.operation === "stash_apply") {
+    // Nothing to continue: the last path marked resolved ends the state.
+    expect(banner()?.textContent).toContain("mark them resolved, and the stash apply ends");
+    setConflict("r1", null);
+    await settleAll();
+    expect(banner()).toBeNull();
+    expect(fakeState.integrateRequests).toEqual([]);
+    return;
+  }
   setConflict("r1", { ...details, unmerged_paths: 0 });
   await settleAll();
   expect(banner()?.textContent).toContain("All conflicts are resolved");
@@ -129,7 +143,32 @@ test.each([
 
   fireEvent.click(bannerButton("Continue"));
   await settleAll();
-  expect(fakeState.integrateRequests.at(-1)).toEqual({ repo_id: "r1", op: { kind: "continue" } });
+  expect(fakeState.integrateRequests.at(-1)).toEqual({ repo_id: "r1", op: { kind: "continue" }, confirmed: false });
+  expect(banner()).toBeNull();
+});
+
+test("ops_2_abort_of_a_stash_apply_asks_first", async () => {
+  await setup();
+  setConflict("r1", conflict("stash_apply", { onto: "main", unmerged_paths: 1 }));
+  await settleAll();
+
+  // It cannot be undone from the app: the core asks, the dialog names what is lost.
+  fireEvent.click(bannerButton("Abort"));
+  await settleAll();
+  const dialog = screen.getByRole("alertdialog");
+  expect(dialog.textContent).toContain("Cannot be undone in api");
+  expect(dialog.textContent).toContain("back to HEAD");
+  expect(banner()).not.toBeNull();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(banner()).not.toBeNull();
+
+  fireEvent.click(bannerButton("Abort"));
+  await settleAll();
+  fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Abort" }));
+  await settleAll();
+  expect(fakeState.integrateRequests.map((request) => request.confirmed)).toEqual([false, false, true]);
+  expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(banner()).toBeNull();
 });
 
@@ -152,7 +191,7 @@ test("ops_2_abort_from_the_banner_and_a_continue_that_stops_again", async () => 
 
   fireEvent.click(bannerButton("Abort"));
   await settleAll();
-  expect(fakeState.integrateRequests.at(-1)).toEqual({ repo_id: "r1", op: { kind: "abort" } });
+  expect(fakeState.integrateRequests.at(-1)).toEqual({ repo_id: "r1", op: { kind: "abort" }, confirmed: false });
   expect(banner()).toBeNull();
   expect(toolbar.getByRole<HTMLButtonElement>("button", { name: "Merge" }).disabled).toBe(false);
 });
@@ -175,6 +214,7 @@ test("ui_13_commit_context_menu", async () => {
   expect(fakeState.integrateRequests.at(-1)).toEqual({
     repo_id: "r1",
     op: { kind: "cherry_pick", commits: [hash(1)] },
+    confirmed: false,
   });
 
   // Ctrl/Cmd adds to the selection: only Cherry-pick applies to several.
@@ -195,6 +235,7 @@ test("ui_13_commit_context_menu", async () => {
   expect(fakeState.integrateRequests.at(-1)).toEqual({
     repo_id: "r1",
     op: { kind: "cherry_pick", commits: [hash(0), hash(3)] },
+    confirmed: false,
   });
 
   // Shift selects the range from the last row clicked.
@@ -273,6 +314,7 @@ test("ui_20_merge_dialog_filters_in_the_core_and_merges_or_rebases", async () =>
   expect(fakeState.integrateRequests.at(-1)).toEqual({
     repo_id: "r1",
     op: { kind: "merge", revision: "feature", fast_forward: "no_ff" },
+    confirmed: false,
   });
   expect(screen.queryByRole("dialog")).toBeNull();
 
@@ -286,6 +328,7 @@ test("ui_20_merge_dialog_filters_in_the_core_and_merges_or_rebases", async () =>
   expect(fakeState.integrateRequests.at(-1)).toEqual({
     repo_id: "r1",
     op: { kind: "rebase", onto: "origin/main" },
+    confirmed: false,
   });
 
   // The core's refusal shows in the dialog.
