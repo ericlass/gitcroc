@@ -1301,6 +1301,7 @@ dependencies = [
  "gitcroc-core",
  "gitcroc-git",
  "gtk",
+ "repo-gen",
  "serde",
  "serde_json",
  "specta",
@@ -1309,9 +1310,11 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-specta",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "toml 1.1.8+spec-1.1.0",
+ "uuid",
 ]
 
 [[package]]

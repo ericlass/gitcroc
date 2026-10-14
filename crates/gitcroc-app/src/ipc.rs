@@ -24,6 +24,8 @@ use specta::Type;
 use specta::function::collect_functions;
 use specta_typescript::Typescript;
 use tauri::{AppHandle, Manager, State};
+
+use crate::askpass::{AskpassPrompt, WindowAskpassUi};
 use tauri_plugin_dialog::DialogExt;
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
 
@@ -170,6 +172,20 @@ impl From<ChangesError> for IpcError {
 #[tauri_specta(event_name = "job_progress")]
 pub struct JobProgressEvent(pub JobView);
 
+/// Git or ssh asks for something it cannot get silently, sent as event
+/// `askpass_prompt` (D10). Answered with `askpass_answer`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "askpass_prompt")]
+pub struct AskpassPromptEvent(pub AskpassPrompt);
+
+/// A prompt was withdrawn before it was answered, as when its job ended,
+/// sent as event `askpass_closed`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "askpass_closed")]
+pub struct AskpassClosedEvent {
+    pub prompt_id: u32,
+}
+
 /// A job ended, sent as event `job_ended` with its outcome and git's
 /// output, after its repos' fresh summaries.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
@@ -233,57 +249,12 @@ pub struct CommitGraphWrittenEvent {
 }
 
 /// The desktop's UI and monospace font families, read once at startup
-/// (UI-26).
+/// (UI-26) by [`crate::platform::DesktopFontSource`]; `None` for what the
+/// desktop does not tell.
 #[derive(Debug, Clone, Default)]
 pub struct DesktopFonts {
     pub ui: Option<String>,
     pub code: Option<String>,
-}
-
-impl DesktopFonts {
-    /// Reads the fonts of the desktop, e.g. `Ubuntu` from GTK's `Ubuntu 11`;
-    /// `None` off Linux and for what the desktop does not tell. Called on the
-    /// main thread once GTK is up, in `setup`.
-    pub fn read() -> Self {
-        #[cfg(target_os = "linux")]
-        {
-            use gtk::prelude::GtkSettingsExt;
-            let ui = gtk::Settings::default().and_then(|settings| settings.gtk_font_name());
-            Self {
-                ui: ui.and_then(|name| font_family(&name)),
-                code: gnome_monospace_font().and_then(|name| font_family(&name)),
-            }
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            Self::default()
-        }
-    }
-}
-
-/// GNOME's monospace font, e.g. `JetBrains Mono NL 11`. GTK has no setting
-/// for it. `None` where the GNOME schema is not installed: GIO aborts the
-/// process on a schema it does not know, so it is looked up first.
-#[cfg(target_os = "linux")]
-pub fn gnome_monospace_font() -> Option<String> {
-    use gtk::gio;
-    use gtk::gio::prelude::SettingsExtManual;
-    const SCHEMA: &str = "org.gnome.desktop.interface";
-    const KEY: &str = "monospace-font-name";
-    let schema = gio::SettingsSchemaSource::default()?.lookup(SCHEMA, true)?;
-    if !schema.has_key(KEY) {
-        return None;
-    }
-    let settings = gio::Settings::new_full(&schema, None::<&gio::SettingsBackend>, None);
-    Some(settings.get::<String>(KEY))
-}
-
-/// The family of a Pango font description such as `Noto Sans Bold 10`.
-#[cfg(target_os = "linux")]
-pub fn font_family(description: &str) -> Option<String> {
-    let family = gtk::pango::FontDescription::from_string(description).family()?;
-    let family = family.trim();
-    (!family.is_empty()).then(|| family.to_owned())
 }
 
 /// The name, version, OS and architecture of the running build, and the
@@ -600,6 +571,35 @@ pub async fn job_cancel(
     job_id: JobId,
 ) -> Result<CancelResult, IpcError> {
     Ok(jobs.cancel(job_id))
+}
+
+/// The user's answer to prompt `prompt_id`, which goes to git and nowhere
+/// else (D10); `None` is a cancel, and git gets no answer. A prompt no
+/// longer open is ignored.
+#[tauri::command]
+#[specta::specta]
+pub async fn askpass_answer(
+    ui: State<'_, Arc<WindowAskpassUi>>,
+    prompt_id: u32,
+    answer: Option<String>,
+) -> Result<(), IpcError> {
+    ui.answer(prompt_id, answer);
+    Ok(())
+}
+
+/// The askpass dialog of the window (D10): prompts go out as
+/// `askpass_prompt`, withdrawn ones as `askpass_closed`.
+pub fn askpass_ui(app: &AppHandle) -> Arc<WindowAskpassUi> {
+    let (shown, closed) = (app.clone(), app.clone());
+    Arc::new(WindowAskpassUi::new(
+        move |prompt| {
+            // An emit fails only while the app shuts down.
+            let _ = AskpassPromptEvent(prompt.clone()).emit(&shown);
+        },
+        move |prompt_id| {
+            let _ = AskpassClosedEvent { prompt_id }.emit(&closed);
+        },
+    ))
 }
 
 /// Keeps "don't ask again" for a repo's commit-graph offer (PERF-2).
@@ -1193,6 +1193,7 @@ macro_rules! with_commands {
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,
+                askpass_answer,
                 debug::perf_trace_write
             ]
         }
@@ -1226,7 +1227,8 @@ macro_rules! with_commands {
                 diff_image,
                 settings_set_appearance,
                 workspace_refresh,
-                watch_warning
+                watch_warning,
+                askpass_answer
             ]
         }
     }};
@@ -1245,7 +1247,9 @@ pub fn builder() -> Builder<tauri::Wry> {
             RepoRefsChangedEvent,
             CommitGraphWrittenEvent,
             WatchWarningEvent,
-            JobEndedEvent
+            JobEndedEvent,
+            AskpassPromptEvent,
+            AskpassClosedEvent
         ])
 }
 

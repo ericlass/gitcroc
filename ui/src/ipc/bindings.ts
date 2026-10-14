@@ -185,6 +185,12 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	message: string,
 } | null, IpcError>(__TAURI_INVOKE("watch_warning", { workspaceId })),
 	/**
+	 *  The user's answer to prompt `prompt_id`, which goes to git and nowhere
+	 *  else (D10); `None` is a cancel, and git gets no answer. A prompt no
+	 *  longer open is ignored.
+	 */
+	askpassAnswer: (promptId: number, answer: string | null) => typedError<null, IpcError>(__TAURI_INVOKE("askpass_answer", { promptId, answer })),
+	/**
 	 *  Writes the UI's measurements to the JSON file `$GITCROC_PERF_TRACE`
 	 *  names, with the cold start (process start to tree visible) worked
 	 *  out. Fails in builds without the `perf-trace` feature.
@@ -194,6 +200,8 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 
 /** Events */
 export const events = {
+	askpassClosed: makeEvent<AskpassClosedEvent>("askpass_closed"),
+	askpassPrompt: makeEvent<AskpassPromptEvent>("askpass_prompt"),
 	commitGraphWritten: makeEvent<CommitGraphWrittenEvent>("commit_graph_written"),
 	gitStatus: makeEvent<GitStatusEvent>("git_status"),
 	jobEnded: makeEvent<JobEndedEvent>("job_ended"),
@@ -257,6 +265,31 @@ export type Appearance = {
 	/**  In CSS pixels, [`MIN_FONT_SIZE`] to [`MAX_FONT_SIZE`]. */
 	code_font_size: number,
 };
+
+/**
+ *  A prompt was withdrawn before it was answered, as when its job ended,
+ *  sent as event `askpass_closed`.
+ */
+export type AskpassClosedEvent = {
+	prompt_id: number,
+};
+
+/**  A prompt as the dialog shows it, naming the repo and the job. */
+export type AskpassPrompt = {
+	prompt_id: number,
+	kind: PromptKind,
+	/**  Git's or ssh's prompt, shown as text (SEC-3). */
+	text: string,
+	workspace_name: string,
+	repo_names: string[],
+	job_label: string,
+};
+
+/**
+ *  Git or ssh asks for something it cannot get silently, sent as event
+ *  `askpass_prompt` (D10). Answered with `askpass_answer`.
+ */
+export type AskpassPromptEvent = AskpassPrompt;
 
 /**  What [`Jobs::cancel`] did. */
 export type CancelResult = 
@@ -726,6 +759,15 @@ export type Person = {
 	email: string,
 	time: Time,
 };
+
+/**  What git asks for. */
+export type PromptKind = 
+/**  A name or other text, shown as it is typed. */
+"text" | 
+/**  A password or passphrase, masked. */
+"secret" | 
+/**  An SSH host key question, answered `yes` or `no`. */
+"yes_no";
 
 /**  The kind of a ref label on a history row. */
 export type RefKind = 

@@ -1,6 +1,8 @@
 //! Application shell: the Tauri 2 app that wires core and AI together.
 
+pub mod askpass;
 pub mod ipc;
+pub mod platform;
 
 use std::sync::Arc;
 
@@ -8,6 +10,7 @@ use gitcroc_core::{
     AppLog, Changes, GitSetup, Histories, PlatformCacheDir, PlatformConfigDir, PlatformLogDir,
     SettingsStore, Summaries, SummaryCache, Trees, Workspaces,
 };
+use platform::DesktopFontSource;
 use tauri::Manager;
 
 /// Errors returned by `gitcroc-app`.
@@ -78,11 +81,24 @@ pub fn run() -> Result<(), Error> {
             #[cfg(feature = "perf-trace")]
             ipc::debug::probe_main_loop(app.handle());
             // Before the page loads, so its first `app_info` has it.
-            app.manage(ipc::DesktopFonts::read());
+            app.manage(platform::PlatformFonts.read());
             ipc.mount_events(app);
             // The watchers report through the app, so they start with it.
             app.manage(Arc::new(ipc::watchers(app.handle())));
-            app.manage(ipc::jobs(app.handle()));
+            let jobs = ipc::jobs(app.handle());
+            // Network writes ask through the window (D10). Without the
+            // socket they run without, and git fails as it would.
+            let askpass_ui = ipc::askpass_ui(app.handle());
+            match askpass::serve(askpass_ui.clone()) {
+                Ok(server) => {
+                    jobs.use_askpass(server);
+                }
+                Err(error) => app
+                    .state::<Arc<AppLog>>()
+                    .warn(&format!("git cannot ask for credentials: {error}")),
+            }
+            app.manage(askpass_ui);
+            app.manage(jobs);
             ipc::spawn_watching(app.handle());
             ipc::spawn_git_detection(app.handle().clone());
             ipc::perf_mark("setup done");

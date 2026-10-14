@@ -130,6 +130,7 @@ impl Setup {
             on_cancel: OnCancel::Finish,
             may_conflict: false,
             nothing_to_do: NothingToDo::Never,
+            network: false,
         }
     }
 

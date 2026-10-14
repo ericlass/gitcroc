@@ -10,6 +10,7 @@ import {
   Switch,
   untrack,
 } from "solid-js";
+import AskpassDialog from "./AskpassDialog";
 import GitSetup from "./GitSetup";
 import { appInfo } from "./ipc";
 import JobList from "./jobs/JobList";
@@ -19,6 +20,7 @@ import TabBar from "./layout/TabBar";
 import Toolbar from "./layout/Toolbar";
 import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
+import { createAskpassStore } from "./stores/askpass";
 import { createChangesStore } from "./stores/changes";
 import { createGitStore } from "./stores/git";
 import { createHistoryStore, sourceOf } from "./stores/history";
@@ -35,6 +37,7 @@ import { followAppearance, followDesktopFonts, followTheme } from "./theme/theme
 export default function App() {
   const [info] = createResource(appInfo);
   const jobs = createJobStore();
+  const askpass = createAskpassStore();
   const git = createGitStore();
   const settings = createSettingsStore();
   const layout = createLayoutStore();
@@ -127,7 +130,7 @@ export default function App() {
 
   onMount(() => {
     void settings.load();
-    const unlisten = [jobs.subscribe(), git.subscribe(), workspaces.subscribe()];
+    const unlisten = [jobs.subscribe(), askpass.subscribe(), git.subscribe(), workspaces.subscribe()];
     onCleanup(() => {
       for (const pending of unlisten) {
         void pending.then((stop) => stop());
@@ -212,6 +215,11 @@ export default function App() {
           </Show>
           <Show when={jobsOpen()}>
             <JobList jobs={jobs} onClose={() => setJobsOpen(false)} />
+          </Show>
+          <Show when={askpass.current()} keyed>
+            {(prompt) => (
+              <AskpassDialog prompt={prompt} onAnswer={(answer) => void askpass.answer(prompt.prompt_id, answer)} />
+            )}
           </Show>
           <Show when={settingsOpen()}>
             <SettingsDialog settings={settings} info={info()} git={git.state.result} onClose={() => setSettingsOpen(false)} />

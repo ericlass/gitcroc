@@ -2,7 +2,7 @@
 //! needs the family alone.
 #![cfg(target_os = "linux")]
 
-use gitcroc_app::ipc::font_family;
+use gitcroc_app::platform::linux::{font_family, gnome_monospace_font};
 
 #[test]
 fn ui_26_the_desktop_font_is_read_as_its_family() {
@@ -24,7 +24,7 @@ fn ui_26_the_desktop_font_is_read_as_its_family() {
 /// not, it must return `None` instead of letting GIO abort the process.
 #[test]
 fn ui_26_the_monospace_font_is_read_with_or_without_gnome() {
-    if let Some(name) = gitcroc_app::ipc::gnome_monospace_font() {
+    if let Some(name) = gnome_monospace_font() {
         assert!(font_family(&name).is_some(), "{name:?} has no family");
     }
 }

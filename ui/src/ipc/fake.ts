@@ -4,6 +4,8 @@
 import type { Event, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AddReport,
+  AskpassClosedEvent,
+  AskpassPrompt,
   AppInfo,
   Appearance,
   ChangesContent,
@@ -101,6 +103,8 @@ const repoRefsChangedListeners: Listeners<RepoRef> = new Set();
 const commitGraphWrittenListeners: Listeners<CommitGraphWrittenEvent> = new Set();
 const watchWarningListeners: Listeners<WatchWarning> = new Set();
 const jobEndedListeners: Listeners<JobView> = new Set();
+const askpassPromptListeners: Listeners<AskpassPrompt> = new Set();
+const askpassClosedListeners: Listeners<AskpassClosedEvent> = new Set();
 
 /** Each workspace's changes view, as the core keeps it. */
 const views = new Map<string, { handle: number; lists: Partial<Record<FileRef["list"], FakeFile[]>> }>();
@@ -162,6 +166,8 @@ export const fakeState: {
   jobs: JobView[];
   /** Every `job_cancel`, oldest first. */
   cancels: JobId[];
+  /** Every `askpass_answer`, oldest first. */
+  askpassAnswers: { promptId: number; answer: string | null }[];
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -188,6 +194,7 @@ export const fakeState: {
   watchWarning: null,
   jobs: [],
   cancels: [],
+  askpassAnswers: [],
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -205,6 +212,16 @@ export function emitJobProgress(payload: JobView): void {
 /** Delivers a `job_ended` event to every listener, as the core would. */
 export function emitJobEnded(payload: JobView): void {
   emit(jobEndedListeners, "job_ended", payload);
+}
+
+/** Delivers an `askpass_prompt` event to every listener, as the core would. */
+export function emitAskpassPrompt(payload: AskpassPrompt): void {
+  emit(askpassPromptListeners, "askpass_prompt", payload);
+}
+
+/** Delivers an `askpass_closed` event to every listener, as the core would. */
+export function emitAskpassClosed(payload: AskpassClosedEvent): void {
+  emit(askpassClosedListeners, "askpass_closed", payload);
 }
 
 /** Keeps `view` in the fake's job list and sends it as the core would. */
@@ -269,6 +286,7 @@ export function reset(): void {
   fakeState.watchWarning = null;
   fakeState.jobs = [];
   fakeState.cancels = [];
+  fakeState.askpassAnswers = [];
   walks.clear();
   views.clear();
   imageFiles.clear();
@@ -281,6 +299,8 @@ export function reset(): void {
   commitGraphWrittenListeners.clear();
   watchWarningListeners.clear();
   jobEndedListeners.clear();
+  askpassPromptListeners.clear();
+  askpassClosedListeners.clear();
 }
 
 // Playwright runs the fake build; `?fake=<name>` picks a data set.
@@ -673,6 +693,10 @@ export const fake: Core = {
       fakeState.declined[repoId] = true;
       return Promise.resolve({ status: "ok", data: null });
     },
+    askpassAnswer: (promptId, answer) => {
+      fakeState.askpassAnswers.push({ promptId, answer });
+      return Promise.resolve({ status: "ok", data: null });
+    },
     jobsGet: () => Promise.resolve({ status: "ok", data: fakeState.jobs }),
     // Like the core: a queued job never runs; a running one finishes
     // (GRP-10). The fake's jobs do not move on by themselves.
@@ -693,6 +717,8 @@ export const fake: Core = {
       }),
   },
   events: {
+    askpassClosed: fakeEvent(askpassClosedListeners),
+    askpassPrompt: fakeEvent(askpassPromptListeners),
     commitGraphWritten: fakeEvent(commitGraphWrittenListeners),
     gitStatus: fakeEvent(gitStatusListeners),
     jobEnded: fakeEvent(jobEndedListeners),

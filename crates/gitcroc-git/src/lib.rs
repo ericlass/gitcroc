@@ -29,8 +29,8 @@ pub use refs::{
     RemoteBranches, StashEntry, Tag,
 };
 pub use runner::{
-    CommandRecord, Exit, GIT_ENV, GitError, GitRunner, Kill, Output, WRITE_ENV, Write,
-    log_commands_to,
+    ASKPASS_VARS, Askpass, CommandRecord, Exit, GIT_ENV, GitError, GitRunner, Kill, Output,
+    WRITE_ENV, Write, log_commands_to,
 };
 pub use status::{
     Conflict, Engine, Fallback, Head, Operation, RepoState, RepoSummary, StatusError, StatusRead,

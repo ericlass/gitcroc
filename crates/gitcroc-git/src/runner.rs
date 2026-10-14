@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Notify;
 
 /// Set on every git process (ARCH-3): messages stay in English so they can be
@@ -21,6 +21,31 @@ pub const GIT_ENV: [(&str, &str); 2] = [("LC_ALL", "C"), ("GIT_TERMINAL_PROMPT",
 /// Set on every write besides [`GIT_ENV`]: git never waits on an editor
 /// nobody sees. An operation that needs a message passes it explicitly.
 pub const WRITE_ENV: [(&str, &str); 1] = [("GIT_EDITOR", "true")];
+
+/// The variables that send git's and ssh's prompts to a program (D10). Only
+/// a network write with [`Write::askpass`] gets them; every other process
+/// has them removed, so a value inherited from the app's environment never
+/// reaches git.
+pub const ASKPASS_VARS: [&str; 3] = ["GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE"];
+
+/// Where a network write sends the prompts git and ssh cannot answer
+/// silently (D10): the helper `program`, and the variables it needs to
+/// reach the app, such as its socket and the job's token. Credential
+/// helpers and SSH agents still answer first.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Askpass {
+    pub program: PathBuf,
+    pub env: Vec<(String, String)>,
+}
+
+impl std::fmt::Debug for Askpass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The variables carry the job's token.
+        f.debug_struct("Askpass")
+            .field("program", &self.program)
+            .finish_non_exhaustive()
+    }
+}
 
 /// Windows: start git without opening a console window.
 #[cfg(windows)]
@@ -108,6 +133,11 @@ pub struct Write<'a> {
     /// Gets each stderr line while git runs, for `--progress` output. A
     /// carriage return ends a line like a newline.
     pub on_line: Option<&'a (dyn Fn(&str) + Send + Sync)>,
+    /// Set on network writes only: fetch, pull, push, clone, remote branch
+    /// delete and tag push (D10).
+    pub askpass: Option<&'a Askpass>,
+    /// What git reads on stdin; nothing when `None`.
+    pub stdin: Option<&'a [u8]>,
 }
 
 impl std::fmt::Debug for Write<'_> {
@@ -115,6 +145,8 @@ impl std::fmt::Debug for Write<'_> {
         f.debug_struct("Write")
             .field("kill", &self.kill)
             .field("on_line", &self.on_line.is_some())
+            .field("askpass", &self.askpass)
+            .field("stdin", &self.stdin.map(<[u8]>::len))
             .finish()
     }
 }
@@ -187,9 +219,11 @@ impl GitRunner {
     /// array, never through a shell (ARCH-3), and [`GIT_ENV`] set.
     pub fn command(&self, args: &[OsString], cwd: Option<&Path>) -> tokio::process::Command {
         let mut command = tokio::process::Command::new(&self.git);
+        command.args(args).envs(GIT_ENV);
+        for var in ASKPASS_VARS {
+            command.env_remove(var);
+        }
         command
-            .args(args)
-            .envs(GIT_ENV)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -203,28 +237,34 @@ impl GitRunner {
     }
 
     /// The command [`run_write`](Self::run_write) spawns: as
-    /// [`command`](Self::command), with [`WRITE_ENV`] set too.
-    pub fn write_command(&self, args: &[OsString], cwd: &Path) -> tokio::process::Command {
+    /// [`command`](Self::command), with [`WRITE_ENV`] set too, the askpass
+    /// helper when `write` has one (D10), and stdin piped when `write`
+    /// gives it.
+    pub fn write_command(
+        &self,
+        args: &[OsString],
+        cwd: &Path,
+        write: &Write<'_>,
+    ) -> tokio::process::Command {
         let mut command = self.command(args, Some(cwd));
         command.envs(WRITE_ENV);
+        if let Some(askpass) = write.askpass {
+            command
+                .env("GIT_ASKPASS", &askpass.program)
+                .env("SSH_ASKPASS", &askpass.program)
+                .env("SSH_ASKPASS_REQUIRE", "prefer")
+                .envs(askpass.env.iter().map(|(key, value)| (key, value)));
+        }
+        if write.stdin.is_some() {
+            command.stdin(Stdio::piped());
+        }
         command
     }
 
     /// Like [`run`](Self::run), for a thread that may block: the read API
     /// runs on blocking threads, and its git fallback (ARCH-2) waits here.
     pub fn run_blocking(&self, args: &[OsString], cwd: Option<&Path>) -> Result<Output, GitError> {
-        let mut command = std::process::Command::new(&self.git);
-        command
-            .args(args)
-            .envs(GIT_ENV)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if let Some(cwd) = cwd {
-            command.current_dir(cwd);
-        }
-        #[cfg(windows)]
-        std::os::windows::process::CommandExt::creation_flags(&mut command, CREATE_NO_WINDOW);
+        let mut command = self.blocking_command(args, cwd);
         let started = Instant::now();
         let output = command.output().map_err(|source| {
             log(args, cwd, started, Exit::NotStarted);
@@ -235,6 +275,26 @@ impl GitRunner {
         })?;
         log(args, cwd, started, exit_of(output.status));
         finish(output.status, output.stdout, output.stderr)
+    }
+
+    /// The command [`run_blocking`](Self::run_blocking) spawns: as
+    /// [`command`](Self::command), for a blocking thread.
+    pub fn blocking_command(&self, args: &[OsString], cwd: Option<&Path>) -> std::process::Command {
+        let mut command = std::process::Command::new(&self.git);
+        command.args(args).envs(GIT_ENV);
+        for var in ASKPASS_VARS {
+            command.env_remove(var);
+        }
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut command, CREATE_NO_WINDOW);
+        command
     }
 
     /// Runs git with `args` in `cwd` (or the current directory) and captures
@@ -267,16 +327,27 @@ impl GitRunner {
             log(args, Some(cwd), started, Exit::NotStarted);
             return Err(GitError::Killed);
         }
-        let mut child = self.write_command(args, cwd).spawn().map_err(|source| {
-            log(args, Some(cwd), started, Exit::NotStarted);
-            GitError::Spawn {
-                path: self.git.clone(),
-                source,
-            }
-        })?;
+        let mut child = self
+            .write_command(args, cwd, &write)
+            .spawn()
+            .map_err(|source| {
+                log(args, Some(cwd), started, Exit::NotStarted);
+                GitError::Spawn {
+                    path: self.git.clone(),
+                    source,
+                }
+            })?;
+        let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
-        let read = async { tokio::join!(read_all(stdout), read_lines(stderr, write.on_line)) };
+        let read = async {
+            let ((), stdout, stderr) = tokio::join!(
+                write_all(stdin, write.stdin),
+                read_all(stdout),
+                read_lines(stderr, write.on_line)
+            );
+            (stdout, stderr)
+        };
         let killed = async {
             match write.kill {
                 Some(kill) => kill.requested().await,
@@ -304,6 +375,14 @@ impl GitRunner {
                 Err(GitError::Killed)
             }
         }
+    }
+}
+
+/// Writes `bytes` to `pipe` and closes it. A write error ends it early:
+/// git stopped reading, and its exit code tells why.
+async fn write_all(pipe: Option<tokio::process::ChildStdin>, bytes: Option<&[u8]>) {
+    if let (Some(mut pipe), Some(bytes)) = (pipe, bytes) {
+        let _ = pipe.write_all(bytes).await;
     }
 }
 

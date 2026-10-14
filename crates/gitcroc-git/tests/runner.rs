@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 
-use gitcroc_git::{GitError, GitRunner, Kill, SearchEnv, Write, detect};
+use gitcroc_git::{ASKPASS_VARS, Askpass, GitError, GitRunner, Kill, SearchEnv, Write, detect};
 
 async fn runner() -> GitRunner {
     let git = detect(None, &SearchEnv::from_process())
@@ -83,7 +83,7 @@ async fn writes_never_wait_on_an_editor() {
             .find(|(name, _)| *name == OsStr::new("GIT_EDITOR"))
             .and_then(|(_, value)| value.map(OsStr::to_owned))
     };
-    let write = git.write_command(&args(&["commit"]), dir.path());
+    let write = git.write_command(&args(&["commit"]), dir.path(), &Write::default());
     assert_eq!(editor(&write), Some(OsString::from("true")));
     let env: HashMap<&OsStr, Option<&OsStr>> = write.as_std().get_envs().collect();
     assert_eq!(env.get(OsStr::new("LC_ALL")), Some(&Some(OsStr::new("C"))));
@@ -98,8 +98,8 @@ async fn a_write_sends_stderr_lines_while_git_runs_and_keeps_all_output() {
     let lines = std::sync::Mutex::new(Vec::new());
     let on_line = |line: &str| lines.lock().unwrap().push(line.to_owned());
     let write = Write {
-        kill: None,
         on_line: Some(&on_line),
+        ..Write::default()
     };
     let error = git
         .run_write(&args(&["rev-parse", "--git-dir"]), dir.path(), write)
@@ -123,11 +123,89 @@ async fn grp_10_a_write_killed_before_it_starts_never_runs() {
     kill.kill();
     let write = Write {
         kill: Some(&kill),
-        on_line: None,
+        ..Write::default()
     };
     let result = git
         .run_write(&args(&["init", "--quiet"]), dir.path(), write)
         .await;
     assert!(matches!(result, Err(GitError::Killed)), "{result:?}");
     assert!(!dir.path().join(".git").exists());
+}
+
+/// The askpass variables a command sets (`Some`) or removes (`None`); a
+/// variable it leaves alone, which git would inherit, is missing.
+fn askpass_vars<'a>(
+    envs: impl Iterator<Item = (&'a OsStr, Option<&'a OsStr>)>,
+) -> HashMap<String, Option<String>> {
+    envs.filter(|(key, _)| ASKPASS_VARS.iter().any(|var| OsStr::new(var) == *key))
+        .map(|(key, value)| {
+            let value = value.map(|value| value.to_string_lossy().into_owned());
+            (key.to_string_lossy().into_owned(), value)
+        })
+        .collect()
+}
+
+#[test]
+fn d10_reads_get_no_askpass() {
+    let git = GitRunner::new("git".into());
+    let removed: HashMap<String, Option<String>> = ASKPASS_VARS
+        .iter()
+        .map(|var| ((*var).to_owned(), None))
+        .collect();
+    let read = args(&["status"]);
+    let cwd = std::path::Path::new(".");
+
+    // Reads, blocking or not, and writes that are not network writes: a
+    // value inherited from the app's environment is removed.
+    let async_read = git.command(&read, None);
+    assert_eq!(askpass_vars(async_read.as_std().get_envs()), removed);
+    let blocking_read = git.blocking_command(&read, None);
+    assert_eq!(askpass_vars(blocking_read.get_envs()), removed);
+    let local_write = git.write_command(&read, cwd, &Write::default());
+    assert_eq!(askpass_vars(local_write.as_std().get_envs()), removed);
+
+    // A network write gets the helper, and the variables it needs.
+    let askpass = Askpass {
+        program: "/opt/gitcroc/gitcroc".into(),
+        env: vec![("GITCROC_ASKPASS_TOKEN".to_owned(), "token".to_owned())],
+    };
+    let network = Write {
+        askpass: Some(&askpass),
+        ..Write::default()
+    };
+    let network_write = git.write_command(&read, cwd, &network);
+    let program = Some("/opt/gitcroc/gitcroc".to_owned());
+    assert_eq!(
+        askpass_vars(network_write.as_std().get_envs()),
+        HashMap::from([
+            ("GIT_ASKPASS".to_owned(), program.clone()),
+            ("SSH_ASKPASS".to_owned(), program),
+            ("SSH_ASKPASS_REQUIRE".to_owned(), Some("prefer".to_owned())),
+        ])
+    );
+    assert!(
+        network_write.as_std().get_envs().any(
+            |(key, value)| key == "GITCROC_ASKPASS_TOKEN" && value == Some(OsStr::new("token"))
+        )
+    );
+}
+
+#[tokio::test]
+async fn a_write_reads_its_stdin() {
+    let git = runner().await;
+    let dir = tempfile::tempdir().unwrap();
+    let input = b"blob content\n";
+    let write = Write {
+        stdin: Some(input),
+        ..Write::default()
+    };
+    let out = git
+        .run_write(&args(&["hash-object", "--stdin"]), dir.path(), write)
+        .await
+        .unwrap();
+    // `git hash-object` of the same bytes.
+    assert_eq!(
+        out.stdout,
+        b"de2fd67c30b7f83c93682ed83ebff8a57a447cb5\n".to_vec()
+    );
 }

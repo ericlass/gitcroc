@@ -12,11 +12,12 @@ mod pool;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use gitcroc_git::{
-    GitError, GitRepo, GitRunner, Kill, Output, RefSnapshot, StatusRead, StatusReader, Write,
+    Askpass, GitError, GitRepo, GitRunner, Kill, Output, RefSnapshot, StatusRead, StatusReader,
+    Write,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -151,6 +152,53 @@ pub struct WriteJob {
     /// *conflict* (OPS-1).
     pub may_conflict: bool,
     pub nothing_to_do: NothingToDo,
+    /// A network write (fetch, pull, push, clone, remote branch delete,
+    /// tag push): git gets the askpass helper for its prompts (D10).
+    pub network: bool,
+}
+
+/// Lets the prompts of one network job reach the user (D10): the app's
+/// askpass helper, ready for that job.
+pub trait AskpassIssuer: Send + Sync {
+    /// Askpass for job `job`, valid until the grant is dropped; `None` when
+    /// prompts cannot be asked, and git then fails as it would without.
+    fn issue(&self, job: &JobView) -> Option<AskpassGrant>;
+}
+
+/// Askpass for one job. Dropped, it is revoked: the helper's prompts for
+/// the job get no answer from then on.
+pub struct AskpassGrant {
+    askpass: Askpass,
+    revoke: Option<Box<dyn FnOnce() + Send + Sync>>,
+}
+
+impl AskpassGrant {
+    pub fn new(askpass: Askpass, revoke: impl FnOnce() + Send + Sync + 'static) -> Self {
+        Self {
+            askpass,
+            revoke: Some(Box::new(revoke)),
+        }
+    }
+
+    pub fn askpass(&self) -> &Askpass {
+        &self.askpass
+    }
+}
+
+impl std::fmt::Debug for AskpassGrant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AskpassGrant")
+            .field("askpass", &self.askpass)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for AskpassGrant {
+    fn drop(&mut self) {
+        if let Some(revoke) = self.revoke.take() {
+            revoke();
+        }
+    }
 }
 
 type ProgressFn = dyn Fn(u32, u32) + Send + Sync;
@@ -163,6 +211,8 @@ pub struct JobRun {
     pub paths: Vec<PathBuf>,
     pub git: GitRunner,
     kill: Kill,
+    /// Set for a network write while it runs (D10).
+    askpass: Option<Askpass>,
     progress: Arc<ProgressFn>,
 }
 
@@ -181,7 +231,8 @@ impl JobRun {
     pub fn write(&self) -> Write<'_> {
         Write {
             kill: Some(&self.kill),
-            on_line: None,
+            askpass: self.askpass.as_ref(),
+            ..Write::default()
         }
     }
 
@@ -282,6 +333,7 @@ pub struct Jobs {
     workspaces: Arc<Workspaces>,
     summaries: Arc<Summaries>,
     events: Arc<dyn JobEvents>,
+    askpass: OnceLock<Arc<dyn AskpassIssuer>>,
     state: Mutex<State>,
 }
 
@@ -311,8 +363,15 @@ impl Jobs {
             workspaces,
             summaries,
             events,
+            askpass: OnceLock::new(),
             state: Mutex::new(State::default()),
         })
+    }
+
+    /// Network writes from now on send git's prompts through `issuer`
+    /// (D10). Set once; returns `false` when it was set already.
+    pub fn use_askpass(&self, issuer: Arc<dyn AskpassIssuer>) -> bool {
+        self.askpass.set(issuer).is_ok()
     }
 
     /// A new job id, for jobs that are not writes, such as adding repos.
@@ -557,6 +616,11 @@ impl Jobs {
             self.events.hold_watch(&job.workspace_id, repo, true);
         }
         let before = see(&paths, &git, job.may_conflict).await;
+        let grant = job
+            .network
+            .then(|| self.askpass.get())
+            .flatten()
+            .and_then(|issuer| issuer.issue(&view));
         let progress = {
             let engine = self.clone();
             Arc::new(move |done, total| engine.set_progress(id, done, total))
@@ -570,9 +634,12 @@ impl Jobs {
                 // Never requested: the job runs to its end.
                 OnCancel::Finish => Kill::new(),
             },
+            askpass: grant.as_ref().map(|grant| grant.askpass().clone()),
             progress,
         })
         .await;
+        // Revoked: a prompt still open for the job gets no answer.
+        drop(grant);
         let after = see(&paths, &git, job.may_conflict).await;
         let (outcome, output, message) = judge(&job, &result, &before, &after);
         // OPS-7: the repos it touched, read again at once.

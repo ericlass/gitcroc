@@ -32,16 +32,19 @@ pub use gitcroc_git::{
     RefsRead, RemoteBranches, RepoRead, RepoState, RepoSummary, SearchEnv, StashEntry, StatusError,
     StatusRead, StatusReader, Tag, TextDiff, Time, UnmergedFile, Upstream, WorkingCopy,
 };
-pub use gitcroc_git::{CommandRecord, Exit, Kill, Output, RefSnapshot, log_commands_to, ops};
+pub use gitcroc_git::{
+    Askpass, CommandRecord, Exit, Kill, Output, RefSnapshot, log_commands_to, ops,
+};
 pub use history::{
     COMMIT_GRAPH_THRESHOLD, CommitGraphError, CommitGraphWrite, Histories, HistoryPageError,
     HistoryTarget, HistoryView, HistoryViewError, commit_graph_write, history_get, history_more,
     history_page,
 };
 pub use job::{
-    CancelResult, JobError, JobEvents, JobHandle, JobId, JobIds, JobProgress, JobRun, JobState,
-    JobView, Jobs, MAX_ENDED_JOBS, MAX_OUTPUT, NothingToDo, OnCancel, Outcome, POOL_SIZE, Pool,
-    Priority, SkipReason, TrackedJob, Worker, WorkspaceId, WriteJob,
+    AskpassGrant, AskpassIssuer, CancelResult, JobError, JobEvents, JobHandle, JobId, JobIds,
+    JobProgress, JobRun, JobState, JobView, Jobs, MAX_ENDED_JOBS, MAX_OUTPUT, NothingToDo,
+    OnCancel, Outcome, POOL_SIZE, Pool, Priority, SkipReason, TrackedJob, Worker, WorkspaceId,
+    WriteJob,
 };
 pub use log::{AppLog, LOG_FILE, LOG_FILE_SIZE, LOG_FILES, LogDir, PlatformLogDir};
 pub use settings::{
