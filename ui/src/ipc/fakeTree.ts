@@ -47,6 +47,15 @@ export interface FakeRefs {
 
 const leaf = (id: string, label: string, item: TreeItem): TreeNode => ({ id, label, item, children: [] });
 
+/** A stash entry's commit hash in the fake: made from its message, so it stays with the entry when the list changes. */
+export function stashHash(message: string): string {
+  let hash = 0;
+  for (const char of message) {
+    hash = (hash * 31 + (char.codePointAt(0) ?? 0)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0").repeat(5);
+}
+
 /** Folds `/`-separated names into folders: folders first, each sorted. */
 function fold(parent: string, repoId: RepoId, names: string[], item: (name: string) => TreeItem): TreeNode[] {
   const build = (entries: string[], path: string): TreeNode[] => {
@@ -106,6 +115,7 @@ export function refNodes(repoId: RepoId, refs: FakeRefs): TreeNode[] {
       kind: "stash",
       repo_id: repoId,
       index,
+      hash: stashHash(message),
       message,
       seconds: 1_700_000_000 - index * 60,
     }),

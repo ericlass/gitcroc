@@ -5,7 +5,9 @@
 //! in conflict state is refused (GRP-8); abort and continue are what
 //! conflict state allows, and they act on the operation the repo's state
 //! shows, never on what the app started (OPS-1). Nothing is stashed to make
-//! one succeed (GRP-12).
+//! one succeed (GRP-12). The abort of a stash apply cannot be undone from
+//! the app: without the user's confirmation the core answers with what it
+//! would do instead.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -17,7 +19,7 @@ use gitcroc_git::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::unblocked::{BlockedError, open_unblocked};
+use crate::unblocked::{BlockedError, open_unblocked, repo_name};
 use crate::{
     GitRunner, JobError, JobId, Jobs, NothingToDo, OnCancel, OpenError, RepoId, StatusReadError,
     Summaries, WorkspaceError, WorkspaceId, Workspaces, WriteJob,
@@ -70,6 +72,8 @@ pub enum IntegrateOp {
 pub struct IntegrateRequest {
     pub repo_id: RepoId,
     pub op: IntegrateOp,
+    /// The user confirmed an operation that cannot be undone.
+    pub confirmed: bool,
 }
 
 /// What a request did.
@@ -85,6 +89,9 @@ pub enum IntegrateStart {
         commit: String,
         parents: Vec<String>,
     },
+    /// The operation cannot be undone: ask again with `confirmed` once the
+    /// user agreed. `actions` says what is lost.
+    Confirm { repo: String, actions: Vec<String> },
 }
 
 /// Why an integrate operation did not start, or a read for it failed.
@@ -164,6 +171,7 @@ fn operation_name(operation: Operation) -> &'static str {
         Operation::ApplyMailbox => "patch application",
         Operation::CherryPick => "cherry-pick",
         Operation::Revert => "revert",
+        Operation::StashApply => "stash apply",
     }
 }
 
@@ -192,6 +200,21 @@ impl Plan {
         match self {
             Self::Merge { .. } | Self::Rebase { .. } => NothingToDo::WhenRefsUnchanged,
             _ => NothingToDo::Never,
+        }
+    }
+
+    /// What cannot be undone from the app: the abort of a stash apply,
+    /// which git keeps no state to go back to.
+    fn destructive(&self) -> Vec<String> {
+        match self {
+            Self::Resume {
+                operation: Operation::StashApply,
+                resume: Resume::Abort,
+            } => vec![
+                "Put the files the stash apply changed back to HEAD, resolutions included; the stash is kept and other local changes stay"
+                    .to_owned(),
+            ],
+            _ => Vec::new(),
         }
     }
 
@@ -324,6 +347,11 @@ fn plan(repo: &GitRepo, git: &GitRunner, op: IntegrateOp) -> Result<Planned, Int
             let operation = state
                 .operation
                 .ok_or_else(|| refused(format!("the repo has no operation to {what}")))?;
+            if continuing && operation == Operation::StashApply {
+                return Err(refused(
+                    "a stash apply has nothing to continue: it ends when the last file is marked resolved",
+                ));
+            }
             if continuing && state.unmerged_paths > 0 {
                 let paths = match state.unmerged_paths {
                     1 => "1 path is".to_owned(),
@@ -366,7 +394,9 @@ async fn run(
 /// Runs integrate operation `request` on its repo of workspace `id` as a
 /// job (section 6 "Integrate"). Refused for a blocked repo (GRP-8), except
 /// that abort and continue need conflict state, or for what the operation
-/// cannot apply to; a revert of a merge commit asks for its mainline first.
+/// cannot apply to; a revert of a merge commit asks for its mainline first,
+/// and the abort of a stash apply answers what it would do until
+/// `confirmed`.
 pub async fn op_integrate(
     workspaces: Arc<Workspaces>,
     summaries: Arc<Summaries>,
@@ -375,7 +405,11 @@ pub async fn op_integrate(
     id: WorkspaceId,
     request: IntegrateRequest,
 ) -> Result<IntegrateStart, IntegrateError> {
-    let IntegrateRequest { repo_id, op } = request;
+    let IntegrateRequest {
+        repo_id,
+        op,
+        confirmed,
+    } = request;
     let in_conflict = Plan::in_conflict(&op);
     let (path, repo) =
         open_unblocked(&workspaces, &summaries, &git, &id, &repo_id, in_conflict).await?;
@@ -388,6 +422,13 @@ pub async fn op_integrate(
             }
         }
     };
+    let destructive = plan.destructive();
+    if !destructive.is_empty() && !confirmed {
+        return Ok(IntegrateStart::Confirm {
+            repo: repo_name(&workspaces, &id, &repo_id)?,
+            actions: destructive,
+        });
+    }
     let job = WriteJob {
         workspace_id: id,
         repos: vec![repo_id],

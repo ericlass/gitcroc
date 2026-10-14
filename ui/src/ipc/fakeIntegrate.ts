@@ -9,6 +9,8 @@ import type { FakeRefs } from "./fakeTree";
 export type IntegratePlan =
   | { kind: "refused"; why: string }
   | { kind: "choose_mainline"; commit: string; parents: string[] }
+  /** Cannot be undone: the core asks first. */
+  | { kind: "confirm"; actions: string[] }
   /** Runs, with the job's label; `operation` is what it may stop in. */
   | { kind: "run"; label: string; operation: Operation | null };
 
@@ -29,19 +31,22 @@ const OPERATION_NAMES: Record<Operation, string> = {
   apply_mailbox: "patch application",
   cherry_pick: "cherry-pick",
   revert: "revert",
+  stash_apply: "stash apply",
 };
 
 const short = (hash: string) => hash.slice(0, 7);
 
 /**
  * What the core would answer for `op` on `refs`, with the repo in
- * `conflict` (or not), and `parents` giving each commit's parents.
+ * `conflict` (or not), `parents` giving each commit's parents, and whether
+ * the user `confirmed` it.
  */
 export function planIntegrate(
   refs: FakeRefs,
   op: IntegrateOp,
   conflict: ConflictDetails | undefined,
   parents: (hash: string) => string[],
+  confirmed: boolean,
 ): IntegratePlan {
   const known = (name: string) => mergeTargetsOf(refs, "").includes(name) || name === refs.current;
   switch (op.kind) {
@@ -85,6 +90,20 @@ export function planIntegrate(
       const operation = conflict?.operation ?? null;
       if (operation === null) {
         return { kind: "refused", why: `the repo has no operation to ${op.kind}` };
+      }
+      if (op.kind === "continue" && operation === "stash_apply") {
+        return {
+          kind: "refused",
+          why: "a stash apply has nothing to continue: it ends when the last file is marked resolved",
+        };
+      }
+      if (op.kind === "abort" && operation === "stash_apply" && !confirmed) {
+        return {
+          kind: "confirm",
+          actions: [
+            "Put the files the stash apply changed back to HEAD, resolutions included; the stash is kept and other local changes stay",
+          ],
+        };
       }
       if (op.kind === "continue" && (conflict?.unmerged_paths ?? 0) > 0) {
         return { kind: "refused", why: "paths are still unmerged; resolve and stage them first" };

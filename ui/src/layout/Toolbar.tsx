@@ -1,10 +1,7 @@
 // The toolbar of UI-20. Buttons that cannot apply are disabled, not hidden.
 // Fetch, Pull and Push act on the selected repo: a click runs with the
 // defaults, the arrow beside Pull and Push opens their options. Merge opens
-// the dialog that merges or rebases.
-import { For } from "solid-js";
-
-const LATER = ["Stash"];
+// the dialog that merges or rebases, Stash the stash dialog.
 
 /** What a button does; `null` disables it. */
 type Action = (() => void) | null;
@@ -44,6 +41,8 @@ export default function Toolbar(props: {
   onBranch: Action;
   /** Opens the merge dialog for the selected repo; `null` when no repo can take it. */
   onMerge: Action;
+  /** Opens the stash dialog for the selected repo; `null` when no repo can take it. */
+  onStash: Action;
   onSettings: () => void;
 }) {
   return (
@@ -84,13 +83,14 @@ export default function Toolbar(props: {
       >
         Merge
       </button>
-      <For each={LATER}>
-        {(name) => (
-          <button type="button" disabled>
-            {name}
-          </button>
-        )}
-      </For>
+      <button
+        type="button"
+        disabled={props.onStash === null}
+        title="Stash the local changes of the selected repository"
+        onClick={() => props.onStash?.()}
+      >
+        Stash
+      </button>
       <span class="toolbar-gap" />
       <button type="button" disabled>
         Command palette

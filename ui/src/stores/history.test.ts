@@ -73,7 +73,7 @@ test("section 8 tree selections map to what the history shows", () => {
     uncommitted: true,
   });
   expect(sourceOf("b", { kind: "branch", current: false, ...branch })?.uncommitted).toBe(false);
-  expect(sourceOf("s", { kind: "stash", repo_id: "r1", index: 2, message: "m", seconds: 0 })?.target).toEqual({
+  expect(sourceOf("s", { kind: "stash", repo_id: "r1", index: 2, hash: "h", message: "m", seconds: 0 })?.target).toEqual({
     kind: "stash",
     index: 2,
   });

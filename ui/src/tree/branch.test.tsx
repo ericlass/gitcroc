@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { fakeState, reset } from "../ipc/fake";
 import { type FakeRefs, refNodes, summary } from "../ipc/fakeTree";
 import { createBranchStore } from "../stores/branch";
+import { createStashStore } from "../stores/stash";
 import { createSummaryStore } from "../stores/summaries";
 import { createTreeStore } from "../stores/tree";
 import { createWorkspaceStore } from "../stores/workspaces";
@@ -55,7 +56,14 @@ async function setup(change: { busy?: boolean } = {}) {
   const branch = createBranchStore();
   render(() => (
     <>
-      <TreePane workspace={id()} tree={tree} summaries={summaries} workspaces={createWorkspaceStore()} branch={branch} />
+      <TreePane
+        workspace={id()}
+        tree={tree}
+        summaries={summaries}
+        workspaces={createWorkspaceStore()}
+        branch={branch}
+        stash={createStashStore()}
+      />
       <BranchDialogs workspace={id()} branch={branch} repoName={() => "api"} />
     </>
   ));
@@ -138,9 +146,10 @@ test("UI-7 the context menu of each row kind lists its operations", async () => 
   expect(menuOf(row("topic", 5))).toEqual(["Check out", "New branch from here…", "Delete on the remote…"]);
   expect(menuOf(row("v1.0", 4))).toEqual(["Check out (detached)", "New branch from here…"]);
 
-  // Rows that only group others, and stashes (M2-11), have no menu.
+  expect(menuOf(row("On main: work", 4))).toEqual(["Apply", "Pop", "Drop…"]);
+
+  // Rows that only group others have no menu.
   fireEvent.contextMenu(row("Local", 3));
-  fireEvent.contextMenu(row("On main: work", 4));
   expect(screen.queryByRole("menu")).toBeNull();
 });
 

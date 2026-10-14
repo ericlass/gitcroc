@@ -24,11 +24,13 @@ import type {
   IntegrateRequest,
   JobId,
   JobView,
+  Outcome,
   PaneLayout,
   RepoId,
   RepoRef,
   ResolveRequest,
   SettingsView,
+  StashRequest,
   SummaryView,
   SyncRequest,
   TreeNode,
@@ -54,7 +56,7 @@ import { labelsOf, planResolution, textConflict } from "./fakeConflict";
 import { mergeTargetsOf, planIntegrate } from "./fakeIntegrate";
 import { fakeJob, jobsScenario } from "./fakeJobs";
 import { applySync, planSync, pushChoicesOf } from "./fakeSync";
-import { type FakeRefs, filterTree, refNodes, scenario, skeleton } from "./fakeTree";
+import { type FakeRefs, filterTree, refNodes, scenario, skeleton, stashHash } from "./fakeTree";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch", ui_font: null, code_font: null };
 const defaultGitStatus: GitStatus = { kind: "usable", path: "/fake/bin/git", version: "2.47.0" };
@@ -219,6 +221,10 @@ export const fakeState: {
   conflicts: Record<RepoId, ConflictDetails>;
   /** The conflict the next integrate job stops in; `null` lets them succeed. */
   integrateConflict: ConflictDetails | null;
+  /** Every `op_stash`, oldest first. */
+  stashRequests: StashRequest[];
+  /** The conflict the next apply or pop stops in; `null` lets them succeed. */
+  stashConflict: ConflictDetails | null;
   /** What `conflict_get` answers by path; others get `textConflict`. */
   fileConflicts: Record<string, Conflict>;
   /** Every `conflict_resolve` and `conflict_choose`, oldest first. */
@@ -263,6 +269,8 @@ export const fakeState: {
   integrateRequests: [],
   conflicts: {},
   integrateConflict: null,
+  stashRequests: [],
+  stashConflict: null,
   fileConflicts: {},
   conflictRequests: [],
 };
@@ -616,9 +624,15 @@ function fakeIntegrateOp(workspaceId: WorkspaceId, request: IntegrateRequest) {
     return refused("the repo is in conflict state; continue or abort first");
   }
   const parents = (hash: string) => fakeState.commits[hash]?.details.parents ?? [];
-  const plan = planIntegrate(refs, request.op, fakeState.conflicts[repo.id], parents);
+  const plan = planIntegrate(refs, request.op, fakeState.conflicts[repo.id], parents, request.confirmed);
   if (plan.kind === "refused") {
     return refused(plan.why);
+  }
+  if (plan.kind === "confirm") {
+    return Promise.resolve({
+      status: "ok" as const,
+      data: { kind: "confirm" as const, repo: repo.name, actions: plan.actions },
+    });
   }
   if (plan.kind === "choose_mainline") {
     return Promise.resolve({
@@ -643,6 +657,103 @@ function fakeIntegrateOp(workspaceId: WorkspaceId, request: IntegrateRequest) {
       repo_names: [repo.name],
       state: "ended",
       outcome: stops === null ? { kind: "succeeded" } : { kind: "conflict" },
+      output: stops === null ? "" : "CONFLICT (content): Merge conflict in a.txt\n",
+      message: null,
+      started_at: Date.now(),
+      duration_ms: 5,
+    });
+    endJob(workspaceId, repo.id, job);
+    emitRepoRefsChanged({ workspace_id: workspaceId, repo_id: repo.id });
+  }, 0);
+  return Promise.resolve({ status: "ok" as const, data: { kind: "started" as const, job_id: jobId } });
+}
+
+/**
+ * Runs stash operation `request` on the fake's ref model, like the core:
+ * refused for a blocked repo or an entry no longer at its index, a drop
+ * asked to confirm first, then a job. A push of a clean repo is *nothing
+ * to do*; an apply or pop stops in `fakeState.stashConflict` when set, and
+ * a pop keeps its stash then.
+ */
+function fakeStashOp(workspaceId: WorkspaceId, request: StashRequest) {
+  fakeState.stashRequests.push(request);
+  const repo = fakeState.workspace.repos.find((known) => known.id === request.repo_id);
+  const refs = fakeState.refModels[request.repo_id];
+  const summary = fakeState.summaries.find((known) => known.repo_id === request.repo_id);
+  if (repo === undefined || refs === undefined) {
+    return refused("the repo has no branches");
+  }
+  if (summary?.busy) {
+    return refused("another operation is running on the repo");
+  }
+  if (summary?.conflict) {
+    return refused("the repo is in conflict state; continue or abort first");
+  }
+  const stashes = refs.stashes ?? [];
+  const op = request.op;
+  let entry = "";
+  if (op.kind !== "push") {
+    const message = stashes[op.stash.index];
+    if (message === undefined || stashHash(message) !== op.stash.hash) {
+      return refused(`the stash list changed since it was read: stash@{${op.stash.index}} is no longer that stash`);
+    }
+    entry = `stash@{${op.stash.index}} (${message})`;
+    if (op.kind === "drop" && !request.confirmed) {
+      return Promise.resolve({
+        status: "ok" as const,
+        data: {
+          kind: "confirm" as const,
+          repo: repo.name,
+          actions: [`Drop ${entry}; its changes are lost unless they were applied`],
+        },
+      });
+    }
+  }
+  const jobId = nextJobId++;
+  const stops = op.kind === "apply" || op.kind === "pop" ? fakeState.stashConflict : null;
+  setTimeout(() => {
+    const dirty = summary?.summary?.dirty ?? false;
+    let after = stashes;
+    let outcome: Outcome = { kind: "succeeded" };
+    let label: string;
+    if (op.kind === "push") {
+      const message = op.message?.trim() ? op.message.trim() : null;
+      label = message === null ? "Stash changes" : `Stash changes as "${message}"`;
+      if (dirty) {
+        after = [`On ${refs.current ?? "HEAD"}: ${message ?? "WIP"}`, ...stashes];
+        fakeState.workingCopies[repo.id] = { staged: [], unstaged: [], unmerged: [], inConflict: false };
+      } else {
+        outcome = { kind: "nothing_to_do" };
+      }
+    } else {
+      label = `${op.kind === "drop" ? "Drop" : op.kind === "pop" ? "Pop" : "Apply"} ${entry}`;
+      if (stops !== null) {
+        outcome = { kind: "conflict" };
+      } else if (op.kind !== "apply") {
+        after = stashes.filter((_, index) => index !== op.stash.index);
+      }
+    }
+    const model = { ...refs, stashes: after };
+    fakeState.refModels[repo.id] = model;
+    fakeState.refs[repo.id] = refNodes(repo.id, model);
+    if (op.kind === "push" && dirty) {
+      fakeState.summaries = fakeState.summaries.map((known) =>
+        known.repo_id === repo.id && known.summary !== null
+          ? { ...known, summary: { ...known.summary, dirty: false, changes: 0 } }
+          : known,
+      );
+    }
+    if (stops !== null) {
+      setConflict(repo.id, stops);
+    }
+    const job = fakeJob(fakeState.workspace, {
+      job_id: jobId,
+      workspace_id: workspaceId,
+      label,
+      repos: [repo.id],
+      repo_names: [repo.name],
+      state: "ended",
+      outcome,
       output: stops === null ? "" : "CONFLICT (content): Merge conflict in a.txt\n",
       message: null,
       started_at: Date.now(),
@@ -727,6 +838,8 @@ export function reset(): void {
   fakeState.integrateRequests = [];
   fakeState.conflicts = {};
   fakeState.integrateConflict = null;
+  fakeState.stashRequests = [];
+  fakeState.stashConflict = null;
   fakeState.changesDelay = 0;
   fakeState.layouts = [];
   fakeState.refreshes = [];
@@ -1264,6 +1377,7 @@ export const fake: Core = {
         : Promise.resolve({ status: "ok" as const, data: pushChoicesOf(refs) });
     },
     opIntegrate: (workspaceId, request) => fakeIntegrateOp(workspaceId, request),
+    opStash: (workspaceId, request) => fakeStashOp(workspaceId, request),
     conflictGet: (workspaceId, handle, file) => {
       const view = views.get(workspaceId);
       if (view?.handle !== handle) {

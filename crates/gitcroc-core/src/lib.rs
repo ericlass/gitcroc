@@ -15,6 +15,7 @@ mod log;
 mod ref_name;
 mod settings;
 mod stage;
+mod stash;
 mod status;
 mod summary;
 mod sync;
@@ -78,6 +79,7 @@ pub use settings::{
     SettingsError, SettingsStore, SettingsView, Theme,
 };
 pub use stage::{ChangeAction, ChangeRequest, ChangeStart, ChangeTarget, changes_apply};
+pub use stash::{StashError, StashOp, StashRef, StashRequest, StashStart, op_stash};
 pub use status::{StatusReadError, repo_state, repo_summary, working_copy};
 pub use summary::{
     CACHE_FILE, CACHE_SCHEMA, CacheDir, PlatformCacheDir, REFRESH_READS, Summaries, SummaryCache,

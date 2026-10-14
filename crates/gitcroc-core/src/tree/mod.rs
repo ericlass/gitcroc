@@ -98,6 +98,8 @@ pub enum TreeItem {
         repo_id: RepoId,
         /// `n` in `stash@{n}`.
         index: u32,
+        /// The stash commit's full hash: what a stash operation names it by.
+        hash: String,
         message: String,
         /// Seconds since the Unix epoch. A plain `number` in TypeScript,
         /// which `i64` is not by default.
@@ -438,6 +440,7 @@ fn ref_nodes(repo: &RepoId, refs: &Refs) -> Vec<TreeNode> {
             item: TreeItem::Stash {
                 repo_id: repo.clone(),
                 index: stash.index,
+                hash: stash.hash.clone(),
                 message: stash.message.clone(),
                 seconds: stash.time.seconds,
             },

@@ -100,6 +100,16 @@ fn ui_1_refs_lists_branches_remotes_tags_and_stashes() {
         .map(|stash| stash.time.seconds)
         .collect();
     assert_eq!(seconds, times);
+    let hashes: Vec<&str> = refs
+        .stashes
+        .iter()
+        .map(|stash| stash.hash.as_str())
+        .collect();
+    let listed = clone
+        .git(["log", "--walk-reflogs", "--format=%H", "refs/stash"])
+        .unwrap();
+    assert_eq!(hashes, listed.lines().collect::<Vec<_>>());
+    assert_eq!(repo.stashes(), refs.stashes);
 
     // Without counts no history is walked.
     let names_only = repo.refs(false).unwrap();

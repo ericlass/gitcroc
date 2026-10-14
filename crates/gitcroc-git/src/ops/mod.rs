@@ -14,6 +14,7 @@ use crate::{GitError, GitRunner, Output, Write};
 mod branch;
 pub mod conflict;
 mod integrate;
+mod stash;
 mod sync;
 
 pub use branch::{
@@ -21,6 +22,7 @@ pub use branch::{
     switch_detach, switch_track,
 };
 pub use integrate::{FastForward, Resume, cherry_pick, merge, rebase, resume, revert};
+pub use stash::{stash_apply, stash_drop, stash_push};
 pub use sync::{PullMode, PushTo, fetch_all, fetch_remote, pull_fetched, push};
 
 /// Writes the repo's commit-graph file from every ref (PERF-2, M1-08). Only

@@ -17,10 +17,10 @@ use gitcroc_core::{
     Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, IntegrateError,
     IntegrateRequest, IntegrateStart, JobError, JobEvents, JobId, JobProgress, JobView, Jobs,
     Outcome, PaneLayout, PushChoices, Refusal, RepoChange, RepoId, ResolveRequest, SettingsError,
-    SettingsStore, SettingsView, StatusError, StatusReadError, Summaries, SummaryView, SyncError,
-    SyncRequest, SyncStart, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers,
-    WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path, refresh_summaries,
-    refresh_workspace, tree_refs,
+    SettingsStore, SettingsView, StashError, StashRequest, StashStart, StatusError,
+    StatusReadError, Summaries, SummaryView, SyncError, SyncRequest, SyncStart, Theme, TrackedJob,
+    TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView,
+    Workspaces, add_path, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -206,6 +206,27 @@ impl From<IntegrateError> for IpcError {
                     git_stderr: Some(message),
                 }
             }
+            other => Self {
+                code: IpcErrorCode::Internal,
+                message: other.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
+impl From<StashError> for IpcError {
+    fn from(error: StashError) -> Self {
+        match error {
+            StashError::Workspace(error) | StashError::Job(JobError::Workspace(error)) => {
+                error.into()
+            }
+            // git refused the repo; its message is for the user (SEC-6).
+            StashError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
+                code: IpcErrorCode::Internal,
+                message: "git refused to read the repo".to_owned(),
+                git_stderr: Some(message),
+            },
             other => Self {
                 code: IpcErrorCode::Internal,
                 message: other.to_string(),
@@ -953,7 +974,8 @@ pub async fn push_choices(
 /// Merges, rebases, cherry-picks or reverts in a repo, or aborts or
 /// continues the operation it is in, as a job (section 6 "Integrate",
 /// OPS-2). Its end arrives as `job_ended`; a revert of a merge commit
-/// answers `choose_mainline`.
+/// answers `choose_mainline`, and the abort of a stash apply sent without
+/// `confirmed` answers `confirm` and runs nothing.
 #[tauri::command]
 #[specta::specta]
 pub async fn op_integrate(
@@ -966,6 +988,24 @@ pub async fn op_integrate(
     let jobs = app.state::<Arc<Jobs>>().inner().clone();
     let git = usable_git(&app).await?;
     Ok(gitcroc_core::op_integrate(workspaces, summaries, jobs, git, workspace_id, request).await?)
+}
+
+/// Stashes, applies, pops or drops in one repo as a job (section 6
+/// "Stash"). Refused for a repo that is busy, missing or in conflict state
+/// (GRP-8) and for an entry the stash list no longer has at its index. A
+/// drop sent without `confirmed` answers `confirm` and runs nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn op_stash(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: StashRequest,
+) -> Result<StashStart, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::op_stash(workspaces, summaries, jobs, git, workspace_id, request).await?)
 }
 
 /// The refs the merge dialog offers for a repo, filtered by `filter`
@@ -1474,6 +1514,7 @@ macro_rules! with_commands {
                 push_choices,
                 op_integrate,
                 merge_targets,
+                op_stash,
                 conflict_details,
                 conflict_get,
                 conflict_resolve,
@@ -1522,6 +1563,7 @@ macro_rules! with_commands {
                 push_choices,
                 op_integrate,
                 merge_targets,
+                op_stash,
                 conflict_details,
                 conflict_get,
                 conflict_resolve,

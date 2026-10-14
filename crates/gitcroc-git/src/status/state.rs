@@ -21,6 +21,10 @@ pub enum Operation {
     CherryPick,
     /// `REVERT_HEAD`.
     Revert,
+    /// Unmerged paths and none of the files above: a stash applied or
+    /// popped with conflicts, as git keeps no state file for it. It ends
+    /// when the last path is staged.
+    StashApply,
 }
 
 /// Whether a repo is in conflict state (OPS-1).
@@ -28,8 +32,7 @@ pub enum Operation {
 pub struct RepoState {
     /// The operation in progress, if any.
     pub operation: Option<Operation>,
-    /// How many paths have conflict stages in the index. A stash applied
-    /// with conflicts leaves these and no operation.
+    /// How many paths have conflict stages in the index.
     pub unmerged_paths: u32,
 }
 
@@ -113,6 +116,10 @@ pub(super) fn repo_state(repo: &gix::Repository) -> Result<RepoState, StatusErro
             }
         }
     }
+    let operation = match operation {
+        None if unmerged_paths > 0 => Some(Operation::StashApply),
+        operation => operation,
+    };
     Ok(RepoState {
         operation,
         unmerged_paths,

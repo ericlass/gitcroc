@@ -20,6 +20,7 @@ import TabBar from "./layout/TabBar";
 import Toolbar from "./layout/Toolbar";
 import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
+import StashDialogs, { StashOffer } from "./stash/StashDialogs";
 import SyncDialogs, { SyncRefusal } from "./sync/SyncDialogs";
 import BranchDialogs from "./tree/BranchDialogs";
 import IntegrateDialogs from "./integrate/IntegrateDialogs";
@@ -35,6 +36,7 @@ import { createJobStore } from "./stores/jobs";
 import { createLayoutStore } from "./stores/layout";
 import { createSelectionStore } from "./stores/selection";
 import { createSettingsStore } from "./stores/settings";
+import { createStashStore } from "./stores/stash";
 import { createSummaryStore, isBlocked } from "./stores/summaries";
 import { canFetch, canPullOrPush, createSyncStore, DEFAULT_OPS } from "./stores/sync";
 import { createTreeStore } from "./stores/tree";
@@ -59,7 +61,9 @@ export default function App() {
   const conflicts = createConflictStore((id) => void changes.reload(id));
   const branch = createBranchStore();
   const sync = createSyncStore();
-  const integrate = createIntegrateStore();
+  const stash = createStashStore();
+  // An aborted stash apply leaves nothing to offer dropping.
+  const integrate = createIntegrateStore((id, repo) => stash.forget(id, repo));
   const watch = createWatchStore();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [jobsOpen, setJobsOpen] = createSignal(false);
@@ -106,6 +110,15 @@ export default function App() {
       return null;
     }
     return () => integrate.open(target.id, { kind: "merge", repo: target.repo });
+  };
+
+  /** Opens the stash dialog for the selected repo: not blocked (GRP-8) and with changes to stash. */
+  const stashAction = () => {
+    const target = branchRepo();
+    if (target === null || target.view?.summary?.dirty !== true) {
+      return null;
+    }
+    return () => stash.open(target.id, { kind: "push", repo: target.repo });
   };
 
   /** The current branch of `repo` in the open workspace, or `null`. */
@@ -199,6 +212,7 @@ export default function App() {
       git.subscribe(),
       workspaces.subscribe(),
       commit.subscribe(),
+      stash.subscribe(),
     ];
     onCleanup(() => {
       for (const pending of unlisten) {
@@ -241,9 +255,20 @@ export default function App() {
                   }
             }
             onMerge={mergeAction()}
+            onStash={stashAction()}
             onSettings={() => setSettingsOpen(true)}
           />
           <Show when={workspace()?.id}>{(id) => <SyncRefusal workspace={id()} sync={sync} />}</Show>
+          <Show when={workspace()?.id}>
+            {(id) => (
+              <StashOffer
+                workspace={id()}
+                stash={stash}
+                view={(repo) => summaries.view(id(), repo)}
+                repoName={repoName}
+              />
+            )}
+          </Show>
           <Show when={info.error as unknown}>
             <div role="alert" class="banner">
               Cannot reach the core: {String(info.error)}
@@ -293,12 +318,14 @@ export default function App() {
                     commit={commit}
                     conflicts={conflicts}
                     branch={branch}
+                    stash={stash}
                     integrate={integrate}
                     settings={settings}
                   />
                 </main>
                 <BranchDialogs workspace={id()} branch={branch} repoName={repoName} />
                 <SyncDialogs workspace={id()} sync={sync} repoName={repoName} />
+                <StashDialogs workspace={id()} stash={stash} repoName={repoName} />
                 <IntegrateDialogs workspace={id()} integrate={integrate} repoName={repoName} branchOf={branchOf} />
                 <StatusBar workspace={id()} jobs={jobs} onOpenJobs={() => setJobsOpen(true)} />
               </>

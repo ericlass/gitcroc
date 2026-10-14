@@ -15,6 +15,7 @@ const NAMES: Record<Operation, string> = {
   apply_mailbox: "Patch application",
   cherry_pick: "Cherry-pick",
   revert: "Revert",
+  stash_apply: "Stash apply",
 };
 
 /** What the banner says of `operation`, with what the core read of it. */
@@ -36,17 +37,31 @@ export function conflictText(operation: Operation, details: ConflictDetails | un
       return `Revert in progress${what("reverting", "on")}`;
     case "apply_mailbox":
       return `Patch application in progress${known?.step ? `: patch ${known.step.current} of ${known.step.total}` : ""}`;
+    case "stash_apply":
+      return `Stash apply stopped with conflicts${onto === null ? "" : ` on ${onto}`}`;
   }
 }
 
-/** How many paths still need resolving, or that none do. */
-export function unmergedText(paths: number): string {
+/**
+ * How many paths still need resolving, or that none do. A stash apply has
+ * nothing to continue: it ends with the last path marked resolved.
+ */
+export function unmergedText(paths: number, operation: Operation | null = null): string {
   if (paths === 0) {
     return "All conflicts are resolved and staged.";
   }
-  return paths === 1
-    ? "1 path is unmerged: resolve and stage it, then Continue."
-    : `${paths} paths are unmerged: resolve and stage them, then Continue.`;
+  const unmergedCount = paths === 1 ? "1 path is unmerged" : `${paths} paths are unmerged`;
+  const them = paths === 1 ? "it" : "them";
+  return operation === "stash_apply"
+    ? `${unmergedCount}: mark ${them} resolved, and the stash apply ends.`
+    : `${unmergedCount}: resolve and stage ${them}, then Continue.`;
+}
+
+/** What Abort does, for its tooltip. */
+function abortTitle(operation: Operation): string {
+  return operation === "stash_apply"
+    ? "Put the files the stash apply changed back to HEAD; the stash and other local changes are kept"
+    : `Abort the ${NAMES[operation].toLowerCase()} and go back to where it started`;
 }
 
 export default function ConflictBanner(props: {
@@ -77,7 +92,7 @@ export default function ConflictBanner(props: {
         <section class="conflict-banner" aria-label="Conflict state">
           <div class="conflict-text">
             <strong>{conflictText(current(), props.integrate.details(props.workspace, props.repo))}</strong>
-            <span>{unmergedText(unmerged())}</span>
+            <span>{unmergedText(unmerged(), current())}</span>
             <Show when={props.integrate.detailError(props.workspace, props.repo)}>
               {(error) => <span role="alert">Cannot read the operation: {error()}</span>}
             </Show>
@@ -86,7 +101,7 @@ export default function ConflictBanner(props: {
             <button
               type="button"
               disabled={sending()}
-              title={`Abort the ${NAMES[current()].toLowerCase()} and go back to where it started`}
+              title={abortTitle(current())}
               onClick={() => void props.integrate.run(props.workspace, props.repo, { kind: "abort" })}
             >
               Abort
@@ -95,7 +110,13 @@ export default function ConflictBanner(props: {
               type="button"
               class="primary"
               disabled={sending() || unmerged() > 0}
-              title={unmerged() > 0 ? "Resolve and stage every unmerged path first" : undefined}
+              title={
+                current() === "stash_apply"
+                  ? "A stash apply ends when its last path is marked resolved"
+                  : unmerged() > 0
+                    ? "Resolve and stage every unmerged path first"
+                    : undefined
+              }
               onClick={() => void props.integrate.run(props.workspace, props.repo, { kind: "continue" })}
             >
               Continue

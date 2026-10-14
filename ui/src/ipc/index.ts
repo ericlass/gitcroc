@@ -19,6 +19,7 @@ import type {
   PerfTrace,
   RepoId,
   ResolveRequest,
+  StashRequest,
   SyncRequest,
   Theme,
   WorkspaceId,
@@ -118,6 +119,10 @@ export type {
   SideHolds,
   SettingsView,
   StartPoint,
+  StashOp,
+  StashRef,
+  StashRequest,
+  StashStart,
   Step,
   SummaryView,
   SyncOp,
@@ -261,6 +266,9 @@ export const pushChoices = (workspaceId: WorkspaceId, repoId: RepoId) =>
 /** Merges, rebases, cherry-picks or reverts as a job, or aborts or continues the repo's operation (OPS-2). */
 export const opIntegrate = (workspaceId: WorkspaceId, request: IntegrateRequest) =>
   unwrap(core.commands.opIntegrate(workspaceId, request));
+
+export const opStash = (workspaceId: WorkspaceId, request: StashRequest) =>
+  unwrap(core.commands.opStash(workspaceId, request));
 
 /** The refs the merge dialog offers for a repo, filtered in the core (UI-20). */
 export const mergeTargets = (workspaceId: WorkspaceId, repoId: RepoId, filter: string) =>

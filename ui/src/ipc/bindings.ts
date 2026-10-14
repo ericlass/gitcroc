@@ -231,7 +231,8 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 *  Merges, rebases, cherry-picks or reverts in a repo, or aborts or
 	 *  continues the operation it is in, as a job (section 6 "Integrate",
 	 *  OPS-2). Its end arrives as `job_ended`; a revert of a merge commit
-	 *  answers `choose_mainline`.
+	 *  answers `choose_mainline`, and the abort of a stash apply sent without
+	 *  `confirmed` answers `confirm` and runs nothing.
 	 */
 	opIntegrate: (workspaceId: WorkspaceId, request: IntegrateRequest) => typedError<IntegrateStart, IpcError>(__TAURI_INVOKE("op_integrate", { workspaceId, request })),
 	/**
@@ -239,6 +240,13 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 *  (UI-20).
 	 */
 	mergeTargets: (workspaceId: WorkspaceId, repoId: RepoId, filter: string) => typedError<string[], IpcError>(__TAURI_INVOKE("merge_targets", { workspaceId, repoId, filter })),
+	/**
+	 *  Stashes, applies, pops or drops in one repo as a job (section 6
+	 *  "Stash"). Refused for a repo that is busy, missing or in conflict state
+	 *  (GRP-8) and for an entry the stash list no longer has at its index. A
+	 *  drop sent without `confirmed` answers `confirm` and runs nothing.
+	 */
+	opStash: (workspaceId: WorkspaceId, request: StashRequest) => typedError<StashStart, IpcError>(__TAURI_INVOKE("op_stash", { workspaceId, request })),
 	/**  What the conflict banner names for a repo in conflict state (OPS-2). */
 	conflictDetails: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<ConflictDetails, IpcError>(__TAURI_INVOKE("conflict_details", { workspaceId, repoId })),
 	/**
@@ -769,8 +777,8 @@ export type ConflictDetails = {
 	operation: Operation | null,
 	/**
 	 *  What is applied: the merged branch or commit, the branch being
-	 *  rebased, the commit being cherry-picked or reverted. A commit reads
-	 *  `1a2b3c4 Subject`.
+	 *  rebased, the commit being cherry-picked or reverted; never a stash,
+	 *  which git does not record. A commit reads `1a2b3c4 Subject`.
 	 */
 	applying: string | null,
 	/**
@@ -1013,6 +1021,8 @@ export type IntegrateOp =
 export type IntegrateRequest = {
 	repo_id: RepoId,
 	op: IntegrateOp,
+	/**  The user confirmed an operation that cannot be undone. */
+	confirmed: boolean,
 };
 
 /**  What a request did. */
@@ -1024,7 +1034,12 @@ export type IntegrateStart =
  *  kept. `commit` is its full hash, `parents` each parent as
  *  `1a2b3c4 Subject`, the first being mainline 1.
  */
-{ kind: "choose_mainline"; commit: string; parents: string[] };
+{ kind: "choose_mainline"; commit: string; parents: string[] } | 
+/**
+ *  The operation cannot be undone: ask again with `confirmed` once the
+ *  user agreed. `actions` says what is lost.
+ */
+{ kind: "confirm"; repo: string; actions: string[] };
 
 /**  The error every command returns. */
 export type IpcError = {
@@ -1149,7 +1164,13 @@ export type Operation =
 /**  `CHERRY_PICK_HEAD`. */
 "cherry_pick" | 
 /**  `REVERT_HEAD`. */
-"revert";
+"revert" | 
+/**
+ *  Unmerged paths and none of the files above: a stash applied or
+ *  popped with conflicts, as git keeps no state file for it. It ends
+ *  when the last path is staged.
+ */
+"stash_apply";
 
 /**
  *  How a job ended (GRP-7). *Conflict* is not a failure: git left the repo
@@ -1302,10 +1323,7 @@ export type RepoRefsChangedEvent = RepoRef;
 export type RepoState = {
 	/**  The operation in progress, if any. */
 	operation: Operation | null,
-	/**
-	 *  How many paths have conflict stages in the index. A stash applied
-	 *  with conflicts leaves these and no operation.
-	 */
+	/**  How many paths have conflict stages in the index. */
 	unmerged_paths: number,
 };
 
@@ -1387,6 +1405,48 @@ export type StartPoint =
 { kind: "default_branch" } | 
 /**  A ref or a commit hash. */
 { kind: "revision"; revision: string };
+
+/**  A stash operation (section 6 "Stash"). */
+export type StashOp = 
+/**
+ *  Stashes the working copy's changes, with `message` unless it is
+ *  blank, and its untracked files too when `include_untracked`.
+ */
+{ kind: "push"; message: string | null; include_untracked: boolean } | 
+/**  Applies the entry to the working copy and keeps it. */
+{ kind: "apply"; stash: StashRef } | 
+/**
+ *  Applies the entry and drops it; git keeps it when the apply
+ *  conflicts.
+ */
+{ kind: "pop"; stash: StashRef } | 
+/**  Drops the entry. Cannot be undone from the app. */
+{ kind: "drop"; stash: StashRef };
+
+/**  A stash entry as the tree showed it: `stash@{index}` with this commit. */
+export type StashRef = {
+	index: number,
+	/**  The stash commit's full hash. */
+	hash: string,
+};
+
+/**  A stash operation on one repo. */
+export type StashRequest = {
+	repo_id: RepoId,
+	op: StashOp,
+	/**  The user confirmed an operation that cannot be undone. */
+	confirmed: boolean,
+};
+
+/**  What a request did. */
+export type StashStart = 
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  The operation cannot be undone: ask again with `confirmed` once the
+ *  user agreed. `actions` says what is lost.
+ */
+{ kind: "confirm"; repo: string; actions: string[] };
 
 /**  Which step of a series stopped. */
 export type Step = {
@@ -1527,7 +1587,9 @@ remote: string;
 /**  Without the remote, for example `feature/x`. */
 branch: string } | { kind: "tag"; repo_id: RepoId; name: string; annotated: boolean } | { kind: "stash"; repo_id: RepoId; 
 /**  `n` in `stash@{n}`. */
-index: number; message: string; 
+index: number; 
+/**  The stash commit's full hash: what a stash operation names it by. */
+hash: string; message: string; 
 /**
  *  Seconds since the Unix epoch. A plain `number` in TypeScript,
  *  which `i64` is not by default.

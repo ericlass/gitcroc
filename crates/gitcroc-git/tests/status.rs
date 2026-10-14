@@ -506,7 +506,7 @@ fn ops_1_detects_conflict_state() {
                     .unwrap();
                 conflict(git, &["stash", "apply"]);
             },
-            None,
+            Some(Operation::StashApply),
             1,
         ),
     ];
