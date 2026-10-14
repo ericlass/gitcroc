@@ -149,7 +149,7 @@ impl Run {
     async fn conflict(&self, path: &str) -> Conflict {
         let (handle, file) = self.file(path).await;
         match self.read(handle, file).await {
-            ConflictRead::Conflict { conflict } => conflict,
+            ConflictRead::Conflict { conflict } => *conflict,
             ConflictRead::AlreadyResolved => panic!("{path} is resolved"),
         }
     }
@@ -633,4 +633,64 @@ async fn ops_6_choice_conflicts() {
         std::fs::read_to_string(kept.path().join("f.txt")).unwrap(),
         "feature\n"
     );
+}
+
+/// Every file of the work tree outside `.git` with its bytes and
+/// modification time.
+fn work_tree(root: &Path) -> Vec<(PathBuf, Vec<u8>, std::time::SystemTime)> {
+    all_paths(root)
+        .into_iter()
+        .filter(|path| !path.starts_with(".git") && root.join(path).is_file())
+        .map(|path| {
+            let full = root.join(&path);
+            let modified = std::fs::metadata(&full).unwrap().modified().unwrap();
+            (path, std::fs::read(&full).unwrap(), modified)
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn ops_9_nothing_is_written_before_mark_resolved() {
+    let fixture = Fixture::new().unwrap();
+    let repo = fixture.repo("app").unwrap();
+    repo.commit_file("a.txt", "a\n", "Base a").unwrap();
+    repo.commit_file("b.txt", "b\n", "Base b").unwrap();
+    repo.branch("feature").unwrap();
+    repo.commit_file("a.txt", "main a\n", "Main a").unwrap();
+    repo.commit_file("b.txt", "main b\n", "Main b").unwrap();
+    repo.switch("feature").unwrap();
+    repo.commit_file("a.txt", "feature a\n", "Feature a")
+        .unwrap();
+    repo.commit_file("b.txt", "feature b\n", "Feature b")
+        .unwrap();
+    repo.switch("main").unwrap();
+    repo.merge_with_conflicts("feature").unwrap();
+    let mut run = Run::new(&repo).await;
+    let files = work_tree(repo.path());
+    let index = (stages(&repo, "a.txt"), stages(&repo, "b.txt"));
+
+    // The editor opens a file, the user edits it (in the UI alone),
+    // switches to the other file and to a new view and back: only reads.
+    for path in ["a.txt", "b.txt", "a.txt"] {
+        let (handle, file) = run.file(path).await;
+        assert!(matches!(
+            run.read(handle, file).await,
+            ConflictRead::Conflict { .. }
+        ));
+    }
+
+    assert_eq!(work_tree(repo.path()), files);
+    assert_eq!((stages(&repo, "a.txt"), stages(&repo, "b.txt")), index);
+    assert!(run.jobs.all_views().is_empty(), "a job ran");
+    assert!(run.ends.try_recv().is_err(), "a job ended");
+
+    // Mark resolved is the first write.
+    let (handle, file) = run.file("a.txt").await;
+    let start = run.resolve(handle, file, "both a\n", false).await;
+    run.ended(start).await;
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("a.txt")).unwrap(),
+        "both a\n"
+    );
+    assert_eq!(stages(&repo, "b.txt"), index.1);
 }

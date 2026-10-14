@@ -49,7 +49,7 @@ test("UI-15 uncommitted changes show both lists", async ({ page }) => {
   await tree(page).getByRole("treeitem", { name: /^api/ }).click();
   await history(page).getByRole("option", { name: /Uncommitted changes/ }).click();
   await expect(page.getByRole("heading", { name: "Uncommitted changes" })).toBeVisible();
-  await expect(files(page).locator(".file-section")).toHaveText(["Staged (1)", "Unstaged (4)"]);
+  await expect(files(page).locator(".file-section")).toHaveText(["Staged (1)", "Unstaged (3)"]);
   await expect(files(page).getByRole("option", { selected: true })).toContainText("src/app.ts");
   await expect(diff(page).locator(".cm-content")).toContainText("staged line");
 });
@@ -61,7 +61,7 @@ test("UI-15 stage a hunk, then discard a file after confirming", async ({ page }
   await files(page).getByRole("option", { name: /main\.rs/ }).click();
   await diff(page).getByRole("button", { name: "Stage hunk 2" }).click();
   // The fake stages it; a file with a hunk left is in both lists.
-  await expect(files(page).locator(".file-section")).toHaveText(["Staged (2)", "Unstaged (4)"]);
+  await expect(files(page).locator(".file-section")).toHaveText(["Staged (2)", "Unstaged (3)"]);
 
   await files(page).getByRole("option", { name: /notes\.txt/ }).click();
   await page.getByRole("button", { name: "Discard notes.txt" }).click();
@@ -70,7 +70,7 @@ test("UI-15 stage a hunk, then discard a file after confirming", async ({ page }
   await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
   await dialog.getByRole("button", { name: "Discard" }).click();
   await expect(dialog).toBeHidden();
-  await expect(files(page).locator(".file-section")).toHaveText(["Staged (2)", "Unstaged (3)"]);
+  await expect(files(page).locator(".file-section")).toHaveText(["Staged (2)", "Unstaged (2)"]);
 });
 
 test("UI-15 commit the staged changes; the box empties", async ({ page }) => {
@@ -86,7 +86,7 @@ test("UI-15 commit the staged changes; the box empties", async ({ page }) => {
   await commit.click();
   await expect(box.getByRole("textbox", { name: "Subject" })).toHaveValue("");
   await expect(box.getByRole("textbox", { name: "Body" })).toHaveValue("");
-  await expect(files(page).locator(".file-section")).toHaveText(["Staged (0)", "Unstaged (4)"]);
+  await expect(files(page).locator(".file-section")).toHaveText(["Staged (0)", "Unstaged (3)"]);
 });
 
 test("UI-19 the changes pane docks at the bottom and back", async ({ page }) => {

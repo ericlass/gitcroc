@@ -21,7 +21,8 @@ use crate::{
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConflictRead {
     Conflict {
-        conflict: Conflict,
+        // Boxed: a conflict is large, and the other variant empty.
+        conflict: Box<Conflict>,
     },
     /// The file is no longer in conflict; read the lists again.
     AlreadyResolved,
@@ -112,7 +113,9 @@ pub async fn conflict_get(
         return Ok(None);
     };
     Ok(Some(match read(&view, path).await? {
-        Some(conflict) => ConflictRead::Conflict { conflict },
+        Some(conflict) => ConflictRead::Conflict {
+            conflict: Box::new(conflict),
+        },
         None => ConflictRead::AlreadyResolved,
     }))
 }

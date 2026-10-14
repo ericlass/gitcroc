@@ -27,6 +27,7 @@ import { createAskpassStore } from "./stores/askpass";
 import { createBranchStore } from "./stores/branch";
 import { createChangesStore } from "./stores/changes";
 import { createCommitStore } from "./stores/commit";
+import { createConflictStore } from "./stores/conflicts";
 import { createGitStore } from "./stores/git";
 import { createHistoryStore, sourceOf } from "./stores/history";
 import { createIntegrateStore } from "./stores/integrate";
@@ -55,6 +56,7 @@ export default function App() {
   const history = createHistoryStore(selection);
   const changes = createChangesStore(settings.changes);
   const commit = createCommitStore();
+  const conflicts = createConflictStore((id) => void changes.reload(id));
   const branch = createBranchStore();
   const sync = createSyncStore();
   const integrate = createIntegrateStore();
@@ -132,6 +134,7 @@ export default function App() {
           summaries.subscribe(id),
           history.subscribe(id),
           changes.subscribe(id),
+          conflicts.subscribe(id),
           watch.subscribe(id),
         ];
         onCleanup(() => {
@@ -288,6 +291,7 @@ export default function App() {
                     history={history}
                     changes={changes}
                     commit={commit}
+                    conflicts={conflicts}
                     branch={branch}
                     integrate={integrate}
                     settings={settings}

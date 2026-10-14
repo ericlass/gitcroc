@@ -5,6 +5,7 @@ import { defaultDetails, keep, otherFile, PNG_1X1, textFile } from "../ipc/fakeC
 import { hashOf } from "../ipc/fakeHistory";
 import { createChangesStore } from "../stores/changes";
 import { createCommitStore } from "../stores/commit";
+import { createConflictStore } from "../stores/conflicts";
 import { createLayoutStore } from "../stores/layout";
 import type { CommitSelection } from "../stores/selection";
 import { createSettingsStore } from "../stores/settings";
@@ -56,6 +57,7 @@ async function setup() {
       workspace={id()}
       changes={changes}
       commit={createCommitStore()}
+      conflicts={createConflictStore(() => {})}
       settings={settings}
       layout={layout}
       onSelectCommit={onSelectCommit}
@@ -252,7 +254,7 @@ test("UI-18 special diffs", async () => {
   expect(diff().textContent).toContain("2".repeat(40));
 });
 
-test("UI-15 uncommitted changes: staged, unstaged, unmerged first and marked", async () => {
+test("UI-15 uncommitted changes: unmerged, staged and unstaged, marked", async () => {
   fakeState.workingCopies = {
     r1: {
       staged: [textFile("b.txt", [{ add: "staged" }])],
@@ -265,23 +267,21 @@ test("UI-15 uncommitted changes: staged, unstaged, unmerged first and marked", a
   await settleAll();
   expect(screen.getByRole("heading", { name: "Uncommitted changes" })).toBeDefined();
   expect(fileRowTexts().map((text) => text.replace(/\+.*/, ""))).toEqual([
+    "Unmerged (1)",
+    "!z.txt (both modified)",
     "Staged (1)",
     "Mb.txt",
-    "Unstaged (3)",
-    "!z.txt (both modified)",
+    "Unstaged (2)",
     "Ma.txt",
     "Unew.txt",
   ]);
-  // The first staged file is selected.
-  expect(diffCalls().at(-1)?.file).toEqual({ list: "staged", id: 0 });
+  // The unmerged file is selected first; it has a conflict editor, no diff.
+  expect(diffCalls()).toHaveLength(0);
+  expect(screen.getByRole("region", { name: "Conflict" })).toBeDefined();
 
-  // An unmerged file has no diff until the conflict editor.
-  const before = diffCalls().length;
-  fireEvent.click(screen.getByText("z.txt"));
+  fireEvent.click(screen.getByText("b.txt"));
   await settleAll();
-  expect(diffCalls()).toHaveLength(before);
-  expect(screen.getByRole("region", { name: "Diff" }).textContent).toContain("Conflict: both modified");
-
+  expect(diffCalls().at(-1)?.file).toEqual({ list: "staged", id: 0 });
   fireEvent.click(screen.getByText("new.txt"));
   await settleAll();
   expect(diffCalls().at(-1)?.file).toEqual({ list: "unstaged", id: 1 });
