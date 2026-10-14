@@ -3,9 +3,10 @@
 // one (GRP-9). Names are checked by the core as the user types (SEC-4) and
 // its reason shown under the field. Lists to pick from come from the core.
 // Repo and ref names are shown as text only (SEC-3).
-import { createEffect, createResource, createSignal, For, type JSX, on, onMount, Show, untrack } from "solid-js";
+import { createEffect, createResource, createSignal, For, on, Show, untrack } from "solid-js";
 import { branchChoices, branchNameCheck, type RepoId, type StartPoint, type WorkspaceId } from "../ipc";
 import type { BranchDialog, BranchStore } from "../stores/branch";
+import { Actions, ConfirmDialog, Frame, Refusal } from "../dialogs/parts";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -38,32 +39,6 @@ function createNameCheck(name: () => string) {
   };
 }
 
-/** A dialog's frame: title, Escape closes it, the first field has the focus. */
-function Frame(props: { id: string; title: string; class?: string; onClose: () => void; children: JSX.Element }) {
-  let dialog: HTMLDivElement | undefined;
-  onMount(() => dialog?.querySelector<HTMLElement>("input:not([type=radio]), select, button")?.focus());
-  return (
-    <div class="backdrop">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={`${props.id}-title`}
-        class={`dialog branch-dialog ${props.class ?? ""}`}
-        ref={(element) => (dialog = element)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            props.onClose();
-          }
-        }}
-      >
-        <h2 id={`${props.id}-title`}>{props.title}</h2>
-        {props.children}
-      </div>
-    </div>
-  );
-}
-
 function NameField(props: { label: string; value: string; error: string | null; onInput: (value: string) => void }) {
   return (
     <label class="field">
@@ -86,23 +61,6 @@ function NameField(props: { label: string; value: string; error: string | null; 
       </Show>
     </label>
   );
-}
-
-function Actions(props: { submit: string; disabled: boolean; danger?: boolean; onCancel: () => void }) {
-  return (
-    <div class="dialog-actions">
-      <button type="button" onClick={() => props.onCancel()}>
-        Cancel
-      </button>
-      <button type="submit" class={props.danger ? "danger" : "primary"} disabled={props.disabled}>
-        {props.submit}
-      </button>
-    </div>
-  );
-}
-
-function Refusal(props: { error: string | null }) {
-  return <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>;
 }
 
 interface DialogProps<K extends BranchDialog["kind"]> {
@@ -311,47 +269,18 @@ function UpstreamDialog(props: DialogProps<"upstream">) {
   );
 }
 
-/** GRP-9: names the repo and what cannot be undone; Cancel has the focus. */
-function ConfirmDialog(props: DialogProps<"confirm">) {
-  let cancel: HTMLButtonElement | undefined;
-  onMount(() => cancel?.focus());
-  const close = () => props.branch.close(props.workspace);
+/** GRP-9: what cannot be undone, before the delete runs. */
+function BranchConfirm(props: DialogProps<"confirm">) {
   return (
-    <div class="backdrop">
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="branch-confirm-title"
-        aria-describedby="branch-confirm-text"
-        class="dialog branch-dialog"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            close();
-          }
-        }}
-      >
-        <h2 id="branch-confirm-title">Cannot be undone in {props.dialog.repoName}</h2>
-        <p id="branch-confirm-text">This will:</p>
-        <ul class="branch-actions">
-          <For each={props.dialog.actions}>{(action) => <li>{action}</li>}</For>
-        </ul>
-        <Refusal error={props.branch.error(props.workspace)} />
-        <div class="dialog-actions">
-          <button type="button" ref={(element) => (cancel = element)} onClick={close}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="danger"
-            disabled={props.branch.sending(props.workspace)}
-            onClick={() => void props.branch.run(props.workspace, props.dialog.repo, props.dialog.op, true)}
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
+    <ConfirmDialog
+      repoName={props.dialog.repoName}
+      actions={props.dialog.actions}
+      submit="Delete"
+      error={props.branch.error(props.workspace)}
+      sending={props.branch.sending(props.workspace)}
+      onConfirm={() => void props.branch.run(props.workspace, props.dialog.repo, props.dialog.op, true)}
+      onClose={() => props.branch.close(props.workspace)}
+    />
   );
 }
 
@@ -386,7 +315,7 @@ export default function BranchDialogs(props: {
         {(open) => <UpstreamDialog {...common(open.repo)} dialog={open} />}
       </Show>
       <Show when={as("confirm")} keyed>
-        {(open) => <ConfirmDialog {...common(open.repo)} dialog={open} />}
+        {(open) => <BranchConfirm {...common(open.repo)} dialog={open} />}
       </Show>
     </>
   );

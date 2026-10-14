@@ -83,7 +83,7 @@ test("UI-21 job list shows outcome and raw output of every job", async () => {
   const texts = rows().map((row) => [...row.children].map((cell) => cell.textContent));
   expect(texts.map(([label, workspace, repo, state]) => [label, workspace, repo, state])).toEqual([
     ["Fetch", "My workspace", "web", "waiting for web"],
-    ["Fetch", "My workspace", "api", "3/10"],
+    ["Fetch", "My workspace", "api", "Receiving objects 3/10"],
     ["Merge feature/login", "My workspace", "login-service", "Conflict"],
     ["Push", "My workspace", "api", "Failed"],
     ["Pull", "Other workspace", "docs", "Skipped (cancelled)"],

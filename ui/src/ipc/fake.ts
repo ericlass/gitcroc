@@ -25,6 +25,7 @@ import type {
   RepoRef,
   SettingsView,
   SummaryView,
+  SyncRequest,
   TreeNode,
   WatchWarning,
   WorkspaceId,
@@ -45,6 +46,7 @@ import {
 import { defaultHistory, type FakeHistory, type FakeWalk, historyKey, nextPage, parentOf } from "./fakeHistory";
 import { applyBranchOp, choicesOf, destructiveOf, fakeNameCheck, labelOf, refusalOf } from "./fakeBranches";
 import { fakeJob, jobsScenario } from "./fakeJobs";
+import { applySync, planSync, pushChoicesOf } from "./fakeSync";
 import { type FakeRefs, filterTree, refNodes, scenario, skeleton } from "./fakeTree";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch", ui_font: null, code_font: null };
@@ -190,6 +192,10 @@ export const fakeState: {
   branchRequests: BranchRequest[];
   /** What git printed when a branch operation failed; `null` lets them succeed. */
   branchFailure: string | null;
+  /** Every `op_sync`, oldest first. */
+  syncRequests: SyncRequest[];
+  /** Sync jobs stay running, at their first step, until `finishSync`. */
+  holdSync: boolean;
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -225,6 +231,8 @@ export const fakeState: {
   refModels: {},
   branchRequests: [],
   branchFailure: null,
+  syncRequests: [],
+  holdSync: false,
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -353,6 +361,121 @@ function fakeBranchOp(workspaceId: WorkspaceId, request: BranchRequest) {
   return Promise.resolve({ status: "ok" as const, data: { kind: "started" as const, job_id: jobId } });
 }
 
+/** Sync jobs waiting for `finishSync`, oldest first. */
+const heldSyncs: (() => void)[] = [];
+
+/** Ends the oldest sync job held by `fakeState.holdSync`. */
+export function finishSync(): void {
+  heldSyncs.shift()?.();
+}
+
+const refused = (message: string) =>
+  Promise.resolve({ status: "error" as const, error: { code: "internal" as const, message, git_stderr: null } });
+
+/**
+ * Runs sync operation `request` on the fake's ref model, like the core:
+ * refused for a blocked repo (fetch may run in conflict state) or what it
+ * cannot apply to, a remote to choose or a confirmation first when the
+ * core would ask, then a job that reports a transfer step and ends with
+ * the repo's refs and ahead and behind read again.
+ */
+function fakeSyncOp(workspaceId: WorkspaceId, request: SyncRequest) {
+  fakeState.syncRequests.push(request);
+  const repo = fakeState.workspace.repos.find((known) => known.id === request.repo_id);
+  const refs = fakeState.refModels[request.repo_id];
+  const summary = fakeState.summaries.find((known) => known.repo_id === request.repo_id);
+  if (repo === undefined || refs === undefined) {
+    return refused("the repo has no remote");
+  }
+  if (summary?.busy) {
+    return refused("another operation is running on the repo");
+  }
+  if (summary?.missing) {
+    return refused("the repo's folder is missing");
+  }
+  if (summary?.conflict && request.op.kind !== "fetch") {
+    return refused("the repo is in conflict state; continue or abort first");
+  }
+  const plan = planSync(refs, request.op, request.confirmed);
+  switch (plan.kind) {
+    case "refused":
+      return refused(plan.why);
+    case "choose_remote":
+      return Promise.resolve({ status: "ok" as const, data: { kind: "choose_remote" as const, remotes: plan.remotes } });
+    case "confirm":
+      return Promise.resolve({
+        status: "ok" as const,
+        data: { kind: "confirm" as const, repo: repo.name, actions: plan.actions },
+      });
+  }
+  const jobId = nextJobId++;
+  const job = (change: Partial<JobView>) =>
+    fakeJob(fakeState.workspace, {
+      job_id: jobId,
+      workspace_id: workspaceId,
+      label: plan.label,
+      repos: [repo.id],
+      repo_names: [repo.name],
+      started_at: Date.now(),
+      ...change,
+    });
+  const end = () => {
+    const after = applySync(fakeState.refModels[repo.id] ?? refs, request.op, plan);
+    fakeState.refModels[repo.id] = after.refs;
+    fakeState.refs[repo.id] = refNodes(repo.id, after.refs);
+    const counts = after.refs.current === undefined ? undefined : after.refs.counts?.[after.refs.current];
+    fakeState.summaries = fakeState.summaries.map((known) =>
+      known.repo_id === repo.id && known.summary !== null
+        ? {
+            ...known,
+            summary: {
+              ...known.summary,
+              upstream:
+                known.summary.upstream === null || counts === undefined
+                  ? known.summary.upstream
+                  : { ...known.summary.upstream, ahead: counts[0], behind: counts[1] },
+            },
+            refs_version: known.refs_version + 1,
+          }
+        : known,
+    );
+    const failed = after.outcome.kind === "failed";
+    endJob(
+      workspaceId,
+      repo.id,
+      job({
+        state: "ended",
+        outcome: after.outcome,
+        output: after.output,
+        message: failed ? "git exited with code 1" : null,
+        duration_ms: 5,
+      }),
+    );
+    emitRepoRefsChanged({ workspace_id: workspaceId, repo_id: repo.id });
+  };
+  setTimeout(() => {
+    if (summary !== undefined) {
+      emitRepoSummary({ ...summary, busy: true });
+    }
+    sendJob(
+      job({
+        state: "running",
+        done: 1,
+        total: 2,
+        step: request.op.kind === "push" ? "Writing objects" : "Receiving objects",
+        outcome: null,
+        duration_ms: null,
+      }),
+    );
+    if (fakeState.holdSync) {
+      heldSyncs.push(end);
+    } else {
+      setTimeout(end, 0);
+    }
+  }, 0);
+  return Promise.resolve({ status: "ok" as const, data: { kind: "started" as const, job_id: jobId } });
+}
+
 /** Keeps `view` in the fake's job list and sends it as the core would. */
 function sendJob(view: JobView): void {
   const known = fakeState.jobs.findIndex((job) => job.job_id === view.job_id);
@@ -418,6 +541,9 @@ export function reset(): void {
   fakeState.refModels = {};
   fakeState.branchRequests = [];
   fakeState.branchFailure = null;
+  fakeState.syncRequests = [];
+  fakeState.holdSync = false;
+  heldSyncs.length = 0;
   fakeState.changesDelay = 0;
   fakeState.layouts = [];
   fakeState.refreshes = [];
@@ -944,6 +1070,13 @@ export const fake: Core = {
         : Promise.resolve({ status: "ok" as const, data: choicesOf(refs) });
     },
     branchNameCheck: (name) => Promise.resolve({ status: "ok", data: fakeNameCheck(name) }),
+    opSync: (workspaceId, request) => fakeSyncOp(workspaceId, request),
+    pushChoices: (_workspaceId, repoId) => {
+      const refs = fakeState.refModels[repoId];
+      return refs === undefined
+        ? notFound(`no repo ${repoId}`)
+        : Promise.resolve({ status: "ok" as const, data: pushChoicesOf(refs) });
+    },
     diffImage: (workspaceId, handle, file, side) => {
       const last = imageFiles.get(workspaceId);
       const same = last?.handle === handle && last.ref.list === file.list && last.ref.id === file.id;

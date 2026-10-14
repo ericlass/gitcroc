@@ -6,13 +6,13 @@
 //! delete on a remote are destructive (GRP-9): without the user's
 //! confirmation the core answers with what they would do instead.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use gitcroc_git::{GitError, GitRepo, Output, RefsRead, StatusReader, TrackedBranch, ops};
+use gitcroc_git::{GitError, GitRepo, Output, RefsRead, TrackedBranch, ops};
 use serde::{Deserialize, Serialize};
 
 use crate::ref_name::{RefNameError, check_branch_name};
+use crate::unblocked::{BlockedError, open_unblocked, repo_name};
 use crate::{
     GitRunner, JobError, JobId, Jobs, NothingToDo, OnCancel, OpenError, RepoId, StatusReadError,
     Summaries, WorkspaceError, WorkspaceId, Workspaces, WriteJob,
@@ -136,6 +136,18 @@ pub enum BranchError {
     Refused(String),
     #[error("the read did not finish: {0}")]
     Stopped(#[from] tokio::task::JoinError),
+}
+
+impl From<BlockedError> for BranchError {
+    fn from(error: BlockedError) -> Self {
+        match error {
+            BlockedError::Workspace(error) => Self::Workspace(error),
+            BlockedError::Open(error) => Self::Open(error),
+            BlockedError::Status(error) => Self::Status(error),
+            BlockedError::Stopped(error) => Self::Stopped(error),
+            BlockedError::Blocked(why) => Self::Refused(why),
+        }
+    }
 }
 
 fn refused(why: impl Into<String>) -> BranchError {
@@ -455,35 +467,6 @@ fn resolve(repo: &GitRepo, revision: &str) -> Result<String, BranchError> {
         .ok_or_else(|| refused(format!("'{revision}' names no commit")))
 }
 
-/// Opens repo `repo` of workspace `id`, refusing it while blocked (GRP-8):
-/// busy with another write, missing or in conflict state.
-async fn open_unblocked(
-    workspaces: &Workspaces,
-    summaries: &Summaries,
-    git: &GitRunner,
-    id: &WorkspaceId,
-    repo: &RepoId,
-) -> Result<(PathBuf, GitRepo), BranchError> {
-    if summaries.busy(id, repo) {
-        return Err(refused("another operation is running on the repo"));
-    }
-    let path = workspaces.repo_path(id, repo)?;
-    if !path.exists() {
-        return Err(refused("the repo's folder is missing"));
-    }
-    let opened = {
-        let path = path.clone();
-        tokio::task::spawn_blocking(move || GitRepo::open(&path)).await??
-    };
-    let state = crate::repo_state(StatusReader::new(opened.clone(), git.clone())).await?;
-    if state.in_conflict() {
-        return Err(refused(
-            "the repo is in conflict state; continue or abort first",
-        ));
-    }
-    Ok((path, opened))
-}
-
 /// Runs branch operation `request` on its repo of workspace `id` as a job
 /// (section 6 "Branches"). Refused for an invalid name (SEC-4), a blocked
 /// repo (GRP-8) or what the operation cannot apply to; a destructive one
@@ -501,18 +484,12 @@ pub async fn op_branch(
         op,
         confirmed,
     } = request;
-    let (path, repo) = open_unblocked(&workspaces, &summaries, &git, &id, &repo_id).await?;
+    let (path, repo) = open_unblocked(&workspaces, &summaries, &git, &id, &repo_id, false).await?;
     let plan = tokio::task::spawn_blocking(move || plan(&repo, op)).await??;
     let destructive = plan.destructive();
     if !destructive.is_empty() && !confirmed {
-        let repo = workspaces
-            .view(&id)?
-            .repos
-            .into_iter()
-            .find(|known| known.id == repo_id)
-            .map_or_else(|| repo_id.to_string(), |known| known.name);
         return Ok(BranchStart::Confirm {
-            repo,
+            repo: repo_name(&workspaces, &id, &repo_id)?,
             actions: destructive,
         });
     }

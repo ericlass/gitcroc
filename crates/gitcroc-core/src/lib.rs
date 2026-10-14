@@ -15,7 +15,9 @@ mod settings;
 mod stage;
 mod status;
 mod summary;
+mod sync;
 mod tree;
+mod unblocked;
 mod watch;
 mod workspace;
 
@@ -68,6 +70,10 @@ pub use status::{StatusReadError, repo_state, repo_summary, working_copy};
 pub use summary::{
     CACHE_FILE, CACHE_SCHEMA, CacheDir, PlatformCacheDir, REFRESH_READS, Summaries, SummaryCache,
     SummaryView, refresh_summaries, refresh_workspace,
+};
+pub use sync::{
+    Prune, PullStrategy, PushChoices, SyncError, SyncOp, SyncRequest, SyncStart, op_sync,
+    push_choices,
 };
 pub use tree::{TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, tree_filter, tree_refs};
 pub use watch::{DEBOUNCE, MAX_DELAY, RepoChange, WatchWarning, WatchedPath, Watchers};

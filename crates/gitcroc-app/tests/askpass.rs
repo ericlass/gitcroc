@@ -82,6 +82,7 @@ fn job_view(label: &str) -> JobView {
         state: JobState::Running,
         done: 0,
         total: 0,
+        step: None,
         started_at: None,
         duration_ms: None,
         outcome: None,

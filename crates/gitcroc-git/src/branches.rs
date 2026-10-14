@@ -74,6 +74,20 @@ impl GitRepo {
         })
     }
 
+    /// The remote-tracking branch that holds what local branch `name`
+    /// tracks, as the remote's fetch refspec maps it, such as
+    /// `refs/remotes/origin/main`; `None` when it tracks nothing or a local
+    /// branch. The ref need not exist.
+    pub fn tracking_ref(&self, name: &str) -> Option<String> {
+        self.tracked_branch(name)?;
+        let full: gix::refs::FullName = format!("refs/heads/{name}").try_into().ok()?;
+        let tracking = self
+            .thread_local()
+            .branch_remote_tracking_ref_name(full.as_ref(), gix::remote::Direction::Fetch)?
+            .ok()?;
+        Some(tracking.as_bstr().to_str_lossy().into_owned())
+    }
+
     /// The default branch (glossary): the branch `refs/remotes/origin/HEAD`
     /// points to, else local `main`, then `master`, whichever exists; as a
     /// full ref name. `None` when there is none.

@@ -1,7 +1,7 @@
 // How a job's outcome (GRP-7), progress, start time and duration read in
 // the status bar and the job list (UI-21). Colors and icons are theme
 // tokens (UI-23): `.outcome-<kind>` in App.css.
-import { Match, Switch } from "solid-js";
+import { Match, Show, Switch } from "solid-js";
 import type { JobView, Outcome } from "../ipc";
 
 const OUTCOME_TEXT: Record<Outcome["kind"], string> = {
@@ -26,19 +26,25 @@ export function OutcomeLabel(props: { outcome: Outcome }) {
   );
 }
 
-/** Running progress: `done/total`, or a spinner while the total is not known. */
+/**
+ * Running progress: the phase git names, such as `Receiving objects`, then
+ * `done/total`, or a spinner while the total is not known.
+ */
 export function JobProgressLabel(props: { job: JobView }) {
   return (
-    <Switch>
-      <Match when={props.job.total === 0}>
-        <span class="spinner" role="img" aria-label="Running" />
-      </Match>
-      <Match when={true}>
-        <span class="job-progress">
-          {props.job.done}/{props.job.total}
-        </span>
-      </Match>
-    </Switch>
+    <span class="job-running">
+      <Show when={props.job.step}>{(step) => <span class="job-step">{step()} </span>}</Show>
+      <Switch>
+        <Match when={props.job.total === 0}>
+          <span class="spinner" role="img" aria-label="Running" />
+        </Match>
+        <Match when={true}>
+          <span class="job-progress">
+            {props.job.done}/{props.job.total}
+          </span>
+        </Match>
+      </Switch>
+    </span>
   );
 }
 

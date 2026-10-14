@@ -16,6 +16,7 @@ import type {
   PaneLayout,
   PerfTrace,
   RepoId,
+  SyncRequest,
   Theme,
   WorkspaceId,
 } from "./bindings";
@@ -82,6 +83,9 @@ export type {
   PerfTrace,
   Person,
   PromptKind,
+  Prune,
+  PullStrategy,
+  PushChoices,
   RefKind,
   RefLabel,
   Refusal,
@@ -95,6 +99,9 @@ export type {
   SettingsView,
   StartPoint,
   SummaryView,
+  SyncOp,
+  SyncRequest,
+  SyncStart,
   TextDiff,
   Theme,
   Time,
@@ -221,6 +228,14 @@ export const opBranch = (workspaceId: WorkspaceId, request: BranchRequest) =>
 /** What the branch dialogs offer for a repo: start points, default branch, remote branches. */
 export const branchChoices = (workspaceId: WorkspaceId, repoId: RepoId) =>
   unwrap(core.commands.branchChoices(workspaceId, repoId));
+
+/** Fetches, pulls or pushes a repo as a job; a force push answers `confirm` until confirmed (GRP-9). */
+export const opSync = (workspaceId: WorkspaceId, request: SyncRequest) =>
+  unwrap(core.commands.opSync(workspaceId, request));
+
+/** What the push options offer for a repo: branch, upstream, remotes. */
+export const pushChoices = (workspaceId: WorkspaceId, repoId: RepoId) =>
+  unwrap(core.commands.pushChoices(workspaceId, repoId));
 
 /** Why `name` is not a valid branch name, or `null` (SEC-4). */
 export const branchNameCheck = (name: string) => unwrap(core.commands.branchNameCheck(name));

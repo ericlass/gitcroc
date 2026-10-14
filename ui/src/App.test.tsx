@@ -27,10 +27,12 @@ test("UI-20 layout: tab bar, toolbar, three panes and status bar", async () => {
   render(() => <App />);
   const toolbar = await screen.findByRole("toolbar", { name: "Main" });
   const buttons = [...toolbar.querySelectorAll("button")];
-  expect(buttons.map((b) => b.textContent)).toEqual([
+  expect(buttons.map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual([
     "Fetch",
     "Pull",
+    "Pull options",
     "Push",
+    "Push options",
     "Branch",
     "Merge",
     "Stash",

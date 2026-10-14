@@ -6,6 +6,7 @@ mod diff;
 mod history;
 pub mod ops;
 mod probe;
+mod progress;
 mod read;
 mod refs;
 mod runner;
@@ -25,6 +26,7 @@ pub use history::{
     RefKind, RefLabel, RepoRead, Time,
 };
 pub use probe::{InspectError, Inspected, Layout, inspect, layout};
+pub use progress::{Progress, parse_progress};
 pub use read::{GitRepo, OpenError};
 pub use refs::{
     AheadBehind, BranchUpstream, LocalBranch, RefSnapshot, Refs, RefsError, RefsRead,
