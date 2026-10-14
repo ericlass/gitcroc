@@ -112,10 +112,10 @@ export const commands = {
 	/**  Keeps "don't ask again" for a repo's commit-graph offer (PERF-2). */
 	commitGraphDecline: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<null, IpcError>(__TAURI_INVOKE("commit_graph_decline", { workspaceId, repoId })),
 	/**
-	 *  This run's jobs of the workspace, newest first, with their outcome and
-	 *  git's output, for the job list.
+	 *  This run's jobs of every workspace, newest first, with their outcome
+	 *  and git's output, for the job list (UI-21).
 	 */
-	jobsGet: (workspaceId: WorkspaceId) => typedError<JobView[], IpcError>(__TAURI_INVOKE("jobs_get", { workspaceId })),
+	jobsGet: () => typedError<JobView[], IpcError>(__TAURI_INVOKE("jobs_get")),
 	/**
 	 *  Cancels a job: one that has not started never runs, a running fetch or
 	 *  clone is killed, any other running job finishes (GRP-10). The end
@@ -592,32 +592,37 @@ export type JobEndedEvent = JobView;
 export type JobId = number;
 
 /**
- *  How far a job has come: `done` of `total` steps. A `total` of 0 means
- *  the number of steps is not known yet.
+ *  A job was queued, began to run, or made progress, sent as event
+ *  `job_progress` (ARCH-7, UI-21).
  */
-export type JobProgress = {
-	job_id: JobId,
-	workspace_id: WorkspaceId,
-	label: string,
-	done: number,
-	total: number,
-};
-
-/**  Progress of a running job, sent as event `job_progress` (ARCH-7). */
-export type JobProgressEvent = JobProgress;
+export type JobProgressEvent = JobView;
 
 /**  Where a job is. */
 export type JobState = 
 /**  Waiting for its repos or for a worker. */
 "queued" | "running" | "ended";
 
-/**  A job as the job list shows it. */
+/**  A job as the status bar and the job list show it (UI-21). */
 export type JobView = {
 	job_id: JobId,
 	workspace_id: WorkspaceId,
+	/**  The workspace's name when the job was started. */
+	workspace_name: string,
 	label: string,
 	repos: RepoId[],
+	/**  The names of `repos`, in their order, when the job was started. */
+	repo_names: string[],
 	state: JobState,
+	/**
+	 *  How far it has come: `done` of `total` steps. A `total` of 0 means
+	 *  the number of steps is not known yet.
+	 */
+	done: number,
+	total: number,
+	/**  When it began to run, in milliseconds since the Unix epoch. */
+	started_at: number | null,
+	/**  How long it ran, in milliseconds; set when it ended. */
+	duration_ms: number | null,
 	/**  Set when the job has ended. */
 	outcome: Outcome | null,
 	/**

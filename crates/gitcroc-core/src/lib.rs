@@ -41,7 +41,7 @@ pub use history::{
 pub use job::{
     CancelResult, JobError, JobEvents, JobHandle, JobId, JobIds, JobProgress, JobRun, JobState,
     JobView, Jobs, MAX_ENDED_JOBS, MAX_OUTPUT, NothingToDo, OnCancel, Outcome, POOL_SIZE, Pool,
-    Priority, SkipReason, Worker, WorkspaceId, WriteJob,
+    Priority, SkipReason, TrackedJob, Worker, WorkspaceId, WriteJob,
 };
 pub use log::{AppLog, LOG_FILE, LOG_FILE_SIZE, LOG_FILES, LogDir, PlatformLogDir};
 pub use settings::{

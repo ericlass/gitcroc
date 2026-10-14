@@ -12,6 +12,7 @@ import {
 } from "solid-js";
 import GitSetup from "./GitSetup";
 import { appInfo } from "./ipc";
+import JobList from "./jobs/JobList";
 import Panes from "./layout/Panes";
 import StatusBar from "./layout/StatusBar";
 import TabBar from "./layout/TabBar";
@@ -45,6 +46,7 @@ export default function App() {
   const changes = createChangesStore(settings.changes);
   const watch = createWatchStore();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  const [jobsOpen, setJobsOpen] = createSignal(false);
 
   // The open tab's workspace: the only one until tabs exist (M3). It is
   // passed down, never read from a module, so tabs need no rework (ARCH-9).
@@ -204,9 +206,12 @@ export default function App() {
                     settings={settings}
                   />
                 </main>
-                <StatusBar workspace={id()} jobs={jobs} />
+                <StatusBar workspace={id()} jobs={jobs} onOpenJobs={() => setJobsOpen(true)} />
               </>
             )}
+          </Show>
+          <Show when={jobsOpen()}>
+            <JobList jobs={jobs} onClose={() => setJobsOpen(false)} />
           </Show>
           <Show when={settingsOpen()}>
             <SettingsDialog settings={settings} info={info()} git={git.state.result} onClose={() => setSettingsOpen(false)} />

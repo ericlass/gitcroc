@@ -19,6 +19,12 @@
   --font-size-code: 13px;
   --radius: 4px;
   --splitter-width: 5px;
+  /* Job outcome icons (GRP-7, UI-21), the same in both themes. */
+  --outcome-succeeded-icon: "✓";
+  --outcome-nothing-to-do-icon: "–";
+  --outcome-skipped-icon: "⊘";
+  --outcome-failed-icon: "✕";
+  --outcome-conflict-icon: "⚠";
 }
 
 :root[data-theme="light"] {
@@ -48,6 +54,12 @@
   --graph-5: #1b7c83;
   --graph-6: #cf222e;
   --graph-7: #9a6700;
+  /* Job outcomes (GRP-7, UI-21). */
+  --outcome-succeeded: #1a7f37;
+  --outcome-nothing-to-do: #59636e;
+  --outcome-skipped: #9a6700;
+  --outcome-failed: #cf222e;
+  --outcome-conflict: #bc4c00;
 }
 
 :root[data-theme="dark"] {
@@ -75,4 +87,9 @@
   --graph-5: #39c5cf;
   --graph-6: #f85149;
   --graph-7: #d29922;
+  --outcome-succeeded: #3fb950;
+  --outcome-nothing-to-do: #9198a1;
+  --outcome-skipped: #d29922;
+  --outcome-failed: #f85149;
+  --outcome-conflict: #f0883e;
 }

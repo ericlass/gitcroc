@@ -2,6 +2,7 @@
 //! repo with a working tree is added; any other folder is scanned for
 //! repos. A job with progress (ARCH-7).
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -11,7 +12,7 @@ use gitcroc_git::{GitRunner, Layout, inspect, layout};
 use serde::{Deserialize, Serialize};
 
 use super::{RepoEntry, RepoView, Workspace, WorkspaceError, Workspaces};
-use crate::{JobId, JobProgress, WorkspaceId};
+use crate::{JobId, JobProgress, Outcome, WorkspaceId};
 
 /// How many folder levels below the chosen folder a scan looks at.
 pub const SCAN_DEPTH: usize = 4;
@@ -38,6 +39,37 @@ pub struct AddReport {
 pub struct Refusal {
     pub path: String,
     pub reason: String,
+}
+
+impl AddReport {
+    /// How the add job ended (GRP-7): *succeeded* when it added a repo,
+    /// *nothing to do* when every repo found was present and nothing was
+    /// refused, else *failed*. The output lists each folder and what
+    /// became of it.
+    pub fn ending(&self) -> (Outcome, String, Option<String>) {
+        // Writing to a String cannot fail.
+        let mut output = String::new();
+        for repo in &self.added {
+            let _ = writeln!(output, "added {}", repo.path);
+        }
+        for repo in &self.already_present {
+            let _ = writeln!(output, "already present {}", repo.path);
+        }
+        for refusal in &self.refused {
+            let _ = writeln!(output, "refused {}: {}", refusal.path, refusal.reason);
+        }
+        if !self.added.is_empty() {
+            (Outcome::Succeeded, output, None)
+        } else if self.refused.is_empty() {
+            (Outcome::NothingToDo, output, None)
+        } else {
+            (
+                Outcome::Failed,
+                output,
+                Some("no repo was added".to_owned()),
+            )
+        }
+    }
 }
 
 impl Refusal {

@@ -13,7 +13,7 @@ import type {
   DiffRequest,
   FileRef,
   GitStatus,
-  JobProgress,
+  JobId,
   JobView,
   PaneLayout,
   RepoId,
@@ -36,6 +36,7 @@ import {
   numbered,
 } from "./fakeChanges";
 import { defaultHistory, type FakeHistory, type FakeWalk, historyKey, nextPage, parentOf } from "./fakeHistory";
+import { fakeJob, jobsScenario } from "./fakeJobs";
 import { filterTree, scenario, skeleton } from "./fakeTree";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch", ui_font: null, code_font: null };
@@ -91,7 +92,7 @@ function fakeEvent<T>(listeners: Listeners<T>) {
 
 let nextEventId = 1;
 let nextJobId = 1;
-const jobProgressListeners: Listeners<JobProgress> = new Set();
+const jobProgressListeners: Listeners<JobView> = new Set();
 const gitStatusListeners: Listeners<GitStatus> = new Set();
 const workspaceChangedListeners: Listeners<WorkspaceView> = new Set();
 const workspaceAddReportListeners: Listeners<AddReport> = new Set();
@@ -157,6 +158,10 @@ export const fakeState: {
   refreshes: WorkspaceId[];
   /** What `watch_warning` returns. */
   watchWarning: WatchWarning | null;
+  /** This run's jobs, newest first, as `jobs_get` returns them. */
+  jobs: JobView[];
+  /** Every `job_cancel`, oldest first. */
+  cancels: JobId[];
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -181,6 +186,8 @@ export const fakeState: {
   layouts: [],
   refreshes: [],
   watchWarning: null,
+  jobs: [],
+  cancels: [],
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -191,8 +198,24 @@ function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
 }
 
 /** Delivers a `job_progress` event to every listener, as the core would. */
-export function emitJobProgress(payload: JobProgress): void {
+export function emitJobProgress(payload: JobView): void {
   emit(jobProgressListeners, "job_progress", payload);
+}
+
+/** Delivers a `job_ended` event to every listener, as the core would. */
+export function emitJobEnded(payload: JobView): void {
+  emit(jobEndedListeners, "job_ended", payload);
+}
+
+/** Keeps `view` in the fake's job list and sends it as the core would. */
+function sendJob(view: JobView): void {
+  const known = fakeState.jobs.findIndex((job) => job.job_id === view.job_id);
+  fakeState.jobs = known < 0 ? [view, ...fakeState.jobs] : fakeState.jobs.map((job, at) => (at === known ? view : job));
+  if (view.state === "ended") {
+    emitJobEnded(view);
+  } else {
+    emitJobProgress(view);
+  }
 }
 
 /** Delivers a `git_status` event to every listener, as the core would. */
@@ -244,6 +267,8 @@ export function reset(): void {
   fakeState.layouts = [];
   fakeState.refreshes = [];
   fakeState.watchWarning = null;
+  fakeState.jobs = [];
+  fakeState.cancels = [];
   walks.clear();
   views.clear();
   imageFiles.clear();
@@ -260,7 +285,12 @@ export function reset(): void {
 
 // Playwright runs the fake build; `?fake=<name>` picks a data set.
 const picked = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("fake");
-const data = picked === null ? null : scenario(picked, defaultWorkspace.id);
+// `jobs` is the `tree` data set with this run's jobs (UI-21).
+const data = picked === null ? null : scenario(picked === "jobs" ? "tree" : picked, defaultWorkspace.id);
+if (picked === "jobs") {
+  fakeState.jobs = jobsScenario(defaultWorkspace);
+  nextJobId = 100;
+}
 if (data) {
   fakeState.workspace = { ...defaultWorkspace, repos: data.repos };
   fakeState.refs = data.refs;
@@ -303,8 +333,19 @@ const notFound = (message: string) =>
  */
 function fakeAdd(workspaceId: string, path: string): number {
   const jobId = nextJobId++;
+  const job = fakeJob(fakeState.workspace, {
+    job_id: jobId,
+    workspace_id: workspaceId,
+    label: `Add repos from ${path}`,
+    repos: [],
+    repo_names: [],
+    state: "running",
+    outcome: null,
+    started_at: Date.now(),
+    duration_ms: null,
+  });
   setTimeout(() => {
-    emitJobProgress({ job_id: jobId, workspace_id: workspaceId, label: "Checking repos", done: 0, total: 2 });
+    sendJob({ ...job, total: 2 });
     const present = fakeState.workspace.repos.filter((repo) => repo.path === path);
     const added =
       present.length > 0
@@ -318,8 +359,17 @@ function fakeAdd(workspaceId: string, path: string): number {
             },
           ];
     fakeState.workspace = { ...fakeState.workspace, repos: [...fakeState.workspace.repos, ...added] };
-    emitJobProgress({ job_id: jobId, workspace_id: workspaceId, label: "Adding repos", done: 2, total: 2 });
+    sendJob({ ...job, done: 2, total: 2 });
     emitWorkspaceChanged(fakeState.workspace);
+    sendJob({
+      ...job,
+      done: 2,
+      total: 2,
+      state: "ended",
+      outcome: added.length > 0 ? { kind: "succeeded" } : { kind: "nothing_to_do" },
+      output: added.length > 0 ? `added ${path}\n` : `already present ${path}\n`,
+      duration_ms: 10,
+    });
     emit(workspaceAddReportListeners, "workspace_add_report", {
       workspace_id: workspaceId,
       job_id: jobId,
@@ -472,14 +522,32 @@ export const fake: Core = {
     commitGraphWrite: (workspaceId, repoId) => {
       const jobId = nextJobId++;
       fakeState.commitGraphWrites.push(repoId);
+      const name = fakeState.workspace.repos.find((repo) => repo.id === repoId)?.name ?? repoId;
+      const job = fakeJob(fakeState.workspace, {
+        job_id: jobId,
+        workspace_id: workspaceId,
+        label: "Writing the commit-graph file",
+        repos: [repoId],
+        repo_names: [name],
+        state: "running",
+        outcome: null,
+        started_at: Date.now(),
+        duration_ms: null,
+      });
       setTimeout(() => {
-        const label = "Writing the commit-graph file";
-        emitJobProgress({ job_id: jobId, workspace_id: workspaceId, label, done: 0, total: 0 });
+        sendJob(job);
         const error = fakeState.commitGraphError;
         if (error === null) {
           fakeState.slowRepos[repoId] = false;
-          emitJobProgress({ job_id: jobId, workspace_id: workspaceId, label, done: 1, total: 1 });
         }
+        sendJob({
+          ...job,
+          state: "ended",
+          outcome: error === null ? { kind: "succeeded" } : { kind: "failed" },
+          output: error === null ? "Computing commit graph generation numbers: 100% (3/3), done.\n" : "",
+          message: error,
+          duration_ms: 10,
+        });
         emit(commitGraphWrittenListeners, "commit_graph_written", {
           workspace_id: workspaceId,
           repo_id: repoId,
@@ -605,10 +673,18 @@ export const fake: Core = {
       fakeState.declined[repoId] = true;
       return Promise.resolve({ status: "ok", data: null });
     },
-    // The fake runs no write jobs yet; its commit-graph write reports
-    // `commit_graph_written` only.
-    jobsGet: () => Promise.resolve({ status: "ok", data: [] }),
-    jobCancel: () => Promise.resolve({ status: "ok", data: "ended" }),
+    jobsGet: () => Promise.resolve({ status: "ok", data: fakeState.jobs }),
+    // Like the core: a queued job never runs; a running one finishes
+    // (GRP-10). The fake's jobs do not move on by themselves.
+    jobCancel: (jobId) => {
+      fakeState.cancels.push(jobId);
+      const job = fakeState.jobs.find((known) => known.job_id === jobId);
+      if (job?.state === "queued") {
+        sendJob({ ...job, state: "ended", outcome: { kind: "skipped", reason: "cancelled" }, message: "cancelled" });
+        return Promise.resolve({ status: "ok", data: "cancelled" });
+      }
+      return Promise.resolve({ status: "ok", data: job?.state === "running" ? "finishing" : "ended" });
+    },
     // Only `just bench-ui` builds measure; the fake has nowhere to write.
     perfTraceWrite: () =>
       Promise.resolve({
