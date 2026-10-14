@@ -1,13 +1,14 @@
 //! Windows: the askpass socket is a named pipe of a random name, local to
-//! the machine (D10).
+//! the machine (D10); the file manager and the terminal.
 
 use std::fs::{File, OpenOptions};
 use std::io;
+use std::path::Path;
 use std::time::Duration;
 
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 
-use super::{LocalListener, LocalSockets};
+use super::{FileManager, Launch, LocalListener, LocalSockets, Terminal};
 
 /// `ERROR_PIPE_BUSY`: every instance of the pipe is taken for now.
 const PIPE_BUSY: i32 = 231;
@@ -69,5 +70,29 @@ impl LocalListener for PipeListener {
             .reject_remote_clients(true)
             .create(&self.address)?;
         Ok(std::mem::replace(&mut self.next, next))
+    }
+}
+
+/// Explorer, which shows a folder.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Explorer;
+
+impl FileManager for Explorer {
+    fn show(path: &Path) -> Launch {
+        Launch::new("explorer", [path.into()], path.to_owned())
+    }
+}
+
+/// Windows Terminal when it is installed, else `cmd` in a console of its
+/// own, which Windows gives a console program the app starts.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WindowsTerminal;
+
+impl Terminal for WindowsTerminal {
+    fn open_in(path: &Path) -> Vec<Launch> {
+        vec![
+            Launch::new("wt", ["-d".into(), path.into()], path.to_owned()),
+            Launch::new("cmd", [], path.to_owned()),
+        ]
     }
 }

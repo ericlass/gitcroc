@@ -14,6 +14,9 @@ import type {
   ChangesSettings,
   ChangesTarget,
   ChooseRequest,
+  CloneParentPickedEvent,
+  CloneReport,
+  CloneRequest,
   CommitGraphWrittenEvent,
   CommitRequest,
   Conflict,
@@ -66,6 +69,7 @@ import {
   parentOf,
 } from "./fakeHistory";
 import { applyBranchOp, choicesOf, destructiveOf, fakeNameCheck, labelOf, refusalOf } from "./fakeBranches";
+import { type FakeFolder, fakeDefaultName, fakeTargetRefusal } from "./fakeClone";
 import { labelsOf, planResolution, textConflict } from "./fakeConflict";
 import { mergeTargetsOf, planIntegrate } from "./fakeIntegrate";
 import { fakeRemoteNameCheck, planRemote } from "./fakeRemotes";
@@ -138,6 +142,8 @@ const watchWarningListeners: Listeners<WatchWarning> = new Set();
 const jobEndedListeners: Listeners<JobView> = new Set();
 const askpassPromptListeners: Listeners<AskpassPrompt> = new Set();
 const askpassClosedListeners: Listeners<AskpassClosedEvent> = new Set();
+const cloneParentPickedListeners: Listeners<CloneParentPickedEvent> = new Set();
+const cloneReportListeners: Listeners<CloneReport> = new Set();
 
 /** Each workspace's changes view, as the core keeps it. */
 const views = new Map<
@@ -255,6 +261,18 @@ export const fakeState: {
   fileConflicts: Record<string, Conflict>;
   /** Every `conflict_resolve` and `conflict_choose`, oldest first. */
   conflictRequests: (ResolveRequest | ChooseRequest)[];
+  /** What the clone's folder dialog returns; `null` is a cancel. */
+  cloneParent: string | null;
+  /** What is on disk by path, for the clone's target checks; others do not exist. */
+  folders: Record<string, FakeFolder>;
+  /** Every `clone_start` the core started, oldest first. */
+  cloneRequests: CloneRequest[];
+  /** What git printed when a clone failed; `null` lets clones succeed. */
+  cloneFailure: string | null;
+  /** Every repo opened in the file manager or a terminal, oldest first. */
+  opened: { how: "file_manager" | "terminal"; repo: RepoId }[];
+  /** Why opening fails; `null` lets it succeed. */
+  openFailure: string | null;
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -304,6 +322,12 @@ export const fakeState: {
   fsmonitorAnswers: [],
   fileConflicts: {},
   conflictRequests: [],
+  cloneParent: null,
+  folders: {},
+  cloneRequests: [],
+  cloneFailure: null,
+  opened: [],
+  openFailure: null,
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -958,6 +982,12 @@ export function emitWatchWarning(payload: WatchWarning): void {
 }
 
 export function reset(): void {
+  fakeState.cloneParent = null;
+  fakeState.folders = {};
+  fakeState.cloneRequests = [];
+  fakeState.cloneFailure = null;
+  fakeState.opened = [];
+  fakeState.openFailure = null;
   fakeState.fileConflicts = {};
   fakeState.conflictRequests = [];
   fakeState.appInfo = defaultAppInfo;
@@ -1037,6 +1067,7 @@ if (data) {
   fakeState.refs = data.refs;
   fakeState.summaries = data.summaries;
   fakeState.pickedFolder = data.pickedFolder ?? null;
+  fakeState.cloneParent = data.cloneParent ?? null;
   fakeState.histories = data.histories ?? {};
   fakeState.historyDelay = data.historyDelay ?? 0;
   fakeState.slowRepos = data.slowRepos ?? {};
@@ -1122,6 +1153,69 @@ function fakeAdd(workspaceId: string, path: string): number {
     });
   }, 10);
   return jobId;
+}
+
+/**
+ * Like the core's clone: refused before anything runs for a bad URL or
+ * target; else a job with a transfer step that ends, when it succeeds,
+ * with the repo in the workspace, then `clone_report` naming it.
+ */
+function fakeClone(workspaceId: WorkspaceId, request: CloneRequest) {
+  const why =
+    (request.url.trim() === "" ? "the URL is empty" : null) ??
+    fakeTargetRefusal(fakeState.folders, request.parent, request.name);
+  if (why !== null) {
+    return refused(why);
+  }
+  fakeState.cloneRequests.push(request);
+  const jobId = nextJobId++;
+  const job = fakeJob(fakeState.workspace, {
+    job_id: jobId,
+    workspace_id: workspaceId,
+    label: `Clone ${request.name}`,
+    repos: [],
+    repo_names: [],
+    state: "running",
+    outcome: null,
+    started_at: Date.now(),
+    duration_ms: null,
+  });
+  setTimeout(() => {
+    sendJob({ ...job, step: "Receiving objects", done: 1, total: 2 });
+    const failure = fakeState.cloneFailure;
+    const path = `${request.parent}/${request.name}`;
+    const repo =
+      failure === null
+        ? { id: `r${fakeState.workspace.repos.length + 1}`, name: request.name, path, remote: request.url.trim() }
+        : null;
+    if (repo !== null) {
+      fakeState.workspace = { ...fakeState.workspace, repos: [...fakeState.workspace.repos, repo] };
+      fakeState.folders[path] = "full";
+      emitWorkspaceChanged(fakeState.workspace);
+    }
+    sendJob({
+      ...job,
+      state: "ended",
+      outcome: repo === null ? { kind: "failed" } : { kind: "succeeded" },
+      output: failure ?? `Cloning into '${path}'...\n`,
+      message: failure === null ? null : "git exited with code 128",
+      duration_ms: 10,
+    });
+    emit(cloneReportListeners, "clone_report", { workspace_id: workspaceId, job_id: jobId, repo });
+  }, 10);
+  return Promise.resolve({ status: "ok" as const, data: jobId });
+}
+
+/** Like the core's file manager and terminal commands: recorded, or failing with `openFailure`. */
+function fakeOpen(how: "file_manager" | "terminal", repoId: RepoId) {
+  if (!fakeState.workspace.repos.some((repo) => repo.id === repoId)) {
+    return notFound(`the workspace has no repo with the id ${repoId}`);
+  }
+  if (fakeState.openFailure !== null) {
+    return refused(fakeState.openFailure);
+  }
+  fakeState.opened.push({ how, repo: repoId });
+  return Promise.resolve({ status: "ok" as const, data: null });
 }
 
 export const fake: Core = {
@@ -1566,6 +1660,24 @@ export const fake: Core = {
       const jobId = nextJobId++;
       return Promise.resolve({ status: "ok", data: jobId });
     },
+    clonePickParent: (workspaceId) => {
+      if (workspaceId !== fakeState.workspace.id) {
+        return notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      const path = fakeState.cloneParent;
+      if (path !== null) {
+        const picked = { workspace_id: workspaceId, path };
+        setTimeout(() => emit(cloneParentPickedListeners, "clone_parent_picked", picked), 0);
+      }
+      return Promise.resolve({ status: "ok", data: null });
+    },
+    cloneDefaultName: (url) => Promise.resolve({ status: "ok", data: fakeDefaultName(url) }),
+    cloneTargetCheck: (parent, name) =>
+      Promise.resolve({ status: "ok", data: fakeTargetRefusal(fakeState.folders, parent, name) }),
+    cloneStart: (workspaceId, request) =>
+      fakeClone(workspaceId, request) as Promise<{ status: "ok"; data: JobId } | { status: "error"; error: IpcError }>,
+    repoOpenFileManager: (_workspaceId, repoId) => fakeOpen("file_manager", repoId),
+    repoOpenTerminal: (_workspaceId, repoId) => fakeOpen("terminal", repoId),
     fsmonitorDecline: (_workspaceId, repoId) => {
       fakeFsmonitorAnswer(repoId, "decline");
       return Promise.resolve({ status: "ok", data: null });
@@ -1639,6 +1751,8 @@ export const fake: Core = {
   events: {
     askpassClosed: fakeEvent(askpassClosedListeners),
     askpassPrompt: fakeEvent(askpassPromptListeners),
+    cloneParentPicked: fakeEvent(cloneParentPickedListeners),
+    cloneReport: fakeEvent(cloneReportListeners),
     commitGraphWritten: fakeEvent(commitGraphWrittenListeners),
     gitStatus: fakeEvent(gitStatusListeners),
     jobEnded: fakeEvent(jobEndedListeners),

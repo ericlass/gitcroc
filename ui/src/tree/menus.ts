@@ -23,6 +23,8 @@ export type MenuAction =
   | "remote_rename"
   | "remote_url"
   | "remote_remove"
+  | "open_file_manager"
+  | "open_terminal"
   | "remove_repo";
 
 export interface MenuEntry {
@@ -43,6 +45,9 @@ export function menuFor(item: TreeItem, blocked: boolean): MenuEntry[] {
       return [
         entry("create", "New branch…"),
         entry("tag_create", "New tag…"),
+        // Not writes: a blocked repo opens all the same.
+        { action: "open_file_manager", label: "Open in file manager", disabled: false },
+        { action: "open_terminal", label: "Open in terminal", disabled: false },
         { action: "remove_repo", label: "Remove from workspace", disabled: false },
       ];
     case "branch":

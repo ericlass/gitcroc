@@ -503,21 +503,50 @@ impl Jobs {
         workspace: &WorkspaceId,
         label: &str,
     ) -> Result<TrackedJob, JobError> {
+        self.track_as(workspace, label, OnCancel::Finish, false)
+    }
+
+    /// Tracks a network write that has no repo yet, a clone: like
+    /// [`Self::track`], but cancel kills its git process (GRP-10), and git
+    /// gets the askpass helper for its prompts (D10). Its git runs with
+    /// [`TrackedJob::write`].
+    pub fn track_network(
+        self: &Arc<Self>,
+        workspace: &WorkspaceId,
+        label: &str,
+    ) -> Result<TrackedJob, JobError> {
+        self.track_as(workspace, label, OnCancel::Kill, true)
+    }
+
+    fn track_as(
+        self: &Arc<Self>,
+        workspace: &WorkspaceId,
+        label: &str,
+        on_cancel: OnCancel,
+        network: bool,
+    ) -> Result<TrackedJob, JobError> {
         let id = self.ids.next();
         let view = self.new_view(id, workspace, label, &[])?;
+        let kill = Kill::new();
         self.lock().jobs.push_back(Entry {
             view,
             began: None,
-            kill: Kill::new(),
-            on_cancel: OnCancel::Finish,
+            kill: kill.clone(),
+            on_cancel,
             turn: None,
         });
-        if let Some(view) = self.begin(id) {
-            self.events.progress(&view);
+        let begun = self.begin(id);
+        if let Some(view) = &begun {
+            self.events.progress(view);
         }
+        let grant = begun
+            .filter(|_| network)
+            .and_then(|view| self.askpass.get()?.issue(&view));
         Ok(TrackedJob {
             jobs: self.clone(),
             id,
+            kill,
+            grant,
             ended: false,
         })
     }
@@ -756,6 +785,10 @@ impl Jobs {
 pub struct TrackedJob {
     jobs: Arc<Jobs>,
     id: JobId,
+    /// Requested on cancel only when the job was tracked as one to kill.
+    kill: Kill,
+    /// Revoked with the job, as a write job's is when it ends (D10).
+    grant: Option<AskpassGrant>,
     ended: bool,
 }
 
@@ -775,6 +808,21 @@ impl TrackedJob {
     /// Reports `done` of `total` steps.
     pub fn progress(&self, done: u32, total: u32) {
         self.jobs.set_progress(self.id, None, done, total);
+    }
+
+    /// Reports `done` of `total` in phase `step`, as [`JobRun::step`] does.
+    pub fn step(&self, step: &str, done: u32, total: u32) {
+        self.jobs.set_progress(self.id, Some(step), done, total);
+    }
+
+    /// How the runner runs this job's git: killed on cancel, with askpass
+    /// for a network job, as [`JobRun::write`].
+    pub fn write(&self) -> Write<'_> {
+        Write {
+            kill: Some(&self.kill),
+            askpass: self.grant.as_ref().map(AskpassGrant::askpass),
+            ..Write::default()
+        }
     }
 
     /// Reports progress like [`Self::progress`], from another thread.
@@ -920,11 +968,7 @@ fn judge(
     before: &[Seen],
     after: &[Seen],
 ) -> (Outcome, String, Option<String>) {
-    let output = match result {
-        Ok(output) => output_text(&output.stdout, &output.stderr),
-        Err(GitError::Failed { stdout, stderr, .. }) => output_text(stdout, stderr),
-        Err(_) => String::new(),
-    };
+    let output = git_output(result);
     let conflict = job.may_conflict
         && after.iter().enumerate().any(|(index, seen)| {
             seen.conflict && (result.is_err() || !before.get(index).is_some_and(|old| old.conflict))
@@ -941,6 +985,27 @@ fn judge(
         Ok(_) if job.nothing_to_do == NothingToDo::WhenRefsUnchanged && unchanged => {
             (Outcome::NothingToDo, output, None)
         }
+        Ok(_) => (Outcome::Succeeded, output, None),
+    }
+}
+
+/// git's output as a job shows it: stdout then stderr, as far as git ran.
+fn git_output(result: &Result<Output, GitError>) -> String {
+    match result {
+        Ok(output) => output_text(&output.stdout, &output.stderr),
+        Err(GitError::Failed { stdout, stderr, .. }) => output_text(stdout, stderr),
+        Err(_) => String::new(),
+    }
+}
+
+/// How a job that ran git once ends, as a write job does: *skipped
+/// (cancelled)* when it was killed, *failed* with git's message, or
+/// *succeeded*; with git's output.
+pub(crate) fn git_ending(result: &Result<Output, GitError>) -> (Outcome, String, Option<String>) {
+    let output = git_output(result);
+    match result {
+        Err(GitError::Killed) => (cancelled(), output, Some("cancelled".to_owned())),
+        Err(error) => (Outcome::Failed, output, Some(error.to_string())),
         Ok(_) => (Outcome::Succeeded, output, None),
     }
 }

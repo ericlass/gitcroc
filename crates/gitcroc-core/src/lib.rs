@@ -3,6 +3,7 @@
 mod app_info;
 mod branch;
 mod changes;
+mod clone;
 mod commit;
 mod config_file;
 mod conflict;
@@ -36,6 +37,10 @@ pub use branch::{
 pub use changes::{
     Changes, ChangesContent, ChangesError, ChangesTarget, ChangesView, DiffRequest, FileList,
     FileRef, ImageSide, changes_get, diff_get, diff_image,
+};
+pub use clone::{
+    CloneError, CloneHandle, CloneReport, CloneRequest, clone_default_name, clone_start,
+    clone_target_check,
 };
 pub use commit::{CommitMessage, CommitRequest, changes_commit};
 pub use config_file::ConfigWarning;

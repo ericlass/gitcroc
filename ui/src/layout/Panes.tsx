@@ -6,6 +6,7 @@ import HistoryPane from "../history/HistoryPane";
 import type { WorkspaceId } from "../ipc";
 import type { BranchStore } from "../stores/branch";
 import type { StashStore } from "../stores/stash";
+import type { CloneStore } from "../stores/clone";
 import type { RemoteStore } from "../stores/remote";
 import type { TagStore } from "../stores/tag";
 import type { ResetStore } from "../stores/reset";
@@ -36,6 +37,7 @@ export default function Panes(props: {
   stash: StashStore;
   tag: TagStore;
   remote: RemoteStore;
+  clone: CloneStore;
   reset: ResetStore;
   integrate: IntegrateStore;
   settings: SettingsStore;
@@ -105,6 +107,7 @@ export default function Panes(props: {
           stash={props.stash}
           tag={props.tag}
           remote={props.remote}
+          clone={props.clone}
         />
       </section>
       {splitter("tree", "Resize Tree")}

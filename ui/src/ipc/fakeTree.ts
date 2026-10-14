@@ -194,6 +194,8 @@ export interface Scenario {
   repos: RepoView[];
   /** What the folder dialog returns. */
   pickedFolder?: string;
+  /** What the clone's folder dialog returns. */
+  cloneParent?: string;
   refs: Record<RepoId, TreeNode[]>;
   summaries: SummaryView[];
   /** See `fakeState.histories`. */
@@ -232,6 +234,7 @@ export function scenario(name: string, workspaceId: string): Scenario | null {
     return {
       repos: [repo("r1", "api"), repo("r2", "web"), repo("r3", "login-service")],
       pickedFolder: "/src/new-repo",
+      cloneParent: "/src",
       refModels,
       refs: Object.fromEntries(Object.entries(refModels).map(([id, refs]) => [id, refNodes(id, refs)])),
       summaries: [

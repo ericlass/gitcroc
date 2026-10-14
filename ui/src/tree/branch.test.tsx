@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { fakeState, reset } from "../ipc/fake";
 import { type FakeRefs, refNodes, summary } from "../ipc/fakeTree";
 import { createBranchStore } from "../stores/branch";
+import { createCloneStore } from "../stores/clone";
 import { createRemoteStore } from "../stores/remote";
 import { createStashStore } from "../stores/stash";
 import { createSummaryStore } from "../stores/summaries";
@@ -67,6 +68,7 @@ async function setup(change: { busy?: boolean } = {}) {
         stash={createStashStore()}
         tag={createTagStore()}
         remote={createRemoteStore()}
+        clone={createCloneStore(() => {})}
       />
       <BranchDialogs workspace={id()} branch={branch} repoName={() => "api"} />
     </>
@@ -130,7 +132,13 @@ test("UI-7 double-click checks out a local branch", async () => {
 
 test("UI-7 the context menu of each row kind lists its operations", async () => {
   await setup();
-  expect(menuOf(row("api", 2))).toEqual(["New branch…", "New tag…", "Remove from workspace"]);
+  expect(menuOf(row("api", 2))).toEqual([
+    "New branch…",
+    "New tag…",
+    "Open in file manager",
+    "Open in terminal",
+    "Remove from workspace",
+  ]);
   expect(menuOf(row("main", 4))).toEqual([
     "!Check out",
     "New branch from here…",
@@ -159,7 +167,14 @@ test("UI-7 the context menu of each row kind lists its operations", async () => 
 
 test("GRP-8 a busy repo's branch operations are disabled", async () => {
   await setup({ busy: true });
-  expect(menuOf(row("api", 2))).toEqual(["!New branch…", "!New tag…", "Remove from workspace"]);
+  // Opening it is no write.
+  expect(menuOf(row("api", 2))).toEqual([
+    "!New branch…",
+    "!New tag…",
+    "Open in file manager",
+    "Open in terminal",
+    "Remove from workspace",
+  ]);
   expect(menuOf(row("old", 4)).every((entry) => entry.startsWith("!"))).toBe(true);
   fireEvent.dblClick(row("topic", 4));
   await settleAll();

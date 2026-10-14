@@ -292,6 +292,38 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	fsmonitorEnable: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<JobId, IpcError>(__TAURI_INVOKE("fsmonitor_enable", { workspaceId, repoId })),
 	/**  Keeps "don't ask again" for a repo's fsmonitor offer (PERF-7). */
 	fsmonitorDecline: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<null, IpcError>(__TAURI_INVOKE("fsmonitor_decline", { workspaceId, repoId })),
+	/**
+	 *  Opens the native folder dialog for a clone's parent folder and returns
+	 *  at once; the folder picked arrives as `clone_parent_picked`. Opened from
+	 *  Rust, as for `workspace_pick_and_add` (SEC-2).
+	 */
+	clonePickParent: (workspaceId: WorkspaceId) => typedError<null, IpcError>(__TAURI_INVOKE("clone_pick_parent", { workspaceId })),
+	/**
+	 *  The folder a clone of `url` gets by default: the last segment of its
+	 *  path without `.git`; `null` when there is none.
+	 */
+	cloneDefaultName: (url: string) => typedError<string | null, IpcError>(__TAURI_INVOKE("clone_default_name", { url })),
+	/**
+	 *  Why a clone into folder `name` of `parent` would be refused, such as a
+	 *  folder that exists and is not empty, or `null`. Checked as the user
+	 *  types.
+	 */
+	cloneTargetCheck: (parent: string, name: string) => typedError<string | null, IpcError>(__TAURI_INVOKE("clone_target_check", { parent, name })),
+	/**
+	 *  Starts cloning `request` and returns its job's id at once. Progress
+	 *  arrives as `job_progress`; at its end, a cloned repo is in the
+	 *  workspace, announced by `workspace_changed`, then `clone_report` names
+	 *  it. Refused before git runs for a read-only workspace, an unusable URL
+	 *  or folder name, or a target that exists and is not empty.
+	 */
+	cloneStart: (workspaceId: WorkspaceId, request: CloneRequest) => typedError<JobId, IpcError>(__TAURI_INVOKE("clone_start", { workspaceId, request })),
+	/**  Shows the repo's folder in the system file manager. */
+	repoOpenFileManager: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<null, IpcError>(__TAURI_INVOKE("repo_open_file_manager", { workspaceId, repoId })),
+	/**
+	 *  Opens a terminal in the repo's folder; fails naming the terminals tried
+	 *  when none is installed.
+	 */
+	repoOpenTerminal: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<null, IpcError>(__TAURI_INVOKE("repo_open_terminal", { workspaceId, repoId })),
 	/**  What the conflict banner names for a repo in conflict state (OPS-2). */
 	conflictDetails: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<ConflictDetails, IpcError>(__TAURI_INVOKE("conflict_details", { workspaceId, repoId })),
 	/**
@@ -381,6 +413,8 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 export const events = {
 	askpassClosed: makeEvent<AskpassClosedEvent>("askpass_closed"),
 	askpassPrompt: makeEvent<AskpassPromptEvent>("askpass_prompt"),
+	cloneParentPicked: makeEvent<CloneParentPickedEvent>("clone_parent_picked"),
+	cloneReport: makeEvent<CloneReportEvent>("clone_report"),
 	commitGraphWritten: makeEvent<CommitGraphWrittenEvent>("commit_graph_written"),
 	gitStatus: makeEvent<GitStatusEvent>("git_status"),
 	jobEnded: makeEvent<JobEndedEvent>("job_ended"),
@@ -695,6 +729,39 @@ export type ChooseRequest = {
 	handle: number,
 	file: number,
 	side: ConflictChoice,
+};
+
+/**
+ *  The parent folder the user picked for a clone, sent as event
+ *  `clone_parent_picked`; nothing is sent when they cancel.
+ */
+export type CloneParentPickedEvent = {
+	workspace_id: WorkspaceId,
+	path: string,
+};
+
+/**  How a clone ended. */
+export type CloneReport = {
+	workspace_id: WorkspaceId,
+	job_id: JobId,
+	/**
+	 *  The cloned repo, now in the workspace, to select; `None` when the
+	 *  clone failed, was cancelled or could not be added.
+	 */
+	repo: RepoView | null,
+};
+
+/**
+ *  How a clone ended, sent as event `clone_report` after its
+ *  `workspace_changed`: the cloned repo, to select, when it was added.
+ */
+export type CloneReportEvent = CloneReport;
+
+/**  A clone to start: `url` into folder `name` of `parent`. */
+export type CloneRequest = {
+	url: string,
+	parent: string,
+	name: string,
 };
 
 /**

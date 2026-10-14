@@ -1,14 +1,25 @@
-// The tree pane (UI-1, UI-3, UI-7, UI-8): filter box, add button and the
-// tree, virtualized (PERF-1), with a context menu on each row that has
-// operations and double-click to check out a local branch; a stash row's
-// menu applies, pops or drops it, a tag row's pushes or deletes it, the
-// Remotes node's adds a remote and a remote row's renames, edits or
-// removes it. Everything shown comes from the stores, which take it from
+// The tree pane (UI-1, UI-3, UI-7, UI-8): filter box, add menu (add a
+// folder, or clone) and the tree, virtualized (PERF-1), with a context menu
+// on each row that has operations and double-click to check out a local
+// branch; a repo row's menu also opens the repo in the file manager or a
+// terminal, a stash row's applies, pops or drops it, a tag row's pushes or
+// deletes it, the Remotes node's adds a remote and a remote row's renames,
+// edits or removes it. Everything shown comes from the stores, which take it from
 // the core; this component only lays it out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import { type RepoId, type TreeItem, type TreeNode, type WorkspaceId, workspacePickAndAdd, workspaceRemoveRepo } from "../ipc";
+import {
+  type RepoId,
+  repoOpenFileManager,
+  repoOpenTerminal,
+  type TreeItem,
+  type TreeNode,
+  type WorkspaceId,
+  workspacePickAndAdd,
+  workspaceRemoveRepo,
+} from "../ipc";
 import type { BranchStore } from "../stores/branch";
+import type { CloneStore } from "../stores/clone";
 import type { StashStore } from "../stores/stash";
 import type { RemoteStore } from "../stores/remote";
 import type { TagStore } from "../stores/tag";
@@ -307,17 +318,44 @@ export default function TreePane(props: {
   stash: StashStore;
   tag: TagStore;
   remote: RemoteStore;
+  clone: CloneStore;
 }) {
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [menu, setMenu] = createSignal<{ item: TreeItem; x: number; y: number } | null>(null);
+  /** Where the add menu opened, below its button. */
+  const [addMenu, setAddMenu] = createSignal<{ x: number; y: number } | null>(null);
 
   const tree = () => props.tree.tree(props.workspace);
   /** Loaded, unfiltered and without repos. */
   const empty = () => tree().filtered === null && tree().roots?.[0]?.children?.length === 0;
 
   const add = () => {
+    setAddMenu(null);
     setActionError(null);
     workspacePickAndAdd(props.workspace).catch((error) => setActionError(message(error)));
+  };
+
+  const clone = () => {
+    setAddMenu(null);
+    setActionError(null);
+    props.clone.open(props.workspace);
+  };
+
+  const openAddMenu = (event: MouseEvent) => {
+    const button = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    setAddMenu({ x: button.left, y: button.bottom });
+  };
+
+  const AddButton = () => (
+    <button type="button" aria-haspopup="menu" aria-expanded={addMenu() !== null} onClick={openAddMenu}>
+      Add repository
+    </button>
+  );
+
+  const openRepo = (how: "file_manager" | "terminal", repo: RepoId) => {
+    setActionError(null);
+    const opened = how === "file_manager" ? repoOpenFileManager : repoOpenTerminal;
+    opened(props.workspace, repo).catch((error) => setActionError(message(error)));
   };
 
   const remove = (repo: RepoId) => {
@@ -342,6 +380,12 @@ export default function TreePane(props: {
     switch (action) {
       case "remove_repo":
         remove(repo);
+        return;
+      case "open_file_manager":
+        openRepo("file_manager", repo);
+        return;
+      case "open_terminal":
+        openRepo("terminal", repo);
         return;
       case "create":
         open({
@@ -436,6 +480,7 @@ export default function TreePane(props: {
   const closeMenu = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       setMenu(null);
+      setAddMenu(null);
     }
   };
   document.addEventListener("keydown", closeMenu);
@@ -452,9 +497,7 @@ export default function TreePane(props: {
           value={tree().filter}
           onInput={(event) => void props.tree.setFilter(props.workspace, event.currentTarget.value)}
         />
-        <button type="button" onClick={add}>
-          Add repository
-        </button>
+        <AddButton />
       </div>
       <Show when={actionError()}>{(error) => <p role="alert">{error()}</p>}</Show>
       <Show when={props.stash.dialog(props.workspace) === null && props.stash.error(props.workspace)}>
@@ -504,9 +547,7 @@ export default function TreePane(props: {
         fallback={
           <div class="tree-empty">
             <p class="placeholder">This workspace has no repositories yet.</p>
-            <button type="button" onClick={add}>
-              Add repository
-            </button>
+            <AddButton />
           </div>
         }
       >
@@ -521,6 +562,27 @@ export default function TreePane(props: {
             }
           }}
         />
+      </Show>
+      <Show when={addMenu()}>
+        {(open) => (
+          <div class="menu-backdrop" onClick={() => setAddMenu(null)} onContextMenu={(event) => event.preventDefault()}>
+            <div
+              class="menu"
+              role="menu"
+              aria-label="Add repository"
+              style={{ left: `${open().x}px`, top: `${open().y}px` }}
+              ref={(element) => queueMicrotask(() => element.querySelector<HTMLElement>("[role=menuitem]")?.focus())}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button type="button" role="menuitem" onClick={add}>
+                Add folder…
+              </button>
+              <button type="button" role="menuitem" onClick={clone}>
+                Clone…
+              </button>
+            </div>
+          </div>
+        )}
       </Show>
       <Show when={menu()}>
         {(open) => (

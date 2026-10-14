@@ -13,8 +13,12 @@ use std::path::{Path, PathBuf};
 /// The crates in the app (section 4).
 const SHIPPED: [&str; 4] = ["gitcroc-git", "gitcroc-core", "gitcroc-ai", "gitcroc-app"];
 
-/// The one file that may start a process: the runner.
+/// The one file that may start a git process: the runner.
 const RUNNER: &str = "gitcroc-git/src/runner.rs";
+
+/// The one file that may start another program: the file manager or a
+/// terminal, never git (M2-14).
+const LAUNCHER: &str = "gitcroc-app/src/platform/launch.rs";
 
 /// The runner's methods that take git's arguments first.
 const RUNNER_CALLS: [&str; 5] = [
@@ -256,9 +260,13 @@ fn arch_1_writes_go_through_the_runner() {
         "the runner is not at {RUNNER}"
     );
 
-    // No process is started outside the runner.
+    // No process is started outside the runner, apart from the launcher's.
+    assert!(
+        sources.iter().any(|source| source.path == LAUNCHER),
+        "the launcher is not at {LAUNCHER}"
+    );
     for source in &sources {
-        if source.path == RUNNER {
+        if source.path == RUNNER || source.path == LAUNCHER {
             continue;
         }
         for (at, line) in source.lines.iter().enumerate() {

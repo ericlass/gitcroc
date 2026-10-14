@@ -1,10 +1,13 @@
-//! Linux: the desktop's fonts from GTK and GNOME (UI-26).
+//! Linux: the desktop's fonts from GTK and GNOME (UI-26), the file manager
+//! and the terminal.
+
+use std::path::Path;
 
 use gtk::gio;
 use gtk::gio::prelude::SettingsExtManual;
 use gtk::prelude::GtkSettingsExt;
 
-use super::DesktopFontSource;
+use super::{DesktopFontSource, FileManager, Launch, Terminal};
 use crate::ipc::DesktopFonts;
 
 /// Reads the fonts from GTK's settings and GNOME's schema.
@@ -42,4 +45,28 @@ pub fn font_family(description: &str) -> Option<String> {
     let family = gtk::pango::FontDescription::from_string(description).family()?;
     let family = family.trim();
     (!family.is_empty()).then(|| family.to_owned())
+}
+
+/// `xdg-open`, which opens a folder in the desktop's file manager.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct XdgOpen;
+
+impl FileManager for XdgOpen {
+    fn show(path: &Path) -> Launch {
+        Launch::new("xdg-open", [path.into()], path.to_owned())
+    }
+}
+
+/// The Debian alternative for the desktop's terminal, then the terminals of
+/// GNOME and KDE, then xterm, each started in the folder.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Terminals;
+
+impl Terminal for Terminals {
+    fn open_in(path: &Path) -> Vec<Launch> {
+        ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"]
+            .into_iter()
+            .map(|program| Launch::new(program, [], path.to_owned()))
+            .collect()
+    }
 }
