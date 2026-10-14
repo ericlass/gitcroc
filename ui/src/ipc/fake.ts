@@ -15,9 +15,11 @@ import type {
   ChangesTarget,
   CommitGraphWrittenEvent,
   CommitRequest,
+  ConflictDetails,
   DiffRequest,
   FileRef,
   GitStatus,
+  IntegrateRequest,
   JobId,
   JobView,
   PaneLayout,
@@ -45,6 +47,7 @@ import {
 } from "./fakeChanges";
 import { defaultHistory, type FakeHistory, type FakeWalk, historyKey, nextPage, parentOf } from "./fakeHistory";
 import { applyBranchOp, choicesOf, destructiveOf, fakeNameCheck, labelOf, refusalOf } from "./fakeBranches";
+import { mergeTargetsOf, planIntegrate } from "./fakeIntegrate";
 import { fakeJob, jobsScenario } from "./fakeJobs";
 import { applySync, planSync, pushChoicesOf } from "./fakeSync";
 import { type FakeRefs, filterTree, refNodes, scenario, skeleton } from "./fakeTree";
@@ -196,6 +199,12 @@ export const fakeState: {
   syncRequests: SyncRequest[];
   /** Sync jobs stay running, at their first step, until `finishSync`. */
   holdSync: boolean;
+  /** Every `op_integrate`, oldest first. */
+  integrateRequests: IntegrateRequest[];
+  /** Repos in conflict state, as `conflict_details` reads them; set with `setConflict`. */
+  conflicts: Record<RepoId, ConflictDetails>;
+  /** The conflict the next integrate job stops in; `null` lets them succeed. */
+  integrateConflict: ConflictDetails | null;
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -233,6 +242,9 @@ export const fakeState: {
   branchFailure: null,
   syncRequests: [],
   holdSync: false,
+  integrateRequests: [],
+  conflicts: {},
+  integrateConflict: null,
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -282,7 +294,7 @@ function endJob(workspaceId: WorkspaceId, repoId: RepoId, job: JobView): void {
     missing: false,
     error: null,
     refreshing: false,
-    conflict: false,
+    conflict: summary?.conflict ?? false,
     refs_version: summary?.refs_version ?? 0,
     busy: false,
   });
@@ -476,6 +488,92 @@ function fakeSyncOp(workspaceId: WorkspaceId, request: SyncRequest) {
   return Promise.resolve({ status: "ok" as const, data: { kind: "started" as const, job_id: jobId } });
 }
 
+const NO_CONFLICT: ConflictDetails = { operation: null, applying: null, onto: null, step: null, unmerged_paths: 0 };
+
+/**
+ * Puts repo `repoId` in conflict state as `details` say, or out of it with
+ * `null`: what `conflict_details` reads and the repo's summary, sent as the
+ * core would after a read (OPS-1).
+ */
+export function setConflict(repoId: RepoId, details: ConflictDetails | null): void {
+  const others = Object.entries(fakeState.conflicts).filter(([known]) => known !== repoId);
+  fakeState.conflicts = Object.fromEntries(details === null ? others : [...others, [repoId, details]]);
+  const state = { operation: details?.operation ?? null, unmerged_paths: details?.unmerged_paths ?? 0 };
+  fakeState.summaries = fakeState.summaries.map((known) =>
+    known.repo_id === repoId && known.summary !== null
+      ? {
+          ...known,
+          summary: { ...known.summary, state },
+          conflict: state.operation !== null || state.unmerged_paths > 0,
+          refs_version: known.refs_version + 1,
+        }
+      : known,
+  );
+  const summary = fakeState.summaries.find((known) => known.repo_id === repoId);
+  if (summary !== undefined) {
+    emitRepoSummary(summary);
+  }
+}
+
+/**
+ * Runs integrate operation `request` like the core: refused for a blocked
+ * repo (abort and continue need conflict state) or what it cannot apply
+ * to, a mainline to choose for a merge commit's revert, then a job. It
+ * stops in `fakeState.integrateConflict` when set; an abort or a continue
+ * that does not stop takes the repo out of conflict state.
+ */
+function fakeIntegrateOp(workspaceId: WorkspaceId, request: IntegrateRequest) {
+  fakeState.integrateRequests.push(request);
+  const repo = fakeState.workspace.repos.find((known) => known.id === request.repo_id);
+  const refs = fakeState.refModels[request.repo_id];
+  const summary = fakeState.summaries.find((known) => known.repo_id === request.repo_id);
+  const resuming = request.op.kind === "abort" || request.op.kind === "continue";
+  if (repo === undefined || refs === undefined) {
+    return refused("the repo has no branches");
+  }
+  if (summary?.busy) {
+    return refused("another operation is running on the repo");
+  }
+  if (summary?.missing) {
+    return refused("the repo's folder is missing");
+  }
+  if (summary?.conflict && !resuming) {
+    return refused("the repo is in conflict state; continue or abort first");
+  }
+  const parents = (hash: string) => fakeState.commits[hash]?.details.parents ?? [];
+  const plan = planIntegrate(refs, request.op, fakeState.conflicts[repo.id], parents);
+  if (plan.kind === "refused") {
+    return refused(plan.why);
+  }
+  if (plan.kind === "choose_mainline") {
+    return Promise.resolve({
+      status: "ok" as const,
+      data: { kind: "choose_mainline" as const, commit: plan.commit, parents: plan.parents },
+    });
+  }
+  const jobId = nextJobId++;
+  const stops = request.op.kind === "abort" ? null : fakeState.integrateConflict;
+  setTimeout(() => {
+    setConflict(repo.id, stops);
+    const job = fakeJob(fakeState.workspace, {
+      job_id: jobId,
+      workspace_id: workspaceId,
+      label: plan.label,
+      repos: [repo.id],
+      repo_names: [repo.name],
+      state: "ended",
+      outcome: stops === null ? { kind: "succeeded" } : { kind: "conflict" },
+      output: stops === null ? "" : "CONFLICT (content): Merge conflict in a.txt\n",
+      message: null,
+      started_at: Date.now(),
+      duration_ms: 5,
+    });
+    endJob(workspaceId, repo.id, job);
+    emitRepoRefsChanged({ workspace_id: workspaceId, repo_id: repo.id });
+  }, 0);
+  return Promise.resolve({ status: "ok" as const, data: { kind: "started" as const, job_id: jobId } });
+}
+
 /** Keeps `view` in the fake's job list and sends it as the core would. */
 function sendJob(view: JobView): void {
   const known = fakeState.jobs.findIndex((job) => job.job_id === view.job_id);
@@ -544,6 +642,9 @@ export function reset(): void {
   fakeState.syncRequests = [];
   fakeState.holdSync = false;
   heldSyncs.length = 0;
+  fakeState.integrateRequests = [];
+  fakeState.conflicts = {};
+  fakeState.integrateConflict = null;
   fakeState.changesDelay = 0;
   fakeState.layouts = [];
   fakeState.refreshes = [];
@@ -1077,6 +1178,15 @@ export const fake: Core = {
         ? notFound(`no repo ${repoId}`)
         : Promise.resolve({ status: "ok" as const, data: pushChoicesOf(refs) });
     },
+    opIntegrate: (workspaceId, request) => fakeIntegrateOp(workspaceId, request),
+    mergeTargets: (_workspaceId, repoId, filter) => {
+      const refs = fakeState.refModels[repoId];
+      return refs === undefined
+        ? notFound(`no repo ${repoId}`)
+        : Promise.resolve({ status: "ok" as const, data: mergeTargetsOf(refs, filter) });
+    },
+    conflictDetails: (_workspaceId, repoId) =>
+      Promise.resolve({ status: "ok" as const, data: fakeState.conflicts[repoId] ?? NO_CONFLICT }),
     diffImage: (workspaceId, handle, file, side) => {
       const last = imageFiles.get(workspaceId);
       const same = last?.handle === handle && last.ref.list === file.list && last.ref.id === file.id;

@@ -225,6 +225,20 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 */
 	pushChoices: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<PushChoices, IpcError>(__TAURI_INVOKE("push_choices", { workspaceId, repoId })),
 	/**
+	 *  Merges, rebases, cherry-picks or reverts in a repo, or aborts or
+	 *  continues the operation it is in, as a job (section 6 "Integrate",
+	 *  OPS-2). Its end arrives as `job_ended`; a revert of a merge commit
+	 *  answers `choose_mainline`.
+	 */
+	opIntegrate: (workspaceId: WorkspaceId, request: IntegrateRequest) => typedError<IntegrateStart, IpcError>(__TAURI_INVOKE("op_integrate", { workspaceId, request })),
+	/**
+	 *  The refs the merge dialog offers for a repo, filtered by `filter`
+	 *  (UI-20).
+	 */
+	mergeTargets: (workspaceId: WorkspaceId, repoId: RepoId, filter: string) => typedError<string[], IpcError>(__TAURI_INVOKE("merge_targets", { workspaceId, repoId, filter })),
+	/**  What the conflict banner names for a repo in conflict state (OPS-2). */
+	conflictDetails: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<ConflictDetails, IpcError>(__TAURI_INVOKE("conflict_details", { workspaceId, repoId })),
+	/**
 	 *  Changes the code themes and fonts (UI-24, UI-26) and saves the settings.
 	 *  Font sizes outside 8 to 32 are moved to the nearest limit.
 	 */
@@ -615,6 +629,29 @@ export type ConfigWarning =
 /**  How the two sides of a merge left a path, as `git status` names it. */
 export type Conflict = "both_deleted" | "added_by_us" | "deleted_by_them" | "added_by_them" | "deleted_by_us" | "both_added" | "both_modified";
 
+/**
+ *  An operation in conflict state as the banner names it (OPS-2). Each part
+ *  git does not record is `None`.
+ */
+export type ConflictDetails = {
+	operation: Operation | null,
+	/**
+	 *  What is applied: the merged branch or commit, the branch being
+	 *  rebased, the commit being cherry-picked or reverted. A commit reads
+	 *  `1a2b3c4 Subject`.
+	 */
+	applying: string | null,
+	/**
+	 *  Where: the current branch, or for a rebase the branch or commit it
+	 *  rebases onto.
+	 */
+	onto: string | null,
+	/**  A rebase or `git am`: the commit or patch that stopped. */
+	step: Step | null,
+	/**  Paths with conflict stages in the index; Continue waits for 0. */
+	unmerged_paths: number,
+};
+
 /**  How much unchanged text surrounds each change (UI-17). */
 export type Context = "three" | "ten" | 
 /**  One hunk spanning the file, and both sides' full text. */
@@ -787,6 +824,44 @@ export type ImageFormat = "png" | "jpeg" | "gif" | "webp" | "bmp";
 /**  A side of an image diff. */
 export type ImageSide = "old" | "new";
 
+/**
+ *  An integrate operation (section 6 "Integrate"), or what to do with one
+ *  stopped in conflict state (OPS-2).
+ */
+export type IntegrateOp = 
+/**  Merges `revision`, a ref or a hash, into the current branch. */
+{ kind: "merge"; revision: string; fast_forward: MergeFastForward } | 
+/**  Rebases the current branch onto `onto`, a ref or a hash. */
+{ kind: "rebase"; onto: string } | 
+/**  Applies `commits`, oldest first whatever their order here. */
+{ kind: "cherry_pick"; commits: string[] } | 
+/**
+ *  Reverts `commit`. A merge commit needs `mainline`, the parent whose
+ *  side is kept, counted from 1; without it the core asks.
+ */
+{ kind: "revert"; commit: string; mainline: number | null } | 
+/**  Aborts the operation the repo is in. */
+{ kind: "abort" } | 
+/**  Continues the operation the repo is in once no path is unmerged. */
+{ kind: "continue" };
+
+/**  An integrate operation on one repo. */
+export type IntegrateRequest = {
+	repo_id: RepoId,
+	op: IntegrateOp,
+};
+
+/**  What a request did. */
+export type IntegrateStart = 
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  A revert of a merge commit: ask again with the parent whose side is
+ *  kept. `commit` is its full hash, `parents` each parent as
+ *  `1a2b3c4 Subject`, the first being mainline 1.
+ */
+{ kind: "choose_mainline"; commit: string; parents: string[] };
+
 /**  The error every command returns. */
 export type IpcError = {
 	code: IpcErrorCode,
@@ -877,6 +952,18 @@ export type Line = {
 
 /**  What a diff line is. */
 export type LineKind = "context" | "added" | "removed";
+
+/**  Whether a merge may fast-forward (section 5 "Merge X into current"). */
+export type MergeFastForward = 
+/**
+ *  As `merge.ff` says; by default a fast-forward when possible, else a
+ *  merge commit.
+ */
+"config" | 
+/**  Fast-forward, or fail. */
+"ff_only" | 
+/**  Always a merge commit. */
+"no_ff";
 
 /**  Both modes, as git writes them (`100644`), when they differ. */
 export type ModeChange = {
@@ -1119,6 +1206,13 @@ export type StartPoint =
 { kind: "default_branch" } | 
 /**  A ref or a commit hash. */
 { kind: "revision"; revision: string };
+
+/**  Which step of a series stopped. */
+export type Step = {
+	/**  Counted from 1. */
+	current: number,
+	total: number,
+};
 
 /**  A repo's summary as the UI sees it. */
 export type SummaryView = {

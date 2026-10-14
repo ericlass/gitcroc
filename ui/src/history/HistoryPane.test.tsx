@@ -4,7 +4,9 @@ import type { CommitRow } from "../ipc";
 import { emitRepoSummary, fake, fakeState, reset } from "../ipc/fake";
 import { commitAt } from "../ipc/fakeHistory";
 import { summary } from "../ipc/fakeTree";
+import { createBranchStore } from "../stores/branch";
 import { createHistoryStore, sourceOf } from "../stores/history";
+import { createIntegrateStore } from "../stores/integrate";
 import { createLayoutStore } from "../stores/layout";
 import { createSelectionStore } from "../stores/selection";
 import { createSummaryStore } from "../stores/summaries";
@@ -45,7 +47,16 @@ async function setup(options: { changes?: number } = {}) {
   const layout = createLayoutStore();
   await summaries.subscribe(id());
   await history.subscribe(id());
-  render(() => <HistoryPane workspace={id()} history={history} summaries={summaries} layout={layout} />);
+  render(() => (
+    <HistoryPane
+      workspace={id()}
+      history={history}
+      summaries={summaries}
+      layout={layout}
+      branch={createBranchStore()}
+      integrate={createIntegrateStore()}
+    />
+  ));
   return { history, selection, summaries };
 }
 

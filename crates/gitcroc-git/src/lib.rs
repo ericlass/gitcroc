@@ -1,6 +1,7 @@
 //! Git access: read API (gix), git CLI runner, output parsers and conflict state detection.
 
 mod branches;
+mod commits;
 mod detect;
 mod diff;
 mod history;
@@ -37,8 +38,8 @@ pub use runner::{
     WRITE_ENV, Write, log_commands_to,
 };
 pub use status::{
-    Conflict, Engine, Fallback, Head, Operation, RepoState, RepoSummary, StatusError, StatusRead,
-    StatusReader, UnmergedFile, Upstream, WorkingCopy,
+    Conflict, ConflictDetails, Engine, Fallback, Head, Operation, RepoState, RepoSummary,
+    StatusError, StatusRead, StatusReader, Step, UnmergedFile, Upstream, WorkingCopy,
 };
 
 /// Errors returned by `gitcroc-git`.

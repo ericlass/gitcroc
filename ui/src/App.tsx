@@ -22,12 +22,14 @@ import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
 import SyncDialogs, { SyncRefusal } from "./sync/SyncDialogs";
 import BranchDialogs from "./tree/BranchDialogs";
+import IntegrateDialogs from "./integrate/IntegrateDialogs";
 import { createAskpassStore } from "./stores/askpass";
 import { createBranchStore } from "./stores/branch";
 import { createChangesStore } from "./stores/changes";
 import { createCommitStore } from "./stores/commit";
 import { createGitStore } from "./stores/git";
 import { createHistoryStore, sourceOf } from "./stores/history";
+import { createIntegrateStore } from "./stores/integrate";
 import { createJobStore } from "./stores/jobs";
 import { createLayoutStore } from "./stores/layout";
 import { createSelectionStore } from "./stores/selection";
@@ -55,6 +57,7 @@ export default function App() {
   const commit = createCommitStore();
   const branch = createBranchStore();
   const sync = createSyncStore();
+  const integrate = createIntegrateStore();
   const watch = createWatchStore();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [jobsOpen, setJobsOpen] = createSignal(false);
@@ -92,6 +95,22 @@ export default function App() {
       push: pullOrPush ? () => void sync.run(id, repo, DEFAULT_OPS.push) : null,
       pushOptions: pullOrPush ? () => sync.open(id, { kind: "push", repo, remotes: null }) : null,
     };
+  };
+
+  /** Opens the merge dialog for the selected repo: not blocked (GRP-8) and on a branch. */
+  const mergeAction = () => {
+    const target = selectedRepo();
+    if (target === null || !canPullOrPush(target.view)) {
+      return null;
+    }
+    return () => integrate.open(target.id, { kind: "merge", repo: target.repo });
+  };
+
+  /** The current branch of `repo` in the open workspace, or `null`. */
+  const branchOf = (repo: string) => {
+    const id = workspace()?.id;
+    const head = id === undefined ? undefined : summaries.view(id, repo)?.summary?.head;
+    return head?.kind === "branch" ? head.name : null;
   };
 
   const repoName = (repo: string) => workspace()?.repos.find((known) => known.id === repo)?.name ?? repo;
@@ -218,6 +237,7 @@ export default function App() {
                     }
                   }
             }
+            onMerge={mergeAction()}
             onSettings={() => setSettingsOpen(true)}
           />
           <Show when={workspace()?.id}>{(id) => <SyncRefusal workspace={id()} sync={sync} />}</Show>
@@ -269,11 +289,13 @@ export default function App() {
                     changes={changes}
                     commit={commit}
                     branch={branch}
+                    integrate={integrate}
                     settings={settings}
                   />
                 </main>
                 <BranchDialogs workspace={id()} branch={branch} repoName={repoName} />
                 <SyncDialogs workspace={id()} sync={sync} repoName={repoName} />
+                <IntegrateDialogs workspace={id()} integrate={integrate} repoName={repoName} branchOf={branchOf} />
                 <StatusBar workspace={id()} jobs={jobs} onOpenJobs={() => setJobsOpen(true)} />
               </>
             )}

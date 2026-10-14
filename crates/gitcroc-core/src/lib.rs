@@ -8,6 +8,7 @@ mod config_file;
 mod diff;
 mod git;
 mod history;
+mod integrate;
 mod job;
 mod log;
 mod ref_name;
@@ -35,14 +36,14 @@ pub use config_file::ConfigWarning;
 pub use diff::{DiffReadError, changed_files, commit_details, file_diff};
 pub use git::{GitSetup, GitStatus};
 pub use gitcroc_git::{
-    AheadBehind, BranchUpstream, ChangedFile, CommitDetails, CommitRow, Conflict, ContentKey,
-    Context, Cursor, DiffError, DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback,
-    FileDiff, FileStatus, Filter, GitError, GitRepo, GitRunner, GraphRow, Head, HistoryError,
-    HistoryStart, Hunk, HunkPatch, Image, ImageFormat, Line, LineKind, LocalBranch,
+    AheadBehind, BranchUpstream, ChangedFile, CommitDetails, CommitRow, Conflict, ConflictDetails,
+    ContentKey, Context, Cursor, DiffError, DiffOptions, DiffRead, DiffSource, Edge, Engine,
+    Fallback, FileDiff, FileStatus, Filter, GitError, GitRepo, GitRunner, GraphRow, Head,
+    HistoryError, HistoryStart, Hunk, HunkPatch, Image, ImageFormat, Line, LineKind, LocalBranch,
     MAX_COUNTED_FILES, MAX_DIFF_LINES, MAX_IMAGE_BYTES, ModeChange, OpenError, Operation,
     PAGE_SIZE, Page, Person, RefKind, RefLabel, Refs, RefsError, RefsRead, RemoteBranches,
     RepoRead, RepoState, RepoSummary, SearchEnv, StashEntry, StatusError, StatusRead, StatusReader,
-    Tag, TextDiff, Time, UnmergedFile, Upstream, WorkingCopy,
+    Step, Tag, TextDiff, Time, UnmergedFile, Upstream, WorkingCopy,
 };
 pub use gitcroc_git::{
     Askpass, CommandRecord, Exit, Kill, Output, RefSnapshot, log_commands_to, ops,
@@ -51,6 +52,10 @@ pub use history::{
     COMMIT_GRAPH_THRESHOLD, CommitGraphError, CommitGraphWrite, Histories, HistoryPageError,
     HistoryTarget, HistoryView, HistoryViewError, commit_graph_write, history_get, history_more,
     history_page,
+};
+pub use integrate::{
+    IntegrateError, IntegrateOp, IntegrateRequest, IntegrateStart, MAX_MERGE_TARGETS,
+    MergeFastForward, conflict_details, merge_targets, op_integrate,
 };
 pub use job::{
     AskpassGrant, AskpassIssuer, CancelResult, JobError, JobEvents, JobHandle, JobId, JobIds,

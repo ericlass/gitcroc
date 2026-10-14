@@ -11,6 +11,7 @@ import type {
   FileRef,
   HistoryTarget,
   ImageSide,
+  IntegrateRequest,
   IpcError,
   JobId,
   PaneLayout,
@@ -38,6 +39,7 @@ export type {
   ChangeRequest,
   ChangeStart,
   ChangeTarget,
+  ConflictDetails,
   CodeTheme,
   ChangedFile,
   ChangesContent,
@@ -70,18 +72,23 @@ export type {
   Image,
   ImageFormat,
   ImageSide,
+  IntegrateOp,
+  IntegrateRequest,
+  IntegrateStart,
   IpcError,
   JobId,
   JobState,
   JobView,
   Line,
   LineKind,
+  MergeFastForward,
   ModeChange,
   Outcome,
   PaneLayout,
   PerfSample,
   PerfTrace,
   Person,
+  Operation,
   PromptKind,
   Prune,
   PullStrategy,
@@ -98,6 +105,7 @@ export type {
   Settings,
   SettingsView,
   StartPoint,
+  Step,
   SummaryView,
   SyncOp,
   SyncRequest,
@@ -236,6 +244,18 @@ export const opSync = (workspaceId: WorkspaceId, request: SyncRequest) =>
 /** What the push options offer for a repo: branch, upstream, remotes. */
 export const pushChoices = (workspaceId: WorkspaceId, repoId: RepoId) =>
   unwrap(core.commands.pushChoices(workspaceId, repoId));
+
+/** Merges, rebases, cherry-picks or reverts as a job, or aborts or continues the repo's operation (OPS-2). */
+export const opIntegrate = (workspaceId: WorkspaceId, request: IntegrateRequest) =>
+  unwrap(core.commands.opIntegrate(workspaceId, request));
+
+/** The refs the merge dialog offers for a repo, filtered in the core (UI-20). */
+export const mergeTargets = (workspaceId: WorkspaceId, repoId: RepoId, filter: string) =>
+  unwrap(core.commands.mergeTargets(workspaceId, repoId, filter));
+
+/** What the conflict banner names for a repo (OPS-2). */
+export const conflictDetails = (workspaceId: WorkspaceId, repoId: RepoId) =>
+  unwrap(core.commands.conflictDetails(workspaceId, repoId));
 
 /** Why `name` is not a valid branch name, or `null` (SEC-4). */
 export const branchNameCheck = (name: string) => unwrap(core.commands.branchNameCheck(name));

@@ -96,6 +96,11 @@ export interface WorkspaceHistory {
   error: string | null;
   /** The selected row's id: a hash or UNCOMMITTED_ID. */
   selected: string | null;
+  /**
+   * The commit rows selected with Ctrl/Cmd and Shift, for a cherry-pick
+   * (UI-13): the selected row among them, or empty when it is not a commit.
+   */
+  marked: string[];
   scrollTop: number;
   /** A scroll position for the list to apply once, after a restore. */
   restore: number | null;
@@ -117,6 +122,7 @@ const empty = (): WorkspaceHistory => ({
   loading: false,
   error: null,
   selected: null,
+  marked: [],
   scrollTop: 0,
   restore: null,
   positions: {},
@@ -126,6 +132,9 @@ const empty = (): WorkspaceHistory => ({
 });
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** The multi-selection of a single selected row. */
+const only = (rowId: string | null) => (rowId === null || rowId === UNCOMMITTED_ID ? [] : [rowId]);
 
 export function createHistoryStore(selection: SelectionStore) {
   const [state, setState] = createStore<{ byWorkspace: Record<WorkspaceId, WorkspaceHistory> }>({ byWorkspace: {} });
@@ -274,6 +283,7 @@ export function createHistoryStore(selection: SelectionStore) {
       h.source = source;
       h.text = saved?.text ?? "";
       h.selected = saved?.selected ?? null;
+      h.marked = only(h.selected);
       h.scrollTop = saved?.scrollTop ?? 0;
       h.rows = NO_COMMITS;
       h.handle = null;
@@ -332,6 +342,7 @@ export function createHistoryStore(selection: SelectionStore) {
         if (gone) {
           h.selected = null;
         }
+        h.marked = h.marked.filter((hash) => rows.some((row) => row.hash === hash));
       });
       if (gone) {
         announce(id);
@@ -364,7 +375,19 @@ export function createHistoryStore(selection: SelectionStore) {
   };
 
   const select = (id: WorkspaceId, rowId: string | null) => {
-    update(id, (h) => (h.selected = rowId));
+    update(id, (h) => {
+      h.selected = rowId;
+      h.marked = only(rowId);
+    });
+    announce(id);
+  };
+
+  /** Selects row `rowId` with commits `hashes` selected for a cherry-pick (UI-13). */
+  const mark = (id: WorkspaceId, rowId: string, hashes: string[]) => {
+    update(id, (h) => {
+      h.selected = rowId;
+      h.marked = hashes;
+    });
     announce(id);
   };
 
@@ -447,6 +470,7 @@ export function createHistoryStore(selection: SelectionStore) {
     more,
     setText,
     select,
+    mark,
     setScrollTop,
     writeCommitGraph,
     declineCommitGraph,
