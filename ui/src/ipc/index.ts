@@ -18,9 +18,11 @@ import type {
   PaneLayout,
   PerfTrace,
   RepoId,
+  ResetRequest,
   ResolveRequest,
   StashRequest,
   SyncRequest,
+  TagRequest,
   Theme,
   WorkspaceId,
 } from "./bindings";
@@ -123,6 +125,12 @@ export type {
   StashRef,
   StashRequest,
   StashStart,
+  TagOp,
+  TagRequest,
+  TagStart,
+  ResetMode,
+  ResetRequest,
+  ResetStart,
   Step,
   SummaryView,
   SyncOp,
@@ -269,6 +277,14 @@ export const opIntegrate = (workspaceId: WorkspaceId, request: IntegrateRequest)
 
 export const opStash = (workspaceId: WorkspaceId, request: StashRequest) =>
   unwrap(core.commands.opStash(workspaceId, request));
+
+export const opTag = (workspaceId: WorkspaceId, request: TagRequest) => unwrap(core.commands.opTag(workspaceId, request));
+
+/** Why `name` is not a valid tag name, or `null` (SEC-4). */
+export const tagNameCheck = (name: string) => unwrap(core.commands.tagNameCheck(name));
+
+export const opReset = (workspaceId: WorkspaceId, request: ResetRequest) =>
+  unwrap(core.commands.opReset(workspaceId, request));
 
 /** The refs the merge dialog offers for a repo, filtered in the core (UI-20). */
 export const mergeTargets = (workspaceId: WorkspaceId, repoId: RepoId, filter: string) =>

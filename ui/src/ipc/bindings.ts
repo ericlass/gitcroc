@@ -247,6 +247,28 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 *  drop sent without `confirmed` answers `confirm` and runs nothing.
 	 */
 	opStash: (workspaceId: WorkspaceId, request: StashRequest) => typedError<StashStart, IpcError>(__TAURI_INVOKE("op_stash", { workspaceId, request })),
+	/**
+	 *  Creates, deletes or pushes a tag in one repo as a job (section 6
+	 *  "Tags"). Refused for an invalid name (SEC-4), a repo that is busy,
+	 *  missing or in conflict state (GRP-8), an existing name to create and a
+	 *  missing tag. A delete on the remote sent without `confirmed` answers
+	 *  `confirm` and runs nothing; a push or delete on the remote that needs a
+	 *  remote picked answers `choose_remote`.
+	 */
+	opTag: (workspaceId: WorkspaceId, request: TagRequest) => typedError<TagStart, IpcError>(__TAURI_INVOKE("op_tag", { workspaceId, request })),
+	/**
+	 *  Why `name` is not a valid tag name, or `null` when it is (SEC-4).
+	 *  Checked as the user types.
+	 */
+	tagNameCheck: (name: string) => typedError<string | null, IpcError>(__TAURI_INVOKE("tag_name_check", { name })),
+	/**
+	 *  Resets the current branch of one repo, or a detached `HEAD`, to a
+	 *  commit as a job (section 6 "Reset", UI-13). Refused for a repo that is
+	 *  busy, missing or in conflict state (GRP-8). A hard reset sent without
+	 *  `confirmed` answers `confirm`, naming what it loses, and runs nothing
+	 *  (GRP-9).
+	 */
+	opReset: (workspaceId: WorkspaceId, request: ResetRequest) => typedError<ResetStart, IpcError>(__TAURI_INVOKE("op_reset", { workspaceId, request })),
 	/**  What the conflict banner names for a repo in conflict state (OPS-2). */
 	conflictDetails: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<ConflictDetails, IpcError>(__TAURI_INVOKE("conflict_details", { workspaceId, repoId })),
 	/**
@@ -1358,6 +1380,34 @@ export type RepoView = {
 	remote: string | null,
 };
 
+/**  What a reset puts at the commit besides the branch. */
+export type ResetMode = 
+/**  The branch only; the index and the working tree stay. */
+"soft" | 
+/**  The branch and the index; the working tree stays. */
+"mixed" | 
+/**  The branch, the index and the working tree. Destructive (GRP-9). */
+"hard";
+
+/**  A reset of the current branch of one repo to `commit`, a hash. */
+export type ResetRequest = {
+	repo_id: RepoId,
+	commit: string,
+	mode: ResetMode,
+	/**  The user confirmed a hard reset (GRP-9). */
+	confirmed: boolean,
+};
+
+/**  What a request did. */
+export type ResetStart = 
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  A hard reset (GRP-9): ask again with `confirmed` once the user
+ *  agreed. `actions` says what cannot be undone.
+ */
+{ kind: "confirm"; repo: string; actions: string[] };
+
 /**  Mark resolved with the editor's text (OPS-5). */
 export type ResolveRequest = {
 	/**  The changes view whose unmerged list `file` is from. */
@@ -1527,6 +1577,49 @@ export type SyncStart =
 /**
  *  A push of a branch without an upstream, in a repo with several
  *  remotes and no `origin`: ask again with one of `remotes`.
+ */
+{ kind: "choose_remote"; remotes: string[] };
+
+/**
+ *  A tag operation (section 6 "Tags"). `remote` picks where a push or a
+ *  delete on the remote goes; `None` lets the core pick `origin` or the
+ *  only remote.
+ */
+export type TagOp = 
+/**
+ *  Creates tag `name` at `commit`, a hash, or at `HEAD` when `None`:
+ *  annotated with `message` when `annotated`, else lightweight. With
+ *  `push`, the same job then pushes it.
+ */
+{ kind: "create"; name: string; commit: string | null; annotated: boolean; message: string; push: boolean; remote: string | null } | 
+/**
+ *  Deletes local tag `name`, and with `on_remote` first the tag of that
+ *  name on the remote, which cannot be undone from the app.
+ */
+{ kind: "delete"; name: string; on_remote: boolean; remote: string | null } | 
+/**  Pushes tag `name`. */
+{ kind: "push"; name: string; remote: string | null };
+
+/**  A tag operation on one repo. */
+export type TagRequest = {
+	repo_id: RepoId,
+	op: TagOp,
+	/**  The user confirmed an operation that cannot be undone. */
+	confirmed: boolean,
+};
+
+/**  What a request did. */
+export type TagStart = 
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  The operation cannot be undone: ask again with `confirmed` once the
+ *  user agreed. `actions` says what is lost.
+ */
+{ kind: "confirm"; repo: string; actions: string[] } | 
+/**
+ *  The repo has several remotes and no `origin`: ask again with one of
+ *  `remotes`.
  */
 { kind: "choose_remote"; remotes: string[] };
 

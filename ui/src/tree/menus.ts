@@ -16,6 +16,9 @@ export type MenuAction =
   | "stash_apply"
   | "stash_pop"
   | "stash_drop"
+  | "tag_create"
+  | "tag_push"
+  | "tag_delete"
   | "remove_repo";
 
 export interface MenuEntry {
@@ -33,7 +36,11 @@ export function menuFor(item: TreeItem, blocked: boolean): MenuEntry[] {
   });
   switch (item.kind) {
     case "repo":
-      return [entry("create", "New branch…"), { action: "remove_repo", label: "Remove from workspace", disabled: false }];
+      return [
+        entry("create", "New branch…"),
+        entry("tag_create", "New tag…"),
+        { action: "remove_repo", label: "Remove from workspace", disabled: false },
+      ];
     case "branch":
       return [
         entry("checkout", "Check out", item.current),
@@ -50,7 +57,12 @@ export function menuFor(item: TreeItem, blocked: boolean): MenuEntry[] {
         entry("delete_remote", "Delete on the remote…"),
       ];
     case "tag":
-      return [entry("checkout_detached", "Check out (detached)"), entry("create", "New branch from here…")];
+      return [
+        entry("checkout_detached", "Check out (detached)"),
+        entry("create", "New branch from here…"),
+        entry("tag_push", "Push"),
+        entry("tag_delete", "Delete…"),
+      ];
     case "stash":
       return [entry("stash_apply", "Apply"), entry("stash_pop", "Pop"), entry("stash_drop", "Drop…")];
     default:

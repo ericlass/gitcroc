@@ -54,6 +54,12 @@ pub fn check_branch_name(name: &str) -> Result<(), RefNameError> {
     check_ref_format(name)
 }
 
+/// Checks `name` as a tag name: the rules of a branch name, so `HEAD`,
+/// `@` and a leading `-` are refused as well.
+pub fn check_tag_name(name: &str) -> Result<(), RefNameError> {
+    check_branch_name(name)
+}
+
 /// The rules of `check_refname_format` for a name below `refs/heads/` or
 /// `refs/tags/`.
 fn check_ref_format(name: &str) -> Result<(), RefNameError> {

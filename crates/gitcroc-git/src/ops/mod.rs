@@ -14,16 +14,20 @@ use crate::{GitError, GitRunner, Output, Write};
 mod branch;
 pub mod conflict;
 mod integrate;
+mod reset;
 mod stash;
 mod sync;
+mod tag;
 
 pub use branch::{
     branch_create, branch_delete, branch_rename, branch_set_upstream, remote_branch_delete, switch,
     switch_detach, switch_track,
 };
 pub use integrate::{FastForward, Resume, cherry_pick, merge, rebase, resume, revert};
+pub use reset::{ResetMode, reset};
 pub use stash::{stash_apply, stash_drop, stash_push};
 pub use sync::{PullMode, PushTo, fetch_all, fetch_remote, pull_fetched, push};
+pub use tag::{remote_tag_delete, tag_create, tag_delete, tag_push};
 
 /// Writes the repo's commit-graph file from every ref (PERF-2, M1-08). Only
 /// the cache file in the git directory changes: no ref, object, index,

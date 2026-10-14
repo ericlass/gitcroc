@@ -16,11 +16,12 @@ use gitcroc_core::{
     ConflictRead, ConflictStart, DiffRequest, FileDiff, FileRef, GitRunner, GitSetup, GitStatus,
     Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, IntegrateError,
     IntegrateRequest, IntegrateStart, JobError, JobEvents, JobId, JobProgress, JobView, Jobs,
-    Outcome, PaneLayout, PushChoices, Refusal, RepoChange, RepoId, ResolveRequest, SettingsError,
-    SettingsStore, SettingsView, StashError, StashRequest, StashStart, StatusError,
-    StatusReadError, Summaries, SummaryView, SyncError, SyncRequest, SyncStart, Theme, TrackedJob,
-    TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView,
-    Workspaces, add_path, refresh_summaries, refresh_workspace, tree_refs,
+    Outcome, PaneLayout, PushChoices, Refusal, RepoChange, RepoId, ResetError, ResetRequest,
+    ResetStart, ResolveRequest, SettingsError, SettingsStore, SettingsView, StashError,
+    StashRequest, StashStart, StatusError, StatusReadError, Summaries, SummaryView, SyncError,
+    SyncRequest, SyncStart, TagError, TagRequest, TagStart, Theme, TrackedJob, TreeError, TreeNode,
+    Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces,
+    add_path, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -206,6 +207,46 @@ impl From<IntegrateError> for IpcError {
                     git_stderr: Some(message),
                 }
             }
+            other => Self {
+                code: IpcErrorCode::Internal,
+                message: other.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
+impl From<TagError> for IpcError {
+    fn from(error: TagError) -> Self {
+        match error {
+            TagError::Workspace(error) | TagError::Job(JobError::Workspace(error)) => error.into(),
+            // git refused the repo; its message is for the user (SEC-6).
+            TagError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
+                code: IpcErrorCode::Internal,
+                message: "git refused to read the repo".to_owned(),
+                git_stderr: Some(message),
+            },
+            other => Self {
+                code: IpcErrorCode::Internal,
+                message: other.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
+impl From<ResetError> for IpcError {
+    fn from(error: ResetError) -> Self {
+        match error {
+            ResetError::Workspace(error) | ResetError::Job(JobError::Workspace(error)) => {
+                error.into()
+            }
+            // git refused the repo; its message is for the user (SEC-6).
+            ResetError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
+                code: IpcErrorCode::Internal,
+                message: "git refused to read the repo".to_owned(),
+                git_stderr: Some(message),
+            },
             other => Self {
                 code: IpcErrorCode::Internal,
                 message: other.to_string(),
@@ -1008,6 +1049,53 @@ pub async fn op_stash(
     Ok(gitcroc_core::op_stash(workspaces, summaries, jobs, git, workspace_id, request).await?)
 }
 
+/// Creates, deletes or pushes a tag in one repo as a job (section 6
+/// "Tags"). Refused for an invalid name (SEC-4), a repo that is busy,
+/// missing or in conflict state (GRP-8), an existing name to create and a
+/// missing tag. A delete on the remote sent without `confirmed` answers
+/// `confirm` and runs nothing; a push or delete on the remote that needs a
+/// remote picked answers `choose_remote`.
+#[tauri::command]
+#[specta::specta]
+pub async fn op_tag(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: TagRequest,
+) -> Result<TagStart, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::op_tag(workspaces, summaries, jobs, git, workspace_id, request).await?)
+}
+
+/// Why `name` is not a valid tag name, or `null` when it is (SEC-4).
+/// Checked as the user types.
+#[tauri::command]
+#[specta::specta]
+pub async fn tag_name_check(name: String) -> Result<Option<String>, IpcError> {
+    Ok(gitcroc_core::tag_name_check(&name))
+}
+
+/// Resets the current branch of one repo, or a detached `HEAD`, to a
+/// commit as a job (section 6 "Reset", UI-13). Refused for a repo that is
+/// busy, missing or in conflict state (GRP-8). A hard reset sent without
+/// `confirmed` answers `confirm`, naming what it loses, and runs nothing
+/// (GRP-9).
+#[tauri::command]
+#[specta::specta]
+pub async fn op_reset(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: ResetRequest,
+) -> Result<ResetStart, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::op_reset(workspaces, summaries, jobs, git, workspace_id, request).await?)
+}
+
 /// The refs the merge dialog offers for a repo, filtered by `filter`
 /// (UI-20).
 #[tauri::command]
@@ -1515,6 +1603,9 @@ macro_rules! with_commands {
                 op_integrate,
                 merge_targets,
                 op_stash,
+                op_tag,
+                tag_name_check,
+                op_reset,
                 conflict_details,
                 conflict_get,
                 conflict_resolve,
@@ -1564,6 +1655,9 @@ macro_rules! with_commands {
                 op_integrate,
                 merge_targets,
                 op_stash,
+                op_tag,
+                tag_name_check,
+                op_reset,
                 conflict_details,
                 conflict_get,
                 conflict_resolve,

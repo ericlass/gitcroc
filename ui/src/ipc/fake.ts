@@ -22,17 +22,21 @@ import type {
   FileRef,
   GitStatus,
   IntegrateRequest,
+  IpcError,
   JobId,
   JobView,
   Outcome,
   PaneLayout,
   RepoId,
   RepoRef,
+  ResetRequest,
+  ResetStart,
   ResolveRequest,
   SettingsView,
   StashRequest,
   SummaryView,
   SyncRequest,
+  TagRequest,
   TreeNode,
   WatchWarning,
   WorkspaceId,
@@ -50,10 +54,19 @@ import {
   LAST_MESSAGE,
   numbered,
 } from "./fakeChanges";
-import { defaultHistory, type FakeHistory, type FakeWalk, historyKey, nextPage, parentOf } from "./fakeHistory";
+import {
+  commitAt,
+  defaultHistory,
+  type FakeHistory,
+  type FakeWalk,
+  historyKey,
+  nextPage,
+  parentOf,
+} from "./fakeHistory";
 import { applyBranchOp, choicesOf, destructiveOf, fakeNameCheck, labelOf, refusalOf } from "./fakeBranches";
 import { labelsOf, planResolution, textConflict } from "./fakeConflict";
 import { mergeTargetsOf, planIntegrate } from "./fakeIntegrate";
+import { planReset, planTag, type TagPlan } from "./fakeTags";
 import { fakeJob, jobsScenario } from "./fakeJobs";
 import { applySync, planSync, pushChoicesOf } from "./fakeSync";
 import { type FakeRefs, filterTree, refNodes, scenario, skeleton, stashHash } from "./fakeTree";
@@ -225,6 +238,10 @@ export const fakeState: {
   stashRequests: StashRequest[];
   /** The conflict the next apply or pop stops in; `null` lets them succeed. */
   stashConflict: ConflictDetails | null;
+  /** Every `op_tag`, oldest first. */
+  tagRequests: TagRequest[];
+  /** Every `op_reset`, oldest first. */
+  resetRequests: ResetRequest[];
   /** What `conflict_get` answers by path; others get `textConflict`. */
   fileConflicts: Record<string, Conflict>;
   /** Every `conflict_resolve` and `conflict_choose`, oldest first. */
@@ -271,6 +288,8 @@ export const fakeState: {
   integrateConflict: null,
   stashRequests: [],
   stashConflict: null,
+  tagRequests: [],
+  resetRequests: [],
   fileConflicts: {},
   conflictRequests: [],
 };
@@ -668,6 +687,106 @@ function fakeIntegrateOp(workspaceId: WorkspaceId, request: IntegrateRequest) {
   return Promise.resolve({ status: "ok" as const, data: { kind: "started" as const, job_id: jobId } });
 }
 
+/** Why the fake core refuses any write on `repo` now (GRP-8), or `null`. */
+function blockedWhy(repo: RepoId): string | null {
+  const summary = fakeState.summaries.find((known) => known.repo_id === repo);
+  if (summary?.busy) {
+    return "another operation is running on the repo";
+  }
+  if (summary?.missing) {
+    return "the repo's folder is missing";
+  }
+  return summary?.conflict ? "the repo is in conflict state; continue or abort first" : null;
+}
+
+/** Answers `plan` before a job, or runs `then` as a job that ends at once and re-reads the repo. */
+function startPlanned(workspaceId: WorkspaceId, repoId: RepoId, plan: TagPlan, then: () => void) {
+  const repo = fakeState.workspace.repos.find((known) => known.id === repoId);
+  if (repo === undefined) {
+    return refused(`no repo ${repoId}`);
+  }
+  switch (plan.kind) {
+    case "refused":
+      return refused(plan.why);
+    case "choose_remote":
+      return Promise.resolve({ status: "ok" as const, data: { kind: "choose_remote" as const, remotes: plan.remotes } });
+    case "confirm":
+      return Promise.resolve({
+        status: "ok" as const,
+        data: { kind: "confirm" as const, repo: repo.name, actions: plan.actions },
+      });
+  }
+  const jobId = nextJobId++;
+  setTimeout(() => {
+    then();
+    const job = fakeJob(fakeState.workspace, {
+      job_id: jobId,
+      workspace_id: workspaceId,
+      label: plan.label,
+      repos: [repo.id],
+      repo_names: [repo.name],
+      state: "ended",
+      outcome: { kind: "succeeded" },
+      output: "",
+      message: null,
+      started_at: Date.now(),
+      duration_ms: 5,
+    });
+    endJob(workspaceId, repo.id, job);
+    emitRepoRefsChanged({ workspace_id: workspaceId, repo_id: repo.id });
+  }, 0);
+  return Promise.resolve({ status: "ok" as const, data: { kind: "started" as const, job_id: jobId } });
+}
+
+/** Runs tag operation `request` on the fake's ref model, like the core. */
+function fakeTagOp(workspaceId: WorkspaceId, request: TagRequest) {
+  fakeState.tagRequests.push(request);
+  const refs = fakeState.refModels[request.repo_id];
+  const blocked = blockedWhy(request.repo_id);
+  if (refs === undefined || blocked !== null) {
+    return refused(blocked ?? "the repo has no refs");
+  }
+  const plan = planTag(refs, request.op, request.confirmed);
+  return startPlanned(workspaceId, request.repo_id, plan, () => {
+    if (plan.kind === "run") {
+      fakeState.refModels[request.repo_id] = plan.refs;
+      fakeState.refs[request.repo_id] = refNodes(request.repo_id, plan.refs);
+    }
+  });
+}
+
+/**
+ * Runs reset `request` like the core: a hard reset asks first, naming the
+ * fake history's commit and the tracked files of the repo's working copy;
+ * done, it leaves nothing staged, and with `hard` nothing changed but
+ * untracked files.
+ */
+function fakeResetOp(workspaceId: WorkspaceId, request: ResetRequest) {
+  fakeState.resetRequests.push(request);
+  const repo = request.repo_id;
+  const blocked = blockedWhy(repo);
+  if (blocked !== null) {
+    return refused(blocked);
+  }
+  const index = parentOf(request.commit) === null ? -1 : Number.parseInt(request.commit.slice(0, 8), 16);
+  const history = fakeState.histories[repo];
+  if (history === undefined || index < 0 || index >= history.length) {
+    return refused(`'${request.commit}' names no commit`);
+  }
+  const row = commitAt(history, index);
+  const head = fakeState.summaries.find((known) => known.repo_id === repo)?.summary?.head;
+  const working = fakeState.workingCopies[repo] ?? { staged: [], unstaged: [], unmerged: [] };
+  const tracked = [...working.staged, ...working.unstaged.filter((file) => file.file.status !== "untracked")];
+  const lost = new Set(tracked.map((file) => file.file.path)).size;
+  const branch = head?.kind === "branch" ? head.name : null;
+  const plan = planReset(branch, `${row.short_hash} ${row.subject}`, request.mode, lost, request.confirmed);
+  return startPlanned(workspaceId, repo, plan, () => {
+    const untracked = working.unstaged.filter((file) => file.file.status === "untracked");
+    const unstaged = request.mode === "hard" ? untracked : [...working.staged, ...working.unstaged];
+    fakeState.workingCopies[repo] = { ...working, staged: request.mode === "soft" ? working.staged : [], unstaged };
+  });
+}
+
 /**
  * Runs stash operation `request` on the fake's ref model, like the core:
  * refused for a blocked repo or an entry no longer at its index, a drop
@@ -840,6 +959,8 @@ export function reset(): void {
   fakeState.integrateConflict = null;
   fakeState.stashRequests = [];
   fakeState.stashConflict = null;
+  fakeState.tagRequests = [];
+  fakeState.resetRequests = [];
   fakeState.changesDelay = 0;
   fakeState.layouts = [];
   fakeState.refreshes = [];
@@ -1378,6 +1499,11 @@ export const fake: Core = {
     },
     opIntegrate: (workspaceId, request) => fakeIntegrateOp(workspaceId, request),
     opStash: (workspaceId, request) => fakeStashOp(workspaceId, request),
+    opTag: (workspaceId, request) => fakeTagOp(workspaceId, request),
+    tagNameCheck: (name) => Promise.resolve({ status: "ok", data: fakeNameCheck(name) }),
+    // A reset never asks for a remote.
+    opReset: (workspaceId, request) =>
+      fakeResetOp(workspaceId, request) as Promise<{ status: "ok"; data: ResetStart } | { status: "error"; error: IpcError }>,
     conflictGet: (workspaceId, handle, file) => {
       const view = views.get(workspaceId);
       if (view?.handle !== handle) {

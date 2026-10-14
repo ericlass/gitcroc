@@ -21,6 +21,8 @@ import Toolbar from "./layout/Toolbar";
 import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
 import StashDialogs, { StashOffer } from "./stash/StashDialogs";
+import TagDialogs from "./tag/TagDialogs";
+import ResetDialogs from "./reset/ResetDialogs";
 import SyncDialogs, { SyncRefusal } from "./sync/SyncDialogs";
 import BranchDialogs from "./tree/BranchDialogs";
 import IntegrateDialogs from "./integrate/IntegrateDialogs";
@@ -37,6 +39,8 @@ import { createLayoutStore } from "./stores/layout";
 import { createSelectionStore } from "./stores/selection";
 import { createSettingsStore } from "./stores/settings";
 import { createStashStore } from "./stores/stash";
+import { createTagStore } from "./stores/tag";
+import { createResetStore } from "./stores/reset";
 import { createSummaryStore, isBlocked } from "./stores/summaries";
 import { canFetch, canPullOrPush, createSyncStore, DEFAULT_OPS } from "./stores/sync";
 import { createTreeStore } from "./stores/tree";
@@ -62,6 +66,8 @@ export default function App() {
   const branch = createBranchStore();
   const sync = createSyncStore();
   const stash = createStashStore();
+  const tag = createTagStore();
+  const reset = createResetStore();
   // An aborted stash apply leaves nothing to offer dropping.
   const integrate = createIntegrateStore((id, repo) => stash.forget(id, repo));
   const watch = createWatchStore();
@@ -319,6 +325,8 @@ export default function App() {
                     conflicts={conflicts}
                     branch={branch}
                     stash={stash}
+                    tag={tag}
+                    reset={reset}
                     integrate={integrate}
                     settings={settings}
                   />
@@ -326,6 +334,8 @@ export default function App() {
                 <BranchDialogs workspace={id()} branch={branch} repoName={repoName} />
                 <SyncDialogs workspace={id()} sync={sync} repoName={repoName} />
                 <StashDialogs workspace={id()} stash={stash} repoName={repoName} />
+                <TagDialogs workspace={id()} tag={tag} repoName={repoName} />
+                <ResetDialogs workspace={id()} reset={reset} repoName={repoName} />
                 <IntegrateDialogs workspace={id()} integrate={integrate} repoName={repoName} branchOf={branchOf} />
                 <StatusBar workspace={id()} jobs={jobs} onOpenJobs={() => setJobsOpen(true)} />
               </>

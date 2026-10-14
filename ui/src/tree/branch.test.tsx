@@ -5,6 +5,7 @@ import { type FakeRefs, refNodes, summary } from "../ipc/fakeTree";
 import { createBranchStore } from "../stores/branch";
 import { createStashStore } from "../stores/stash";
 import { createSummaryStore } from "../stores/summaries";
+import { createTagStore } from "../stores/tag";
 import { createTreeStore } from "../stores/tree";
 import { createWorkspaceStore } from "../stores/workspaces";
 import BranchDialogs from "./BranchDialogs";
@@ -63,6 +64,7 @@ async function setup(change: { busy?: boolean } = {}) {
         workspaces={createWorkspaceStore()}
         branch={branch}
         stash={createStashStore()}
+        tag={createTagStore()}
       />
       <BranchDialogs workspace={id()} branch={branch} repoName={() => "api"} />
     </>
@@ -126,7 +128,7 @@ test("UI-7 double-click checks out a local branch", async () => {
 
 test("UI-7 the context menu of each row kind lists its operations", async () => {
   await setup();
-  expect(menuOf(row("api", 2))).toEqual(["New branch…", "Remove from workspace"]);
+  expect(menuOf(row("api", 2))).toEqual(["New branch…", "New tag…", "Remove from workspace"]);
   expect(menuOf(row("main", 4))).toEqual([
     "!Check out",
     "New branch from here…",
@@ -144,7 +146,7 @@ test("UI-7 the context menu of each row kind lists its operations", async () => 
     "!Unset upstream",
   ]);
   expect(menuOf(row("topic", 5))).toEqual(["Check out", "New branch from here…", "Delete on the remote…"]);
-  expect(menuOf(row("v1.0", 4))).toEqual(["Check out (detached)", "New branch from here…"]);
+  expect(menuOf(row("v1.0", 4))).toEqual(["Check out (detached)", "New branch from here…", "Push", "Delete…"]);
 
   expect(menuOf(row("On main: work", 4))).toEqual(["Apply", "Pop", "Drop…"]);
 
@@ -155,7 +157,7 @@ test("UI-7 the context menu of each row kind lists its operations", async () => 
 
 test("GRP-8 a busy repo's branch operations are disabled", async () => {
   await setup({ busy: true });
-  expect(menuOf(row("api", 2))).toEqual(["!New branch…", "Remove from workspace"]);
+  expect(menuOf(row("api", 2))).toEqual(["!New branch…", "!New tag…", "Remove from workspace"]);
   expect(menuOf(row("old", 4)).every((entry) => entry.startsWith("!"))).toBe(true);
   fireEvent.dblClick(row("topic", 4));
   await settleAll();

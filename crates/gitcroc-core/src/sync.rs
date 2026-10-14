@@ -309,7 +309,7 @@ fn plan(repo: &GitRepo, op: SyncOp) -> Result<Planned, SyncError> {
 
 /// Where a branch without an upstream pushes to: `origin`, else the only
 /// remote; `None` when the user must pick.
-fn default_remote(remotes: &[String]) -> Option<String> {
+pub(crate) fn default_remote(remotes: &[String]) -> Option<String> {
     if remotes.iter().any(|remote| remote == "origin") {
         return Some("origin".to_owned());
     }
