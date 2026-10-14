@@ -1,5 +1,6 @@
 //! Git access: read API (gix), git CLI runner, output parsers and conflict state detection.
 
+mod branches;
 mod detect;
 mod diff;
 mod history;
@@ -10,6 +11,7 @@ mod refs;
 mod runner;
 mod status;
 
+pub use branches::TrackedBranch;
 pub use detect::{
     DetectError, GitInstall, GitVersion, MIN_GIT, SearchEnv, candidates, detect, parse_version,
 };

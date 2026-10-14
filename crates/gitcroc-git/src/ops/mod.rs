@@ -11,6 +11,13 @@ use std::path::{Path, PathBuf};
 
 use crate::{GitError, GitRunner, Output, Write};
 
+mod branch;
+
+pub use branch::{
+    branch_create, branch_delete, branch_rename, branch_set_upstream, remote_branch_delete, switch,
+    switch_detach, switch_track,
+};
+
 /// Writes the repo's commit-graph file from every ref (PERF-2, M1-08). Only
 /// the cache file in the git directory changes: no ref, object, index,
 /// working file or config.

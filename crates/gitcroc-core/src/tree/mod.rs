@@ -84,6 +84,10 @@ pub enum TreeItem {
         repo_id: RepoId,
         /// With the remote, for example `origin/feature/x`.
         name: String,
+        /// The remote, which may contain `/` itself, for example `origin`.
+        remote: String,
+        /// Without the remote, for example `feature/x`.
+        branch: String,
     },
     Tag {
         repo_id: RepoId,
@@ -392,6 +396,8 @@ fn ref_nodes(repo: &RepoId, refs: &Refs) -> Vec<TreeNode> {
                         TreeItem::RemoteBranch {
                             repo_id: repo.clone(),
                             name: format!("{}/{branch}", remote.remote),
+                            remote: remote.remote.clone(),
+                            branch: branch.clone(),
                         },
                     )
                 })

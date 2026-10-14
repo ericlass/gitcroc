@@ -373,7 +373,7 @@ main:not(.main) {
   background: var(--bg-1);
 }
 
-.menu [role="menuitem"]:hover,
+.menu [role="menuitem"]:hover:not(:disabled),
 .menu [role="menuitem"]:focus-visible {
   background: var(--bg-3);
 }
@@ -762,6 +762,65 @@ button.danger:hover:not(:disabled) {
 
 [role="alert"]:not(.banner) {
   color: var(--danger);
+}
+
+/* Branch dialogs (section 6 "Branches") */
+
+.branch-dialog {
+  width: min(440px, calc(100vw - 32px));
+}
+
+.branch-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.branch-dialog .dialog-actions {
+  gap: 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.field input,
+.field select,
+.start-revision {
+  box-sizing: border-box;
+  width: 100%;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.field input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.field-error {
+  color: var(--danger);
+}
+
+.branch-actions {
+  padding-left: 1.2em;
+  overflow-wrap: anywhere;
+}
+
+.tree-refusal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  overflow-wrap: anywhere;
+}
+
+.tree-refusal span {
+  flex: 1;
 }
 
 /* History pane (UI-9). Column widths come from the layout store as

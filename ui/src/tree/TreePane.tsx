@@ -1,18 +1,16 @@
-// The tree pane (UI-1, UI-3, UI-8): filter box, add button and the tree,
-// virtualized (PERF-1). Everything shown comes from the stores, which take
-// it from the core; this component only lays it out and forwards input.
+// The tree pane (UI-1, UI-3, UI-7, UI-8): filter box, add button and the
+// tree, virtualized (PERF-1), with a context menu on each row that has
+// operations and double-click to check out a local branch. Everything
+// shown comes from the stores, which take it from the core; this component
+// only lays it out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import {
-  type RepoId,
-  type TreeNode,
-  type WorkspaceId,
-  workspacePickAndAdd,
-  workspaceRemoveRepo,
-} from "../ipc";
-import type { SummaryStore } from "../stores/summaries";
+import { type RepoId, type TreeItem, type TreeNode, type WorkspaceId, workspacePickAndAdd, workspaceRemoveRepo } from "../ipc";
+import type { BranchStore } from "../stores/branch";
+import { isBlocked, type SummaryStore } from "../stores/summaries";
 import type { TreeStore } from "../stores/tree";
 import type { WorkspaceStore } from "../stores/workspaces";
+import { type MenuAction, menuFor } from "./menus";
 import RepoRow, { AheadBehind } from "./RepoRow";
 import { flatten, type Row } from "./rows";
 
@@ -25,6 +23,14 @@ export const OVERSCAN = 8;
 const INDENT = 14;
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** The accessible name of each kind of row's menu. */
+const MENU_NAMES: Partial<Record<TreeItem["kind"], string>> = {
+  repo: "Repository",
+  branch: "Branch",
+  remote_branch: "Remote branch",
+  tag: "Tag",
+};
 
 const asNode = (row: Row) => (row.kind === "node" ? row : undefined);
 const asMessage = (row: Row) => (row.kind === "message" ? row : undefined);
@@ -103,7 +109,8 @@ function TreeList(props: {
   workspace: WorkspaceId;
   tree: TreeStore;
   summaries: SummaryStore;
-  onRepoMenu: (repo: RepoId, x: number, y: number) => void;
+  onMenu: (item: TreeItem, x: number, y: number) => void;
+  onCheckout: (repo: RepoId, name: string) => void;
 }) {
   let scroller: HTMLDivElement | undefined;
   const tree = () => props.tree.tree(props.workspace);
@@ -227,13 +234,21 @@ function TreeList(props: {
                       "padding-left": `${4 + row().depth * INDENT}px`,
                     }}
                     onClick={() => select(item.index)}
-                    onDblClick={() => toggle(row())}
+                    onDblClick={() => {
+                      // UI-7: a local branch is checked out; other rows open or close.
+                      const target = node()?.node.item;
+                      if (target?.kind === "branch") {
+                        props.onCheckout(target.repo_id, target.name);
+                      } else {
+                        toggle(row());
+                      }
+                    }}
                     onContextMenu={(event) => {
                       const target = node()?.node.item;
-                      if (target?.kind === "repo") {
+                      if (target !== undefined && menuFor(target, false).length > 0) {
                         event.preventDefault();
                         select(item.index);
-                        props.onRepoMenu(target.repo_id, event.clientX, event.clientY);
+                        props.onMenu(target, event.clientX, event.clientY);
                       }
                     }}
                   >
@@ -280,9 +295,10 @@ export default function TreePane(props: {
   tree: TreeStore;
   summaries: SummaryStore;
   workspaces: WorkspaceStore;
+  branch: BranchStore;
 }) {
   const [actionError, setActionError] = createSignal<string | null>(null);
-  const [menu, setMenu] = createSignal<{ repo: RepoId; x: number; y: number } | null>(null);
+  const [menu, setMenu] = createSignal<{ item: TreeItem; x: number; y: number } | null>(null);
 
   const tree = () => props.tree.tree(props.workspace);
   /** Loaded, unfiltered and without repos. */
@@ -297,6 +313,72 @@ export default function TreePane(props: {
     setMenu(null);
     setActionError(null);
     workspaceRemoveRepo(props.workspace, repo).catch((error) => setActionError(message(error)));
+  };
+
+  const blocked = (repo: RepoId) => isBlocked(props.summaries.view(props.workspace, repo));
+  const itemBlocked = (item: TreeItem) => item.kind !== "ungrouped" && blocked(item.repo_id);
+
+  const run = (repo: RepoId, op: Parameters<BranchStore["run"]>[2]) => void props.branch.run(props.workspace, repo, op);
+
+  /** Does what `action` of the menu of `item` says. */
+  const act = (action: MenuAction, item: TreeItem) => {
+    setMenu(null);
+    if (item.kind === "ungrouped") {
+      return;
+    }
+    const repo = item.repo_id;
+    const open = props.branch.open.bind(null, props.workspace);
+    switch (action) {
+      case "remove_repo":
+        remove(repo);
+        return;
+      case "create":
+        open({
+          kind: "create",
+          repo,
+          start:
+            item.kind === "branch" || item.kind === "remote_branch" || item.kind === "tag"
+              ? { kind: "revision", revision: item.name }
+              : { kind: "head" },
+        });
+        return;
+      case "checkout":
+        if (item.kind === "branch") {
+          run(repo, { kind: "checkout", name: item.name });
+        }
+        return;
+      case "checkout_remote":
+        if (item.kind === "remote_branch") {
+          run(repo, { kind: "checkout_remote", branch: { remote: item.remote, branch: item.branch } });
+        }
+        return;
+      case "checkout_detached":
+        if (item.kind === "tag") {
+          run(repo, { kind: "checkout_detached", revision: item.name });
+        }
+        return;
+      case "delete_remote":
+        if (item.kind === "remote_branch") {
+          run(repo, { kind: "delete_remote", branch: { remote: item.remote, branch: item.branch } });
+        }
+        return;
+      case "rename":
+      case "delete":
+      case "set_upstream":
+      case "unset_upstream":
+        if (item.kind !== "branch") {
+          return;
+        }
+        if (action === "rename") {
+          open({ kind: "rename", repo, name: item.name });
+        } else if (action === "delete") {
+          open({ kind: "delete", repo, name: item.name, tracked: item.upstream !== null && !item.gone });
+        } else if (action === "set_upstream") {
+          open({ kind: "upstream", repo, name: item.name, upstream: item.upstream });
+        } else {
+          run(repo, { kind: "set_upstream", name: item.name, upstream: null });
+        }
+    }
   };
 
   const closeMenu = (event: KeyboardEvent) => {
@@ -323,6 +405,16 @@ export default function TreePane(props: {
         </button>
       </div>
       <Show when={actionError()}>{(error) => <p role="alert">{error()}</p>}</Show>
+      <Show when={props.branch.dialog(props.workspace) === null && props.branch.error(props.workspace)}>
+        {(error) => (
+          <div role="alert" class="tree-refusal">
+            <span>{error()}</span>
+            <button type="button" onClick={() => props.branch.dismissError(props.workspace)}>
+              Dismiss
+            </button>
+          </div>
+        )}
+      </Show>
       <AddReportView workspaces={props.workspaces} workspace={props.workspace} />
       <Show when={tree().error}>{(error) => <p role="alert">Cannot read the tree: {error()}</p>}</Show>
       <Show
@@ -340,7 +432,12 @@ export default function TreePane(props: {
           workspace={props.workspace}
           tree={props.tree}
           summaries={props.summaries}
-          onRepoMenu={(repo, x, y) => setMenu({ repo, x, y })}
+          onMenu={(item, x, y) => setMenu({ item, x, y })}
+          onCheckout={(repo, name) => {
+            if (!blocked(repo)) {
+              run(repo, { kind: "checkout", name });
+            }
+          }}
         />
       </Show>
       <Show when={menu()}>
@@ -349,18 +446,25 @@ export default function TreePane(props: {
             <div
               class="menu"
               role="menu"
-              aria-label="Repository"
+              aria-label={MENU_NAMES[open().item.kind] ?? "Actions"}
               style={{ left: `${open().x}px`, top: `${open().y}px` }}
+              ref={(element) =>
+                queueMicrotask(() => element.querySelector<HTMLElement>("[role=menuitem]:not(:disabled)")?.focus())
+              }
               onClick={(event) => event.stopPropagation()}
             >
-              <button
-                type="button"
-                role="menuitem"
-                ref={(element) => queueMicrotask(() => element.focus())}
-                onClick={() => remove(open().repo)}
-              >
-                Remove from workspace
-              </button>
+              <For each={menuFor(open().item, itemBlocked(open().item))}>
+                {(entry) => (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={entry.disabled}
+                    onClick={() => act(entry.action, open().item)}
+                  >
+                    {entry.label}
+                  </button>
+                )}
+              </For>
             </div>
           </div>
         )}

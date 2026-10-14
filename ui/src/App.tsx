@@ -20,7 +20,9 @@ import TabBar from "./layout/TabBar";
 import Toolbar from "./layout/Toolbar";
 import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
+import BranchDialogs from "./tree/BranchDialogs";
 import { createAskpassStore } from "./stores/askpass";
+import { createBranchStore } from "./stores/branch";
 import { createChangesStore } from "./stores/changes";
 import { createCommitStore } from "./stores/commit";
 import { createGitStore } from "./stores/git";
@@ -29,7 +31,7 @@ import { createJobStore } from "./stores/jobs";
 import { createLayoutStore } from "./stores/layout";
 import { createSelectionStore } from "./stores/selection";
 import { createSettingsStore } from "./stores/settings";
-import { createSummaryStore } from "./stores/summaries";
+import { createSummaryStore, isBlocked } from "./stores/summaries";
 import { createTreeStore } from "./stores/tree";
 import { createWatchStore } from "./stores/watch";
 import { createWorkspaceStore } from "./stores/workspaces";
@@ -49,6 +51,7 @@ export default function App() {
   const history = createHistoryStore(selection);
   const changes = createChangesStore(settings.changes);
   const commit = createCommitStore();
+  const branch = createBranchStore();
   const watch = createWatchStore();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [jobsOpen, setJobsOpen] = createSignal(false);
@@ -56,6 +59,14 @@ export default function App() {
   // The open tab's workspace: the only one until tabs exist (M3). It is
   // passed down, never read from a module, so tabs need no rework (ARCH-9).
   const workspace = () => workspaces.state.views?.[0];
+
+  /** The repo of the tree's selection, when no write is blocked on it (GRP-8). */
+  const branchRepo = () => {
+    const id = workspace()?.id;
+    const item = id === undefined ? null : tree.tree(id).selectedItem;
+    const repo = item === null || item.kind === "ungrouped" ? null : item.repo_id;
+    return id === undefined || repo === null || isBlocked(summaries.view(id, repo)) ? null : { id, repo };
+  };
 
   followAppearance(settings.appearance, followTheme(settings.theme));
   followDesktopFonts(() => ({ ui: info()?.ui_font ?? null, code: info()?.code_font ?? null }));
@@ -167,7 +178,19 @@ export default function App() {
       <Match when={true}>
         <div class="app">
           <TabBar name={workspace()?.name} />
-          <Toolbar onSettings={() => setSettingsOpen(true)} />
+          <Toolbar
+            onBranch={
+              branchRepo() === null
+                ? null
+                : () => {
+                    const target = branchRepo();
+                    if (target !== null) {
+                      branch.open(target.id, { kind: "create", repo: target.repo, start: { kind: "head" } });
+                    }
+                  }
+            }
+            onSettings={() => setSettingsOpen(true)}
+          />
           <Show when={info.error as unknown}>
             <div role="alert" class="banner">
               Cannot reach the core: {String(info.error)}
@@ -215,9 +238,15 @@ export default function App() {
                     history={history}
                     changes={changes}
                     commit={commit}
+                    branch={branch}
                     settings={settings}
                   />
                 </main>
+                <BranchDialogs
+                  workspace={id()}
+                  branch={branch}
+                  repoName={(repo) => workspace()?.repos.find((known) => known.id === repo)?.name ?? repo}
+                />
                 <StatusBar workspace={id()} jobs={jobs} onOpenJobs={() => setJobsOpen(true)} />
               </>
             )}

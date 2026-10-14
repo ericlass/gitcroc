@@ -11,6 +11,10 @@ export interface SummariesState {
   errors: Record<WorkspaceId, string>;
 }
 
+/** A repo no write may start on (GRP-8): busy, missing or in conflict state. */
+export const isBlocked = (view: SummaryView | undefined) =>
+  view !== undefined && (view.busy || view.missing || view.conflict);
+
 export function createSummaryStore() {
   const [state, setState] = createStore<SummariesState>({ byWorkspace: {}, errors: {} });
 
@@ -50,7 +54,10 @@ export function createSummaryStore() {
     return unlisten;
   };
 
-  return { state, subscribe };
+  /** The summary of `repo` in workspace `workspaceId`, if read. */
+  const view = (workspaceId: WorkspaceId, repo: RepoId): SummaryView | undefined => state.byWorkspace[workspaceId]?.[repo];
+
+  return { state, subscribe, view };
 }
 
 export type SummaryStore = ReturnType<typeof createSummaryStore>;

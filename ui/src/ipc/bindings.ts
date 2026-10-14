@@ -193,6 +193,24 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 */
 	changesCommit: (workspaceId: WorkspaceId, request: CommitRequest) => typedError<number | null, IpcError>(__TAURI_INVOKE("changes_commit", { workspaceId, request })),
 	/**
+	 *  Runs a branch operation on one repo as a job (section 6 "Branches").
+	 *  Refused for a name git would not take (SEC-4) and for a repo that is
+	 *  busy, missing or in conflict state (GRP-8). A force delete or a delete
+	 *  on a remote sent without `confirmed` answers `confirm` with what to
+	 *  name in the dialog, and runs nothing (GRP-9).
+	 */
+	opBranch: (workspaceId: WorkspaceId, request: BranchRequest) => typedError<BranchStart, IpcError>(__TAURI_INVOKE("op_branch", { workspaceId, request })),
+	/**
+	 *  What the branch dialogs offer for a repo: start points, its default
+	 *  branch and the remote branches to track.
+	 */
+	branchChoices: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<BranchChoices, IpcError>(__TAURI_INVOKE("branch_choices", { workspaceId, repoId })),
+	/**
+	 *  Why `name` is not a valid branch name, or `null` when it is (SEC-4).
+	 *  Checked as the user types.
+	 */
+	branchNameCheck: (name: string) => typedError<string | null, IpcError>(__TAURI_INVOKE("branch_name_check", { name })),
+	/**
 	 *  Changes the code themes and fonts (UI-24, UI-26) and saves the settings.
 	 *  Font sizes outside 8 to 32 are moved to the nearest limit.
 	 */
@@ -317,6 +335,64 @@ export type AskpassPrompt = {
  *  `askpass_prompt` (D10). Answered with `askpass_answer`.
  */
 export type AskpassPromptEvent = AskpassPrompt;
+
+/**  What the branch dialogs offer for one repo. */
+export type BranchChoices = {
+	/**
+	 *  Local branches, remote branches with their remote, and tags, each
+	 *  group sorted: start points to pick from.
+	 */
+	start_points: string[],
+	/**  The default branch as git shortens it, such as `origin/main`. */
+	default_branch: string | null,
+	/**  Every remote branch: upstreams to pick from. */
+	remote_branches: RemoteBranchRef[],
+};
+
+/**  A branch operation (section 6 "Branches"). */
+export type BranchOp = 
+/**  Checks out local branch `name`. */
+{ kind: "checkout"; name: string } | 
+/**
+ *  Checks out a remote branch: the local branch of the same name when
+ *  there is one, else a new one that tracks it.
+ */
+{ kind: "checkout_remote"; branch: RemoteBranchRef } | 
+/**
+ *  Checks out the commit `revision` names, a hash or a tag, with a
+ *  detached `HEAD`.
+ */
+{ kind: "checkout_detached"; revision: string } | 
+/**  Creates branch `name` at `start`, checked out when `switch`. */
+{ kind: "create"; name: string; start: StartPoint; switch: boolean } | { kind: "rename"; name: string; new_name: string } | 
+/**
+ *  Deletes local branch `name`. `force` deletes it when not merged;
+ *  `on_remote` also deletes the branch it tracks on its remote. Both
+ *  are destructive (GRP-9).
+ */
+{ kind: "delete"; name: string; force: boolean; on_remote: boolean } | 
+/**  Deletes a branch on its remote. Destructive (GRP-9). */
+{ kind: "delete_remote"; branch: RemoteBranchRef } | 
+/**  Makes branch `name` track `upstream`, or nothing when `None`. */
+{ kind: "set_upstream"; name: string; upstream: RemoteBranchRef | null };
+
+/**  A branch operation on one repo. */
+export type BranchRequest = {
+	repo_id: RepoId,
+	op: BranchOp,
+	/**  The user confirmed a destructive operation (GRP-9). */
+	confirmed: boolean,
+};
+
+/**  What a request did. */
+export type BranchStart = 
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  The operation is destructive (GRP-9): ask again with `confirmed`
+ *  once the user agreed. `actions` says what cannot be undone.
+ */
+{ kind: "confirm"; repo: string; actions: string[] };
 
 /**  What [`Jobs::cancel`] did. */
 export type CancelResult = 
@@ -894,6 +970,13 @@ export type Refusal = {
 	reason: string,
 };
 
+/**  A branch of a remote, such as `feature/x` of `origin`. */
+export type RemoteBranchRef = {
+	remote: string,
+	/**  Without the remote. */
+	branch: string,
+};
+
 /**  Identifies a repo inside its workspace: `r1`, `r2` and so on. */
 export type RepoId = string;
 
@@ -972,6 +1055,15 @@ export type SettingsView = {
 export type SkipReason = 
 /**  Cancelled before it started, or killed while it ran (GRP-10). */
 "cancelled";
+
+/**  Where a new branch starts. */
+export type StartPoint = 
+/**  The commit checked out now. */
+{ kind: "head" } | 
+/**  The default branch (glossary). */
+{ kind: "default_branch" } | 
+/**  A ref or a commit hash. */
+{ kind: "revision"; revision: string };
 
 /**  A repo's summary as the UI sees it. */
 export type SummaryView = {
@@ -1061,7 +1153,11 @@ gone: boolean;
  */
 ahead: number | null; behind: number | null } | { kind: "remote_branch"; repo_id: RepoId; 
 /**  With the remote, for example `origin/feature/x`. */
-name: string } | { kind: "tag"; repo_id: RepoId; name: string; annotated: boolean } | { kind: "stash"; repo_id: RepoId; 
+name: string; 
+/**  The remote, which may contain `/` itself, for example `origin`. */
+remote: string; 
+/**  Without the remote, for example `feature/x`. */
+branch: string } | { kind: "tag"; repo_id: RepoId; name: string; annotated: boolean } | { kind: "stash"; repo_id: RepoId; 
 /**  `n` in `stash@{n}`. */
 index: number; message: string; 
 /**

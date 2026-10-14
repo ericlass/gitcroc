@@ -4,6 +4,7 @@
 import ChangesPane from "../changes/ChangesPane";
 import HistoryPane from "../history/HistoryPane";
 import type { WorkspaceId } from "../ipc";
+import type { BranchStore } from "../stores/branch";
 import type { ChangesStore } from "../stores/changes";
 import type { CommitStore } from "../stores/commit";
 import type { HistoryStore } from "../stores/history";
@@ -24,6 +25,7 @@ export default function Panes(props: {
   history: HistoryStore;
   changes: ChangesStore;
   commit: CommitStore;
+  branch: BranchStore;
   settings: SettingsStore;
 }) {
   let fill: HTMLElement | undefined;
@@ -77,6 +79,7 @@ export default function Panes(props: {
           tree={props.tree}
           summaries={props.summaries}
           workspaces={props.workspaces}
+          branch={props.branch}
         />
       </section>
       {splitter("tree", "Resize Tree")}
