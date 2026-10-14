@@ -3,15 +3,25 @@
 // changed files and the selected file's diff. The core reads and diffs;
 // this component lays out its answers and forwards input (ARCH-6).
 import { createMemo, For, Match, Show, Switch } from "solid-js";
-import type { Context, FileDiff, WorkspaceId } from "../ipc";
-import type { ChangesStore } from "../stores/changes";
+import type { ChangeAction, Context, FileDiff, WorkspaceId } from "../ipc";
+import { ACTION_LIST, type ChangesStore } from "../stores/changes";
 import type { LayoutStore } from "../stores/layout";
 import type { SettingsStore } from "../stores/settings";
 import CommitHeader from "./CommitHeader";
-import DiffView from "./DiffView";
+import DiffView, { type HunkControls } from "./DiffView";
+import DiscardDialog from "./DiscardDialog";
 import FileList, { CONFLICTS } from "./FileList";
 import { entryOf } from "./fileRows";
 import SpecialDiff from "./SpecialDiff";
+
+/** The controls of a hunk of the staged or unstaged diff (UI-15). */
+const HUNK_ACTIONS: Record<"staged" | "unstaged", { action: ChangeAction; label: string }[]> = {
+  staged: [{ action: "unstage", label: "Unstage hunk" }],
+  unstaged: [
+    { action: "discard", label: "Discard hunk" },
+    { action: "stage", label: "Stage hunk" },
+  ],
+};
 
 const CONTEXTS: { value: Context; label: string }[] = [
   { value: "three", label: "3 lines" },
@@ -107,6 +117,32 @@ export default function ChangesPane(props: {
     const file = changes().file;
     return file === null || file.list === "unmerged" ? null : { list: file.list, id: file.id };
   };
+  /** Uncommitted changes: their files and hunks can be staged, unstaged and discarded. */
+  const uncommitted = () => changes().view?.content.kind === "uncommitted";
+  const onFiles = (action: ChangeAction, files: { list: string; id: number }[]) => {
+    const list = ACTION_LIST[action];
+    const refs = files.flatMap((file) => (file.list === list ? [{ list, id: file.id }] : []));
+    if (refs.length > 0) {
+      void props.changes.apply(props.workspace, action, { kind: "files", files: refs });
+    }
+  };
+  /** The hunk controls of the shown diff; a new object only when the file or the options change. */
+  const controls = createMemo((): HunkControls | null => {
+    const ref = fileRef();
+    if (!uncommitted() || ref === null || ref.list === "commit" || view().ignore_whitespace) {
+      return null;
+    }
+    return {
+      actions: HUNK_ACTIONS[ref.list],
+      // The file whose diff is shown; the controls are rebuilt when it changes.
+      onAction: (action, hunk) => {
+        const file = fileRef();
+        if (file !== null && file.list !== "commit") {
+          void props.changes.apply(props.workspace, action, { kind: "hunk", file, hunk });
+        }
+      },
+    };
+  });
   const count = () => {
     const content = changes().view?.content;
     if (!content) {
@@ -165,8 +201,10 @@ export default function ChangesPane(props: {
                   mode={view().file_list}
                   collapsed={changes().collapsed}
                   selected={changes().file}
-                  onSelect={(file) => void props.changes.selectFile(props.workspace, file)}
+                  marked={changes().marked}
+                  onSelect={(file, marked) => void props.changes.selectFile(props.workspace, file, marked)}
                   onToggleFolder={(key) => props.changes.toggleFolder(props.workspace, key)}
+                  onAction={uncommitted() ? onFiles : undefined}
                 />
               </div>
               <section class="changes-diff" aria-label="Diff">
@@ -187,6 +225,10 @@ export default function ChangesPane(props: {
                       <Show when={changes().diffError}>
                         {(error) => <p role="alert">Cannot read the diff: {error()}</p>}
                       </Show>
+                      <Show when={changes().notice}>{(notice) => <p role="status">{notice()}</p>}</Show>
+                      <Show when={uncommitted() && view().ignore_whitespace && textDiff() !== null}>
+                        <p class="diff-note">Hunks can be staged with "Ignore whitespace" off.</p>
+                      </Show>
                       <Switch>
                         <Match when={file().conflict}>
                           {(conflict) => (
@@ -203,6 +245,7 @@ export default function ChangesPane(props: {
                               mode={view().diff_mode}
                               wrap={view().wrap_lines}
                               context={view().context}
+                              controls={controls()}
                             />
                           )}
                         </Match>
@@ -229,6 +272,17 @@ export default function ChangesPane(props: {
             </div>
           )}
         </Show>
+      </Show>
+      <Show when={changes().confirm}>
+        {(confirm) => (
+          <DiscardDialog
+            repo={confirm().repo}
+            files={confirm().files}
+            hunk={confirm().request.target.kind === "hunk"}
+            onConfirm={() => void props.changes.confirmDiscard(props.workspace)}
+            onCancel={() => props.changes.cancelDiscard(props.workspace)}
+          />
+        )}
       </Show>
     </div>
   );

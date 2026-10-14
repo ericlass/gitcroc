@@ -166,6 +166,26 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 */
 	diffImage: (workspaceId: WorkspaceId, handle: number, file: FileRef, side: ImageSide) => typedError<string | null, IpcError>(__TAURI_INVOKE("diff_image", { workspaceId, handle, file, side })),
 	/**
+	 *  Stages, unstages or discards files or one hunk of view `handle` as a
+	 *  job (UI-15). A discard sent without `confirmed` answers `confirm` with
+	 *  the repo and files to name in the dialog, and runs nothing (GRP-9). A
+	 *  hunk whose file changed since its diff was read answers
+	 *  `file_changed`. `null` when a newer view of the workspace replaced it.
+	 */
+	changesApply: (workspaceId: WorkspaceId, request: ChangeRequest) => typedError<
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  A discard needs the user's confirmation (GRP-9): ask again with
+ *  `confirmed` once the user agreed. Names for display.
+ */
+{ kind: "confirm"; repo: string; files: string[] } | 
+/**
+ *  The hunk's file changed since its diff was read; nothing ran, and
+ *  the view should be read again.
+ */
+{ kind: "file_changed" } | null, IpcError>(__TAURI_INVOKE("changes_apply", { workspaceId, request })),
+	/**
 	 *  Changes the code themes and fonts (UI-24, UI-26) and saves the settings.
 	 *  Font sizes outside 8 to 32 are moved to the nearest limit.
 	 */
@@ -301,6 +321,53 @@ export type CancelResult =
 "finishing" | 
 /**  It has ended, or never existed. */
 "ended";
+
+/**  What to do with the files or the hunk. */
+export type ChangeAction = 
+/**  Unstaged to staged. */
+"stage" | 
+/**  Staged to unstaged. */
+"unstage" | 
+/**
+ *  Unstaged changes undone in the working tree; untracked files and
+ *  folders deleted. Destructive (GRP-9).
+ */
+"discard";
+
+/**  A stage, unstage or discard request of the changes pane. */
+export type ChangeRequest = {
+	/**  The view whose files or diff the request names. */
+	handle: number,
+	action: ChangeAction,
+	target: ChangeTarget,
+	/**  The user confirmed the discard (GRP-9). */
+	confirmed: boolean,
+};
+
+/**  What a request did. */
+export type ChangeStart = 
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  A discard needs the user's confirmation (GRP-9): ask again with
+ *  `confirmed` once the user agreed. Names for display.
+ */
+{ kind: "confirm"; repo: string; files: string[] } | 
+/**
+ *  The hunk's file changed since its diff was read; nothing ran, and
+ *  the view should be read again.
+ */
+{ kind: "file_changed" };
+
+/**  Which changes of a view. */
+export type ChangeTarget = 
+/**  Whole files, all of one list. */
+{ kind: "files"; files: FileRef[] } | 
+/**
+ *  Hunk `hunk`, from 0, of the diff of `file` last read with
+ *  `diff_get`.
+ */
+{ kind: "hunk"; file: FileRef; hunk: number };
 
 /**  One entry of a changed-file list. It holds no content (ARCH-8). */
 export type ChangedFile = {
@@ -438,6 +505,8 @@ export type DiffRequest = {
 	context: Context,
 	/**  Return the hunks of a diff over the line limit (UI-18). */
 	load_anyway: boolean,
+	/**  Return both whole files with the hunks (side-by-side mode). */
+	full_text: boolean,
 };
 
 /**  Where the changes pane sits (UI-19). */
@@ -913,8 +982,9 @@ export type TextDiff = {
 	removed: number,
 	hunks: Hunk[],
 	/**
-	 *  Both sides in full, only with [`Context::WholeFile`] (side-by-side
-	 *  mode needs them); empty for a side that does not exist.
+	 *  Both sides in full, only when asked for or with
+	 *  [`Context::WholeFile`] (side-by-side mode needs them); empty for a
+	 *  side that does not exist.
 	 */
 	old_text: string | null,
 	new_text: string | null,

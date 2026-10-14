@@ -5,6 +5,7 @@
 //! IPC as a display string and its id, its index in the list; callers ask
 //! for a diff with the [`ChangedFile`] the id names, never with a path.
 
+mod patch;
 mod text;
 
 use std::path::Path;
@@ -18,6 +19,7 @@ use gix::object::tree::EntryMode;
 use gix::object::tree::diff::ChangeDetached;
 use serde::Serialize;
 
+pub use patch::{ContentKey, HunkPatch};
 pub use text::{Context, Hunk, Line, LineKind, TextDiff};
 
 use crate::{GitRepo, Time};
@@ -122,6 +124,22 @@ impl ChangedFile {
             .map_or(&[], |side| side.path.as_slice())
     }
 
+    /// The path relative to the repo's root as an OS path (PLAT-2); `None`
+    /// on Windows for a name that is not UTF-8, which git there never
+    /// writes.
+    pub fn os_path(&self) -> Option<std::path::PathBuf> {
+        gix::path::from_byte_slice(self.git_path())
+            .ok()
+            .map(Path::to_owned)
+    }
+
+    /// The path before a rename, as git stores it.
+    pub fn old_git_path(&self) -> Option<&[u8]> {
+        (self.status == FileStatus::Renamed)
+            .then(|| self.old.as_ref().map(|side| side.path.as_slice()))
+            .flatten()
+    }
+
     /// The entry for a change from `old` to `new`; `None` for a directory
     /// of a tree diff.
     pub(crate) fn new(
@@ -194,6 +212,8 @@ pub struct DiffOptions {
     pub context: Context,
     /// Return the hunks even when there are over [`MAX_DIFF_LINES`].
     pub load_anyway: bool,
+    /// Return both sides' full text with any context (side-by-side mode).
+    pub full_text: bool,
 }
 
 /// An image format shown as a picture (UI-18).
@@ -286,6 +306,15 @@ pub enum DiffError {
     FileMismatch,
     #[error("the repo has no working tree")]
     NoWorkTree,
+    /// The sides are no longer those of the diff shown (UI-15).
+    #[error("the file changed; showing it again")]
+    FileChanged,
+    #[error("hunks cannot be applied while whitespace is ignored")]
+    IgnoredWhitespace,
+    #[error("the file has no text diff")]
+    NotText,
+    #[error("the diff has no hunk {0}")]
+    NoHunk(usize),
     #[error("cannot read the repo: {0}")]
     Read(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
 }
@@ -316,6 +345,19 @@ pub trait DiffRead {
         file: &ChangedFile,
         options: DiffOptions,
     ) -> Result<FileDiff, DiffError>;
+
+    /// What applying hunk `hunk` of `file`'s diff with `options` takes;
+    /// `file` comes from the staged or unstaged list of a working copy.
+    /// Refused with [`DiffError::FileChanged`] unless the file's sides are
+    /// still those of the diff the user saw, whose [`TextDiff::content`]
+    /// is `shown`.
+    fn hunk_patch(
+        &self,
+        file: &ChangedFile,
+        options: DiffOptions,
+        hunk: usize,
+        shown: &ContentKey,
+    ) -> Result<HunkPatch, DiffError>;
 }
 
 impl DiffRead for GitRepo {
@@ -432,6 +474,11 @@ impl DiffRead for GitRepo {
                 );
             }
         };
+        let content = patch::content_key(
+            repo.object_hash(),
+            prepared.old.data.as_slice(),
+            prepared.new.data.as_slice(),
+        )?;
         let old = prepared.old.data.as_slice().unwrap_or_default();
         let new = prepared.new.data.as_slice().unwrap_or_default();
         let lines = text::Lines::new(old, new, options.ignore_whitespace);
@@ -440,13 +487,19 @@ impl DiffRead for GitRepo {
         if added.saturating_add(removed) > MAX_DIFF_LINES && !options.load_anyway {
             return Ok(FileDiff::TooLarge { added, removed });
         }
-        Ok(FileDiff::Text(text::text_diff(
-            &lines,
-            &diff,
-            options.context,
-            old,
-            new,
-        )))
+        let mut text = text::text_diff(&lines, &diff, options.context, options.full_text, old, new);
+        text.content = content;
+        Ok(FileDiff::Text(text))
+    }
+
+    fn hunk_patch(
+        &self,
+        file: &ChangedFile,
+        options: DiffOptions,
+        hunk: usize,
+        shown: &ContentKey,
+    ) -> Result<HunkPatch, DiffError> {
+        patch::hunk_patch(&self.thread_local(), file, options, hunk, shown)
     }
 }
 

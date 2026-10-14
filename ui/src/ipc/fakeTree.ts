@@ -228,6 +228,15 @@ export function scenario(name: string, workspaceId: string): Scenario | null {
           unstaged: [
             textFile("src/app.ts", [...keep(1, 3), { add: "staged line" }, { add: "unstaged line" }]),
             textFile("notes.txt", [{ add: "untracked" }], "untracked"),
+            // Two hunks, to stage one (UI-15).
+            textFile("src/main.rs", [
+              ...keep(1, 2),
+              { remove: "line 3" },
+              { add: "line three" },
+              ...keep(4, 20),
+              { add: "added near the end" },
+              ...keep(24, 2),
+            ]),
           ],
           unmerged: [{ path: "conflict.txt", conflict: "both_modified" }],
         },

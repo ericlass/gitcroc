@@ -6,8 +6,12 @@
 import { untrack } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import {
+  type ChangeAction,
+  changesApply,
   changesGet,
+  type ChangeRequest,
   type ChangesSettings,
+  type ChangeTarget,
   type ChangesTarget,
   type ChangesView,
   core,
@@ -36,6 +40,12 @@ export interface WorkspaceChanges {
   loadAnyway: boolean;
   /** Folders of the tree that are closed, by row key. */
   collapsed: Record<string, boolean>;
+  /** The files a stage, unstage or discard acts on: the selected file, or several of one list. */
+  marked: FileKey[];
+  /** A discard waiting for the user's confirmation (GRP-9), with the names the core gave. */
+  confirm: { request: ChangeRequest; repo: string; files: string[] } | null;
+  /** A short message about the last action, such as a hunk refused because its file changed. */
+  notice: string | null;
 }
 
 const empty = (): WorkspaceChanges => ({
@@ -50,6 +60,9 @@ const empty = (): WorkspaceChanges => ({
   diffError: null,
   loadAnyway: false,
   collapsed: {},
+  marked: [],
+  confirm: null,
+  notice: null,
 });
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -61,15 +74,27 @@ const sameSelection = (a: CommitSelection | null, b: CommitSelection | null) =>
 
 /**
  * What the core is asked for, from the settings: side-by-side needs both
- * whole files, and folds unchanged runs to the chosen context itself.
+ * whole files as well as the hunks, and folds unchanged runs to the chosen
+ * context itself.
  */
 export function diffRequest(settings: ChangesSettings, loadAnyway: boolean): DiffRequest {
   return {
     ignore_whitespace: settings.ignore_whitespace,
-    context: settings.diff_mode === "side_by_side" ? "whole_file" : settings.context,
+    context: settings.context,
     load_anyway: loadAnyway,
+    full_text: settings.diff_mode === "side_by_side",
   };
 }
+
+/** The list a stage, unstage or discard takes its files from, as the core checks it. */
+export const ACTION_LIST: Record<ChangeAction, "staged" | "unstaged"> = {
+  stage: "unstaged",
+  unstage: "staged",
+  discard: "unstaged",
+};
+
+/** The message shown when the core refused a hunk because its file changed. */
+export const FILE_CHANGED = "The file changed; showing it again.";
 
 export function createChangesStore(settings: () => ChangesSettings) {
   const [state, setState] = createStore<{ byWorkspace: Record<WorkspaceId, WorkspaceChanges> }>({ byWorkspace: {} });
@@ -159,14 +184,19 @@ export function createChangesStore(settings: () => ChangesSettings) {
       if (view === null || viewRequests.get(id) !== request) {
         return;
       }
+      // The same file in the same list, else in the other list, as after
+      // staging it whole.
+      const files = fileKeys(view);
+      const withPath = (file: FileKey) => keep !== null && entryOf(view.content, file)?.path === keep.path;
       const again =
         keep === null
           ? null
-          : fileKeys(view).find((file) => file.list === keep.list && entryOf(view.content, file)?.path === keep.path);
+          : (files.find((file) => file.list === keep.list && withPath(file)) ?? files.find(withPath));
       update(id, (c) => {
         c.view = view;
         c.loading = false;
         c.file = again ?? firstFile(view.content, untrack(settings).file_list);
+        c.marked = c.file === null ? [] : [c.file];
         c.loadAnyway = false;
       });
     } catch (error) {
@@ -195,8 +225,11 @@ export function createChangesStore(settings: () => ChangesSettings) {
         c.parent = 0;
         c.view = null;
         c.file = null;
+        c.marked = [];
         c.diff = null;
         c.diffError = null;
+        c.confirm = null;
+        c.notice = null;
       });
       return load(id, null);
     });
@@ -207,7 +240,12 @@ export function createChangesStore(settings: () => ChangesSettings) {
     return load(id, null);
   };
 
-  const selectFile = (id: WorkspaceId, file: FileKey) => {
+  /**
+   * Selects `file` and shows its diff. `marked` is the multi-selection it
+   * belongs to, by default the file alone.
+   */
+  const selectFile = (id: WorkspaceId, file: FileKey, marked: FileKey[] = [file]) => {
+    update(id, (c) => (c.marked = marked));
     if (sameFile(untrack(() => changes(id).file), file)) {
       return Promise.resolve();
     }
@@ -217,6 +255,56 @@ export function createChangesStore(settings: () => ChangesSettings) {
     });
     return loadDiff(id);
   };
+
+  /** Re-reads the view, keeping the selected file where it still exists (OPS-7). */
+  const reload = (id: WorkspaceId) => {
+    const { view, file } = untrack(() => changes(id));
+    const entry = view === null || file === null ? null : entryOf(view.content, file);
+    return load(id, entry === null || file === null ? null : { list: file.list, path: entry.path });
+  };
+
+  /** Sends `request`; a discard comes back asking for confirmation (GRP-9). */
+  const send = async (id: WorkspaceId, request: ChangeRequest) => {
+    update(id, (c) => (c.notice = null));
+    try {
+      const start = await changesApply(id, request);
+      if (start === null) {
+        return;
+      }
+      switch (start.kind) {
+        case "confirm":
+          update(id, (c) => (c.confirm = { request, repo: start.repo, files: start.files }));
+          break;
+        case "file_changed":
+          update(id, (c) => (c.notice = FILE_CHANGED));
+          await reload(id);
+          break;
+        case "started":
+          // The job's end re-reads the repo, and `subscribe` the view.
+          break;
+      }
+    } catch (error) {
+      update(id, (c) => (c.notice = message(error)));
+    }
+  };
+
+  /** Stages, unstages or discards `target` of the shown view (UI-15). */
+  const apply = (id: WorkspaceId, action: ChangeAction, target: ChangeTarget) => {
+    const view = untrack(() => changes(id).view);
+    if (view === null) {
+      return Promise.resolve();
+    }
+    return send(id, { handle: view.handle, action, target, confirmed: false });
+  };
+
+  /** Runs the discard the user confirmed. */
+  const confirmDiscard = (id: WorkspaceId) => {
+    const confirm = untrack(() => changes(id).confirm);
+    update(id, (c) => (c.confirm = null));
+    return confirm === null ? Promise.resolve() : send(id, { ...confirm.request, confirmed: true });
+  };
+
+  const cancelDiscard = (id: WorkspaceId) => update(id, (c) => (c.confirm = null));
 
   /** Loads a diff over the line limit after all (UI-18). */
   const loadAnyway = (id: WorkspaceId) => {
@@ -235,16 +323,28 @@ export function createChangesStore(settings: () => ChangesSettings) {
   const subscribe = async (id: WorkspaceId) =>
     core.events.repoSummary.listen((event) => {
       const { workspace_id, repo_id, refreshing } = event.payload;
-      const { selection, view, file } = untrack(() => changes(id));
+      const { selection } = untrack(() => changes(id));
       // Only a summary just read says the working copy may have changed.
       if (refreshing || workspace_id !== id || selection?.kind !== "uncommitted" || selection.repo_id !== repo_id) {
         return;
       }
-      const entry = view === null || file === null ? null : entryOf(view.content, file);
-      void load(id, entry === null || file === null ? null : { list: file.list, path: entry.path });
+      void reload(id);
     });
 
-  return { state, changes, show, setParent, selectFile, loadAnyway, reloadDiff, toggleFolder, subscribe };
+  return {
+    state,
+    changes,
+    show,
+    setParent,
+    selectFile,
+    loadAnyway,
+    reloadDiff,
+    toggleFolder,
+    subscribe,
+    apply,
+    confirmDiscard,
+    cancelDiscard,
+  };
 }
 
 /** Every file of a view, unmerged ones included. */

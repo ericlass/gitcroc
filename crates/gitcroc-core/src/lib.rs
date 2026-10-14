@@ -9,6 +9,7 @@ mod history;
 mod job;
 mod log;
 mod settings;
+mod stage;
 mod status;
 mod summary;
 mod tree;
@@ -24,13 +25,14 @@ pub use config_file::ConfigWarning;
 pub use diff::{DiffReadError, changed_files, commit_details, file_diff};
 pub use git::{GitSetup, GitStatus};
 pub use gitcroc_git::{
-    AheadBehind, BranchUpstream, ChangedFile, CommitDetails, CommitRow, Conflict, Context, Cursor,
-    DiffError, DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback, FileDiff, FileStatus,
-    Filter, GitError, GitRepo, GitRunner, GraphRow, Head, HistoryError, HistoryStart, Hunk, Image,
-    ImageFormat, Line, LineKind, LocalBranch, MAX_COUNTED_FILES, MAX_DIFF_LINES, MAX_IMAGE_BYTES,
-    ModeChange, OpenError, Operation, PAGE_SIZE, Page, Person, RefKind, RefLabel, Refs, RefsError,
-    RefsRead, RemoteBranches, RepoRead, RepoState, RepoSummary, SearchEnv, StashEntry, StatusError,
-    StatusRead, StatusReader, Tag, TextDiff, Time, UnmergedFile, Upstream, WorkingCopy,
+    AheadBehind, BranchUpstream, ChangedFile, CommitDetails, CommitRow, Conflict, ContentKey,
+    Context, Cursor, DiffError, DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback,
+    FileDiff, FileStatus, Filter, GitError, GitRepo, GitRunner, GraphRow, Head, HistoryError,
+    HistoryStart, Hunk, HunkPatch, Image, ImageFormat, Line, LineKind, LocalBranch,
+    MAX_COUNTED_FILES, MAX_DIFF_LINES, MAX_IMAGE_BYTES, ModeChange, OpenError, Operation,
+    PAGE_SIZE, Page, Person, RefKind, RefLabel, Refs, RefsError, RefsRead, RemoteBranches,
+    RepoRead, RepoState, RepoSummary, SearchEnv, StashEntry, StatusError, StatusRead, StatusReader,
+    Tag, TextDiff, Time, UnmergedFile, Upstream, WorkingCopy,
 };
 pub use gitcroc_git::{
     Askpass, CommandRecord, Exit, Kill, Output, RefSnapshot, log_commands_to, ops,
@@ -52,6 +54,7 @@ pub use settings::{
     MAX_FONT_SIZE, MIN_FONT_SIZE, PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Settings,
     SettingsError, SettingsStore, SettingsView, Theme,
 };
+pub use stage::{ChangeAction, ChangeRequest, ChangeStart, ChangeTarget, changes_apply};
 pub use status::{StatusReadError, repo_state, repo_summary, working_copy};
 pub use summary::{
     CACHE_FILE, CACHE_SCHEMA, CacheDir, PlatformCacheDir, REFRESH_READS, Summaries, SummaryCache,

@@ -14,7 +14,7 @@ const text = (diff: ReturnType<typeof textDiff>): TextDiff => {
 const ops = [...keep(1, 5), { remove: "line 6" }, { add: "line six" }, ...keep(7, 10), { add: "new" }, ...keep(17, 2)];
 
 test("UI-17 inline diff is the core's hunks with both line numbers", () => {
-  const diff = text(textDiff(ops, { ignore_whitespace: false, context: "three", load_anyway: false }));
+  const diff = text(textDiff(ops, { ignore_whitespace: false, context: "three", load_anyway: false, full_text: false }));
   const doc = inlineDoc(diff);
   expect(doc.hunks.map((hunk) => hunk.header)).toEqual(["@@ -3,7 +3,7 @@", "@@ -14,5 +14,6 @@"]);
   const lines = doc.text.split("\n");
@@ -27,16 +27,19 @@ test("UI-17 inline diff is the core's hunks with both line numbers", () => {
 });
 
 test("UI-17 side-by-side ranges cover the changed lines of both whole files", () => {
-  const diff = text(textDiff(ops, { ignore_whitespace: false, context: "whole_file", load_anyway: false }));
-  const oldText = diff.old_text ?? "";
-  const newText = diff.new_text ?? "";
-  const ranges = changeRanges(diff, oldText, newText);
-  expect(ranges.map((r) => [oldText.slice(r.fromA, r.toA), newText.slice(r.fromB, r.toB)])).toEqual([
-    ["line 6\n", "line six\n"],
-    ["", "new\n"],
-  ]);
-  // A pure insertion sits at the start of the old line it comes before.
-  expect(oldText.slice(ranges[1]?.fromA).startsWith("line 17\n")).toBe(true);
+  // As side-by-side asks: the hunks of the chosen context with both texts, or one whole-file hunk.
+  for (const context of ["three", "whole_file"] as const) {
+    const diff = text(textDiff(ops, { ignore_whitespace: false, context, load_anyway: false, full_text: true }));
+    const oldText = diff.old_text ?? "";
+    const newText = diff.new_text ?? "";
+    const ranges = changeRanges(diff, oldText, newText);
+    expect(ranges.map((r) => [oldText.slice(r.fromA, r.toA), newText.slice(r.fromB, r.toB)])).toEqual([
+      ["line 6\n", "line six\n"],
+      ["", "new\n"],
+    ]);
+    // A pure insertion sits at the start of the old line it comes before.
+    expect(oldText.slice(ranges[1]?.fromA).startsWith("line 17\n")).toBe(true);
+  }
 });
 
 test("UI-17 side-by-side ranges at the edges of a file without a final newline", () => {

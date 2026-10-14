@@ -53,4 +53,11 @@ impl GitRepo {
     pub fn work_dir(&self) -> Option<&Path> {
         self.repo.work_tree.as_deref()
     }
+
+    /// `HEAD` names a branch with no commit yet.
+    pub fn unborn(&self) -> bool {
+        self.thread_local()
+            .head()
+            .is_ok_and(|head| head.is_unborn())
+    }
 }

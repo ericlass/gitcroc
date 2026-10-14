@@ -2,6 +2,7 @@
 // file diffs, built like the core builds them from a few line operations.
 // Test support only; the real lists and diffs come from the core.
 import type {
+  ChangeAction,
   ChangedFile,
   CommitDetails,
   Context,
@@ -120,7 +121,7 @@ export function textDiff(ops: FakeOp[], request: DiffRequest): FileDiff {
     }
   });
   close();
-  const whole = request.context === "whole_file";
+  const whole = request.context === "whole_file" || request.full_text;
   const text = (kind: Line["kind"]) =>
     lines
       .filter((line) => line.kind === "context" || line.kind === kind)
@@ -186,4 +187,33 @@ export function defaultDetails(hash: string, parents: string[]): CommitDetails {
 /** Numbers a fake list as the core does: by index, after sorting by path. */
 export function numbered(files: FakeFile[]): FakeFile[] {
   return [...files].sort((a, b) => (a.file.path < b.file.path ? -1 : a.file.path > b.file.path ? 1 : 0));
+}
+
+/**
+ * A working copy after `action` on `files` of its lists, as the core's job
+ * leaves it: staging moves a file to the staged list, unstaging moves it
+ * back, discarding drops it. A hunk of a file with more than one moves a
+ * copy and leaves the file where it is.
+ */
+export function applyChange(
+  working: FakeWorkingCopy,
+  action: ChangeAction,
+  files: FakeFile[],
+  partial: boolean,
+): FakeWorkingCopy {
+  const without = (list: FakeFile[]) => (partial ? list : list.filter((file) => !files.includes(file)));
+  const moved = (status: ChangedFile["status"], to: ChangedFile["status"]) =>
+    files.map((file) => (file.file.status === status ? { ...file, file: { ...file.file, status: to } } : file));
+  const merge = (list: FakeFile[], add: FakeFile[]) => [
+    ...list.filter((file) => !add.some((other) => other.file.path === file.file.path)),
+    ...add,
+  ];
+  switch (action) {
+    case "stage":
+      return { ...working, unstaged: without(working.unstaged), staged: merge(working.staged, moved("untracked", "added")) };
+    case "unstage":
+      return { ...working, staged: without(working.staged), unstaged: merge(working.unstaged, moved("added", "untracked")) };
+    case "discard":
+      return { ...working, unstaged: without(working.unstaged) };
+  }
 }

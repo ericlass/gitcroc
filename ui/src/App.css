@@ -731,6 +731,35 @@ main:not(.main) {
   gap: 8px;
 }
 
+/* Discard confirmation (GRP-9) */
+
+.discard {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.discard-files {
+  max-height: 40vh;
+  overflow: auto;
+  padding-left: 1.2em;
+  font-family: var(--font-code);
+  overflow-wrap: anywhere;
+}
+
+.discard .dialog-actions {
+  gap: 8px;
+}
+
+button.danger {
+  color: var(--accent-text);
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+button.danger:hover:not(:disabled) {
+  background: var(--danger);
+  filter: brightness(1.1);
+}
+
 [role="alert"]:not(.banner) {
   color: var(--danger);
 }
@@ -1296,6 +1325,47 @@ button.link:hover:not(:disabled) {
 
 .file-counts .removed {
   color: var(--danger);
+}
+
+/* Several files selected together (UI-15). */
+.file-row.marked {
+  background: var(--bg-3);
+}
+
+/* A row's stage, unstage and discard buttons: shown on hover and on the
+   selected rows, so the list stays calm. */
+.file-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  visibility: hidden;
+}
+
+.file-row:hover .file-actions,
+.file-row.selected .file-actions,
+.file-row.marked .file-actions {
+  visibility: visible;
+}
+
+.file-actions button {
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  line-height: 1;
+}
+
+.file-row-section {
+  justify-content: space-between;
+}
+
+.file-list-action {
+  padding: 0 6px;
+  font-size: 0.9em;
+}
+
+.changes-diff > [role="status"],
+.changes-diff > .diff-note {
+  margin: 4px 8px;
 }
 
 .changes-diff {

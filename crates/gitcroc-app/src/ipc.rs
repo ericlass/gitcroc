@@ -10,14 +10,14 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use gitcroc_core::{
-    AddReport, AppInfo, AppLog, Appearance, CancelResult, Changes, ChangesError, ChangesSettings,
-    ChangesTarget, ChangesView, CommitGraphError, DiffRequest, FileDiff, FileRef, GitRunner,
-    GitSetup, GitStatus, Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide,
-    JobError, JobEvents, JobId, JobProgress, JobView, Jobs, Outcome, PaneLayout, Refusal,
-    RepoChange, RepoId, SettingsError, SettingsStore, SettingsView, StatusError, StatusReadError,
-    Summaries, SummaryView, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers,
-    WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path, refresh_summaries,
-    refresh_workspace, tree_refs,
+    AddReport, AppInfo, AppLog, Appearance, CancelResult, ChangeRequest, ChangeStart, Changes,
+    ChangesError, ChangesSettings, ChangesTarget, ChangesView, CommitGraphError, DiffRequest,
+    FileDiff, FileRef, GitRunner, GitSetup, GitStatus, Histories, HistoryTarget, HistoryView,
+    HistoryViewError, ImageSide, JobError, JobEvents, JobId, JobProgress, JobView, Jobs, Outcome,
+    PaneLayout, Refusal, RepoChange, RepoId, SettingsError, SettingsStore, SettingsView,
+    StatusError, StatusReadError, Summaries, SummaryView, Theme, TrackedJob, TreeError, TreeNode,
+    Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces,
+    add_path, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -150,7 +150,9 @@ impl From<HistoryViewError> for IpcError {
 impl From<ChangesError> for IpcError {
     fn from(error: ChangesError) -> Self {
         match error {
-            ChangesError::Workspace(error) => error.into(),
+            ChangesError::Workspace(error) | ChangesError::Job(JobError::Workspace(error)) => {
+                error.into()
+            }
             // git refused the repo; its message is for the user (SEC-6).
             ChangesError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
                 code: IpcErrorCode::Internal,
@@ -720,6 +722,25 @@ pub async fn diff_image(
     Ok(encoded)
 }
 
+/// Stages, unstages or discards files or one hunk of view `handle` as a
+/// job (UI-15). A discard sent without `confirmed` answers `confirm` with
+/// the repo and files to name in the dialog, and runs nothing (GRP-9). A
+/// hunk whose file changed since its diff was read answers
+/// `file_changed`. `null` when a newer view of the workspace replaced it.
+#[tauri::command]
+#[specta::specta]
+pub async fn changes_apply(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: ChangeRequest,
+) -> Result<Option<ChangeStart>, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let changes = app.state::<Arc<Changes>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::changes_apply(changes, jobs, workspaces, git, workspace_id, request).await?)
+}
+
 /// Removes a repo from the workspace; nothing on disk changes (GRP-3).
 #[tauri::command]
 #[specta::specta]
@@ -1190,6 +1211,7 @@ macro_rules! with_commands {
                 changes_get,
                 diff_get,
                 diff_image,
+                changes_apply,
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,
@@ -1225,6 +1247,7 @@ macro_rules! with_commands {
                 changes_get,
                 diff_get,
                 diff_image,
+                changes_apply,
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,

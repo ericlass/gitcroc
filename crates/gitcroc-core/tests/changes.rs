@@ -356,7 +356,7 @@ async fn ui_17_whitespace_and_context_are_applied_by_the_core() {
         let request = DiffRequest {
             ignore_whitespace,
             context,
-            load_anyway: false,
+            ..DiffRequest::default()
         };
         let changes = run.changes.clone();
         let id = run.id.clone();

@@ -82,6 +82,16 @@ mod tests {
         ) -> Result<FileDiff, DiffError> {
             Err(DiffError::FileMismatch)
         }
+
+        fn hunk_patch(
+            &self,
+            _file: &ChangedFile,
+            _options: DiffOptions,
+            _hunk: usize,
+            _shown: &gitcroc_git::ContentKey,
+        ) -> Result<gitcroc_git::HunkPatch, DiffError> {
+            Err(DiffError::FileMismatch)
+        }
     }
 
     #[tokio::test]

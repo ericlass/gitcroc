@@ -21,7 +21,7 @@ export interface FileKey {
 export const sameFile = (a: FileKey | null, b: FileKey | null) => a?.list === b?.list && a?.id === b?.id;
 
 export type FileRow =
-  | { kind: "section"; key: string; label: string; count: number }
+  | { kind: "section"; key: string; label: string; count: number; list: "staged" | "unstaged" }
   | { kind: "folder"; key: string; name: string; depth: number; collapsed: boolean }
   | {
       kind: "file";
@@ -153,9 +153,9 @@ export function fileRows(content: ChangesContent, mode: FileListMode, collapsed:
   }
   const unstaged = content.unstaged.length + content.unmerged.length;
   return [
-    { kind: "section", key: "section:staged", label: "Staged", count: content.staged.length },
+    { kind: "section", key: "section:staged", label: "Staged", count: content.staged.length, list: "staged" },
     ...listRows("staged", content.staged, mode, collapsed),
-    { kind: "section", key: "section:unstaged", label: "Unstaged", count: unstaged },
+    { kind: "section", key: "section:unstaged", label: "Unstaged", count: unstaged, list: "unstaged" },
     ...content.unmerged.map(unmergedRow),
     ...listRows("unstaged", content.unstaged, mode, collapsed),
   ];

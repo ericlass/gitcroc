@@ -62,11 +62,15 @@ async function setup() {
   return { settings, layout, changes, onSelectCommit };
 }
 
-/** The rendered file rows, top to bottom. */
+/** The rendered file rows, top to bottom, without their buttons. */
 const fileRowTexts = () =>
   [...document.querySelectorAll<HTMLElement>(".file-row")]
     .sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index))
-    .map((row) => row.textContent ?? "");
+    .map((row) => {
+      const copy = row.cloneNode(true) as HTMLElement;
+      copy.querySelectorAll("button").forEach((button) => button.remove());
+      return copy.textContent ?? "";
+    });
 
 const diffCalls = () => fakeState.changesCalls.filter((call) => call.command === "diff");
 
@@ -101,7 +105,7 @@ test("UI-14 commit header and file list", async () => {
     {
       command: "diff",
       file: { list: "commit", id: 0 },
-      request: { ignore_whitespace: false, context: "three", load_anyway: false },
+      request: { ignore_whitespace: false, context: "three", load_anyway: false, full_text: false },
     },
   ]);
   expect(document.querySelector(".diff-editor .cm-content")?.textContent).toContain("line five");
@@ -160,13 +164,13 @@ test("UI-17 diff modes and options are remembered", async () => {
   await changes.show(id(), commit(hashOf(3)));
   await settleAll();
 
-  // Side by side asks the core for whole files and shows two editors.
+  // Side by side asks the core for whole files too and shows two editors.
   fireEvent.click(screen.getByRole("button", { name: "Side by side" }));
   await settleAll();
   // In the app, an effect reads the diff again after a change (App.tsx).
   await changes.reloadDiff(id());
   await settleAll();
-  expect(diffCalls().at(-1)?.request.context).toBe("whole_file");
+  expect(diffCalls().at(-1)?.request).toMatchObject({ context: "three", full_text: true });
   expect(document.querySelectorAll(".diff-editor .cm-mergeView .cm-editor")).toHaveLength(2);
 
   fireEvent.click(screen.getByRole("checkbox", { name: "Ignore whitespace" }));
@@ -179,7 +183,12 @@ test("UI-17 diff modes and options are remembered", async () => {
   await settleAll();
   await changes.reloadDiff(id());
   await settleAll();
-  expect(diffCalls().at(-1)?.request).toEqual({ ignore_whitespace: true, context: "ten", load_anyway: false });
+  expect(diffCalls().at(-1)?.request).toEqual({
+    ignore_whitespace: true,
+    context: "ten",
+    load_anyway: false,
+    full_text: false,
+  });
   expect(document.querySelector(".diff-editor .cm-lineWrapping")).not.toBeNull();
 
   // The core kept them: a fresh store reads them back.
