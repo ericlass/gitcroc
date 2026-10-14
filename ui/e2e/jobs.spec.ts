@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 test("UI-21 job list opens from the status bar with the keyboard", async ({ page }) => {
   await page.goto("/?fake=jobs");
   const opener = page.getByRole("button", { description: "Show the job list" });
-  await expect(page.getByRole("status")).toContainText("Fetch 3/10");
+  await expect(page.getByRole("status")).toContainText("Fetch Receiving objects 3/10");
 
   await opener.focus();
   await page.keyboard.press("Enter");
@@ -30,5 +30,5 @@ test("UI-21 job list opens from the status bar with the keyboard", async ({ page
   await expect(dialog).toBeHidden();
   await expect(opener).toBeFocused();
   // The failure was seen; the running fetch still shows.
-  await expect(page.getByRole("status")).toHaveText("Fetch 3/10");
+  await expect(page.getByRole("status")).toHaveText("Fetch Receiving objects 3/10");
 });

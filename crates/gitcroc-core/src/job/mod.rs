@@ -101,6 +101,9 @@ pub struct JobView {
     /// the number of steps is not known yet.
     pub done: u32,
     pub total: u32,
+    /// The phase `done` and `total` count, as git names it, such as
+    /// `Receiving objects`; `None` when the job reports no phases.
+    pub step: Option<String>,
     /// When it began to run, in milliseconds since the Unix epoch.
     #[specta(type = Option<f64>)]
     pub started_at: Option<u64>,
@@ -201,7 +204,7 @@ impl Drop for AskpassGrant {
     }
 }
 
-type ProgressFn = dyn Fn(u32, u32) + Send + Sync;
+type ProgressFn = dyn Fn(Option<&str>, u32, u32) + Send + Sync;
 
 /// What a running job's write gets: its repos' paths, in the order of
 /// [`WriteJob::repos`], git, the kill request and progress.
@@ -243,7 +246,13 @@ impl JobRun {
 
     /// Reports `done` of `total` steps.
     pub fn progress(&self, done: u32, total: u32) {
-        (self.progress)(done, total);
+        (self.progress)(None, done, total);
+    }
+
+    /// Reports `done` of `total` in phase `step`, such as a transfer's
+    /// `Receiving objects`; a `total` of 0 when the phase gives none.
+    pub fn step(&self, step: &str, done: u32, total: u32) {
+        (self.progress)(Some(step), done, total);
     }
 }
 
@@ -478,6 +487,7 @@ impl Jobs {
             state: JobState::Queued,
             done: 0,
             total: 0,
+            step: None,
             started_at: None,
             duration_ms: None,
             outcome: None,
@@ -512,18 +522,22 @@ impl Jobs {
         })
     }
 
-    /// Sets job `id`'s progress and sends its view.
-    fn set_progress(&self, id: JobId, done: u32, total: u32) {
+    /// Sets job `id`'s progress and sends its view when it changed.
+    fn set_progress(&self, id: JobId, step: Option<&str>, done: u32, total: u32) {
         let view = {
             let mut state = self.lock();
             let Some(entry) = state.entry(id) else {
                 return;
             };
-            if entry.view.state != JobState::Running {
+            let unchanged = entry.view.done == done
+                && entry.view.total == total
+                && entry.view.step.as_deref() == step;
+            if entry.view.state != JobState::Running || unchanged {
                 return;
             }
             entry.view.done = done;
             entry.view.total = total;
+            entry.view.step = step.map(str::to_owned);
             entry.view.clone()
         };
         self.events.progress(&view);
@@ -623,7 +637,9 @@ impl Jobs {
             .and_then(|issuer| issuer.issue(&view));
         let progress = {
             let engine = self.clone();
-            Arc::new(move |done, total| engine.set_progress(id, done, total))
+            Arc::new(move |step: Option<&str>, done, total| {
+                engine.set_progress(id, step, done, total);
+            })
         };
         let result = run(JobRun {
             job_id: id,
@@ -758,13 +774,13 @@ impl TrackedJob {
 
     /// Reports `done` of `total` steps.
     pub fn progress(&self, done: u32, total: u32) {
-        self.jobs.set_progress(self.id, done, total);
+        self.jobs.set_progress(self.id, None, done, total);
     }
 
     /// Reports progress like [`Self::progress`], from another thread.
     pub fn reporter(&self) -> impl Fn(u32, u32) + Send + Sync + 'static {
         let (jobs, id) = (self.jobs.clone(), self.id);
-        move |done, total| jobs.set_progress(id, done, total)
+        move |done, total| jobs.set_progress(id, None, done, total)
     }
 
     /// Ends the job and sends its view.
@@ -849,6 +865,7 @@ fn ended_view(id: JobId, job: &WriteJob, (outcome, output, message): Ending) -> 
         state: JobState::Ended,
         done: 0,
         total: 0,
+        step: None,
         started_at: None,
         duration_ms: None,
         outcome: Some(outcome),

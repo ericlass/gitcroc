@@ -20,6 +20,7 @@ import TabBar from "./layout/TabBar";
 import Toolbar from "./layout/Toolbar";
 import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
+import SyncDialogs, { SyncRefusal } from "./sync/SyncDialogs";
 import BranchDialogs from "./tree/BranchDialogs";
 import { createAskpassStore } from "./stores/askpass";
 import { createBranchStore } from "./stores/branch";
@@ -32,6 +33,7 @@ import { createLayoutStore } from "./stores/layout";
 import { createSelectionStore } from "./stores/selection";
 import { createSettingsStore } from "./stores/settings";
 import { createSummaryStore, isBlocked } from "./stores/summaries";
+import { canFetch, canPullOrPush, createSyncStore, DEFAULT_OPS } from "./stores/sync";
 import { createTreeStore } from "./stores/tree";
 import { createWatchStore } from "./stores/watch";
 import { createWorkspaceStore } from "./stores/workspaces";
@@ -52,6 +54,7 @@ export default function App() {
   const changes = createChangesStore(settings.changes);
   const commit = createCommitStore();
   const branch = createBranchStore();
+  const sync = createSyncStore();
   const watch = createWatchStore();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [jobsOpen, setJobsOpen] = createSignal(false);
@@ -60,13 +63,38 @@ export default function App() {
   // passed down, never read from a module, so tabs need no rework (ARCH-9).
   const workspace = () => workspaces.state.views?.[0];
 
-  /** The repo of the tree's selection, when no write is blocked on it (GRP-8). */
-  const branchRepo = () => {
+  /** The repo of the tree's selection, and its summary. */
+  const selectedRepo = () => {
     const id = workspace()?.id;
     const item = id === undefined ? null : tree.tree(id).selectedItem;
     const repo = item === null || item.kind === "ungrouped" ? null : item.repo_id;
-    return id === undefined || repo === null || isBlocked(summaries.view(id, repo)) ? null : { id, repo };
+    return id === undefined || repo === null ? null : { id, repo, view: summaries.view(id, repo) };
   };
+
+  /** The selected repo, when no write is blocked on it (GRP-8). */
+  const branchRepo = () => {
+    const target = selectedRepo();
+    return target === null || isBlocked(target.view) ? null : target;
+  };
+
+  /** What the toolbar's Fetch, Pull and Push do for the selected repo (UI-20). */
+  const syncActions = () => {
+    const target = selectedRepo();
+    if (target === null) {
+      return { fetch: null, pull: null, pullOptions: null, push: null, pushOptions: null };
+    }
+    const { id, repo, view } = target;
+    const pullOrPush = canPullOrPush(view);
+    return {
+      fetch: canFetch(view) ? () => void sync.run(id, repo, DEFAULT_OPS.fetch) : null,
+      pull: pullOrPush ? () => void sync.run(id, repo, DEFAULT_OPS.pull) : null,
+      pullOptions: pullOrPush ? () => sync.open(id, { kind: "pull", repo }) : null,
+      push: pullOrPush ? () => void sync.run(id, repo, DEFAULT_OPS.push) : null,
+      pushOptions: pullOrPush ? () => sync.open(id, { kind: "push", repo, remotes: null }) : null,
+    };
+  };
+
+  const repoName = (repo: string) => workspace()?.repos.find((known) => known.id === repo)?.name ?? repo;
 
   followAppearance(settings.appearance, followTheme(settings.theme));
   followDesktopFonts(() => ({ ui: info()?.ui_font ?? null, code: info()?.code_font ?? null }));
@@ -179,6 +207,7 @@ export default function App() {
         <div class="app">
           <TabBar name={workspace()?.name} />
           <Toolbar
+            sync={syncActions()}
             onBranch={
               branchRepo() === null
                 ? null
@@ -191,6 +220,7 @@ export default function App() {
             }
             onSettings={() => setSettingsOpen(true)}
           />
+          <Show when={workspace()?.id}>{(id) => <SyncRefusal workspace={id()} sync={sync} />}</Show>
           <Show when={info.error as unknown}>
             <div role="alert" class="banner">
               Cannot reach the core: {String(info.error)}
@@ -242,11 +272,8 @@ export default function App() {
                     settings={settings}
                   />
                 </main>
-                <BranchDialogs
-                  workspace={id()}
-                  branch={branch}
-                  repoName={(repo) => workspace()?.repos.find((known) => known.id === repo)?.name ?? repo}
-                />
+                <BranchDialogs workspace={id()} branch={branch} repoName={repoName} />
+                <SyncDialogs workspace={id()} sync={sync} repoName={repoName} />
                 <StatusBar workspace={id()} jobs={jobs} onOpenJobs={() => setJobsOpen(true)} />
               </>
             )}

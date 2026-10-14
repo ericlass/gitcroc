@@ -211,6 +211,20 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 */
 	branchNameCheck: (name: string) => typedError<string | null, IpcError>(__TAURI_INVOKE("branch_name_check", { name })),
 	/**
+	 *  Fetches, pulls or pushes one repo as a job (section 6 "Sync"), with
+	 *  the transfer's progress as the job's steps. Refused for a repo that is
+	 *  busy, missing or, except for fetch, in conflict state (GRP-8), and for a
+	 *  pull or push on a detached `HEAD`. A force push sent without `confirmed`
+	 *  answers `confirm` and runs nothing (GRP-9); a push that needs a remote
+	 *  picked answers `choose_remote`.
+	 */
+	opSync: (workspaceId: WorkspaceId, request: SyncRequest) => typedError<SyncStart, IpcError>(__TAURI_INVOKE("op_sync", { workspaceId, request })),
+	/**
+	 *  What the push options offer for a repo: its branch, upstream and
+	 *  remotes.
+	 */
+	pushChoices: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<PushChoices, IpcError>(__TAURI_INVOKE("push_choices", { workspaceId, repoId })),
+	/**
 	 *  Changes the code themes and fonts (UI-24, UI-26) and saves the settings.
 	 *  Font sizes outside 8 to 32 are moved to the nearest limit.
 	 */
@@ -831,6 +845,11 @@ export type JobView = {
 	 */
 	done: number,
 	total: number,
+	/**
+	 *  The phase `done` and `total` count, as git names it, such as
+	 *  `Receiving objects`; `None` when the job reports no phases.
+	 */
+	step: string | null,
 	/**  When it began to run, in milliseconds since the Unix epoch. */
 	started_at: number | null,
 	/**  How long it ran, in milliseconds; set when it ended. */
@@ -947,6 +966,42 @@ export type PromptKind =
 "secret" | 
 /**  An SSH host key question, answered `yes` or `no`. */
 "yes_no";
+
+/**
+ *  Whether a fetch removes remote-tracking branches whose branch is gone
+ *  from the remote.
+ */
+export type Prune = 
+/**  As `fetch.prune` and `remote.<name>.prune` say. */
+"config" | "prune" | "no_prune";
+
+/**  How a pull brings in its upstream (section 5 "Pull"). */
+export type PullStrategy = 
+/**
+ *  As `branch.<name>.rebase`, `pull.rebase` and `pull.ff` say; with
+ *  `pull.rebase` and `pull.ff` unset, fast-forward only.
+ */
+"config" | "ff_only" | 
+/**  Fast-forward when possible, else a merge commit. */
+"merge" | "rebase";
+
+/**  What the push options offer for one repo. */
+export type PushChoices = {
+	/**  The current branch; `None` when `HEAD` is detached. */
+	branch: string | null,
+	/**
+	 *  Where the branch pushes to, such as `origin/main`; `None` without an
+	 *  upstream.
+	 */
+	upstream: string | null,
+	/**  Every remote, sorted. */
+	remotes: string[],
+	/**
+	 *  Where a push without an upstream goes when no remote is picked;
+	 *  `None` when the user must pick one.
+	 */
+	remote: string | null,
+};
 
 /**  The kind of a ref label on a history row. */
 export type RefKind = 
@@ -1101,6 +1156,44 @@ export type SummaryView = {
 	 */
 	busy: boolean,
 };
+
+/**  A sync operation (section 6 "Sync"). */
+export type SyncOp = 
+/**  Fetches every remote. */
+{ kind: "fetch"; prune: Prune } | 
+/**  Updates the current branch from its upstream. */
+{ kind: "pull"; strategy: PullStrategy } | 
+/**
+ *  Pushes the current branch to its upstream. A branch without one goes
+ *  to `remote`, else to `origin`, else to the only remote, and
+ *  `set_upstream` makes that its upstream. `force_with_lease` replaces
+ *  the remote branch when the push is not a fast-forward; destructive
+ *  (GRP-9).
+ */
+{ kind: "push"; set_upstream: boolean; remote: string | null; force_with_lease: boolean };
+
+/**  A sync operation on one repo. */
+export type SyncRequest = {
+	repo_id: RepoId,
+	op: SyncOp,
+	/**  The user confirmed a destructive operation (GRP-9). */
+	confirmed: boolean,
+};
+
+/**  What a request did. */
+export type SyncStart = 
+/**  The job runs; its end re-reads the repo (OPS-7). */
+{ kind: "started"; job_id: JobId } | 
+/**
+ *  The operation is destructive (GRP-9): ask again with `confirmed`
+ *  once the user agreed. `actions` says what cannot be undone.
+ */
+{ kind: "confirm"; repo: string; actions: string[] } | 
+/**
+ *  A push of a branch without an upstream, in a repo with several
+ *  remotes and no `origin`: ask again with one of `remotes`.
+ */
+{ kind: "choose_remote"; remotes: string[] };
 
 /**  The diff of a text file. */
 export type TextDiff = {

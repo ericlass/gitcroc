@@ -105,6 +105,27 @@ main:not(.main) {
   flex: 1;
 }
 
+/* A button and the arrow beside it that opens its options (UI-20). */
+.split-button {
+  display: inline-flex;
+}
+
+.split-button > button:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.split-arrow {
+  padding-inline: 4px;
+  border-left-width: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.job-step {
+  color: var(--text-secondary);
+}
+
 /* Banner */
 
 .banner {
@@ -764,19 +785,19 @@ button.danger:hover:not(:disabled) {
   color: var(--danger);
 }
 
-/* Branch dialogs (section 6 "Branches") */
+/* Operation dialogs: branches and sync (section 6) */
 
-.branch-dialog {
+.op-dialog {
   width: min(440px, calc(100vw - 32px));
 }
 
-.branch-dialog form {
+.op-dialog form {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.branch-dialog .dialog-actions {
+.op-dialog .dialog-actions {
   gap: 8px;
 }
 
@@ -806,7 +827,7 @@ button.danger:hover:not(:disabled) {
   color: var(--danger);
 }
 
-.branch-actions {
+.op-actions {
   padding-left: 1.2em;
   overflow-wrap: anywhere;
 }

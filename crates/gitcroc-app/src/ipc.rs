@@ -15,10 +15,10 @@ use gitcroc_core::{
     ChangesTarget, ChangesView, CommitGraphError, CommitRequest, DiffRequest, FileDiff, FileRef,
     GitRunner, GitSetup, GitStatus, Histories, HistoryTarget, HistoryView, HistoryViewError,
     ImageSide, JobError, JobEvents, JobId, JobProgress, JobView, Jobs, Outcome, PaneLayout,
-    Refusal, RepoChange, RepoId, SettingsError, SettingsStore, SettingsView, StatusError,
-    StatusReadError, Summaries, SummaryView, Theme, TrackedJob, TreeError, TreeNode, Trees,
-    WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path,
-    refresh_summaries, refresh_workspace, tree_refs,
+    PushChoices, Refusal, RepoChange, RepoId, SettingsError, SettingsStore, SettingsView,
+    StatusError, StatusReadError, Summaries, SummaryView, SyncError, SyncRequest, SyncStart, Theme,
+    TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId,
+    WorkspaceView, Workspaces, add_path, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -156,6 +156,27 @@ impl From<BranchError> for IpcError {
             }
             // git refused the repo; its message is for the user (SEC-6).
             BranchError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
+                code: IpcErrorCode::Internal,
+                message: "git refused to read the repo".to_owned(),
+                git_stderr: Some(message),
+            },
+            other => Self {
+                code: IpcErrorCode::Internal,
+                message: other.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
+impl From<SyncError> for IpcError {
+    fn from(error: SyncError) -> Self {
+        match error {
+            SyncError::Workspace(error) | SyncError::Job(JobError::Workspace(error)) => {
+                error.into()
+            }
+            // git refused the repo; its message is for the user (SEC-6).
+            SyncError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
                 code: IpcErrorCode::Internal,
                 message: "git refused to read the repo".to_owned(),
                 git_stderr: Some(message),
@@ -820,6 +841,39 @@ pub async fn branch_name_check(name: String) -> Result<Option<String>, IpcError>
     Ok(gitcroc_core::branch_name_check(&name))
 }
 
+/// Fetches, pulls or pushes one repo as a job (section 6 "Sync"), with
+/// the transfer's progress as the job's steps. Refused for a repo that is
+/// busy, missing or, except for fetch, in conflict state (GRP-8), and for a
+/// pull or push on a detached `HEAD`. A force push sent without `confirmed`
+/// answers `confirm` and runs nothing (GRP-9); a push that needs a remote
+/// picked answers `choose_remote`.
+#[tauri::command]
+#[specta::specta]
+pub async fn op_sync(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: SyncRequest,
+) -> Result<SyncStart, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::op_sync(workspaces, summaries, jobs, git, workspace_id, request).await?)
+}
+
+/// What the push options offer for a repo: its branch, upstream and
+/// remotes.
+#[tauri::command]
+#[specta::specta]
+pub async fn push_choices(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+) -> Result<PushChoices, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    Ok(gitcroc_core::push_choices(workspaces, workspace_id, repo_id).await?)
+}
+
 /// Removes a repo from the workspace; nothing on disk changes (GRP-3).
 #[tauri::command]
 #[specta::specta]
@@ -1295,6 +1349,8 @@ macro_rules! with_commands {
                 op_branch,
                 branch_choices,
                 branch_name_check,
+                op_sync,
+                push_choices,
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,
@@ -1335,6 +1391,8 @@ macro_rules! with_commands {
                 op_branch,
                 branch_choices,
                 branch_name_check,
+                op_sync,
+                push_choices,
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,
