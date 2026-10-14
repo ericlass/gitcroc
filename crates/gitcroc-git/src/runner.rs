@@ -80,6 +80,14 @@ pub enum GitError {
     /// the request came first.
     #[error("git was stopped")]
     Killed,
+    /// The resolved file of a conflict could not be written (OPS-5), the
+    /// one write the app makes itself (ARCH-1).
+    #[error("cannot write {}: {source}", path.display())]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 fn exit_code_text(code: Option<i32>) -> String {

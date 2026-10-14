@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use gitcroc_core::GitSetup;
 
 mod bench;
+mod conflict;
 mod diff;
 mod gate;
 mod history;
@@ -14,9 +15,10 @@ mod workspace;
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {} | {} | {} | {}",
+        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}",
         history::USAGE,
         diff::USAGE,
+        conflict::USAGE,
         status::STATUS_USAGE,
         status::SUMMARY_USAGE,
         workspace::USAGE,
@@ -42,6 +44,10 @@ fn main() -> ExitCode {
         },
         [command, rest @ ..] if command == "diff" => match diff::parse_args(rest) {
             Some(options) => diff::run(options),
+            None => usage(),
+        },
+        [command, rest @ ..] if command == "conflict" => match conflict::parse_args(rest) {
+            Some(options) => conflict::run(&options),
             None => usage(),
         },
         [command, rest @ ..] if command == "status" => match status::parse_args(rest) {

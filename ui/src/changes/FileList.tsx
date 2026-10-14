@@ -6,7 +6,7 @@
 // core's to check; this only forwards what was clicked (ARCH-6).
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, For, Match, Show, Switch } from "solid-js";
-import type { ChangeAction, ChangesContent, Conflict, FileListMode, FileStatus } from "../ipc";
+import type { ChangeAction, ChangesContent, FileListMode, FileStatus, UnmergedKind } from "../ipc";
 import { type FileEntry, type FileKey, type FileRow, fileRows, sameFile } from "./fileRows";
 
 /** Height of one row in CSS pixels; `.file-row` in App.css sets it, as `.history-row` does. */
@@ -24,7 +24,7 @@ const STATUS: Record<FileStatus | "unmerged", [letter: string, title: string]> =
   unmerged: ["!", "Conflict"],
 };
 
-export const CONFLICTS: Record<Conflict, string> = {
+export const CONFLICTS: Record<UnmergedKind, string> = {
   both_deleted: "both deleted",
   added_by_us: "added by us",
   deleted_by_them: "deleted by them",

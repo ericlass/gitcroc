@@ -5,6 +5,7 @@ mod branch;
 mod changes;
 mod commit;
 mod config_file;
+mod conflict;
 mod diff;
 mod git;
 mod history;
@@ -33,17 +34,23 @@ pub use changes::{
 };
 pub use commit::{CommitMessage, CommitRequest, changes_commit};
 pub use config_file::ConfigWarning;
+pub use conflict::{
+    ChooseRequest, ConflictChoice, ConflictRead, ConflictStart, ResolveRequest, conflict_choose,
+    conflict_get, conflict_resolve,
+};
 pub use diff::{DiffReadError, changed_files, commit_details, file_diff};
 pub use git::{GitSetup, GitStatus};
 pub use gitcroc_git::{
-    AheadBehind, BranchUpstream, ChangedFile, CommitDetails, CommitRow, Conflict, ConflictDetails,
-    ContentKey, Context, Cursor, DiffError, DiffOptions, DiffRead, DiffSource, Edge, Engine,
-    Fallback, FileDiff, FileStatus, Filter, GitError, GitRepo, GitRunner, GraphRow, Head,
-    HistoryError, HistoryStart, Hunk, HunkPatch, Image, ImageFormat, Line, LineKind, LocalBranch,
-    MAX_COUNTED_FILES, MAX_DIFF_LINES, MAX_IMAGE_BYTES, ModeChange, OpenError, Operation,
-    PAGE_SIZE, Page, Person, RefKind, RefLabel, Refs, RefsError, RefsRead, RemoteBranches,
-    RepoRead, RepoState, RepoSummary, SearchEnv, StashEntry, StatusError, StatusRead, StatusReader,
-    Step, Tag, TextDiff, Time, UnmergedFile, Upstream, WorkingCopy,
+    AheadBehind, BranchUpstream, ChangedFile, ChoiceKind, CommitDetails, CommitRow, Conflict,
+    ConflictChunk, ConflictContent, ConflictDetails, ConflictError, ConflictLabels, ContentKey,
+    Context, Cursor, DiffError, DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback,
+    FileDiff, FileStatus, Filter, GitError, GitRepo, GitRunner, GraphRow, Head, HistoryError,
+    HistoryStart, Hunk, HunkPatch, Image, ImageFormat, Line, LineKind, LocalBranch,
+    MAX_CONFLICT_TEXT, MAX_COUNTED_FILES, MAX_DIFF_LINES, MAX_IMAGE_BYTES, ModeChange, OpenError,
+    Operation, PAGE_SIZE, Page, Person, RefKind, RefLabel, Refs, RefsError, RefsRead,
+    RemoteBranches, RepoRead, RepoState, RepoSummary, SearchEnv, SideHolds, StashEntry,
+    StatusError, StatusRead, StatusReader, Step, Tag, TextDiff, Time, UnmergedFile, UnmergedKind,
+    Upstream, WorkingCopy,
 };
 pub use gitcroc_git::{
     Askpass, CommandRecord, Exit, Kill, Output, RefSnapshot, log_commands_to, ops,

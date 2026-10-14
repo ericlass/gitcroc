@@ -7,9 +7,9 @@
 use std::path::PathBuf;
 
 use gitcroc_git::{
-    ChangedFile, Conflict, DiffOptions, DiffRead, DiffSource, Engine, Fallback, FileDiff,
-    FileStatus, GitRepo, GitRunner, Head, LineKind, Operation, RepoState, StatusRead, StatusReader,
-    Upstream, WorkingCopy,
+    ChangedFile, DiffOptions, DiffRead, DiffSource, Engine, Fallback, FileDiff, FileStatus,
+    GitRepo, GitRunner, Head, LineKind, Operation, RepoState, StatusRead, StatusReader,
+    UnmergedKind, Upstream, WorkingCopy,
 };
 use repo_gen::{Fixture, Repo};
 
@@ -303,12 +303,12 @@ fn arch_2_status_of_a_fallback_repo_matches_git() {
     assert_eq!(
         unmerged,
         [
-            ("add-add.txt".to_owned(), Conflict::BothAdded),
-            ("delete-modify.txt".to_owned(), Conflict::DeletedByUs),
-            ("modify-delete.txt".to_owned(), Conflict::DeletedByThem),
-            ("our-name.txt".to_owned(), Conflict::AddedByUs),
-            ("renamed.txt".to_owned(), Conflict::BothDeleted),
-            ("their-name.txt".to_owned(), Conflict::AddedByThem),
+            ("add-add.txt".to_owned(), UnmergedKind::BothAdded),
+            ("delete-modify.txt".to_owned(), UnmergedKind::DeletedByUs),
+            ("modify-delete.txt".to_owned(), UnmergedKind::DeletedByThem),
+            ("our-name.txt".to_owned(), UnmergedKind::AddedByUs),
+            ("renamed.txt".to_owned(), UnmergedKind::BothDeleted),
+            ("their-name.txt".to_owned(), UnmergedKind::AddedByThem),
         ]
     );
 
@@ -533,10 +533,10 @@ fn ops_1_detects_conflict_state() {
             .iter()
             .map(|f| (f.path.as_str(), f.conflict))
             .collect();
-        let expected: &[(&str, Conflict)] = if unmerged_paths == 0 {
+        let expected: &[(&str, UnmergedKind)] = if unmerged_paths == 0 {
             &[]
         } else {
-            &[("file.txt", Conflict::BothModified)]
+            &[("file.txt", UnmergedKind::BothModified)]
         };
         assert_eq!(unmerged, expected, "{name}");
         assert!(by_gix.staged.iter().all(|f| f.path != "file.txt"), "{name}");

@@ -54,7 +54,8 @@ pub enum ChangesContent {
 /// A view of the changes pane.
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ChangesView {
-    /// Names this view for `diff_get` and `diff_image`.
+    /// Names this view for `diff_get`, `diff_image` and the conflict
+    /// editor's calls.
     pub handle: u32,
     pub content: ChangesContent,
 }
@@ -122,6 +123,8 @@ pub enum ChangesError {
     Job(#[from] crate::JobError),
     #[error("{0}")]
     Refused(&'static str),
+    #[error(transparent)]
+    Conflict(#[from] gitcroc_git::ConflictError),
     #[error("the read did not finish: {0}")]
     Stopped(#[from] tokio::task::JoinError),
 }
@@ -137,6 +140,8 @@ pub(crate) enum Lists {
     Uncommitted {
         staged: Vec<ChangedFile>,
         unstaged: Vec<ChangedFile>,
+        /// For the conflict editor (OPS-8), by id.
+        unmerged: Vec<UnmergedFile>,
     },
 }
 
@@ -166,6 +171,14 @@ impl Lists {
         };
         let found = list.get(usize::try_from(file.id).ok()?)?;
         Some((source, found.clone()))
+    }
+
+    /// Unmerged file `id`, if the lists are the working copy's and have it.
+    pub(crate) fn unmerged(&self, id: u32) -> Option<&UnmergedFile> {
+        match self {
+            Self::Uncommitted { unmerged, .. } => unmerged.get(usize::try_from(id).ok()?),
+            Self::Commit { .. } => None,
+        }
     }
 }
 
@@ -317,6 +330,7 @@ pub async fn changes_get(
             let lists = Lists::Uncommitted {
                 staged: working.staged.clone(),
                 unstaged: working.unstaged.clone(),
+                unmerged: working.unmerged.clone(),
             };
             let content = ChangesContent::Uncommitted {
                 staged: working.staged,

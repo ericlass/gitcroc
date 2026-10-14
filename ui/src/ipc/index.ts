@@ -6,6 +6,7 @@ import type {
   ChangeRequest,
   ChangesSettings,
   ChangesTarget,
+  ChooseRequest,
   CommitRequest,
   DiffRequest,
   FileRef,
@@ -17,6 +18,7 @@ import type {
   PaneLayout,
   PerfTrace,
   RepoId,
+  ResolveRequest,
   SyncRequest,
   Theme,
   WorkspaceId,
@@ -36,6 +38,15 @@ export type {
   BranchStart,
   CancelResult,
   ChangeAction,
+  ChoiceKind,
+  ChooseRequest,
+  Conflict,
+  ConflictChoice,
+  ConflictChunk,
+  ConflictContent,
+  ConflictLabels,
+  ConflictRead,
+  ConflictStart,
   ChangeRequest,
   ChangeStart,
   ChangeTarget,
@@ -51,7 +62,7 @@ export type {
   CommitMessage,
   CommitRequest,
   CommitRow,
-  Conflict,
+  UnmergedKind,
   ConfigWarning,
   Context,
   DiffMode,
@@ -102,7 +113,9 @@ export type {
   RepoState,
   RepoSummary,
   RepoView,
+  ResolveRequest,
   Settings,
+  SideHolds,
   SettingsView,
   StartPoint,
   Step,
@@ -256,6 +269,18 @@ export const mergeTargets = (workspaceId: WorkspaceId, repoId: RepoId, filter: s
 /** What the conflict banner names for a repo (OPS-2). */
 export const conflictDetails = (workspaceId: WorkspaceId, repoId: RepoId) =>
   unwrap(core.commands.conflictDetails(workspaceId, repoId));
+
+/** Unmerged file `file` of changes view `handle` as the conflict editor shows it (OPS-8). */
+export const conflictGet = (workspaceId: WorkspaceId, handle: number, file: number) =>
+  unwrap(core.commands.conflictGet(workspaceId, handle, file));
+
+/** Mark resolved with the editor's text, as a job (OPS-5). */
+export const conflictResolve = (workspaceId: WorkspaceId, request: ResolveRequest) =>
+  unwrap(core.commands.conflictResolve(workspaceId, request));
+
+/** Resolves an unmerged file with one side, as a job (OPS-6). */
+export const conflictChoose = (workspaceId: WorkspaceId, request: ChooseRequest) =>
+  unwrap(core.commands.conflictChoose(workspaceId, request));
 
 /** Why `name` is not a valid branch name, or `null` (SEC-4). */
 export const branchNameCheck = (name: string) => unwrap(core.commands.branchNameCheck(name));

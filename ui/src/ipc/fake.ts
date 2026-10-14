@@ -13,8 +13,10 @@ import type {
   ChangesContent,
   ChangesSettings,
   ChangesTarget,
+  ChooseRequest,
   CommitGraphWrittenEvent,
   CommitRequest,
+  Conflict,
   ConflictDetails,
   DiffRequest,
   FileRef,
@@ -25,6 +27,7 @@ import type {
   PaneLayout,
   RepoId,
   RepoRef,
+  ResolveRequest,
   SettingsView,
   SummaryView,
   SyncRequest,
@@ -47,6 +50,7 @@ import {
 } from "./fakeChanges";
 import { defaultHistory, type FakeHistory, type FakeWalk, historyKey, nextPage, parentOf } from "./fakeHistory";
 import { applyBranchOp, choicesOf, destructiveOf, fakeNameCheck, labelOf, refusalOf } from "./fakeBranches";
+import { planResolution, textConflict } from "./fakeConflict";
 import { mergeTargetsOf, planIntegrate } from "./fakeIntegrate";
 import { fakeJob, jobsScenario } from "./fakeJobs";
 import { applySync, planSync, pushChoicesOf } from "./fakeSync";
@@ -118,7 +122,15 @@ const askpassPromptListeners: Listeners<AskpassPrompt> = new Set();
 const askpassClosedListeners: Listeners<AskpassClosedEvent> = new Set();
 
 /** Each workspace's changes view, as the core keeps it. */
-const views = new Map<string, { handle: number; lists: Partial<Record<FileRef["list"], FakeFile[]>> }>();
+const views = new Map<
+  string,
+  {
+    handle: number;
+    lists: Partial<Record<FileRef["list"], FakeFile[]>>;
+    /** The unmerged paths by id, for the conflict calls. */
+    unmerged: string[];
+  }
+>();
 /** The file whose image diff was read last, by workspace. */
 const imageFiles = new Map<string, { handle: number; file: FakeFile; ref: FileRef }>();
 
@@ -205,6 +217,10 @@ export const fakeState: {
   conflicts: Record<RepoId, ConflictDetails>;
   /** The conflict the next integrate job stops in; `null` lets them succeed. */
   integrateConflict: ConflictDetails | null;
+  /** What `conflict_get` answers by path; others get `textConflict`. */
+  fileConflicts: Record<string, Conflict>;
+  /** Every `conflict_resolve` and `conflict_choose`, oldest first. */
+  conflictRequests: (ResolveRequest | ChooseRequest)[];
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -245,6 +261,8 @@ export const fakeState: {
   integrateRequests: [],
   conflicts: {},
   integrateConflict: null,
+  fileConflicts: {},
+  conflictRequests: [],
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -298,6 +316,56 @@ function endJob(workspaceId: WorkspaceId, repoId: RepoId, job: JobView): void {
     refs_version: summary?.refs_version ?? 0,
     busy: false,
   });
+}
+
+/** The unmerged paths of the selected repo's working copy now. */
+function unmergedPaths(workspaceId: WorkspaceId): string[] {
+  const repoId = fakeState.selected[workspaceId] ?? fakeState.workspace.repos[0]?.id;
+  return (repoId === undefined ? undefined : fakeState.workingCopies[repoId])?.unmerged.map((file) => file.path) ?? [];
+}
+
+/**
+ * Mark resolved or a chosen side, like the core: refused for a file no
+ * longer in conflict or, without the override, text with a marker line;
+ * otherwise a job takes the file out of the unmerged list.
+ */
+function fakeResolve(workspaceId: WorkspaceId, request: ResolveRequest | ChooseRequest) {
+  fakeState.conflictRequests.push(request);
+  const view = views.get(workspaceId);
+  if (view?.handle !== request.handle) {
+    return Promise.resolve({ status: "ok" as const, data: null });
+  }
+  const path = view.unmerged[request.file];
+  const repoId = fakeState.selected[workspaceId] ?? fakeState.workspace.repos[0]?.id;
+  const repo = fakeState.workspace.repos.find((known) => known.id === repoId);
+  if (path === undefined || repo === undefined) {
+    return Promise.resolve({
+      status: "error" as const,
+      error: { code: "internal" as const, message: `the list has no file ${request.file}`, git_stderr: null },
+    });
+  }
+  const text = "text" in request ? request.text : null;
+  const override = "override_markers" in request && request.override_markers;
+  const refusal = planResolution(unmergedPaths(workspaceId), path, text, override);
+  if (refusal) {
+    return Promise.resolve({ status: "ok" as const, data: refusal });
+  }
+  const working = fakeState.workingCopies[repo.id] ?? { staged: [], unstaged: [], unmerged: [] };
+  fakeState.workingCopies[repo.id] = { ...working, unmerged: working.unmerged.filter((file) => file.path !== path) };
+  const jobId = nextJobId++;
+  const job = fakeJob(fakeState.workspace, {
+    job_id: jobId,
+    workspace_id: workspaceId,
+    label: `Resolve ${path}`,
+    repos: [repo.id],
+    repo_names: [repo.name],
+    state: "ended",
+    outcome: { kind: "succeeded" },
+    started_at: Date.now(),
+    duration_ms: 5,
+  });
+  setTimeout(() => endJob(workspaceId, repo.id, job), 0);
+  return Promise.resolve({ status: "ok" as const, data: { kind: "started" as const, job_id: jobId } });
 }
 
 /**
@@ -611,6 +679,8 @@ export function emitWatchWarning(payload: WatchWarning): void {
 }
 
 export function reset(): void {
+  fakeState.fileConflicts = {};
+  fakeState.conflictRequests = [];
   fakeState.appInfo = defaultAppInfo;
   fakeState.gitStatus = defaultGitStatus;
   fakeState.settings = defaultSettings;
@@ -1002,6 +1072,7 @@ export const fake: Core = {
       const handle = nextHandle++;
       let content: ChangesContent;
       let lists: Partial<Record<FileRef["list"], FakeFile[]>>;
+      let unmerged: string[] = [];
       if (target.kind === "commit") {
         const commit = commitContent(target.hash, target.parent);
         content = commit.content;
@@ -1019,8 +1090,9 @@ export const fake: Core = {
           in_conflict: working.inConflict ?? false,
         };
         lists = { staged, unstaged };
+        unmerged = working.unmerged.map((file) => file.path);
       }
-      views.set(workspaceId, { handle, lists });
+      views.set(workspaceId, { handle, lists, unmerged });
       imageFiles.delete(workspaceId);
       // Like the core: `null` once a newer view of the workspace began.
       return slowly(() => ({
@@ -1179,6 +1251,27 @@ export const fake: Core = {
         : Promise.resolve({ status: "ok" as const, data: pushChoicesOf(refs) });
     },
     opIntegrate: (workspaceId, request) => fakeIntegrateOp(workspaceId, request),
+    conflictGet: (workspaceId, handle, file) => {
+      const view = views.get(workspaceId);
+      if (view?.handle !== handle) {
+        return Promise.resolve({ status: "ok", data: null });
+      }
+      const path = view.unmerged[file];
+      if (path === undefined) {
+        return Promise.resolve({
+          status: "error",
+          error: { code: "internal", message: `the list has no file ${file}`, git_stderr: null },
+        });
+      }
+      return Promise.resolve({
+        status: "ok",
+        data: unmergedPaths(workspaceId).includes(path)
+          ? { kind: "conflict", conflict: fakeState.fileConflicts[path] ?? textConflict(path) }
+          : { kind: "already_resolved" },
+      });
+    },
+    conflictResolve: (workspaceId, request) => fakeResolve(workspaceId, request),
+    conflictChoose: (workspaceId, request) => fakeResolve(workspaceId, request),
     mergeTargets: (_workspaceId, repoId, filter) => {
       const refs = fakeState.refModels[repoId];
       return refs === undefined

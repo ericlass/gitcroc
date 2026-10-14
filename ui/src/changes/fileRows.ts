@@ -4,7 +4,7 @@
 import type {
   ChangedFile,
   ChangesContent,
-  Conflict,
+  UnmergedKind,
   FileList,
   FileListMode,
   FileStatus,
@@ -33,7 +33,7 @@ export type FileRow =
       name: string;
       depth: number;
       status: FileStatus | "unmerged";
-      conflict: Conflict | null;
+      conflict: UnmergedKind | null;
       oldPath: string | null;
       added: number | null;
       removed: number | null;

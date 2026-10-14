@@ -2,6 +2,7 @@
 
 mod branches;
 mod commits;
+mod conflict;
 mod detect;
 mod diff;
 mod history;
@@ -14,6 +15,10 @@ mod runner;
 mod status;
 
 pub use branches::TrackedBranch;
+pub use conflict::{
+    ChoiceKind, Conflict, ConflictChunk, ConflictContent, ConflictError, MARKER_SIZE,
+    MAX_CONFLICT_TEXT, SideHolds, StageEntry, first_marker_line,
+};
 pub use detect::{
     DetectError, GitInstall, GitVersion, MIN_GIT, SearchEnv, candidates, detect, parse_version,
 };
@@ -38,8 +43,8 @@ pub use runner::{
     WRITE_ENV, Write, log_commands_to,
 };
 pub use status::{
-    Conflict, ConflictDetails, Engine, Fallback, Head, Operation, RepoState, RepoSummary,
-    StatusError, StatusRead, StatusReader, Step, UnmergedFile, Upstream, WorkingCopy,
+    ConflictDetails, ConflictLabels, Engine, Fallback, Head, Operation, RepoState, RepoSummary,
+    StatusError, StatusRead, StatusReader, Step, UnmergedFile, UnmergedKind, Upstream, WorkingCopy,
 };
 
 /// Errors returned by `gitcroc-git`.

@@ -11,7 +11,7 @@ thiserror.workspace = true
 serde.workspace = true
 specta.workspace = true
 gix.workspace = true
-tokio = { workspace = true, features = ["process", "sync", "io-util", "macros"] }
+tokio = { workspace = true, features = ["process", "sync", "io-util", "macros", "fs"] }
 
 [dev-dependencies]
 repo-gen.workspace = true

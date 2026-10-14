@@ -9,7 +9,7 @@ use gix::status::index_worktree::Item as WorktreeItem;
 use gix::status::plumbing::index_as_worktree::{self, EntryStatus};
 use gix::status::tree_index::TrackRenames;
 
-use super::{Conflict, Stage, StatusError, UnmergedFile, WorkingCopy, unstaged, untracked};
+use super::{Stage, StatusError, UnmergedFile, UnmergedKind, WorkingCopy, unstaged, untracked};
 use crate::FileStatus;
 use crate::diff::{ChangedFile, Origin, Side, same_type};
 
@@ -223,16 +223,16 @@ fn flip_executable(mode: EntryMode) -> EntryMode {
     }
 }
 
-fn conflict(summary: index_as_worktree::Conflict) -> Conflict {
+fn conflict(summary: index_as_worktree::Conflict) -> UnmergedKind {
     use index_as_worktree::Conflict as C;
 
     match summary {
-        C::BothDeleted => Conflict::BothDeleted,
-        C::AddedByUs => Conflict::AddedByUs,
-        C::DeletedByThem => Conflict::DeletedByThem,
-        C::AddedByThem => Conflict::AddedByThem,
-        C::DeletedByUs => Conflict::DeletedByUs,
-        C::BothAdded => Conflict::BothAdded,
-        C::BothModified => Conflict::BothModified,
+        C::BothDeleted => UnmergedKind::BothDeleted,
+        C::AddedByUs => UnmergedKind::AddedByUs,
+        C::DeletedByThem => UnmergedKind::DeletedByThem,
+        C::AddedByThem => UnmergedKind::AddedByThem,
+        C::DeletedByUs => UnmergedKind::DeletedByUs,
+        C::BothAdded => UnmergedKind::BothAdded,
+        C::BothModified => UnmergedKind::BothModified,
     }
 }
