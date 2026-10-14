@@ -142,7 +142,7 @@ mod tests {
                 diff: DiffOptions {
                     ignore_whitespace: true,
                     context: Context::WholeFile,
-                    load_anyway: false,
+                    ..DiffOptions::default()
                 },
             }
         );

@@ -7,6 +7,8 @@ use std::borrow::Cow;
 use gix::diff::blob::{Algorithm, Diff, InternedInput, Interner};
 use serde::{Deserialize, Serialize};
 
+use super::patch::ContentKey;
+
 /// How much unchanged text surrounds each change (UI-17).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
@@ -65,13 +67,17 @@ pub struct TextDiff {
     pub added: u32,
     pub removed: u32,
     pub hunks: Vec<Hunk>,
-    /// Both sides in full, only with [`Context::WholeFile`] (side-by-side
-    /// mode needs them); empty for a side that does not exist.
+    /// Both sides in full, only when asked for or with
+    /// [`Context::WholeFile`] (side-by-side mode needs them); empty for a
+    /// side that does not exist.
     pub old_text: Option<String>,
     pub new_text: Option<String>,
     /// The side's last line has no line terminator.
     pub old_missing_newline: bool,
     pub new_missing_newline: bool,
+    /// What the diff was read from, to apply one of its hunks later.
+    #[serde(skip)]
+    pub content: ContentKey,
 }
 
 /// The lines of `data`, each with its terminator.
@@ -133,26 +139,38 @@ impl<'a> Lines<'a> {
     }
 }
 
-/// Builds the hunks of `diff` with `context`. `old_data` and `new_data` are
-/// the full sides, kept only for [`Context::WholeFile`].
-pub(crate) fn text_diff(
+/// Where a hunk sits: its lines on each side, context included, from 0
+/// and end exclusive, and the changes of the diff it holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HunkSpan {
+    pub old: std::ops::Range<usize>,
+    pub new: std::ops::Range<usize>,
+    pub changes: std::ops::Range<usize>,
+}
+
+impl HunkSpan {
+    /// The `@@ -old_start,old_lines +new_start,new_lines @@` numbers.
+    pub(crate) fn header(&self) -> (u32, u32, u32, u32) {
+        (
+            header_start(self.old.start, self.old.end),
+            count(self.old.len()),
+            header_start(self.new.start, self.new.end),
+            count(self.new.len()),
+        )
+    }
+}
+
+/// The hunks of `diff` with `context`: changes whose context touches or
+/// overlaps share one.
+pub(crate) fn hunk_spans(
     lines: &Lines<'_>,
-    diff: &Diff,
+    changes: &[gix::diff::blob::Hunk],
     context: Context,
-    old_data: &[u8],
-    new_data: &[u8],
-) -> TextDiff {
-    let text = |line: &[u8]| {
-        let line = line.strip_suffix(b"\n").unwrap_or(line);
-        let line = line.strip_suffix(b"\r").unwrap_or(line);
-        String::from_utf8_lossy(line).into_owned()
-    };
-    let changes: Vec<_> = diff.hunks().collect();
+) -> Vec<HunkSpan> {
     let around = context.lines();
-    let mut hunks = Vec::new();
+    let mut spans = Vec::new();
     let mut at = 0;
     while at < changes.len() {
-        // Changes whose context touches or overlaps join one hunk.
         let mut end = at + 1;
         while end < changes.len()
             && (changes[end].before.start as usize)
@@ -164,74 +182,104 @@ pub(crate) fn text_diff(
         let first = &changes[at];
         let last = &changes[end - 1];
         let lead = (first.before.start as usize).min(around);
-        let old_from = first.before.start as usize - lead;
-        let new_from = first.after.start as usize - lead;
         let trail = (lines.old.len() - last.before.end as usize).min(around);
-        let old_to = last.before.end as usize + trail;
-        let new_to = last.after.end as usize + trail;
+        spans.push(HunkSpan {
+            old: first.before.start as usize - lead..last.before.end as usize + trail,
+            new: first.after.start as usize - lead..last.after.end as usize + trail,
+            changes: at..end,
+        });
+        at = end;
+    }
+    spans
+}
 
-        let mut hunk_lines = Vec::new();
-        let (mut old_at, mut new_at) = (old_from, new_from);
-        let mut push = |kind, old: Option<usize>, new: Option<usize>, line: &[u8]| {
-            hunk_lines.push(Line {
-                kind,
-                old_line: old.map(line_number),
-                new_line: new.map(line_number),
-                text: text(line),
-            });
-        };
-        for change in &changes[at..end] {
-            while old_at < change.before.start as usize {
-                push(
-                    LineKind::Context,
-                    Some(old_at),
-                    Some(new_at),
-                    lines.new[new_at],
-                );
-                old_at += 1;
-                new_at += 1;
-            }
-            for index in change.before.start..change.before.end {
-                push(
-                    LineKind::Removed,
-                    Some(index as usize),
-                    None,
-                    lines.old[index as usize],
-                );
-            }
-            for index in change.after.start..change.after.end {
-                push(
-                    LineKind::Added,
-                    None,
-                    Some(index as usize),
-                    lines.new[index as usize],
-                );
-            }
-            old_at = change.before.end as usize;
-            new_at = change.after.end as usize;
-        }
-        while old_at < old_to {
-            push(
+/// One line of a hunk: its kind, its index on the old and new side, and
+/// its bytes with the terminator.
+pub(crate) type SpanLine<'a> = (LineKind, Option<usize>, Option<usize>, &'a [u8]);
+
+/// The lines of hunk `span`.
+pub(crate) fn span_lines<'a>(
+    lines: &Lines<'a>,
+    changes: &[gix::diff::blob::Hunk],
+    span: &HunkSpan,
+) -> Vec<SpanLine<'a>> {
+    let mut out = Vec::new();
+    let (mut old_at, mut new_at) = (span.old.start, span.new.start);
+    for change in &changes[span.changes.clone()] {
+        while old_at < change.before.start as usize {
+            out.push((
                 LineKind::Context,
                 Some(old_at),
                 Some(new_at),
                 lines.new[new_at],
-            );
+            ));
             old_at += 1;
             new_at += 1;
         }
-        hunks.push(Hunk {
-            old_start: header_start(old_from, old_to),
-            old_lines: count(old_to - old_from),
-            new_start: header_start(new_from, new_to),
-            new_lines: count(new_to - new_from),
-            lines: hunk_lines,
-        });
-        at = end;
+        for index in change.before.start..change.before.end {
+            let index = index as usize;
+            out.push((LineKind::Removed, Some(index), None, lines.old[index]));
+        }
+        for index in change.after.start..change.after.end {
+            let index = index as usize;
+            out.push((LineKind::Added, None, Some(index), lines.new[index]));
+        }
+        old_at = change.before.end as usize;
+        new_at = change.after.end as usize;
     }
-    let whole = |data: &[u8]| {
-        (context == Context::WholeFile).then(|| String::from_utf8_lossy(data).into_owned())
+    while old_at < span.old.end {
+        out.push((
+            LineKind::Context,
+            Some(old_at),
+            Some(new_at),
+            lines.new[new_at],
+        ));
+        old_at += 1;
+        new_at += 1;
+    }
+    out
+}
+
+/// Builds the hunks of `diff` with `context`. `old_data` and `new_data` are
+/// the full sides, kept when `full_text` is set or the context is
+/// [`Context::WholeFile`].
+pub(crate) fn text_diff(
+    lines: &Lines<'_>,
+    diff: &Diff,
+    context: Context,
+    full_text: bool,
+    old_data: &[u8],
+    new_data: &[u8],
+) -> TextDiff {
+    let text = |line: &[u8]| {
+        let line = line.strip_suffix(b"\n").unwrap_or(line);
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        String::from_utf8_lossy(line).into_owned()
     };
+    let changes: Vec<_> = diff.hunks().collect();
+    let hunks = hunk_spans(lines, &changes, context)
+        .iter()
+        .map(|span| {
+            let (old_start, old_lines, new_start, new_lines) = span.header();
+            Hunk {
+                old_start,
+                old_lines,
+                new_start,
+                new_lines,
+                lines: span_lines(lines, &changes, span)
+                    .into_iter()
+                    .map(|(kind, old, new, line)| Line {
+                        kind,
+                        old_line: old.map(line_number),
+                        new_line: new.map(line_number),
+                        text: text(line),
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+    let full_text = full_text || context == Context::WholeFile;
+    let whole = |data: &[u8]| full_text.then(|| String::from_utf8_lossy(data).into_owned());
     let missing_newline = |data: &[u8]| !data.is_empty() && !data.ends_with(b"\n");
     TextDiff {
         added: diff.count_additions(),
@@ -241,6 +289,7 @@ pub(crate) fn text_diff(
         new_text: whole(new_data),
         old_missing_newline: missing_newline(old_data),
         new_missing_newline: missing_newline(new_data),
+        content: ContentKey::default(),
     }
 }
 
@@ -268,7 +317,14 @@ mod tests {
     fn diff(old: &str, new: &str, context: Context, ignore_whitespace: bool) -> TextDiff {
         let lines = Lines::new(old.as_bytes(), new.as_bytes(), ignore_whitespace);
         let diff = lines.diff(Algorithm::Histogram);
-        text_diff(&lines, &diff, context, old.as_bytes(), new.as_bytes())
+        text_diff(
+            &lines,
+            &diff,
+            context,
+            false,
+            old.as_bytes(),
+            new.as_bytes(),
+        )
     }
 
     /// A hunk as unified diff text, header first.
@@ -378,7 +434,7 @@ mod tests {
     fn sec_3_lines_that_are_not_utf8_are_decoded_lossily() {
         let lines = Lines::new(b"caf\xe9\r\n", b"caf\xc3\xa9\r\n", false);
         let diff = lines.diff(Algorithm::Histogram);
-        let result = text_diff(&lines, &diff, Context::Three, b"", b"");
+        let result = text_diff(&lines, &diff, Context::Three, false, b"", b"");
         let texts: Vec<&str> = result.hunks[0]
             .lines
             .iter()

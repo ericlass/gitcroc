@@ -21,14 +21,20 @@ function setup() {
   return createChangesStore(() => DEFAULT_CHANGES_SETTINGS);
 }
 
-test("UI-17 side-by-side asks the core for whole files", () => {
+test("UI-17 side-by-side asks the core for whole files with the chosen context", () => {
   expect(diffRequest(DEFAULT_CHANGES_SETTINGS, false)).toEqual({
     ignore_whitespace: false,
     context: "three",
     load_anyway: false,
+    full_text: false,
   });
   const sideBySide = { ...DEFAULT_CHANGES_SETTINGS, diff_mode: "side_by_side" as const, ignore_whitespace: true };
-  expect(diffRequest(sideBySide, true)).toEqual({ ignore_whitespace: true, context: "whole_file", load_anyway: true });
+  expect(diffRequest(sideBySide, true)).toEqual({
+    ignore_whitespace: true,
+    context: "three",
+    load_anyway: true,
+    full_text: true,
+  });
 });
 
 test("ARCH-8 an older answer never replaces a newer selection", async () => {

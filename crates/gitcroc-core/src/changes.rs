@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use gitcroc_git::{
-    ChangedFile, CommitDetails, Context, DiffOptions, DiffSource, FileDiff, GitRepo, GitRunner,
-    OpenError, StatusReader, UnmergedFile,
+    ChangedFile, CommitDetails, ContentKey, Context, DiffOptions, DiffSource, FileDiff, GitRepo,
+    GitRunner, OpenError, StatusReader, UnmergedFile,
 };
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +76,8 @@ pub struct DiffRequest {
     pub context: Context,
     /// Return the hunks of a diff over the line limit (UI-18).
     pub load_anyway: bool,
+    /// Return both whole files with the hunks (side-by-side mode).
+    pub full_text: bool,
 }
 
 impl From<DiffRequest> for DiffOptions {
@@ -84,6 +86,7 @@ impl From<DiffRequest> for DiffOptions {
             ignore_whitespace: request.ignore_whitespace,
             context: request.context,
             load_anyway: request.load_anyway,
+            full_text: request.full_text,
         }
     }
 }
@@ -109,13 +112,17 @@ pub enum ChangesError {
     Status(#[from] StatusReadError),
     #[error("the list has no file {0}")]
     UnknownFile(u32),
+    #[error(transparent)]
+    Job(#[from] crate::JobError),
+    #[error("{0}")]
+    Refused(&'static str),
     #[error("the read did not finish: {0}")]
     Stopped(#[from] tokio::task::JoinError),
 }
 
 /// The lists of a view, which file diffs are read from.
 #[derive(Debug)]
-enum Lists {
+pub(crate) enum Lists {
     Commit {
         hash: String,
         parent: usize,
@@ -129,7 +136,7 @@ enum Lists {
 
 impl Lists {
     /// The file `file` names and the source to diff it with.
-    fn file(&self, file: FileRef) -> Option<(DiffSource, ChangedFile)> {
+    pub(crate) fn file(&self, file: FileRef) -> Option<(DiffSource, ChangedFile)> {
         let (source, list) = match (self, file.list) {
             (
                 Self::Commit {
@@ -164,6 +171,15 @@ struct Images {
     new: Option<Vec<u8>>,
 }
 
+/// The text diff last read: the file, how, and what from, so that one of
+/// its hunks can be applied as the user saw it (UI-15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ShownDiff {
+    pub file: FileRef,
+    pub options: DiffOptions,
+    pub content: ContentKey,
+}
+
 /// A workspace's view. `lists` is `None` while it is read. It keeps the
 /// repo's path, not the open repo: an open repo keeps the parts of its pack
 /// files the reads used mapped into memory for as long as the view is shown
@@ -171,9 +187,20 @@ struct Images {
 #[derive(Debug)]
 struct Shown {
     handle: u32,
+    repo: RepoId,
     path: PathBuf,
     lists: Option<Arc<Lists>>,
     images: Option<Images>,
+    diff: Option<ShownDiff>,
+}
+
+/// What a write to a view's working copy needs from the view.
+#[derive(Debug, Clone)]
+pub(crate) struct ViewState {
+    pub repo: RepoId,
+    pub path: PathBuf,
+    pub lists: Arc<Lists>,
+    pub diff: Option<ShownDiff>,
 }
 
 /// The view of every open workspace.
@@ -188,16 +215,18 @@ impl Changes {
     }
 
     /// Makes a new view the latest of workspace `id`.
-    fn begin(&self, id: &WorkspaceId, path: PathBuf) -> u32 {
+    fn begin(&self, id: &WorkspaceId, repo: RepoId, path: PathBuf) -> u32 {
         let mut shown = lock(&self.shown);
         let handle = shown.get(id).map_or(1, |view| view.handle.wrapping_add(1));
         shown.insert(
             id.clone(),
             Shown {
                 handle,
+                repo,
                 path,
                 lists: None,
                 images: None,
+                diff: None,
             },
         );
         handle
@@ -209,6 +238,18 @@ impl Changes {
         let shown = lock(&self.shown);
         let view = shown.get(id).filter(|view| view.handle == handle)?;
         Some((view.path.clone(), view.lists.clone()?))
+    }
+
+    /// What view `handle` shows, if it is the latest and read.
+    pub(crate) fn state(&self, id: &WorkspaceId, handle: u32) -> Option<ViewState> {
+        let shown = lock(&self.shown);
+        let view = shown.get(id).filter(|view| view.handle == handle)?;
+        Some(ViewState {
+            repo: view.repo.clone(),
+            path: view.path.clone(),
+            lists: view.lists.clone()?,
+            diff: view.diff,
+        })
     }
 
     /// Runs `change` on view `handle` if it is still the latest.
@@ -243,7 +284,7 @@ pub async fn changes_get(
     target: ChangesTarget,
 ) -> Result<Option<ChangesView>, ChangesError> {
     let path = workspaces.repo_path(&id, &repo_id)?;
-    let handle = changes.begin(&id, path.clone());
+    let handle = changes.begin(&id, repo_id, path.clone());
     let repo = tokio::task::spawn_blocking(move || GitRepo::open(&path)).await??;
     let (content, lists) = match target {
         ChangesTarget::Commit { hash, parent } => {
@@ -295,7 +336,16 @@ pub async fn diff_get(
     };
     let (source, changed) = lists.file(file).ok_or(ChangesError::UnknownFile(file.id))?;
     let repo = tokio::task::spawn_blocking(move || GitRepo::open(&path)).await??;
-    let diff = crate::file_diff(repo, source, changed, request.into()).await?;
+    let options = DiffOptions::from(request);
+    let diff = crate::file_diff(repo, source, changed, options).await?;
+    let shown = match &diff {
+        FileDiff::Text(text) => Some(ShownDiff {
+            file,
+            options,
+            content: text.content,
+        }),
+        _ => None,
+    };
     let images = match &diff {
         FileDiff::Image { old, new } => Some(Images {
             file,
@@ -304,7 +354,10 @@ pub async fn diff_get(
         }),
         _ => None,
     };
-    let kept = changes.update(&id, handle, |view| view.images = images);
+    let kept = changes.update(&id, handle, |view| {
+        view.images = images;
+        view.diff = shown;
+    });
     Ok(kept.then_some(diff))
 }
 

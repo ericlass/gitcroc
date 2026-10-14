@@ -1,8 +1,12 @@
 // The changed files (UI-14, UI-15), flat or as a folder tree, virtualized
-// (PERF-1). Paths are repo text, rendered as text (SEC-3).
+// (PERF-1). Paths are repo text, rendered as text (SEC-3). For uncommitted
+// changes each row and each list has stage, unstage and discard controls;
+// Ctrl/Cmd and Shift select several files of one list, and a double-click
+// moves a file to the other list. Which files may be changed is the
+// core's to check; this only forwards what was clicked (ARCH-6).
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, For, Match, Show, Switch } from "solid-js";
-import type { ChangesContent, Conflict, FileListMode, FileStatus } from "../ipc";
+import type { ChangeAction, ChangesContent, Conflict, FileListMode, FileStatus } from "../ipc";
 import { type FileEntry, type FileKey, type FileRow, fileRows, sameFile } from "./fileRows";
 
 /** Height of one row in CSS pixels; `.file-row` in App.css sets it, as `.history-row` does. */
@@ -64,13 +68,29 @@ function FileCells(props: { row: FileEntry }) {
   );
 }
 
+/** The controls of a row of `list`, by the action and its label. */
+const ROW_ACTIONS: Record<"staged" | "unstaged", { action: ChangeAction; label: string; glyph: string }[]> = {
+  staged: [{ action: "unstage", label: "Unstage", glyph: "−" }],
+  unstaged: [
+    { action: "discard", label: "Discard", glyph: "↺" },
+    { action: "stage", label: "Stage", glyph: "+" },
+  ],
+};
+
+/** What a double-click, Enter or Space does to a file of `list`. */
+const MOVE: Record<"staged" | "unstaged", ChangeAction> = { staged: "unstage", unstaged: "stage" };
+
 export default function FileList(props: {
   content: ChangesContent;
   mode: FileListMode;
   collapsed: Record<string, boolean>;
   selected: FileKey | null;
-  onSelect: (file: FileKey) => void;
+  /** The files selected together, the selected one among them. */
+  marked: FileKey[];
+  onSelect: (file: FileKey, marked: FileKey[]) => void;
   onToggleFolder: (key: string) => void;
+  /** Stage, unstage or discard files of one list; absent for a commit. */
+  onAction?: (action: ChangeAction, files: FileKey[]) => void;
 }) {
   let scroller: HTMLDivElement | undefined;
   const rows = createMemo(() => fileRows(props.content, props.mode, props.collapsed));
@@ -89,10 +109,58 @@ export default function FileList(props: {
   const selectAt = (index: number) => {
     const row = rows()[index];
     if (row?.kind === "file") {
-      props.onSelect(row.file);
+      props.onSelect(row.file, [row.file]);
       virtualizer.scrollToIndex(index, { align: "auto" });
     }
   };
+
+  const isMarked = (file: FileKey) => props.marked.some((marked) => sameFile(marked, file));
+
+  /** A click with Ctrl/Cmd adds or removes a file, with Shift selects the run from the selected file. */
+  const clickFile = (index: number, event: MouseEvent) => {
+    const row = rows()[index];
+    if (row?.kind !== "file") {
+      return;
+    }
+    const file = row.file;
+    const sameList = (other: FileKey) => other.list === file.list && file.list !== "unmerged";
+    if ((event.ctrlKey || event.metaKey) && sameList(props.selected ?? file)) {
+      const marked = isMarked(file)
+        ? props.marked.filter((other) => !sameFile(other, file))
+        : [...props.marked.filter(sameList), file];
+      props.onSelect(marked.at(-1) ?? file, marked.length > 0 ? marked : [file]);
+      return;
+    }
+    const from = selectedIndex();
+    if (event.shiftKey && from >= 0 && props.selected !== null && sameList(props.selected)) {
+      const [low, high] = from < index ? [from, index] : [index, from];
+      const marked = rows()
+        .slice(low, high + 1)
+        .flatMap((candidate) => (candidate.kind === "file" && sameList(candidate.file) ? [candidate.file] : []));
+      props.onSelect(props.selected, marked);
+      return;
+    }
+    selectAt(index);
+  };
+
+  /** The files a control of `file`'s row acts on: the selection when the row is in it. */
+  const targets = (file: FileKey) => (isMarked(file) ? props.marked.filter((other) => other.list === file.list) : [file]);
+
+  /** Files of `list`: the list's controls act on all of them. */
+  const listFiles = (list: "staged" | "unstaged"): FileKey[] =>
+    props.content.kind === "uncommitted"
+      ? props.content[list].map((file) => ({ list, id: file.id }))
+      : [];
+
+  const act = (action: ChangeAction, files: FileKey[]) => {
+    if (files.length > 0) {
+      props.onAction?.(action, files);
+    }
+  };
+
+  /** A row's list when it has stage controls: not a commit's, not an unmerged file (M2-10). */
+  const changeable = (file: FileKey): "staged" | "unstaged" | null =>
+    props.onAction !== undefined && (file.list === "staged" || file.list === "unstaged") ? file.list : null;
 
   const onKeyDown = (event: KeyboardEvent) => {
     const at = files().indexOf(selectedIndex());
@@ -110,6 +178,23 @@ export default function FileList(props: {
       case "End":
         go(files().length - 1);
         break;
+      case "Enter":
+      case " ": {
+        const list = props.selected === null ? null : changeable(props.selected);
+        if (list === null || props.selected === null) {
+          return;
+        }
+        act(MOVE[list], targets(props.selected));
+        break;
+      }
+      case "Delete": {
+        const list = props.selected === null ? null : changeable(props.selected);
+        if (list !== "unstaged" || props.selected === null) {
+          return;
+        }
+        act("discard", targets(props.selected));
+        break;
+      }
       default:
         return;
     }
@@ -120,9 +205,23 @@ export default function FileList(props: {
     <Switch>
       <Match when={row.kind === "section" && row}>
         {(section) => (
-          <span class="file-section">
-            {section().label} ({section().count})
-          </span>
+          <>
+            <span class="file-section">
+              {section().label} ({section().count})
+            </span>
+            <Show when={props.onAction !== undefined && listFiles(section().list).length > 0}>
+              <button
+                type="button"
+                class="file-list-action"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  act(MOVE[section().list], listFiles(section().list));
+                }}
+              >
+                {section().list === "staged" ? "Unstage all" : "Stage all"}
+              </button>
+            </Show>
+          </>
         )}
       </Match>
       <Match when={row.kind === "folder" && row}>
@@ -135,7 +234,36 @@ export default function FileList(props: {
           </span>
         )}
       </Match>
-      <Match when={row.kind === "file" && row}>{(file) => <FileCells row={file()} />}</Match>
+      <Match when={row.kind === "file" && row}>
+        {(file) => (
+          <>
+            <FileCells row={file()} />
+            <Show when={changeable(file().file)}>
+              {(list) => (
+                <span class="file-actions">
+                  <For each={ROW_ACTIONS[list()]}>
+                    {(control) => (
+                      <button
+                        type="button"
+                        tabindex="-1"
+                        aria-label={`${control.label} ${file().path}`}
+                        title={control.label}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          act(control.action, targets(file().file));
+                        }}
+                        onDblClick={(event) => event.stopPropagation()}
+                      >
+                        {control.glyph}
+                      </button>
+                    )}
+                  </For>
+                </span>
+              )}
+            </Show>
+          </>
+        )}
+      </Match>
     </Switch>
   );
 
@@ -145,6 +273,7 @@ export default function FileList(props: {
       ref={(element) => (scroller = element)}
       role="listbox"
       aria-label="Changed files"
+      aria-multiselectable={props.onAction !== undefined ? "true" : undefined}
       tabindex="0"
       aria-activedescendant={selectedIndex() >= 0 ? `file-row-${selectedIndex()}` : undefined}
       onKeyDown={onKeyDown}
@@ -166,9 +295,18 @@ export default function FileList(props: {
                   <div
                     id={`file-row-${item.index}`}
                     class={`file-row file-row-${row().kind}`}
-                    classList={{ selected: sameFile(file()?.file ?? null, props.selected) && file() !== null }}
+                    classList={{
+                      selected: sameFile(file()?.file ?? null, props.selected) && file() !== null,
+                      marked: (() => {
+                        const current = file();
+                        return current !== null && props.marked.length > 1 && isMarked(current.file);
+                      })(),
+                    }}
                     role={row().kind === "file" ? "option" : "presentation"}
-                    aria-selected={row().kind === "file" ? sameFile(file()?.file ?? null, props.selected) : undefined}
+                    aria-selected={(() => {
+                      const current = file();
+                      return current === null ? undefined : sameFile(current.file, props.selected) || isMarked(current.file);
+                    })()}
                     aria-expanded={(() => {
                       const current = row();
                       return current.kind === "folder" ? !current.collapsed : undefined;
@@ -178,12 +316,19 @@ export default function FileList(props: {
                       transform: `translateY(${item.start}px)`,
                       "padding-left": `${8 + depth() * 14}px`,
                     }}
-                    onClick={() => {
+                    onClick={(event) => {
                       const current = row();
                       if (current.kind === "folder") {
                         props.onToggleFolder(current.key);
                       } else {
-                        selectAt(item.index);
+                        clickFile(item.index, event);
+                      }
+                    }}
+                    onDblClick={() => {
+                      const current = row();
+                      const list = current.kind === "file" ? changeable(current.file) : null;
+                      if (current.kind === "file" && list !== null) {
+                        act(MOVE[list], [current.file]);
                       }
                     }}
                   >

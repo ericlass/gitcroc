@@ -302,7 +302,7 @@ fn ui_17_ignore_whitespace_and_context_options() {
     let options = |ignore_whitespace, context| DiffOptions {
         ignore_whitespace,
         context,
-        load_anyway: false,
+        ..DiffOptions::default()
     };
     let three = text(diff_of(
         &repo,

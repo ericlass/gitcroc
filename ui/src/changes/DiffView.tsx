@@ -1,11 +1,13 @@
 // A text diff in CodeMirror (UI-17): inline, one document of the hunks with
 // both line numbers, or side by side, both whole files with unchanged runs
-// folded to the chosen context. The changed lines are the core's.
+// folded to the chosen context. The changed lines and the hunks are the
+// core's. Each hunk can carry stage, unstage and discard controls (UI-15),
+// which send its index; the core builds the patch.
 import { Change, MergeView } from "@codemirror/merge";
 import { EditorState, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, GutterMarker, gutter, lineNumbers, WidgetType } from "@codemirror/view";
 import { createEffect, on, onCleanup, Show } from "solid-js";
-import type { Context, DiffMode, TextDiff } from "../ipc";
+import type { ChangeAction, Context, DiffMode, Hunk, TextDiff } from "../ipc";
 import { applyLanguage, baseExtensions, type EditorParts, newParts, wrapping } from "./codemirror";
 import { changeRanges, type InlineDoc, inlineDoc } from "./diffDoc";
 
@@ -24,19 +26,77 @@ class NumberMarker extends GutterMarker {
   }
 }
 
+/** The controls each hunk gets, and what a click sends. */
+export interface HunkControls {
+  actions: { action: ChangeAction; label: string }[];
+  onAction: (action: ChangeAction, hunk: number) => void;
+}
+
+/** A hunk's header line, with its controls when it has any. */
 class HunkHeader extends WidgetType {
-  constructor(readonly header: string) {
+  constructor(
+    readonly header: string,
+    readonly index: number,
+    readonly controls: HunkControls | null,
+  ) {
     super();
   }
   override eq(other: HunkHeader) {
-    return other.header === this.header;
+    return other.header === this.header && other.index === this.index && other.controls === this.controls;
   }
   override toDOM() {
     const element = document.createElement("div");
     element.className = "cm-diff-hunk";
-    element.textContent = this.header;
+    const text = document.createElement("span");
+    // Set as text: the header is the core's numbers, but nothing here is markup (SEC-3).
+    text.textContent = this.header;
+    element.append(text);
+    const controls = this.controls;
+    if (controls !== null) {
+      const group = document.createElement("span");
+      group.className = "cm-diff-hunk-actions";
+      for (const { action, label } of controls.actions) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.setAttribute("aria-label", `${label} ${this.index + 1}`);
+        button.addEventListener("click", () => controls.onAction(action, this.index));
+        group.append(button);
+      }
+      element.append(group);
+    }
     return element;
   }
+  override ignoreEvent() {
+    return true;
+  }
+}
+
+const hunkHeader = (hunk: Hunk) => `@@ -${hunk.old_start},${hunk.old_lines} +${hunk.new_start},${hunk.new_lines} @@`;
+
+/** The new side's line, from 1, where a hunk's first change is. */
+function firstChangedLine(hunk: Hunk): number {
+  let last = hunk.new_lines > 0 ? hunk.new_start - 1 : hunk.new_start;
+  for (const line of hunk.lines) {
+    if (line.kind !== "context") {
+      return line.new_line ?? last + 1;
+    }
+    last = line.new_line ?? last;
+  }
+  return last + 1;
+}
+
+/** Hunk headers with controls above each hunk's first change in the new file, side by side. */
+function sideHeaders(diff: TextDiff, state: EditorState, controls: HunkControls | null): Extension {
+  const decorations = diff.hunks.map((hunk, index) => {
+    const line = Math.min(Math.max(firstChangedLine(hunk), 1), state.doc.lines);
+    return Decoration.widget({
+      widget: new HunkHeader(hunkHeader(hunk), index, controls),
+      block: true,
+      side: -1,
+    }).range(state.doc.line(line).from);
+  });
+  return EditorView.decorations.of(Decoration.set(decorations, true));
 }
 
 /** A gutter of one side's line numbers. */
@@ -52,12 +112,14 @@ function numbers(name: string, values: (number | null)[]): Extension {
   });
 }
 
-function inlineExtensions(doc: InlineDoc, state: EditorState): Extension[] {
+function inlineExtensions(doc: InlineDoc, state: EditorState, controls: HunkControls | null): Extension[] {
   const decorations: Range<Decoration>[] = [];
-  for (const hunk of doc.hunks) {
+  doc.hunks.forEach((hunk, index) => {
     const from = state.doc.line(hunk.line + 1).from;
-    decorations.push(Decoration.widget({ widget: new HunkHeader(hunk.header), block: true, side: -1 }).range(from));
-  }
+    decorations.push(
+      Decoration.widget({ widget: new HunkHeader(hunk.header, index, controls), block: true, side: -1 }).range(from),
+    );
+  });
   doc.kinds.forEach((kind, index) => {
     if (kind !== "context") {
       const from = state.doc.line(index + 1).from;
@@ -78,6 +140,8 @@ export default function DiffView(props: {
   mode: DiffMode;
   wrap: boolean;
   context: Context;
+  /** The hunks' controls; `null` for none, as for a commit's diff. */
+  controls: HunkControls | null;
 }) {
   let host: HTMLDivElement | undefined;
   let parts: EditorParts = newParts();
@@ -112,10 +176,11 @@ export default function DiffView(props: {
         (range) => new Change(range.fromA, range.toA, range.fromB, range.toB),
       );
       const margin = MARGIN[props.context];
+      const headers = sideHeaders(diff, EditorState.create({ doc: newText }), props.controls);
       merge = new MergeView({
         parent: host,
         a: { doc: oldText, extensions: [base(), lineNumbers()] },
-        b: { doc: newText, extensions: [base(), lineNumbers()] },
+        b: { doc: newText, extensions: [base(), lineNumbers(), headers] },
         highlightChanges: false,
         gutter: false,
         collapseUnchanged: margin === null ? undefined : { margin, minSize: 4 },
@@ -125,13 +190,16 @@ export default function DiffView(props: {
     } else {
       const doc = inlineDoc(diff);
       const start = EditorState.create({ doc: doc.text });
-      const state = EditorState.create({ doc: doc.text, extensions: [base(), inlineExtensions(doc, start)] });
+      const state = EditorState.create({
+        doc: doc.text,
+        extensions: [base(), inlineExtensions(doc, start, props.controls)],
+      });
       views = [new EditorView({ state, parent: host })];
     }
     void applyLanguage(parts, props.path, views);
   };
 
-  createEffect(on(() => [props.diff, sideBySide(), props.context, props.path] as const, build));
+  createEffect(on(() => [props.diff, sideBySide(), props.context, props.path, props.controls] as const, build));
   createEffect(
     on(
       () => props.wrap,

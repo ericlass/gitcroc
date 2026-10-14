@@ -2,6 +2,7 @@
 // `@tauri-apps/api` or `./bindings` directly (enforced by eslint.config.js).
 import type {
   Appearance,
+  ChangeRequest,
   ChangesSettings,
   ChangesTarget,
   DiffRequest,
@@ -26,6 +27,10 @@ export type {
   Appearance,
   AskpassPrompt,
   CancelResult,
+  ChangeAction,
+  ChangeRequest,
+  ChangeStart,
+  ChangeTarget,
   CodeTheme,
   ChangedFile,
   ChangesContent,
@@ -192,6 +197,9 @@ export const diffGet = (workspaceId: WorkspaceId, handle: number, file: FileRef,
   unwrap(core.commands.diffGet(workspaceId, handle, file, request));
 
 /** One side of the image diff last read for `file`, as base64; `null` when there is none. */
+export const changesApply = (workspaceId: WorkspaceId, request: ChangeRequest) =>
+  unwrap(core.commands.changesApply(workspaceId, request));
+
 export const diffImage = (workspaceId: WorkspaceId, handle: number, file: FileRef, side: ImageSide) =>
   unwrap(core.commands.diffImage(workspaceId, handle, file, side));
 

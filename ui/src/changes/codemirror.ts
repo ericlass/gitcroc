@@ -51,11 +51,22 @@ const theme = EditorView.theme({
   ".cm-diff-added": { backgroundColor: "var(--diff-added-bg)" },
   ".cm-diff-removed": { backgroundColor: "var(--diff-removed-bg)" },
   ".cm-diff-hunk": {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "4px 12px",
+    // The editor's content is as wide as its widest child; the header must
+    // not widen it, so that it wraps in a narrow column instead.
+    contain: "inline-size",
     backgroundColor: "var(--code-hunk-bg)",
     color: "var(--code-hunk-text)",
     fontFamily: "var(--font-code)",
     padding: "2px 8px",
   },
+  // A hunk's stage, unstage and discard buttons (UI-15), right after the
+  // header, so a long line never pushes them out of sight.
+  ".cm-diff-hunk-actions": { display: "flex", flexWrap: "wrap", gap: "4px", fontFamily: "var(--font-ui)" },
+  ".cm-diff-hunk-actions button": { padding: "0 6px", fontSize: "0.9em" },
   ".cm-diff-number": { minWidth: "3ch", textAlign: "right", padding: "0 4px" },
   // Side-by-side mode (@codemirror/merge). Its base theme sets some rules
   // for light and dark apart; these are as specific, so the code theme wins.

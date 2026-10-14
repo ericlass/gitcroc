@@ -1,0 +1,65 @@
+// The confirmation before a discard (GRP-9): it names the repo and the
+// files the core said it would discard, as text (SEC-3). The core refuses
+// a discard sent without it; this only asks. Escape and Cancel keep the
+// changes.
+import { For, onMount } from "solid-js";
+
+/** Files named one by one; more are counted. */
+const LISTED = 10;
+
+export default function DiscardDialog(props: {
+  repo: string;
+  files: string[];
+  /** One hunk of the file, not the whole file. */
+  hunk: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  let cancel: HTMLButtonElement | undefined;
+
+  // Cancel has the focus: Enter alone never discards.
+  onMount(() => cancel?.focus());
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      props.onCancel();
+    }
+  };
+
+  const more = () => props.files.length - LISTED;
+
+  return (
+    <div class="backdrop">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="discard-title"
+        aria-describedby="discard-text"
+        class="dialog discard"
+        onKeyDown={onKeyDown}
+      >
+        <h2 id="discard-title">Discard changes in {props.repo}?</h2>
+        <p id="discard-text">
+          {props.hunk
+            ? "This hunk is lost; it cannot be restored:"
+            : props.files.length === 1
+              ? "The changes to this file are lost; they cannot be restored:"
+              : `The changes to these ${props.files.length} files are lost; they cannot be restored:`}
+        </p>
+        <ul class="discard-files">
+          <For each={props.files.slice(0, LISTED)}>{(file) => <li>{file}</li>}</For>
+          {more() > 0 && <li>and {more()} more</li>}
+        </ul>
+        <div class="dialog-actions">
+          <button type="button" ref={(element) => (cancel = element)} onClick={() => props.onCancel()}>
+            Cancel
+          </button>
+          <button type="button" class="danger" onClick={() => props.onConfirm()}>
+            Discard
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

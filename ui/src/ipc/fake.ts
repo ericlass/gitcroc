@@ -8,6 +8,7 @@ import type {
   AskpassPrompt,
   AppInfo,
   Appearance,
+  ChangeRequest,
   ChangesContent,
   ChangesSettings,
   ChangesTarget,
@@ -29,6 +30,7 @@ import type {
 } from "./bindings";
 import type { Core } from "./core";
 import {
+  applyChange,
   defaultDetails,
   defaultFiles,
   diffOf,
@@ -168,6 +170,10 @@ export const fakeState: {
   cancels: JobId[];
   /** Every `askpass_answer`, oldest first. */
   askpassAnswers: { promptId: number; answer: string | null }[];
+  /** Every `changes_apply`, oldest first. */
+  changeRequests: ChangeRequest[];
+  /** Paths whose hunks answer `file_changed`, as if edited since the diff was read. */
+  editedFiles: string[];
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -195,6 +201,8 @@ export const fakeState: {
   jobs: [],
   cancels: [],
   askpassAnswers: [],
+  changeRequests: [],
+  editedFiles: [],
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -280,6 +288,8 @@ export function reset(): void {
   fakeState.commits = {};
   fakeState.workingCopies = {};
   fakeState.changesCalls = [];
+  fakeState.changeRequests = [];
+  fakeState.editedFiles = [];
   fakeState.changesDelay = 0;
   fakeState.layouts = [];
   fakeState.refreshes = [];
@@ -683,6 +693,73 @@ export const fake: Core = {
         status: "ok" as const,
         data: views.get(workspaceId)?.handle === handle ? diff : null,
       }));
+    },
+    // Like the core: a discard asks for confirmation first, then a job
+    // changes the working copy and the repo's summary is read again.
+    changesApply: (workspaceId, request) => {
+      fakeState.changeRequests.push(request);
+      const view = views.get(workspaceId);
+      if (view?.handle !== request.handle) {
+        return Promise.resolve({ status: "ok", data: null });
+      }
+      const target = request.target;
+      const refs = target.kind === "files" ? target.files : [target.file];
+      const files = refs.flatMap((ref) => view.lists[ref.list]?.[ref.id] ?? []);
+      const repoId = fakeState.selected[workspaceId] ?? fakeState.workspace.repos[0]?.id;
+      const repo = fakeState.workspace.repos.find((known) => known.id === repoId);
+      if (files.length === 0 || repo === undefined) {
+        return Promise.resolve({
+          status: "error",
+          error: { code: "internal", message: "the list has no such file", git_stderr: null },
+        });
+      }
+      if (target.kind === "hunk" && files.some((file) => fakeState.editedFiles.includes(file.file.path))) {
+        return Promise.resolve({ status: "ok", data: { kind: "file_changed" } });
+      }
+      if (request.action === "discard" && !request.confirmed) {
+        return Promise.resolve({
+          status: "ok",
+          data: { kind: "confirm", repo: repo.name, files: files.map((file) => file.file.path) },
+        });
+      }
+      const jobId = nextJobId++;
+      const partial =
+        target.kind === "hunk" &&
+        files.some((file) => {
+          const diff = diffOf(file, { ignore_whitespace: false, context: "three", load_anyway: true, full_text: false });
+          return diff.kind === "text" && diff.hunks.length > 1;
+        });
+      const working = fakeState.workingCopies[repo.id] ?? { staged: [], unstaged: [], unmerged: [] };
+      fakeState.workingCopies[repo.id] = applyChange(working, request.action, files, partial);
+      const label = `${request.action[0]?.toUpperCase()}${request.action.slice(1)} ${files.map((file) => file.file.path).join(", ")}`;
+      const job = fakeJob(fakeState.workspace, {
+        job_id: jobId,
+        workspace_id: workspaceId,
+        label,
+        repos: [repo.id],
+        repo_names: [repo.name],
+        state: "ended",
+        outcome: { kind: "succeeded" },
+        started_at: Date.now(),
+        duration_ms: 5,
+      });
+      setTimeout(() => {
+        sendJob(job);
+        const summary = fakeState.summaries.find((known) => known.repo_id === repo.id);
+        emitRepoSummary({
+          workspace_id: workspaceId,
+          repo_id: repo.id,
+          summary: summary?.summary ?? null,
+          stale: false,
+          missing: false,
+          error: null,
+          refreshing: false,
+          conflict: false,
+          refs_version: summary?.refs_version ?? 0,
+          busy: false,
+        });
+      }, 0);
+      return Promise.resolve({ status: "ok", data: { kind: "started", job_id: jobId } });
     },
     diffImage: (workspaceId, handle, file, side) => {
       const last = imageFiles.get(workspaceId);
