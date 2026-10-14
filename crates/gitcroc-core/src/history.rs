@@ -340,6 +340,7 @@ pub fn commit_graph_write(
         on_cancel: OnCancel::Finish,
         may_conflict: false,
         nothing_to_do: NothingToDo::Never,
+        network: false,
     };
     let handle = jobs.start(git, job, move |run| async move {
         ops::commit_graph_write(&run.git, &path, run.write()).await

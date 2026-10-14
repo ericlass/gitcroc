@@ -24,6 +24,7 @@ export type {
   AddReport,
   AppInfo,
   Appearance,
+  AskpassPrompt,
   CancelResult,
   CodeTheme,
   ChangedFile,
@@ -67,6 +68,7 @@ export type {
   PerfSample,
   PerfTrace,
   Person,
+  PromptKind,
   RefKind,
   RefLabel,
   Refusal,
@@ -160,6 +162,10 @@ export const historyMore = (workspaceId: WorkspaceId, handle: number) =>
 
 export const commitGraphWrite = (workspaceId: WorkspaceId, repoId: RepoId) =>
   unwrap(core.commands.commitGraphWrite(workspaceId, repoId));
+
+/** The user's answer to an askpass prompt (D10); `null` cancels it. */
+export const askpassAnswer = (promptId: number, answer: string | null) =>
+  unwrap(core.commands.askpassAnswer(promptId, answer));
 
 /** This run's jobs of every workspace, newest first (UI-21). */
 export const jobsGet = () => unwrap(core.commands.jobsGet());

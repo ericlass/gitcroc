@@ -23,7 +23,10 @@ serde_json.workspace = true
 specta.workspace = true
 specta-typescript.workspace = true
 tauri-specta.workspace = true
-tokio = { workspace = true, features = ["fs", "time"] }
+tokio = { workspace = true, features = ["fs", "time", "net", "io-util", "sync", "macros", "rt"] }
+# The askpass socket (D10): its private directory, and the tokens.
+tempfile.workspace = true
+uuid.workspace = true
 gitcroc-git.workspace = true
 gitcroc-core.workspace = true
 gitcroc-ai.workspace = true
@@ -33,6 +36,7 @@ gtk.workspace = true
 
 [dev-dependencies]
 toml.workspace = true
+repo-gen.workspace = true
 
 [features]
 # M1-12: the UI-side measurements of `just bench-ui`. Never in a release

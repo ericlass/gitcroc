@@ -710,6 +710,27 @@ main:not(.main) {
   justify-content: flex-end;
 }
 
+/* Askpass dialog (D10) */
+
+.askpass {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.askpass-prompt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.askpass input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.askpass .dialog-actions {
+  gap: 8px;
+}
+
 [role="alert"]:not(.banner) {
   color: var(--danger);
 }
