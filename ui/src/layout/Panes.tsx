@@ -5,6 +5,7 @@ import ChangesPane from "../changes/ChangesPane";
 import HistoryPane from "../history/HistoryPane";
 import type { WorkspaceId } from "../ipc";
 import type { ChangesStore } from "../stores/changes";
+import type { CommitStore } from "../stores/commit";
 import type { HistoryStore } from "../stores/history";
 import { type LayoutStore, MIN_PANE_HEIGHT, MIN_PANE_WIDTH, type ResizablePane } from "../stores/layout";
 import type { SettingsStore } from "../stores/settings";
@@ -22,6 +23,7 @@ export default function Panes(props: {
   workspaces: WorkspaceStore;
   history: HistoryStore;
   changes: ChangesStore;
+  commit: CommitStore;
   settings: SettingsStore;
 }) {
   let fill: HTMLElement | undefined;
@@ -60,6 +62,7 @@ export default function Panes(props: {
     <ChangesPane
       workspace={props.workspace}
       changes={props.changes}
+      commit={props.commit}
       settings={props.settings}
       layout={props.layout}
       onSelectCommit={(hash) => props.history.select(props.workspace, hash)}

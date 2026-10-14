@@ -5,8 +5,10 @@
 import { createMemo, For, Match, Show, Switch } from "solid-js";
 import type { ChangeAction, Context, FileDiff, WorkspaceId } from "../ipc";
 import { ACTION_LIST, type ChangesStore } from "../stores/changes";
+import type { CommitStore } from "../stores/commit";
 import type { LayoutStore } from "../stores/layout";
 import type { SettingsStore } from "../stores/settings";
+import CommitBox from "./CommitBox";
 import CommitHeader from "./CommitHeader";
 import DiffView, { type HunkControls } from "./DiffView";
 import DiscardDialog from "./DiscardDialog";
@@ -89,6 +91,7 @@ function Toolbar(props: { workspace: WorkspaceId; settings: SettingsStore; layou
 export default function ChangesPane(props: {
   workspace: WorkspaceId;
   changes: ChangesStore;
+  commit: CommitStore;
   settings: SettingsStore;
   layout: LayoutStore;
   /** Selects a commit in the history, as a parent link asks. */
@@ -143,6 +146,14 @@ export default function ChangesPane(props: {
       },
     };
   });
+  /** The uncommitted lists, while the repo can take a commit: not in conflict state (M2-08 continues those). */
+  const committable = () => {
+    const content = changes().view?.content;
+    const selection = changes().selection;
+    return content?.kind === "uncommitted" && !content.in_conflict && selection !== null
+      ? { content, repo: selection.repo_id }
+      : null;
+  };
   const count = () => {
     const content = changes().view?.content;
     if (!content) {
@@ -206,6 +217,30 @@ export default function ChangesPane(props: {
                   onToggleFolder={(key) => props.changes.toggleFolder(props.workspace, key)}
                   onAction={uncommitted() ? onFiles : undefined}
                 />
+                <Show when={committable()}>
+                  {(target) => (
+                    <CommitBox
+                      draft={props.commit.draft(props.workspace, target().repo)}
+                      staged={target().content.staged.length > 0}
+                      amendable={target().content.last_message !== null}
+                      busy={props.commit.busy(props.workspace, target().repo)}
+                      error={props.commit.error(props.workspace, target().repo)}
+                      onEdit={(change) => props.commit.edit(props.workspace, target().repo, change)}
+                      onCommit={() =>
+                        void props.commit.commit(props.workspace, target().repo, shown().handle, false, null)
+                      }
+                      onAmend={() =>
+                        void props.commit.commit(
+                          props.workspace,
+                          target().repo,
+                          shown().handle,
+                          true,
+                          target().content.last_message,
+                        )
+                      }
+                    />
+                  )}
+                </Show>
               </div>
               <section class="changes-diff" aria-label="Diff">
                 <Show when={entry()} fallback={<p class="placeholder">No file changed.</p>}>

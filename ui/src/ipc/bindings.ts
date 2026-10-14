@@ -186,6 +186,13 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
  */
 { kind: "file_changed" } | null, IpcError>(__TAURI_INVOKE("changes_apply", { workspaceId, request })),
 	/**
+	 *  Commits the staged changes of view `handle`, or amends the last commit
+	 *  with them, as a job (UI-15). Refused without a subject, in conflict
+	 *  state, for a commit with nothing staged and for an amend with no
+	 *  commit. `null` when a newer view of the workspace replaced it.
+	 */
+	changesCommit: (workspaceId: WorkspaceId, request: CommitRequest) => typedError<number | null, IpcError>(__TAURI_INVOKE("changes_commit", { workspaceId, request })),
+	/**
 	 *  Changes the code themes and fonts (UI-24, UI-26) and saves the settings.
 	 *  Font sizes outside 8 to 32 are moved to the nearest limit.
 	 */
@@ -394,7 +401,17 @@ parent: number; files: ChangedFile[] } | { kind: "uncommitted"; staged: ChangedF
 /**  Untracked files included. */
 unstaged: ChangedFile[]; 
 /**  In neither list above, as in `git status`. */
-unmerged: UnmergedFile[] };
+unmerged: UnmergedFile[]; 
+/**
+ *  The last commit's message, which Amend starts from; `None` on a
+ *  branch with no commit yet, where there is nothing to amend.
+ */
+last_message: CommitMessage | null; 
+/**
+ *  In conflict state (OPS-1): no commit box, as Continue makes the
+ *  commit (M2-08).
+ */
+in_conflict: boolean };
 
 /**
  *  The changes pane's view, remembered for every workspace (UI-14,
@@ -447,6 +464,23 @@ export type CommitGraphWrittenEvent = {
 	error: string | null,
 	/**  What git printed on stderr, when git ran and failed. */
 	git_stderr: string | null,
+};
+
+/**  A commit message as the commit box edits it. */
+export type CommitMessage = {
+	/**  The first line. */
+	subject: string,
+	/**  The rest; may be empty. */
+	body: string,
+};
+
+/**  A commit or amend request of the changes pane. */
+export type CommitRequest = {
+	/**  The view of the uncommitted changes the commit is made from. */
+	handle: number,
+	message: CommitMessage,
+	/**  Replace the last commit instead of adding one. */
+	amend: boolean,
 };
 
 /**

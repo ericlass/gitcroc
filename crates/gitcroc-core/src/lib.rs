@@ -2,6 +2,7 @@
 
 mod app_info;
 mod changes;
+mod commit;
 mod config_file;
 mod diff;
 mod git;
@@ -21,6 +22,7 @@ pub use changes::{
     Changes, ChangesContent, ChangesError, ChangesTarget, ChangesView, DiffRequest, FileList,
     FileRef, ImageSide, changes_get, diff_get, diff_image,
 };
+pub use commit::{CommitMessage, CommitRequest, changes_commit};
 pub use config_file::ConfigWarning;
 pub use diff::{DiffReadError, changed_files, commit_details, file_diff};
 pub use git::{GitSetup, GitStatus};

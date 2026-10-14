@@ -5,6 +5,7 @@ import type {
   ChangeAction,
   ChangedFile,
   CommitDetails,
+  CommitMessage,
   Context,
   DiffRequest,
   FileDiff,
@@ -39,7 +40,14 @@ export interface FakeWorkingCopy {
   staged: FakeFile[];
   unstaged: FakeFile[];
   unmerged: Omit<UnmergedFile, "id">[];
+  /** The last commit's message; `null` on a branch with no commit. Default: `LAST_MESSAGE`. */
+  lastMessage?: CommitMessage | null;
+  /** In conflict state (OPS-1). */
+  inConflict?: boolean;
 }
+
+/** The last commit's message of a fake working copy that names none. */
+export const LAST_MESSAGE: CommitMessage = { subject: "Last commit", body: "Why it was made." };
 
 /** A 1×1 PNG. */
 export const PNG_1X1 =

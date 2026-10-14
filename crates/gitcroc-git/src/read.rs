@@ -60,4 +60,14 @@ impl GitRepo {
             .head()
             .is_ok_and(|head| head.is_unborn())
     }
+
+    /// `format.signOff` is true: a commit gets a `Signed-off-by` trailer
+    /// (section 6 "Working copy"). git itself reads it only for
+    /// `format-patch`; the app follows the setting for commits too.
+    pub fn sign_off(&self) -> bool {
+        self.thread_local()
+            .config_snapshot()
+            .boolean("format.signOff")
+            .unwrap_or(false)
+    }
 }

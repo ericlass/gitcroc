@@ -215,10 +215,17 @@ async fn ui_15_uncommitted_lists_and_their_diffs() {
         staged,
         unstaged,
         unmerged,
+        last_message,
+        in_conflict,
     } = &view.content
     else {
         panic!("not an uncommitted view");
     };
+    assert_eq!(
+        last_message.as_ref().map(|m| m.subject.as_str()),
+        Some("First")
+    );
+    assert!(!in_conflict);
     assert_eq!(paths(staged), ["a.txt"]);
     assert_eq!(paths(unstaged), ["a.txt", "new.txt"]);
     assert_eq!(unstaged[1].status, FileStatus::Untracked);
@@ -256,10 +263,14 @@ async fn ui_15_unmerged_files_are_listed_apart() {
         staged,
         unstaged,
         unmerged,
+        in_conflict,
+        ..
     } = &view.content
     else {
         panic!("not an uncommitted view");
     };
+    // The merge's commit is Continue's (M2-08): no commit box.
+    assert!(in_conflict);
     assert!(staged.is_empty() && unstaged.is_empty());
     assert_eq!(unmerged.len(), 1);
     assert_eq!(unmerged[0].path, "a.txt");

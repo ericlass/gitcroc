@@ -5,6 +5,7 @@ import type {
   ChangeRequest,
   ChangesSettings,
   ChangesTarget,
+  CommitRequest,
   DiffRequest,
   FileRef,
   HistoryTarget,
@@ -39,6 +40,8 @@ export type {
   ChangesView,
   CommitGraphWrittenEvent,
   CommitDetails,
+  CommitMessage,
+  CommitRequest,
   CommitRow,
   Conflict,
   ConfigWarning,
@@ -196,10 +199,15 @@ export const changesGet = (workspaceId: WorkspaceId, repoId: RepoId, target: Cha
 export const diffGet = (workspaceId: WorkspaceId, handle: number, file: FileRef, request: DiffRequest) =>
   unwrap(core.commands.diffGet(workspaceId, handle, file, request));
 
-/** One side of the image diff last read for `file`, as base64; `null` when there is none. */
+/** Stages, unstages or discards files or a hunk (UI-15); `null` when a newer view replaced the request's. */
 export const changesApply = (workspaceId: WorkspaceId, request: ChangeRequest) =>
   unwrap(core.commands.changesApply(workspaceId, request));
 
+/** Commits or amends as a job (UI-15); `null` when a newer view replaced the request's. */
+export const changesCommit = (workspaceId: WorkspaceId, request: CommitRequest) =>
+  unwrap(core.commands.changesCommit(workspaceId, request));
+
+/** One side of the image diff last read for `file`, as base64; `null` when there is none. */
 export const diffImage = (workspaceId: WorkspaceId, handle: number, file: FileRef, side: ImageSide) =>
   unwrap(core.commands.diffImage(workspaceId, handle, file, side));
 

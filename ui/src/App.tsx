@@ -22,6 +22,7 @@ import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
 import { createAskpassStore } from "./stores/askpass";
 import { createChangesStore } from "./stores/changes";
+import { createCommitStore } from "./stores/commit";
 import { createGitStore } from "./stores/git";
 import { createHistoryStore, sourceOf } from "./stores/history";
 import { createJobStore } from "./stores/jobs";
@@ -47,6 +48,7 @@ export default function App() {
   const selection = createSelectionStore();
   const history = createHistoryStore(selection);
   const changes = createChangesStore(settings.changes);
+  const commit = createCommitStore();
   const watch = createWatchStore();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [jobsOpen, setJobsOpen] = createSignal(false);
@@ -130,7 +132,13 @@ export default function App() {
 
   onMount(() => {
     void settings.load();
-    const unlisten = [jobs.subscribe(), askpass.subscribe(), git.subscribe(), workspaces.subscribe()];
+    const unlisten = [
+      jobs.subscribe(),
+      askpass.subscribe(),
+      git.subscribe(),
+      workspaces.subscribe(),
+      commit.subscribe(),
+    ];
     onCleanup(() => {
       for (const pending of unlisten) {
         void pending.then((stop) => stop());
@@ -206,6 +214,7 @@ export default function App() {
                     workspaces={workspaces}
                     history={history}
                     changes={changes}
+                    commit={commit}
                     settings={settings}
                   />
                 </main>
