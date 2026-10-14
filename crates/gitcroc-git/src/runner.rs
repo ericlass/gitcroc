@@ -203,11 +203,33 @@ fn exit_of(status: ExitStatus) -> Exit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitRunner {
     git: PathBuf,
+    /// Set on every process after [`GIT_ENV`].
+    env: Arc<[(OsString, OsString)]>,
 }
 
 impl GitRunner {
     pub fn new(git: PathBuf) -> Self {
-        Self { git }
+        Self {
+            git,
+            env: Arc::new([]),
+        }
+    }
+
+    /// Sets `vars` on every process this runner starts, such as a `HOME`
+    /// with no git config for tests.
+    pub fn with_env<K, V>(self, vars: impl IntoIterator<Item = (K, V)>) -> Self
+    where
+        K: Into<OsString>,
+        V: Into<OsString>,
+    {
+        let env: Vec<(OsString, OsString)> = vars
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.into()))
+            .collect();
+        Self {
+            env: env.into(),
+            ..self
+        }
     }
 
     /// The git executable this runner starts.
@@ -223,6 +245,7 @@ impl GitRunner {
         for var in ASKPASS_VARS {
             command.env_remove(var);
         }
+        command.envs(self.env.iter().map(|(key, value)| (key, value)));
         command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -285,6 +308,7 @@ impl GitRunner {
         for var in ASKPASS_VARS {
             command.env_remove(var);
         }
+        command.envs(self.env.iter().map(|(key, value)| (key, value)));
         command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

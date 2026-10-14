@@ -13,6 +13,7 @@ import type {
   ChangesSettings,
   ChangesTarget,
   CommitGraphWrittenEvent,
+  CommitRequest,
   DiffRequest,
   FileRef,
   GitStatus,
@@ -37,6 +38,7 @@ import {
   type FakeCommit,
   type FakeFile,
   type FakeWorkingCopy,
+  LAST_MESSAGE,
   numbered,
 } from "./fakeChanges";
 import { defaultHistory, type FakeHistory, type FakeWalk, historyKey, nextPage, parentOf } from "./fakeHistory";
@@ -174,6 +176,12 @@ export const fakeState: {
   changeRequests: ChangeRequest[];
   /** Paths whose hunks answer `file_changed`, as if edited since the diff was read. */
   editedFiles: string[];
+  /** Every `changes_commit`, oldest first. */
+  commitRequests: CommitRequest[];
+  /** What a hook printed when it rejected the commit; `null` lets commits succeed. */
+  commitRejection: string | null;
+  /** Commit jobs wait for `finishCommit` instead of ending at once. */
+  holdCommits: boolean;
 } = {
   appInfo: defaultAppInfo,
   gitStatus: defaultGitStatus,
@@ -203,6 +211,9 @@ export const fakeState: {
   askpassAnswers: [],
   changeRequests: [],
   editedFiles: [],
+  commitRequests: [],
+  commitRejection: null,
+  holdCommits: false,
 };
 
 function emit<T>(listeners: Listeners<T>, name: string, payload: T): void {
@@ -230,6 +241,32 @@ export function emitAskpassPrompt(payload: AskpassPrompt): void {
 /** Delivers an `askpass_closed` event to every listener, as the core would. */
 export function emitAskpassClosed(payload: AskpassClosedEvent): void {
   emit(askpassClosedListeners, "askpass_closed", payload);
+}
+
+/** Commit jobs waiting for `finishCommit`, oldest first. */
+const heldCommits: (() => void)[] = [];
+
+/** Ends the oldest commit job held by `fakeState.holdCommits`. */
+export function finishCommit(): void {
+  heldCommits.shift()?.();
+}
+
+/** Sends `job`'s end, then the repo's summary as just read, as the core does after a job (OPS-7). */
+function endJob(workspaceId: WorkspaceId, repoId: RepoId, job: JobView): void {
+  sendJob(job);
+  const summary = fakeState.summaries.find((known) => known.repo_id === repoId);
+  emitRepoSummary({
+    workspace_id: workspaceId,
+    repo_id: repoId,
+    summary: summary?.summary ?? null,
+    stale: false,
+    missing: false,
+    error: null,
+    refreshing: false,
+    conflict: false,
+    refs_version: summary?.refs_version ?? 0,
+    busy: false,
+  });
 }
 
 /** Keeps `view` in the fake's job list and sends it as the core would. */
@@ -290,6 +327,10 @@ export function reset(): void {
   fakeState.changesCalls = [];
   fakeState.changeRequests = [];
   fakeState.editedFiles = [];
+  fakeState.commitRequests = [];
+  fakeState.commitRejection = null;
+  fakeState.holdCommits = false;
+  heldCommits.length = 0;
   fakeState.changesDelay = 0;
   fakeState.layouts = [];
   fakeState.refreshes = [];
@@ -659,6 +700,8 @@ export const fake: Core = {
           staged: staged.map((file, id) => ({ id, ...file.file })),
           unstaged: unstaged.map((file, id) => ({ id, ...file.file })),
           unmerged: working.unmerged.map((file, id) => ({ id, ...file })),
+          last_message: working.lastMessage === undefined ? LAST_MESSAGE : working.lastMessage,
+          in_conflict: working.inConflict ?? false,
         };
         lists = { staged, unstaged };
       }
@@ -743,23 +786,67 @@ export const fake: Core = {
         started_at: Date.now(),
         duration_ms: 5,
       });
-      setTimeout(() => {
-        sendJob(job);
-        const summary = fakeState.summaries.find((known) => known.repo_id === repo.id);
-        emitRepoSummary({
-          workspace_id: workspaceId,
-          repo_id: repo.id,
-          summary: summary?.summary ?? null,
-          stale: false,
-          missing: false,
-          error: null,
-          refreshing: false,
-          conflict: false,
-          refs_version: summary?.refs_version ?? 0,
-          busy: false,
-        });
-      }, 0);
+      setTimeout(() => endJob(workspaceId, repo.id, job), 0);
       return Promise.resolve({ status: "ok", data: { kind: "started", job_id: jobId } });
+    },
+    // Like the core: refused without a subject, in conflict state, with
+    // nothing staged or nothing to amend; otherwise a job commits the
+    // staged files, or fails with what a rejecting hook printed.
+    changesCommit: (workspaceId, request) => {
+      fakeState.commitRequests.push(request);
+      const view = views.get(workspaceId);
+      if (view?.handle !== request.handle) {
+        return Promise.resolve({ status: "ok", data: null });
+      }
+      const repoId = fakeState.selected[workspaceId] ?? fakeState.workspace.repos[0]?.id;
+      const repo = fakeState.workspace.repos.find((known) => known.id === repoId);
+      const working = (repo && fakeState.workingCopies[repo.id]) ?? { staged: [], unstaged: [], unmerged: [] };
+      const refusal =
+        repo === undefined
+          ? "only uncommitted changes are committed"
+          : request.message.subject.trim() === ""
+            ? "the commit message has no subject"
+            : working.inConflict
+              ? "the repo is in conflict state; Continue makes the commit"
+              : request.amend && working.lastMessage === null
+                ? "the branch has no commit to amend"
+                : !request.amend && working.staged.length === 0
+                  ? "nothing is staged"
+                  : null;
+      if (repo === undefined || refusal !== null) {
+        return Promise.resolve({
+          status: "error",
+          error: { code: "internal", message: refusal ?? "", git_stderr: null },
+        });
+      }
+      const jobId = nextJobId++;
+      const rejection = fakeState.commitRejection;
+      const end = () => {
+        if (rejection === null) {
+          const now = fakeState.workingCopies[repo.id] ?? working;
+          fakeState.workingCopies[repo.id] = { ...now, staged: [], lastMessage: request.message };
+        }
+        const job = fakeJob(fakeState.workspace, {
+          job_id: jobId,
+          workspace_id: workspaceId,
+          label: request.amend ? "Amend the last commit" : "Commit",
+          repos: [repo.id],
+          repo_names: [repo.name],
+          state: "ended",
+          outcome: rejection === null ? { kind: "succeeded" } : { kind: "failed" },
+          output: rejection ?? "",
+          message: rejection === null ? null : "git exited with code 1",
+          started_at: Date.now(),
+          duration_ms: 5,
+        });
+        endJob(workspaceId, repo.id, job);
+      };
+      if (fakeState.holdCommits) {
+        heldCommits.push(end);
+      } else {
+        setTimeout(end, 0);
+      }
+      return Promise.resolve({ status: "ok", data: jobId });
     },
     diffImage: (workspaceId, handle, file, side) => {
       const last = imageFiles.get(workspaceId);

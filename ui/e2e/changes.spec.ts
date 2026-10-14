@@ -73,6 +73,22 @@ test("UI-15 stage a hunk, then discard a file after confirming", async ({ page }
   await expect(files(page).locator(".file-section")).toHaveText(["Staged (2)", "Unstaged (3)"]);
 });
 
+test("UI-15 commit the staged changes; the box empties", async ({ page }) => {
+  await page.goto("/?fake=tree");
+  await tree(page).getByRole("treeitem", { name: /^api/ }).click();
+  await history(page).getByRole("option", { name: /Uncommitted changes/ }).click();
+  const box = page.getByRole("region", { name: "Commit message" });
+  const commit = box.getByRole("button", { name: "Commit" });
+  await expect(commit).toBeDisabled();
+  await box.getByRole("textbox", { name: "Subject" }).fill("Stage the app");
+  await box.getByRole("textbox", { name: "Body" }).fill("Why it changed.");
+  await expect(box).toBeInViewport();
+  await commit.click();
+  await expect(box.getByRole("textbox", { name: "Subject" })).toHaveValue("");
+  await expect(box.getByRole("textbox", { name: "Body" })).toHaveValue("");
+  await expect(files(page).locator(".file-section")).toHaveText(["Staged (0)", "Unstaged (4)"]);
+});
+
 test("UI-19 the changes pane docks at the bottom and back", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto("/?fake=tree");
@@ -113,7 +129,8 @@ test("UI-24 UI-26 the open diff follows the code theme and the code font at once
   await page.getByRole("spinbutton", { name: "Code font size" }).fill("18");
   await page.getByRole("spinbutton", { name: "Code font size" }).press("Tab");
   await expect.poll(async () => (await style()).size).toBe("18px");
-  expect((await style()).font).toMatch(/^"Courier New", ui-monospace/);
+  // The font and size settings arrive as two changes; the editor may still apply the second.
+  await expect.poll(async () => (await style()).font).toMatch(/^"Courier New", ui-monospace/);
 });
 
 /** The app's content security policy from `tauri.conf.json`, as a header. */

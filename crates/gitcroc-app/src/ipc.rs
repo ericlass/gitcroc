@@ -11,13 +11,13 @@ use std::sync::Arc;
 use base64::Engine as _;
 use gitcroc_core::{
     AddReport, AppInfo, AppLog, Appearance, CancelResult, ChangeRequest, ChangeStart, Changes,
-    ChangesError, ChangesSettings, ChangesTarget, ChangesView, CommitGraphError, DiffRequest,
-    FileDiff, FileRef, GitRunner, GitSetup, GitStatus, Histories, HistoryTarget, HistoryView,
-    HistoryViewError, ImageSide, JobError, JobEvents, JobId, JobProgress, JobView, Jobs, Outcome,
-    PaneLayout, Refusal, RepoChange, RepoId, SettingsError, SettingsStore, SettingsView,
-    StatusError, StatusReadError, Summaries, SummaryView, Theme, TrackedJob, TreeError, TreeNode,
-    Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces,
-    add_path, refresh_summaries, refresh_workspace, tree_refs,
+    ChangesError, ChangesSettings, ChangesTarget, ChangesView, CommitGraphError, CommitRequest,
+    DiffRequest, FileDiff, FileRef, GitRunner, GitSetup, GitStatus, Histories, HistoryTarget,
+    HistoryView, HistoryViewError, ImageSide, JobError, JobEvents, JobId, JobProgress, JobView,
+    Jobs, Outcome, PaneLayout, Refusal, RepoChange, RepoId, SettingsError, SettingsStore,
+    SettingsView, StatusError, StatusReadError, Summaries, SummaryView, Theme, TrackedJob,
+    TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView,
+    Workspaces, add_path, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -741,6 +741,23 @@ pub async fn changes_apply(
     Ok(gitcroc_core::changes_apply(changes, jobs, workspaces, git, workspace_id, request).await?)
 }
 
+/// Commits the staged changes of view `handle`, or amends the last commit
+/// with them, as a job (UI-15). Refused without a subject, in conflict
+/// state, for a commit with nothing staged and for an amend with no
+/// commit. `null` when a newer view of the workspace replaced it.
+#[tauri::command]
+#[specta::specta]
+pub async fn changes_commit(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: CommitRequest,
+) -> Result<Option<JobId>, IpcError> {
+    let changes = app.state::<Arc<Changes>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::changes_commit(changes, jobs, git, workspace_id, request).await?)
+}
+
 /// Removes a repo from the workspace; nothing on disk changes (GRP-3).
 #[tauri::command]
 #[specta::specta]
@@ -1212,6 +1229,7 @@ macro_rules! with_commands {
                 diff_get,
                 diff_image,
                 changes_apply,
+                changes_commit,
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,
@@ -1248,6 +1266,7 @@ macro_rules! with_commands {
                 diff_get,
                 diff_image,
                 changes_apply,
+                changes_commit,
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { fakeState, reset } from "../ipc/fake";
 import { keep, textFile } from "../ipc/fakeChanges";
 import { createChangesStore, FILE_CHANGED } from "../stores/changes";
+import { createCommitStore } from "../stores/commit";
 import { createLayoutStore } from "../stores/layout";
 import { createSettingsStore } from "../stores/settings";
 import ChangesPane from "./ChangesPane";
@@ -55,6 +56,7 @@ async function setup() {
     <ChangesPane
       workspace={id()}
       changes={changes}
+      commit={createCommitStore()}
       settings={settings}
       layout={createLayoutStore()}
       onSelectCommit={() => undefined}

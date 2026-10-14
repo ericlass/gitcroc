@@ -42,6 +42,12 @@ pub enum ChangesContent {
         unstaged: Vec<ChangedFile>,
         /// In neither list above, as in `git status`.
         unmerged: Vec<UnmergedFile>,
+        /// The last commit's message, which Amend starts from; `None` on a
+        /// branch with no commit yet, where there is nothing to amend.
+        last_message: Option<crate::CommitMessage>,
+        /// In conflict state (OPS-1): no commit box, as Continue makes the
+        /// commit (M2-08).
+        in_conflict: bool,
     },
 }
 
@@ -305,7 +311,9 @@ pub async fn changes_get(
         }
         ChangesTarget::Uncommitted => {
             let reader = StatusReader::new(repo.clone(), git);
-            let working = crate::working_copy(reader).await?;
+            let working = crate::working_copy(reader.clone()).await?;
+            let in_conflict = crate::repo_state(reader).await?.in_conflict();
+            let last_message = crate::commit::last_message(repo.clone()).await?;
             let lists = Lists::Uncommitted {
                 staged: working.staged.clone(),
                 unstaged: working.unstaged.clone(),
@@ -314,6 +322,8 @@ pub async fn changes_get(
                 staged: working.staged,
                 unstaged: working.unstaged,
                 unmerged: working.unmerged,
+                last_message,
+                in_conflict,
             };
             (content, lists)
         }

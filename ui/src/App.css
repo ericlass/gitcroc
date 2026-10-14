@@ -1238,6 +1238,63 @@ button.link:hover:not(:disabled) {
   outline-offset: -2px;
 }
 
+/* Commit message box (UI-15) */
+
+.commit-box {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.commit-box input,
+.commit-box textarea {
+  box-sizing: border-box;
+  width: 100%;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px 6px;
+}
+
+.commit-box textarea {
+  resize: vertical;
+  min-height: 3em;
+}
+
+.commit-box [role="alert"] {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.commit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+button.primary {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.1);
+}
+
+button.primary:disabled {
+  color: var(--text-disabled);
+  background: var(--bg-2);
+  border-color: var(--border);
+}
+
 .file-rows {
   position: relative;
   width: 100%;

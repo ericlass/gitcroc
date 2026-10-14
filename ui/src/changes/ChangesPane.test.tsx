@@ -4,6 +4,7 @@ import { fakeState, reset } from "../ipc/fake";
 import { defaultDetails, keep, otherFile, PNG_1X1, textFile } from "../ipc/fakeChanges";
 import { hashOf } from "../ipc/fakeHistory";
 import { createChangesStore } from "../stores/changes";
+import { createCommitStore } from "../stores/commit";
 import { createLayoutStore } from "../stores/layout";
 import type { CommitSelection } from "../stores/selection";
 import { createSettingsStore } from "../stores/settings";
@@ -54,6 +55,7 @@ async function setup() {
     <ChangesPane
       workspace={id()}
       changes={changes}
+      commit={createCommitStore()}
       settings={settings}
       layout={layout}
       onSelectCommit={onSelectCommit}

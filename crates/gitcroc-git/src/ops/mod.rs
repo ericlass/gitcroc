@@ -168,3 +168,40 @@ pub async fn apply_patch(
     };
     git.run_write(&args, repo, write).await
 }
+
+/// How a commit is made (UI-15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommitMode {
+    /// Replace the last commit (`--amend`), its staged changes added.
+    pub amend: bool,
+    /// Add a `Signed-off-by` trailer (`--signoff`), as `format.signOff`
+    /// asks.
+    pub sign_off: bool,
+}
+
+/// Commits the staged changes with `message`, read from stdin (`git commit
+/// -F -`). Hooks, `commit.gpgSign`, the message template and
+/// `commit.cleanup` apply as on the command line (SEC-6): nothing is
+/// skipped or forced.
+pub async fn commit(
+    git: &GitRunner,
+    repo: &Path,
+    message: &[u8],
+    mode: CommitMode,
+    write: Write<'_>,
+) -> Result<Output, GitError> {
+    let mut args = vec!["commit"];
+    if mode.amend {
+        args.push("--amend");
+    }
+    if mode.sign_off {
+        args.push("--signoff");
+    }
+    args.extend(["-F", "-"]);
+    let args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
+    let write = Write {
+        stdin: Some(message),
+        ..write
+    };
+    git.run_write(&args, repo, write).await
+}
