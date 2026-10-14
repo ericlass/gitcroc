@@ -827,6 +827,28 @@ button.danger:hover:not(:disabled) {
   color: var(--danger);
 }
 
+/* The clone's parent folder: the path picked, then the button that picks it. */
+.clone-parent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clone-path,
+.clone-target {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.clone-path {
+  flex: 1;
+}
+
+.clone-target {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
 .op-actions {
   padding-left: 1.2em;
   overflow-wrap: anywhere;

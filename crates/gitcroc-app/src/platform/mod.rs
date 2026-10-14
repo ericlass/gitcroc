@@ -4,13 +4,17 @@
 //! implementation, which `plat_1_platform_code_sits_behind_traits` checks.
 
 use std::io::{self, Read, Write};
+use std::path::Path;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::ipc::DesktopFonts;
 
+mod launch;
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(not(target_os = "linux"))]
 mod other;
 #[cfg(unix)]
@@ -18,14 +22,40 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
+pub use launch::{Launch, LaunchError, start};
 #[cfg(target_os = "linux")]
 pub use linux::GtkFonts as PlatformFonts;
+#[cfg(target_os = "linux")]
+pub use linux::Terminals as PlatformTerminal;
+#[cfg(target_os = "linux")]
+pub use linux::XdgOpen as PlatformFileManager;
+#[cfg(target_os = "macos")]
+pub use macos::Finder as PlatformFileManager;
+#[cfg(target_os = "macos")]
+pub use macos::TerminalApp as PlatformTerminal;
 #[cfg(not(target_os = "linux"))]
 pub use other::NoDesktopFonts as PlatformFonts;
 #[cfg(unix)]
 pub use unix::UnixSockets as PlatformSockets;
 #[cfg(windows)]
+pub use windows::Explorer as PlatformFileManager;
+#[cfg(windows)]
 pub use windows::NamedPipes as PlatformSockets;
+#[cfg(windows)]
+pub use windows::WindowsTerminal as PlatformTerminal;
+
+/// The system file manager (section 6 "Repos").
+pub trait FileManager {
+    /// What shows folder `path` in it.
+    fn show(path: &Path) -> Launch;
+}
+
+/// A terminal (section 6 "Repos").
+pub trait Terminal {
+    /// What may open a terminal in folder `path`, in the order to try: the
+    /// first one that is installed is started.
+    fn open_in(path: &Path) -> Vec<Launch>;
+}
 
 /// The desktop's UI and monospace font families (UI-26).
 pub trait DesktopFontSource {

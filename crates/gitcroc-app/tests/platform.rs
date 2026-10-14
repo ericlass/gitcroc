@@ -127,3 +127,59 @@ fn plat_1_platform_code_sits_behind_traits() {
     }
     assert!(platform_files > 1, "no sources found in {PLATFORM_DIR}");
 }
+
+/// Each argument of `launch` is `path` whole, or does not hold it at all:
+/// the path is never split or joined into another argument (ARCH-3).
+fn path_args(launch: &gitcroc_app::platform::Launch, path: &Path) -> usize {
+    let whole = path.as_os_str();
+    let text = path.to_string_lossy();
+    launch
+        .args
+        .iter()
+        .filter(|arg| {
+            let arg_text = arg.to_string_lossy();
+            assert!(
+                *arg == whole || !arg_text.contains(text.as_ref()),
+                "{launch:?}: the path is part of an argument"
+            );
+            *arg == whole
+        })
+        .count()
+}
+
+#[test]
+fn arch_3_open_commands_take_the_path_as_one_argument() {
+    use gitcroc_app::platform::{FileManager, PlatformFileManager, PlatformTerminal, Terminal};
+
+    let path = std::env::temp_dir().join("my repo; 'quoted' & -dashed");
+    let shown = PlatformFileManager::show(&path);
+    assert!(
+        ["xdg-open", "open", "explorer"].contains(&shown.program.to_string_lossy().as_ref()),
+        "{shown:?}"
+    );
+    assert_eq!(path_args(&shown, &path), 1, "{shown:?}");
+    assert_eq!(shown.cwd, path);
+
+    let terminals = PlatformTerminal::open_in(&path);
+    assert!(!terminals.is_empty());
+    for launch in &terminals {
+        // In the folder, and given the path at most once, as `wt -d` is.
+        assert_eq!(launch.cwd, path, "{launch:?}");
+        assert!(path_args(launch, &path) <= 1, "{launch:?}");
+    }
+}
+
+#[test]
+fn plat_1_a_missing_terminal_names_what_was_tried() {
+    use gitcroc_app::platform::{Launch, LaunchError, start};
+
+    let dir = tempfile::tempdir().unwrap();
+    let missing = ["gitcroc-no-such-terminal", "gitcroc-nor-this-one"]
+        .map(|program| Launch::new(program, [], dir.path().to_owned()));
+    let error = start(&missing).unwrap_err();
+    assert!(matches!(error, LaunchError::NotFound { .. }), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        "none of gitcroc-no-such-terminal, gitcroc-nor-this-one was found"
+    );
+}

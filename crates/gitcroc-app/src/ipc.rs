@@ -12,17 +12,17 @@ use base64::Engine as _;
 use gitcroc_core::{
     AddReport, AppInfo, AppLog, Appearance, BranchChoices, BranchError, BranchRequest, BranchStart,
     CancelResult, ChangeRequest, ChangeStart, Changes, ChangesError, ChangesSettings,
-    ChangesTarget, ChangesView, ChooseRequest, CommitGraphError, CommitRequest, ConflictDetails,
-    ConflictRead, ConflictStart, DiffRequest, FileDiff, FileRef, FsmonitorError, GitRunner,
-    GitSetup, GitStatus, Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide,
-    IntegrateError, IntegrateRequest, IntegrateStart, JobError, JobEvents, JobId, JobProgress,
-    JobView, Jobs, Outcome, PaneLayout, PushChoices, Refusal, RemoteError, RemoteRequest,
-    RemoteStart, RemoteUrlsView, RepoChange, RepoId, ResetError, ResetRequest, ResetStart,
-    ResolveRequest, SettingsError, SettingsStore, SettingsView, StashError, StashRequest,
-    StashStart, StatusError, StatusReadError, Summaries, SummaryView, SyncError, SyncRequest,
-    SyncStart, TagError, TagRequest, TagStart, Theme, TrackedJob, TreeError, TreeNode, Trees,
-    WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces, add_path,
-    refresh_summaries, refresh_workspace, tree_refs,
+    ChangesTarget, ChangesView, ChooseRequest, CloneError, CloneReport, CloneRequest,
+    CommitGraphError, CommitRequest, ConflictDetails, ConflictRead, ConflictStart, DiffRequest,
+    FileDiff, FileRef, FsmonitorError, GitRunner, GitSetup, GitStatus, Histories, HistoryTarget,
+    HistoryView, HistoryViewError, ImageSide, IntegrateError, IntegrateRequest, IntegrateStart,
+    JobError, JobEvents, JobId, JobProgress, JobView, Jobs, Outcome, PaneLayout, PushChoices,
+    Refusal, RemoteError, RemoteRequest, RemoteStart, RemoteUrlsView, RepoChange, RepoId,
+    ResetError, ResetRequest, ResetStart, ResolveRequest, SettingsError, SettingsStore,
+    SettingsView, StashError, StashRequest, StashStart, StatusError, StatusReadError, Summaries,
+    SummaryView, SyncError, SyncRequest, SyncStart, TagError, TagRequest, TagStart, Theme,
+    TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId,
+    WorkspaceView, Workspaces, add_path, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -31,6 +31,7 @@ use specta_typescript::Typescript;
 use tauri::{AppHandle, Manager, State};
 
 use crate::askpass::{AskpassPrompt, WindowAskpassUi};
+use crate::platform::{FileManager, LaunchError, PlatformFileManager, PlatformTerminal, Terminal};
 use tauri_plugin_dialog::DialogExt;
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
 
@@ -301,6 +302,31 @@ impl From<FsmonitorError> for IpcError {
     }
 }
 
+impl From<CloneError> for IpcError {
+    fn from(error: CloneError) -> Self {
+        match error {
+            CloneError::Workspace(error) | CloneError::Job(JobError::Workspace(error)) => {
+                error.into()
+            }
+            other => Self {
+                code: IpcErrorCode::Internal,
+                message: other.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
+impl From<LaunchError> for IpcError {
+    fn from(error: LaunchError) -> Self {
+        Self {
+            code: IpcErrorCode::Internal,
+            message: error.to_string(),
+            git_stderr: None,
+        }
+    }
+}
+
 impl From<StashError> for IpcError {
     fn from(error: StashError) -> Self {
         match error {
@@ -386,6 +412,21 @@ pub struct WorkspaceChangedEvent(pub WorkspaceView);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "workspace_add_report")]
 pub struct WorkspaceAddReportEvent(pub AddReport);
+
+/// The parent folder the user picked for a clone, sent as event
+/// `clone_parent_picked`; nothing is sent when they cancel.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "clone_parent_picked")]
+pub struct CloneParentPickedEvent {
+    pub workspace_id: WorkspaceId,
+    pub path: PathBuf,
+}
+
+/// How a clone ended, sent as event `clone_report` after its
+/// `workspace_changed`: the cloned repo, to select, when it was added.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "clone_report")]
+pub struct CloneReportEvent(pub CloneReport);
 
 /// One repo's fresh summary, sent as event `repo_summary` each time a repo
 /// has been read (PERF-3).
@@ -1225,6 +1266,113 @@ pub async fn fsmonitor_decline(
     Ok(())
 }
 
+/// Opens the native folder dialog for a clone's parent folder and returns
+/// at once; the folder picked arrives as `clone_parent_picked`. Opened from
+/// Rust, as for `workspace_pick_and_add` (SEC-2).
+#[tauri::command]
+#[specta::specta]
+pub async fn clone_pick_parent(app: AppHandle, workspace_id: WorkspaceId) -> Result<(), IpcError> {
+    app.state::<Arc<Workspaces>>().view(&workspace_id)?;
+    let picked = app.clone();
+    app.dialog()
+        .file()
+        .set_title("Clone into folder")
+        .pick_folder(move |folder| {
+            if let Some(Ok(path)) = folder.map(|folder| folder.into_path()) {
+                let _ = CloneParentPickedEvent { workspace_id, path }.emit(&picked);
+            }
+        });
+    Ok(())
+}
+
+/// The folder a clone of `url` gets by default: the last segment of its
+/// path without `.git`; `null` when there is none.
+#[tauri::command]
+#[specta::specta]
+pub async fn clone_default_name(url: String) -> Result<Option<String>, IpcError> {
+    Ok(gitcroc_core::clone_default_name(&url))
+}
+
+/// Why a clone into folder `name` of `parent` would be refused, such as a
+/// folder that exists and is not empty, or `null`. Checked as the user
+/// types.
+#[tauri::command]
+#[specta::specta]
+pub async fn clone_target_check(parent: PathBuf, name: String) -> Result<Option<String>, IpcError> {
+    Ok(gitcroc_core::clone_target_check(parent, name).await)
+}
+
+/// Starts cloning `request` and returns its job's id at once. Progress
+/// arrives as `job_progress`; at its end, a cloned repo is in the
+/// workspace, announced by `workspace_changed`, then `clone_report` names
+/// it. Refused before git runs for a read-only workspace, an unusable URL
+/// or folder name, or a target that exists and is not empty.
+#[tauri::command]
+#[specta::specta]
+pub async fn clone_start(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: CloneRequest,
+) -> Result<JobId, IpcError> {
+    let git = prepare_add(&app, &workspace_id).await?;
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let handle =
+        gitcroc_core::clone_start(workspaces.clone(), jobs, git.clone(), workspace_id, request)
+            .await?;
+    tauri::async_runtime::spawn(async move {
+        let Ok(report) = handle.ended.await else {
+            return;
+        };
+        let workspace_id = report.workspace_id.clone();
+        let added: Vec<RepoId> = report.repo.iter().map(|repo| repo.id.clone()).collect();
+        if !added.is_empty()
+            && let Ok(view) = workspaces.view(&workspace_id)
+        {
+            let _ = WorkspaceChangedEvent(view).emit(&app);
+        }
+        let _ = CloneReportEvent(report).emit(&app);
+        if !added.is_empty() {
+            spawn_watch_sync(&app, workspace_id.clone());
+        }
+        refresh(app, workspace_id, added, git).await;
+    });
+    Ok(handle.job_id)
+}
+
+/// Shows the repo's folder in the system file manager.
+#[tauri::command]
+#[specta::specta]
+pub async fn repo_open_file_manager(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+) -> Result<(), IpcError> {
+    let path = app
+        .state::<Arc<Workspaces>>()
+        .repo_path(&workspace_id, &repo_id)?;
+    let launch = PlatformFileManager::show(&path);
+    tauri::async_runtime::spawn_blocking(move || crate::platform::start(&[launch])).await??;
+    Ok(())
+}
+
+/// Opens a terminal in the repo's folder; fails naming the terminals tried
+/// when none is installed.
+#[tauri::command]
+#[specta::specta]
+pub async fn repo_open_terminal(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+) -> Result<(), IpcError> {
+    let path = app
+        .state::<Arc<Workspaces>>()
+        .repo_path(&workspace_id, &repo_id)?;
+    let candidates = PlatformTerminal::open_in(&path);
+    tauri::async_runtime::spawn_blocking(move || crate::platform::start(&candidates)).await??;
+    Ok(())
+}
+
 /// The refs the merge dialog offers for a repo, filtered by `filter`
 /// (UI-20).
 #[tauri::command]
@@ -1740,6 +1888,12 @@ macro_rules! with_commands {
                 remote_urls,
                 fsmonitor_enable,
                 fsmonitor_decline,
+                clone_pick_parent,
+                clone_default_name,
+                clone_target_check,
+                clone_start,
+                repo_open_file_manager,
+                repo_open_terminal,
                 conflict_details,
                 conflict_get,
                 conflict_resolve,
@@ -1797,6 +1951,12 @@ macro_rules! with_commands {
                 remote_urls,
                 fsmonitor_enable,
                 fsmonitor_decline,
+                clone_pick_parent,
+                clone_default_name,
+                clone_target_check,
+                clone_start,
+                repo_open_file_manager,
+                repo_open_terminal,
                 conflict_details,
                 conflict_get,
                 conflict_resolve,
@@ -1819,6 +1979,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             GitStatusEvent,
             WorkspaceChangedEvent,
             WorkspaceAddReportEvent,
+            CloneParentPickedEvent,
+            CloneReportEvent,
             RepoSummaryEvent,
             RepoRefsChangedEvent,
             CommitGraphWrittenEvent,

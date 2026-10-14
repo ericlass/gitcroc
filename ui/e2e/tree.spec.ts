@@ -98,8 +98,9 @@ test("UI-1 keyboard, add and remove", async ({ page }) => {
   await expect(local).toHaveAttribute("aria-expanded", "false");
   await expect(main).toHaveCount(0);
 
-  // The add button uses the folder picker and shows what happened.
+  // The add menu's Add folder uses the folder picker and shows what happened.
   await page.getByRole("button", { name: "Add repository" }).click();
+  await page.getByRole("menu", { name: "Add repository" }).getByRole("menuitem", { name: "Add folder…" }).click();
   await expect(page.getByRole("list", { name: "Add result" })).toHaveText("Added: new-repo");
   await expect(item(page, /^new-repo/)).toBeVisible();
 

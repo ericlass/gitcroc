@@ -114,19 +114,24 @@ pub fn remote_name_check(name: &str) -> Option<String> {
     check_remote_name(name).err().map(|error| error.to_string())
 }
 
-/// `url` without spaces around it, or why git should not get it.
-fn checked_url(url: &str) -> Result<String, RemoteError> {
+/// `url` without spaces around it, or why git should not get it. Clone
+/// checks its URL the same way.
+pub(crate) fn check_url(url: &str) -> Result<String, &'static str> {
     let url = url.trim();
     if url.is_empty() {
-        return Err(refused("the URL is empty"));
+        return Err("the URL is empty");
     }
     if url.starts_with('-') {
-        return Err(refused("the URL cannot start with '-'"));
+        return Err("the URL cannot start with '-'");
     }
     if url.chars().any(char::is_control) {
-        return Err(refused("the URL cannot contain control characters"));
+        return Err("the URL cannot contain control characters");
     }
     Ok(url.to_owned())
+}
+
+fn checked_url(url: &str) -> Result<String, RemoteError> {
+    check_url(url).map_err(refused)
 }
 
 /// What a job runs.

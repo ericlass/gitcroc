@@ -21,6 +21,7 @@ import Toolbar from "./layout/Toolbar";
 import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
 import StashDialogs, { StashOffer } from "./stash/StashDialogs";
+import CloneDialog from "./clone/CloneDialog";
 import RemoteDialogs from "./remote/RemoteDialogs";
 import TagDialogs from "./tag/TagDialogs";
 import ResetDialogs from "./reset/ResetDialogs";
@@ -40,6 +41,7 @@ import { createLayoutStore } from "./stores/layout";
 import { createSelectionStore } from "./stores/selection";
 import { createSettingsStore } from "./stores/settings";
 import { createStashStore } from "./stores/stash";
+import { createCloneStore } from "./stores/clone";
 import { createRemoteStore } from "./stores/remote";
 import { createTagStore } from "./stores/tag";
 import { createResetStore } from "./stores/reset";
@@ -70,6 +72,8 @@ export default function App() {
   const stash = createStashStore();
   const tag = createTagStore();
   const remote = createRemoteStore();
+  // A clone added to the workspace is selected (section 6 "Repos").
+  const clone = createCloneStore((id, repo) => tree.selectRepo(id, repo));
   const reset = createResetStore();
   // An aborted stash apply leaves nothing to offer dropping.
   const integrate = createIntegrateStore((id, repo) => stash.forget(id, repo));
@@ -222,6 +226,7 @@ export default function App() {
       workspaces.subscribe(),
       commit.subscribe(),
       stash.subscribe(),
+      clone.subscribe(),
     ];
     onCleanup(() => {
       for (const pending of unlisten) {
@@ -330,6 +335,7 @@ export default function App() {
                     stash={stash}
                     tag={tag}
                     remote={remote}
+                    clone={clone}
                     reset={reset}
                     integrate={integrate}
                     settings={settings}
@@ -340,6 +346,9 @@ export default function App() {
                 <StashDialogs workspace={id()} stash={stash} repoName={repoName} />
                 <TagDialogs workspace={id()} tag={tag} repoName={repoName} />
                 <RemoteDialogs workspace={id()} remote={remote} repoName={repoName} />
+                <Show when={clone.isOpen(id())}>
+                  <CloneDialog workspace={id()} clone={clone} />
+                </Show>
                 <ResetDialogs workspace={id()} reset={reset} repoName={repoName} />
                 <IntegrateDialogs workspace={id()} integrate={integrate} repoName={repoName} branchOf={branchOf} />
                 <StatusBar workspace={id()} jobs={jobs} onOpenJobs={() => setJobsOpen(true)} />

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::{GitError, GitRunner, Output, Write};
 
 mod branch;
+mod clone;
 pub mod conflict;
 mod integrate;
 mod remote;
@@ -24,6 +25,7 @@ pub use branch::{
     branch_create, branch_delete, branch_rename, branch_set_upstream, remote_branch_delete, switch,
     switch_detach, switch_track,
 };
+pub use clone::clone;
 pub use integrate::{FastForward, Resume, cherry_pick, merge, rebase, resume, revert};
 pub use remote::{remote_add, remote_remove, remote_rename, remote_set_url};
 pub use reset::{ResetMode, reset};

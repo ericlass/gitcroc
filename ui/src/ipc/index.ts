@@ -7,6 +7,7 @@ import type {
   ChangesSettings,
   ChangesTarget,
   ChooseRequest,
+  CloneRequest,
   CommitRequest,
   DiffRequest,
   FileRef,
@@ -44,6 +45,8 @@ export type {
   ChangeAction,
   ChoiceKind,
   ChooseRequest,
+  CloneReport,
+  CloneRequest,
   Conflict,
   ConflictChoice,
   ConflictChunk,
@@ -307,6 +310,24 @@ export const fsmonitorEnable = (workspaceId: WorkspaceId, repoId: RepoId) =>
 
 export const fsmonitorDecline = (workspaceId: WorkspaceId, repoId: RepoId) =>
   unwrap(core.commands.fsmonitorDecline(workspaceId, repoId));
+
+/** Opens the folder dialog for a clone's parent folder; the pick arrives as `clone_parent_picked` (SEC-2). */
+export const clonePickParent = (workspaceId: WorkspaceId) => unwrap(core.commands.clonePickParent(workspaceId));
+
+/** The folder a clone of `url` gets by default, or `null`. */
+export const cloneDefaultName = (url: string) => unwrap(core.commands.cloneDefaultName(url));
+
+/** Why a clone into folder `name` of `parent` would be refused, or `null`. */
+export const cloneTargetCheck = (parent: string, name: string) => unwrap(core.commands.cloneTargetCheck(parent, name));
+
+export const cloneStart = (workspaceId: WorkspaceId, request: CloneRequest) =>
+  unwrap(core.commands.cloneStart(workspaceId, request));
+
+export const repoOpenFileManager = (workspaceId: WorkspaceId, repoId: RepoId) =>
+  unwrap(core.commands.repoOpenFileManager(workspaceId, repoId));
+
+export const repoOpenTerminal = (workspaceId: WorkspaceId, repoId: RepoId) =>
+  unwrap(core.commands.repoOpenTerminal(workspaceId, repoId));
 
 /** The refs the merge dialog offers for a repo, filtered in the core (UI-20). */
 export const mergeTargets = (workspaceId: WorkspaceId, repoId: RepoId, filter: string) =>

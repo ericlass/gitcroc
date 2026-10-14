@@ -35,6 +35,8 @@ export interface WorkspaceTree {
   selected: string | null;
   /** What the selected node is; the history pane follows it. */
   selectedItem: TreeItem | null;
+  /** A repo to select once the tree has its row, such as a clone that was just added. */
+  pendingRepo: RepoId | null;
   filter: string;
   /** The core's answer to `filter`; `null` while the filter is empty. */
   filtered: TreeNode[] | null;
@@ -50,6 +52,7 @@ const empty = (): WorkspaceTree => ({
   filterExpanded: {},
   selected: null,
   selectedItem: null,
+  pendingRepo: null,
   filter: "",
   filtered: null,
 });
@@ -59,6 +62,20 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 /** The repo a node belongs to, if any. */
 export function repoOf(node: TreeNode): RepoId | null {
   return node.item.kind === "ungrouped" ? null : node.item.repo_id;
+}
+
+/** The row of `repo` in `nodes` or below. */
+function findRepo(nodes: TreeNode[], repo: RepoId): TreeNode | undefined {
+  for (const node of nodes) {
+    if (node.item.kind === "repo" && node.item.repo_id === repo) {
+      return node;
+    }
+    const below = findRepo(node.children ?? [], repo);
+    if (below !== undefined) {
+      return below;
+    }
+  }
+  return undefined;
 }
 
 /** A repo's Local, Remotes, Tags and Stashes node. */
@@ -109,6 +126,7 @@ export function createTreeStore() {
         t.roots = roots;
         t.error = null;
       });
+      selectPending(id);
     } catch (error) {
       update(id, (t) => (t.error = message(error)));
     }
@@ -188,6 +206,22 @@ export function createTreeStore() {
     });
   };
 
+  /** Selects the row of the pending repo, once the tree has it. */
+  const selectPending = (id: WorkspaceId) => {
+    const repo = tree(id).pendingRepo;
+    const node = repo === null ? undefined : findRepo(tree(id).roots ?? [], repo);
+    if (node !== undefined) {
+      update(id, (t) => (t.pendingRepo = null));
+      select(id, node);
+    }
+  };
+
+  /** Selects the row of `repo`, now or when the tree next has it. */
+  const selectRepo = (id: WorkspaceId, repo: RepoId) => {
+    update(id, (t) => (t.pendingRepo = repo));
+    selectPending(id);
+  };
+
   /** Filters the tree; each change supersedes the previous one (UI-8). */
   const setFilter = (id: WorkspaceId, text: string) => {
     update(id, (t) => {
@@ -197,7 +231,7 @@ export function createTreeStore() {
     return refilter(id);
   };
 
-  return { state, tree, subscribe, setExpanded, select, setFilter };
+  return { state, tree, subscribe, setExpanded, select, selectRepo, setFilter };
 }
 
 export type TreeStore = ReturnType<typeof createTreeStore>;
