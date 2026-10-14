@@ -5,6 +5,7 @@ import ChangesPane from "../changes/ChangesPane";
 import HistoryPane from "../history/HistoryPane";
 import type { WorkspaceId } from "../ipc";
 import type { BranchStore } from "../stores/branch";
+import type { IntegrateStore } from "../stores/integrate";
 import type { ChangesStore } from "../stores/changes";
 import type { CommitStore } from "../stores/commit";
 import type { HistoryStore } from "../stores/history";
@@ -26,6 +27,7 @@ export default function Panes(props: {
   changes: ChangesStore;
   commit: CommitStore;
   branch: BranchStore;
+  integrate: IntegrateStore;
   settings: SettingsStore;
 }) {
   let fill: HTMLElement | undefined;
@@ -57,7 +59,14 @@ export default function Panes(props: {
   );
 
   const history = () => (
-    <HistoryPane workspace={props.workspace} history={props.history} summaries={props.summaries} layout={props.layout} />
+    <HistoryPane
+      workspace={props.workspace}
+      history={props.history}
+      summaries={props.summaries}
+      layout={props.layout}
+      branch={props.branch}
+      integrate={props.integrate}
+    />
   );
 
   const changes = () => (

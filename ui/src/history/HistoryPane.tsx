@@ -1,14 +1,21 @@
-// The history pane (UI-9, UI-10, UI-12): search box, column header and the
-// commit list, virtualized and paged (PERF-1, PERF-2). Rows, lanes and
-// search results come from the core through the history store; this
-// component lays them out and forwards input.
+// The history pane (UI-9, UI-10, UI-12, UI-13): search box, the conflict
+// banner (OPS-2), column header and the commit list, virtualized and paged
+// (PERF-1, PERF-2), with a context menu on each commit and a
+// multi-selection for cherry-pick. Rows, lanes and search results come from
+// the core through the history store; this component lays them out and
+// forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, For, Index, Match, on, onMount, Show, Switch } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, Match, on, onMount, Show, Switch } from "solid-js";
+import ConflictBanner from "../integrate/ConflictBanner";
+import { IntegrateRefusal } from "../integrate/IntegrateDialogs";
 import type { CommitRow, RefLabel, RepoId, WorkspaceId } from "../ipc";
 import Splitter from "../layout/Splitter";
+import type { BranchStore } from "../stores/branch";
 import type { HistoryStore } from "../stores/history";
+import type { IntegrateStore } from "../stores/integrate";
 import { type HistoryColumn, type LayoutStore, MIN_COLUMN_WIDTH } from "../stores/layout";
-import type { SummaryStore } from "../stores/summaries";
+import { isBlocked, type SummaryStore } from "../stores/summaries";
+import CommitMenu, { type CommitAction, commitMenu } from "./CommitMenu";
 import Graph from "./Graph";
 import { formatDate, formatFullDate, type HistoryRow, historyRows } from "./rows";
 
@@ -118,14 +125,21 @@ function RowView(props: { row: HistoryRow }) {
 }
 
 /** The commit list, virtualized (PERF-1) and paged as it scrolls (PERF-2). */
-function HistoryList(props: { workspace: WorkspaceId; history: HistoryStore; summaries: SummaryStore }) {
+function HistoryList(props: {
+  workspace: WorkspaceId;
+  history: HistoryStore;
+  summaries: SummaryStore;
+  branch: BranchStore;
+  integrate: IntegrateStore;
+}) {
   let scroller: HTMLDivElement | undefined;
   const history = () => props.history.history(props.workspace);
-  const changes = () => {
-    const repo = history().source?.repo;
-    const view = repo === undefined ? undefined : props.summaries.state.byWorkspace[props.workspace]?.[repo];
-    return view?.summary?.changes ?? 0;
+  const repo = () => history().source?.repo;
+  const view = () => {
+    const shown = repo();
+    return shown === undefined ? undefined : props.summaries.view(props.workspace, shown);
   };
+  const changes = () => view()?.summary?.changes ?? 0;
   const rows = createMemo(() => historyRows(history(), changes()));
   const selectedIndex = () => {
     const selected = history().selected;
@@ -207,8 +221,91 @@ function HistoryList(props: { workspace: WorkspaceId; history: HistoryStore; sum
     if (row === undefined || row.kind === "placeholder") {
       return;
     }
+    anchor = row.id;
     props.history.select(props.workspace, row.id);
     virtualizer.scrollToIndex(index, { align: "auto" });
+  };
+
+  /** Where a Shift-click's range starts: the row last clicked without Shift. */
+  let anchor: string | null = null;
+
+  /** A click: Ctrl/Cmd adds or removes a commit, Shift selects the commits from the anchor (UI-13). */
+  const click = (index: number, event: MouseEvent) => {
+    const row = rows().at(index);
+    if (row?.kind !== "commit") {
+      select(index);
+      return;
+    }
+    if (event.ctrlKey || event.metaKey) {
+      const marked = history().marked;
+      anchor = row.id;
+      props.history.mark(
+        props.workspace,
+        row.id,
+        marked.includes(row.id) ? marked.filter((hash) => hash !== row.id) : [...marked, row.id],
+      );
+      return;
+    }
+    const from = anchor === null ? -1 : rows().indexOf(anchor);
+    if (event.shiftKey && from >= 0) {
+      const hashes: string[] = [];
+      for (let at = Math.min(from, index); at <= Math.max(from, index); at++) {
+        const inRange = rows().at(at);
+        if (inRange?.kind === "commit") {
+          hashes.push(inRange.id);
+        }
+      }
+      props.history.mark(props.workspace, row.id, hashes);
+      return;
+    }
+    select(index);
+  };
+
+  const [menu, setMenu] = createSignal<{ x: number; y: number; commits: string[] } | null>(null);
+
+  /** Opens the menu of commit row `index`: for the multi-selection when the row is in it, else for the row alone. */
+  const openMenu = (index: number, x: number, y: number) => {
+    const row = rows().at(index);
+    if (row?.kind !== "commit") {
+      return;
+    }
+    let commits = history().marked;
+    if (!commits.includes(row.id)) {
+      select(index);
+      commits = [row.id];
+    }
+    setMenu({ x, y, commits });
+  };
+
+  const act = (action: CommitAction, commits: string[]) => {
+    setMenu(null);
+    const shown = repo();
+    const [hash] = commits;
+    if (shown === undefined || hash === undefined) {
+      return;
+    }
+    switch (action) {
+      case "checkout":
+        void props.branch.run(props.workspace, shown, { kind: "checkout_detached", revision: hash });
+        return;
+      case "create_branch":
+        props.branch.open(props.workspace, { kind: "create", repo: shown, start: { kind: "revision", revision: hash } });
+        return;
+      case "cherry_pick":
+        void props.integrate.run(props.workspace, shown, { kind: "cherry_pick", commits });
+        return;
+      case "revert":
+        void props.integrate.run(props.workspace, shown, { kind: "revert", commit: hash, mainline: null });
+        return;
+      case "copy_hash":
+        void navigator.clipboard.writeText(hash).catch(() => {
+          // Nowhere to copy to: the hash stays in the Hash column and the changes pane.
+        });
+        return;
+      case "create_tag":
+      case "reset":
+        return;
+    }
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -234,18 +331,38 @@ function HistoryList(props: { workspace: WorkspaceId; history: HistoryStore; sum
       case "End":
         go(rows().loaded - 1);
         break;
+      case "F10":
+        if (!event.shiftKey) {
+          return;
+        }
+        openMenuAtSelected();
+        break;
+      case "ContextMenu":
+        openMenuAtSelected();
+        break;
       default:
         return;
     }
     event.preventDefault();
   };
 
+  /** The keyboard's context menu: the selected row's, at the row. */
+  const openMenuAtSelected = () => {
+    const index = selectedIndex();
+    const box = document.getElementById(`history-row-${index}`)?.getBoundingClientRect();
+    if (index >= 0 && box !== undefined) {
+      openMenu(index, box.left + 16, box.bottom);
+    }
+  };
+
   return (
+    <>
     <div
       class="history-scroller"
       ref={(element) => (scroller = element)}
       role="listbox"
       aria-label="History"
+      aria-multiselectable="true"
       tabindex="0"
       aria-activedescendant={selectedIndex() >= 0 ? `history-row-${selectedIndex()}` : undefined}
       onKeyDown={onKeyDown}
@@ -263,16 +380,23 @@ function HistoryList(props: { workspace: WorkspaceId; history: HistoryStore; sum
                       class="history-row"
                       classList={{
                         selected: row().id === history().selected,
+                        marked: history().marked.length > 1 && history().marked.includes(row().id),
                         placeholder: row().kind === "placeholder",
                       }}
                       role="option"
-                      aria-selected={row().id === history().selected}
+                      aria-selected={row().id === history().selected || history().marked.includes(row().id)}
                       aria-busy={row().kind === "placeholder" ? true : undefined}
                       aria-posinset={item().index + 1}
                       aria-setsize={rows().count}
                       data-index={item().index}
                       style={{ transform: `translateY(${item().start}px)` }}
-                      onClick={() => select(item().index)}
+                      onClick={(event) => click(item().index, event)}
+                      onContextMenu={(event) => {
+                        if (row().kind === "commit") {
+                          event.preventDefault();
+                          openMenu(item().index, event.clientX, event.clientY);
+                        }
+                      }}
                     >
                       <RowView row={row()} />
                     </div>
@@ -284,6 +408,18 @@ function HistoryList(props: { workspace: WorkspaceId; history: HistoryStore; sum
         </Index>
       </div>
     </div>
+    <Show when={menu()}>
+      {(open) => (
+        <CommitMenu
+          x={open().x}
+          y={open().y}
+          entries={commitMenu(open().commits.length, isBlocked(view()))}
+          onAction={(action) => act(action, open().commits)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </Show>
+    </>
   );
 }
 
@@ -292,6 +428,8 @@ export default function HistoryPane(props: {
   history: HistoryStore;
   summaries: SummaryStore;
   layout: LayoutStore;
+  branch: BranchStore;
+  integrate: IntegrateStore;
 }) {
   const history = () => props.history.history(props.workspace);
   const repo = (): RepoId | undefined => history().source?.repo;
@@ -342,6 +480,17 @@ export default function HistoryPane(props: {
           )}
         </Show>
         <Show when={history().error}>{(error) => <p role="alert">Cannot read the history: {error()}</p>}</Show>
+        <Show when={repo()}>
+          {(shown) => (
+            <ConflictBanner
+              workspace={props.workspace}
+              repo={shown()}
+              summaries={props.summaries}
+              integrate={props.integrate}
+            />
+          )}
+        </Show>
+        <IntegrateRefusal workspace={props.workspace} integrate={props.integrate} />
         <div class="history-columns" role="presentation">
           <For each={COLUMNS}>
             {(column) => (
@@ -368,7 +517,13 @@ export default function HistoryPane(props: {
         <Show when={empty()}>
           <p class="placeholder">{history().text === "" ? "No commits yet." : "No commits match."}</p>
         </Show>
-        <HistoryList workspace={props.workspace} history={props.history} summaries={props.summaries} />
+        <HistoryList
+          workspace={props.workspace}
+          history={props.history}
+          summaries={props.summaries}
+          branch={props.branch}
+          integrate={props.integrate}
+        />
       </Show>
     </div>
   );

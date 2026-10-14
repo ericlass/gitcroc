@@ -7,6 +7,7 @@
 //! callers cannot tell which ran. Nothing here writes to the repo, not even
 //! the index stat refresh `git status` does by default.
 
+pub(crate) mod conflict;
 mod porcelain;
 mod state;
 mod worktree;
@@ -19,6 +20,7 @@ use gix::hash::ObjectId;
 use gix::object::tree::EntryMode;
 use serde::Serialize;
 
+pub use conflict::{ConflictDetails, Step};
 pub use state::{Head, Operation, RepoState, RepoSummary, Upstream};
 
 use crate::diff::{ChangedFile, Origin, Side};
@@ -314,6 +316,14 @@ impl StatusRead for StatusReader {
 }
 
 impl StatusReader {
+    /// What the conflict banner names (OPS-2); read like
+    /// [`StatusRead::repo_state`].
+    pub fn conflict_details(&self) -> Result<ConflictDetails, StatusError> {
+        let repo = self.repo.thread_local();
+        self.check_trust(&repo)?;
+        conflict::conflict_details(&repo)
+    }
+
     fn work_dir(&self) -> Result<&Path, StatusError> {
         self.repo.work_dir().ok_or(StatusError::NoWorkTree)
     }

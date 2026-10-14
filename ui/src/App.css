@@ -905,6 +905,36 @@ button.danger:hover:not(:disabled) {
   gap: 6px;
 }
 
+/* The conflict banner of OPS-2, above the history list (UI-10). */
+.conflict-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 8px;
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--outcome-conflict);
+}
+
+.conflict-text {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.conflict-text [role="alert"] {
+  color: var(--danger);
+}
+
+.conflict-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .history-columns,
 .history-row {
   display: flex;
@@ -1020,6 +1050,10 @@ button.danger:hover:not(:disabled) {
 
 .history-row:hover {
   background: var(--bg-2);
+}
+
+.history-row.marked {
+  background: var(--bg-3);
 }
 
 .history-row.selected {
@@ -1618,4 +1652,35 @@ button.primary:disabled {
 
 .diff-submodule dd {
   margin: 0;
+}
+
+/* The refs of the merge dialog (UI-20), filtered by the core. */
+.merge-targets {
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  margin: 4px 0 8px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.merge-target {
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  font-family: var(--font-code);
+  overflow-wrap: anywhere;
+}
+
+.merge-target:hover,
+.merge-target[aria-selected="true"] {
+  background: var(--bg-3);
+}
+
+.merge-targets .placeholder {
+  margin: 0;
+  padding: 3px 8px;
 }

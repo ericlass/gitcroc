@@ -12,13 +12,14 @@ use base64::Engine as _;
 use gitcroc_core::{
     AddReport, AppInfo, AppLog, Appearance, BranchChoices, BranchError, BranchRequest, BranchStart,
     CancelResult, ChangeRequest, ChangeStart, Changes, ChangesError, ChangesSettings,
-    ChangesTarget, ChangesView, CommitGraphError, CommitRequest, DiffRequest, FileDiff, FileRef,
-    GitRunner, GitSetup, GitStatus, Histories, HistoryTarget, HistoryView, HistoryViewError,
-    ImageSide, JobError, JobEvents, JobId, JobProgress, JobView, Jobs, Outcome, PaneLayout,
-    PushChoices, Refusal, RepoChange, RepoId, SettingsError, SettingsStore, SettingsView,
-    StatusError, StatusReadError, Summaries, SummaryView, SyncError, SyncRequest, SyncStart, Theme,
-    TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId,
-    WorkspaceView, Workspaces, add_path, refresh_summaries, refresh_workspace, tree_refs,
+    ChangesTarget, ChangesView, CommitGraphError, CommitRequest, ConflictDetails, DiffRequest,
+    FileDiff, FileRef, GitRunner, GitSetup, GitStatus, Histories, HistoryTarget, HistoryView,
+    HistoryViewError, ImageSide, IntegrateError, IntegrateRequest, IntegrateStart, JobError,
+    JobEvents, JobId, JobProgress, JobView, Jobs, Outcome, PaneLayout, PushChoices, Refusal,
+    RepoChange, RepoId, SettingsError, SettingsStore, SettingsView, StatusError, StatusReadError,
+    Summaries, SummaryView, SyncError, SyncRequest, SyncStart, Theme, TrackedJob, TreeError,
+    TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceView,
+    Workspaces, add_path, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -181,6 +182,29 @@ impl From<SyncError> for IpcError {
                 message: "git refused to read the repo".to_owned(),
                 git_stderr: Some(message),
             },
+            other => Self {
+                code: IpcErrorCode::Internal,
+                message: other.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
+impl From<IntegrateError> for IpcError {
+    fn from(error: IntegrateError) -> Self {
+        match error {
+            IntegrateError::Workspace(error) | IntegrateError::Job(JobError::Workspace(error)) => {
+                error.into()
+            }
+            // git refused the repo; its message is for the user (SEC-6).
+            IntegrateError::Status(StatusReadError::Read(StatusError::Refused { message })) => {
+                Self {
+                    code: IpcErrorCode::Internal,
+                    message: "git refused to read the repo".to_owned(),
+                    git_stderr: Some(message),
+                }
+            }
             other => Self {
                 code: IpcErrorCode::Internal,
                 message: other.to_string(),
@@ -874,6 +898,51 @@ pub async fn push_choices(
     Ok(gitcroc_core::push_choices(workspaces, workspace_id, repo_id).await?)
 }
 
+/// Merges, rebases, cherry-picks or reverts in a repo, or aborts or
+/// continues the operation it is in, as a job (section 6 "Integrate",
+/// OPS-2). Its end arrives as `job_ended`; a revert of a merge commit
+/// answers `choose_mainline`.
+#[tauri::command]
+#[specta::specta]
+pub async fn op_integrate(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: IntegrateRequest,
+) -> Result<IntegrateStart, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::op_integrate(workspaces, summaries, jobs, git, workspace_id, request).await?)
+}
+
+/// The refs the merge dialog offers for a repo, filtered by `filter`
+/// (UI-20).
+#[tauri::command]
+#[specta::specta]
+pub async fn merge_targets(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+    filter: String,
+) -> Result<Vec<String>, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    Ok(gitcroc_core::merge_targets(workspaces, workspace_id, repo_id, filter).await?)
+}
+
+/// What the conflict banner names for a repo in conflict state (OPS-2).
+#[tauri::command]
+#[specta::specta]
+pub async fn conflict_details(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+) -> Result<ConflictDetails, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::conflict_details(workspaces, git, workspace_id, repo_id).await?)
+}
+
 /// Removes a repo from the workspace; nothing on disk changes (GRP-3).
 #[tauri::command]
 #[specta::specta]
@@ -1351,6 +1420,9 @@ macro_rules! with_commands {
                 branch_name_check,
                 op_sync,
                 push_choices,
+                op_integrate,
+                merge_targets,
+                conflict_details,
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,
@@ -1393,6 +1465,9 @@ macro_rules! with_commands {
                 branch_name_check,
                 op_sync,
                 push_choices,
+                op_integrate,
+                merge_targets,
+                conflict_details,
                 settings_set_appearance,
                 workspace_refresh,
                 watch_warning,

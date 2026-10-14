@@ -1,9 +1,10 @@
 // The toolbar of UI-20. Buttons that cannot apply are disabled, not hidden.
 // Fetch, Pull and Push act on the selected repo: a click runs with the
-// defaults, the arrow beside Pull and Push opens their options.
+// defaults, the arrow beside Pull and Push opens their options. Merge opens
+// the dialog that merges or rebases.
 import { For } from "solid-js";
 
-const LATER = ["Merge", "Stash"];
+const LATER = ["Stash"];
 
 /** What a button does; `null` disables it. */
 type Action = (() => void) | null;
@@ -41,6 +42,8 @@ export default function Toolbar(props: {
   sync: SyncActions;
   /** Opens the create branch dialog for the selected repo; `null` when no repo can take it. */
   onBranch: Action;
+  /** Opens the merge dialog for the selected repo; `null` when no repo can take it. */
+  onMerge: Action;
   onSettings: () => void;
 }) {
   return (
@@ -72,6 +75,14 @@ export default function Toolbar(props: {
         onClick={() => props.onBranch?.()}
       >
         Branch
+      </button>
+      <button
+        type="button"
+        disabled={props.onMerge === null}
+        title="Merge a branch into the current branch of the selected repository, or rebase onto it"
+        onClick={() => props.onMerge?.()}
+      >
+        Merge
       </button>
       <For each={LATER}>
         {(name) => (
