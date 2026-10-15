@@ -42,6 +42,10 @@ repo-gen.workspace = true
 # M1-12: the UI-side measurements of `just bench-ui`. Never in a release
 # bundle; `just bench-ui` builds with it into its own target dir.
 perf-trace = []
+# M2-15: the end-to-end smoke test of `just smoke`, whose folder dialog is
+# answered by GITCROC_E2E_PICK_FOLDER. Never in a release bundle; `just
+# smoke` builds with it into its own target dir.
+e2e = []
 
 [lints]
 workspace = true

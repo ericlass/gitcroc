@@ -1,13 +1,13 @@
 // `just bench-ui` (PERF-8, M1-12): the section 9 budgets the core cannot
 // measure alone, on the real app and `target-project`, Linux only. It drives
-// a `perf-trace` build through tauri-driver and WebKitWebDriver, plain W3C
-// WebDriver over HTTP, and reads what src/perf/trace.ts recorded. Prints a
+// a `perf-trace` build through tauri-driver and WebKitWebDriver (see
+// ../webdriver/client.ts), and reads what src/perf/trace.ts recorded. Prints a
 // JSON array in the shape `just bench` prints. Run by hand before a release,
 // never in CI: hosted runners have no fixed speed.
 //
 // Node runs this file directly (type stripping), so it uses no TypeScript
 // syntax that needs compiling, and no packages.
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -21,10 +21,10 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { checkDrivers, ELEMENT, type Element, log, startDriver, wd } from "../webdriver/client.ts";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const SET = "target-project";
-const DRIVER = "http://127.0.0.1:4444";
 
 /** Section 9 budgets of the scenarios measured here; memory is in MB. */
 const BUDGETS: Record<string, { budget: number; unit: "ms" | "MB" }> = {
@@ -36,6 +36,8 @@ const BUDGETS: Record<string, { budget: number; unit: "ms" | "MB" }> = {
   "select-commit": { budget: 150, unit: "ms" },
   "switch-repo": { budget: 100, unit: "ms" },
   "input-latency": { budget: 50, unit: "ms" },
+  // The same row of section 9 with a real job running (M2-15).
+  "input-latency-job": { budget: 50, unit: "ms" },
   "memory-idle": { budget: 400, unit: "MB" },
 };
 
@@ -56,6 +58,8 @@ interface Options {
   startOnly: boolean;
   /** With `startOnly`: starts the app itself, without WebDriver. */
   direct: boolean;
+  /** Measures `input-latency-job` only. */
+  jobOnly: boolean;
   data: string;
   app: string;
   cli: string;
@@ -67,6 +71,7 @@ function parseArgs(args: string[]): Options {
     verbose: false,
     startOnly: false,
     direct: false,
+    jobOnly: false,
     data: process.env.GITCROC_BENCH_DATA || join(ROOT, "target/bench-data"),
     app: join(ROOT, "target/bench-ui/release/gitcroc"),
     cli: join(ROOT, "target/release/gitcroc-cli"),
@@ -81,13 +86,17 @@ function parseArgs(args: string[]): Options {
       options.direct = true;
       continue;
     }
+    if (args[i] === "--job-only") {
+      options.jobOnly = true;
+      continue;
+    }
     if (args[i] === "--verbose") {
       options.verbose = true;
       continue;
     }
     const value = args[i + 1];
     if (value === undefined) {
-      throw new Error(`usage: bench-ui [--runs <n>] [--verbose] [--start-only] [--direct] [--data <dir>] [--app <path>] [--cli <path>]`);
+      throw new Error(`usage: bench-ui [--runs <n>] [--verbose] [--start-only] [--direct] [--job-only] [--data <dir>] [--app <path>] [--cli <path>]`);
     }
     switch (args[i]) {
       case "--runs":
@@ -112,8 +121,6 @@ function parseArgs(args: string[]): Options {
   }
   return options;
 }
-
-const log = (message: string) => process.stderr.write(`${message}\n`);
 
 // --- The data set -----------------------------------------------------------
 
@@ -190,33 +197,6 @@ function pickCommits(repo: string): { hash: string; index: number; lines: number
 }
 
 // --- WebDriver --------------------------------------------------------------
-
-const ELEMENT = "element-6066-11e4-a52e-4f735466cecf";
-type Element = Record<typeof ELEMENT, string>;
-
-async function wd(method: string, path: string, body?: unknown): Promise<unknown> {
-  const response = await fetch(`${DRIVER}${path}`, {
-    method,
-    headers: { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(180_000),
-  });
-  const json = (await response.json()) as { value: { error?: string; message?: string } | unknown };
-  const value = json.value as { error?: string; message?: string } | null;
-  if (!response.ok || (value !== null && typeof value === "object" && "error" in value && value.error)) {
-    throw new Error(`${method} ${path}: ${response.status} ${JSON.stringify(json.value)}`);
-  }
-  return json.value;
-}
-
-async function driverUp(): Promise<boolean> {
-  try {
-    await wd("GET", "/status");
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 class Session {
   readonly id: string;
@@ -295,9 +275,16 @@ async function timed(
   condition: string,
   argument: string | null,
   act: () => Promise<unknown>,
+  busy: "refresh" | "job" = "refresh",
 ): Promise<{ ms: number; busy: boolean }> {
   log(`  ${scenario}`);
-  await session.page(`p.arm(args[0], args[1], args[2] ?? p.firstRow() ?? "");`, scenario, condition, argument);
+  await session.page(
+    `p.arm(args[0], args[1], args[2] ?? p.firstRow() ?? "", args[3]);`,
+    scenario,
+    condition,
+    argument,
+    busy,
+  );
   await act();
   return session.page(`return p.result(args[0]);`, scenario);
 }
@@ -536,6 +523,164 @@ async function runOnce(
   }
 }
 
+// --- Input latency while a job runs (M2-15) ----------------------------------
+
+/** git for the job scenario's own repos, with an identity for the commits it makes. */
+function git(args: string[], env: NodeJS.ProcessEnv = process.env, input?: string): string {
+  const identity = {
+    GIT_AUTHOR_NAME: "Bench",
+    GIT_AUTHOR_EMAIL: "bench@example.com",
+    GIT_COMMITTER_NAME: "Bench",
+    GIT_COMMITTER_EMAIL: "bench@example.com",
+  };
+  return execFileSync("git", args, { env: { ...env, ...identity }, encoding: "utf8", input }).trim();
+}
+
+/**
+ * A local bare remote and a working copy of each repo, under `dir`. Both
+ * borrow the data set's objects (`--shared`), so nothing of it is copied or
+ * ever written: the other scenarios keep measuring the data as it was built.
+ */
+function jobRepos(repos: Repo[], dir: string): { name: string; remote: string; work: string }[] {
+  return repos.map((repo) => {
+    const remote = join(dir, "remotes", `${repo.name}.git`);
+    const work = join(dir, "work", repo.name);
+    git(["clone", "--quiet", "--bare", "--shared", repo.path, remote]);
+    git(["clone", "--quiet", "--shared", remote, work]);
+    return { name: repo.name, remote, work };
+  });
+}
+
+/** Adds commit `wave` to the current branch of the bare `remote`, so a fetch has something to bring. */
+function advance(remote: string, wave: number) {
+  const env = { ...process.env, GIT_DIR: remote, GIT_INDEX_FILE: join(remote, "bench-index") };
+  const branch = git(["symbolic-ref", "HEAD"], env);
+  const head = git(["rev-parse", "HEAD"], env);
+  git(["read-tree", head], env);
+  const blob = git(["hash-object", "-w", "--stdin"], env, `wave ${wave}\n`);
+  git(["update-index", "--add", "--cacheinfo", `100644,${blob},bench-job.txt`], env);
+  const tree = git(["write-tree"], env);
+  const commit = git(["commit-tree", tree, "-p", head, "-m", `Wave ${wave}`], env);
+  git(["update-ref", branch, commit, head], env);
+}
+
+/**
+ * `input-latency-job`: the filter key of `input-latency`, while a job
+ * runs: a fetch of every repo from its local bare remote, then a pull of the
+ * largest, again and again; each wave's remotes have a new commit. Keys
+ * that land while no job runs count as `input-latency-job-idle`. Its own
+ * app session, on a workspace of the working copies.
+ */
+async function jobLatency(options: Options, repos: Repo[], home: string, tracePath: string): Promise<number[]> {
+  const dir = join(home, "job");
+  log(`setting up a bare remote and a working copy of ${repos.length} repos in ${dir}`);
+  const copies = jobRepos(repos, dir);
+  const config = join(dir, "config");
+  for (const copy of copies) {
+    execFileSync(options.cli, ["workspace", "--config-dir", join(config, "gitcroc"), "add", copy.work], {
+      stdio: "pipe",
+    });
+  }
+  const shown = JSON.parse(
+    execFileSync(options.cli, ["workspace", "--config-dir", join(config, "gitcroc"), "show"], { encoding: "utf8" }),
+  ) as { id: string; repos: { id: string; name: string }[] };
+  const ids = shown.repos.map((repo) => repo.id);
+  const largest = shown.repos.find((repo) => repo.name === repos[0]?.name)?.id;
+  if (largest === undefined) {
+    throw new Error("the job scenario's workspace has no largest repo");
+  }
+
+  const env = {
+    ...process.env,
+    XDG_CONFIG_HOME: config,
+    XDG_CACHE_HOME: join(dir, "cache"),
+    GITCROC_PERF_TRACE: tracePath,
+  };
+  const driver = await startDriver(env);
+  try {
+    const session = await Session.start(options.app);
+    try {
+      await session.page(`await p.ready();`);
+      await session.page(`await p.idle(1000);`);
+      log("input-latency-job");
+      const sync = (repo: string, op: unknown) =>
+        `window.__TAURI_INTERNALS__.invoke("op_sync", {
+           workspaceId: args[0],
+           request: { repo_id: ${repo}, op: ${JSON.stringify(op)}, confirmed: false },
+         })`;
+      const filter = await session.find('input[aria-label="Filter repos and branches"]');
+      await session.click(filter);
+      const target = KEYS * options.runs;
+      let busy = 0;
+      let value = "";
+      let wave = 0;
+      let pullNext = false;
+      for (let attempt = 0; busy < target && attempt < target * 6; attempt++) {
+        const running = await session.page<boolean>(`return document.querySelector(".status-bar .job-running") !== null;`);
+        if (!running) {
+          if (pullNext) {
+            await session.page(`await ${sync("args[1]", { kind: "pull", strategy: "config" })};`, shown.id, largest);
+          } else {
+            wave++;
+            for (const copy of copies) {
+              advance(copy.remote, wave);
+            }
+            await session.page(
+              `for (const repo of args[1]) await ${sync("repo", { kind: "fetch", prune: "config" })};`,
+              shown.id,
+              ids,
+            );
+          }
+          pullNext = !pullNext;
+          // Until the status bar shows the job, so the next key lands while it runs.
+          await session.page(`
+            const asked = performance.now();
+            while (document.querySelector(".status-bar .job-running") === null && performance.now() - asked < 2000) {
+              await new Promise((resolve) => requestAnimationFrame(resolve));
+            }`);
+        }
+        const next = value === "" ? "r" : "";
+        const key = value === "" ? "r" : "\uE003";
+        const result = await timed(
+          session,
+          "input-latency-job",
+          "input",
+          next,
+          () => session.type(filter, key),
+          "job",
+        );
+        value = next;
+        if (result.busy) {
+          busy++;
+        }
+      }
+      log(`  ${busy} keys landed while a job ran, over ${wave} waves`);
+      // The jobs did their work: the largest repo was pulled, and the others fetched.
+      const pulled = git(["-C", copies[0]?.work ?? "", "log", "-1", "--format=%s"]);
+      const fetched = git(["-C", copies[1]?.work ?? "", "log", "-1", "--format=%s", "origin/HEAD"]);
+      if (!pulled.startsWith("Wave ") || !fetched.startsWith("Wave ")) {
+        throw new Error(`the jobs did not bring the waves: pulled ${pulled}, fetched ${fetched}`);
+      }
+      log(`  ${repos[0]?.name} is at ${pulled}; ${repos[1]?.name} fetched ${fetched}`);
+      if (busy < target) {
+        log(`  only ${busy} of ${target} keys landed while a job ran`);
+      }
+      if (value !== "") {
+        await session.type(filter, "\uE003");
+      }
+      rmSync(tracePath, { force: true });
+      await session.page(`await p.idle(1000);`);
+      await session.page(`await p.flush();`);
+      const trace = JSON.parse(readFileSync(tracePath, "utf8")) as Trace;
+      return trace.samples.filter((sample) => sample.scenario === "input-latency-job").map((sample) => sample.ms);
+    } finally {
+      await session.end().catch(() => {});
+    }
+  } finally {
+    driver.kill();
+  }
+}
+
 // --- Results ----------------------------------------------------------------
 
 /** Median and nearest-rank 95th percentile, as `gitcroc-cli bench` computes them. */
@@ -567,37 +712,9 @@ function results(runs: number, samples: Map<string, number[]>) {
   });
 }
 
-function startDriver(env: NodeJS.ProcessEnv): ChildProcess {
-  const driver = spawn("tauri-driver", [], { env, stdio: ["ignore", "ignore", "inherit"] });
-  driver.on("error", (error) => {
-    log(`cannot start tauri-driver: ${error.message}; install it with \`cargo install tauri-driver --locked\``);
-    process.exit(2);
-  });
-  return driver;
-}
-
-function which(program: string): boolean {
-  try {
-    execFileSync("which", [program], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function main() {
-  if (process.platform !== "linux") {
-    throw new Error("bench-ui runs on Linux only (WebKitWebDriver)");
-  }
+  checkDrivers();
   const options = parseArgs(process.argv.slice(2));
-  for (const [program, install] of [
-    ["tauri-driver", "cargo install tauri-driver --locked"],
-    ["WebKitWebDriver", "sudo apt install webkit2gtk-driver (Debian, Ubuntu)"],
-  ] as const) {
-    if (!which(program)) {
-      throw new Error(`${program} is not on PATH; install it with \`${install}\``);
-    }
-  }
   if (!existsSync(options.app)) {
     throw new Error(`no perf-trace app at ${options.app}; \`just bench-ui\` builds it`);
   }
@@ -632,19 +749,13 @@ async function main() {
     XDG_CACHE_HOME: cache,
     GITCROC_PERF_TRACE: tracePath,
   };
-  const driver = startDriver(env);
+  const driver = await startDriver(env);
   try {
-    for (let wait = 0; !(await driverUp()); wait++) {
-      if (wait > 100) {
-        throw new Error("tauri-driver did not start");
-      }
-      await sleep(100);
-    }
     const samples = new Map<string, number[]>();
     const steps = new Map<string, number[]>();
     const add = (scenario: string, value: number) => samples.set(scenario, [...(samples.get(scenario) ?? []), value]);
     // One warm-up run, as `just bench` does, then the timed runs.
-    for (let run = 0; run <= options.runs; run++) {
+    for (let run = 0; run <= (options.jobOnly ? -1 : options.runs); run++) {
       log(run === 0 ? "warm-up run" : `run ${run} of ${options.runs}`);
       const trace = options.direct
         ? { ...(await startDirect(options, env, tracePath)), memory: 0 }
@@ -679,6 +790,13 @@ async function main() {
         log(
           `  ${row.median.toFixed(0).padStart(6)}  (${row.min.toFixed(0)} to ${row.max.toFixed(0)})  ${row.name}`,
         );
+      }
+    }
+    if (!options.startOnly) {
+      // Its own session and workspace, so it ends this driver first.
+      driver.kill();
+      for (const ms of await jobLatency(options, repos, home, tracePath)) {
+        add("input-latency-job", ms);
       }
     }
     const report = results(options.runs, samples);

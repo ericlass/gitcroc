@@ -24,7 +24,7 @@ Run `just check` before you call a change done. It runs everything CI requires:
 - `cargo test --workspace`
 - `cargo deny check`
 - in `ui/`: `pnpm install --frozen-lockfile`, `tsc --noEmit`, ESLint, Vitest, and Playwright (Chromium, against `vite build --mode fake` and `vite preview`)
-- `just coverage M0` (the requirement coverage report; it fails if an M0 requirement has no test)
+- `just coverage M0`, `M1` and `M2` (the requirement coverage report; it fails if a requirement of that milestone has no test)
 
 Run `just fmt` to format the workspace.
 
@@ -36,6 +36,32 @@ Every command is `async` and returns `Result<_, IpcError>` (ARCH-7). Front-end t
 
 `just coverage <milestone>` (for example `just coverage M1`) lists requirement IDs from the `Implements:` lines of `docs/tasks/<milestone>-*.md` that have no test, and fails if there are any.
 
+## Writes, jobs and askpass (M2)
+
+**Where writes go (ARCH-1).** Every git command that changes a repo or contacts a remote is a function in `gitcroc-git::ops` (`crates/gitcroc-git/src/ops/`). Each one builds its argument array (ARCH-3: paths after `--` or as a pathspec file on stdin, never a shell string) and runs it through `GitRunner::run_write`, which returns git's output or a `GitError` carrying git's stderr. Nothing else starts git for a write: `arch_1_writes_go_through_the_runner` (`crates/gitcroc-git/tests/writes.rs`) reads the shipped crates' source and fails on a write outside `ops` or a process started outside the runner. The one other file that starts a program is `crates/gitcroc-app/src/platform/launch.rs`, for the file manager and a terminal.
+
+A new operation also needs a row in `crates/gitcroc-git/tests/ops_matrix.txt` with its tests for success, failure and, where git can stop in one, conflict. `ops_matrix_every_operation_has_success_failure_and_conflict_tests` fails on a `pub async fn` of `ops` that is in no row, and on a test name that does not exist.
+
+**The job engine (ARCH-7, `crates/gitcroc-core/src/job/`).** An operation in `gitcroc-core` checks its request (refusing what git would refuse, before git runs), then starts a `WriteJob` with `Jobs::start` and returns the job's id at once. The job:
+
+- waits in the queue of each repo it writes to, so at most one write runs per repo (ARCH-4); reads never wait for it;
+- runs on the shared worker pool, before the background refresh (PERF-4);
+- reports progress, which the app sends to the UI as events;
+- ends with one outcome of GRP-7: *succeeded*, *nothing to do* (decided from the refs and `HEAD` before and after, never from git's wording), *skipped*, *failed* with git's output, or *conflict* when git left the repo in conflict state;
+- has the repos it touched read again when it ends (OPS-7).
+
+Cancel (GRP-10) removes a queued job, and kills a running fetch or clone (`OnCancel::Kill`); other writes run to their end. Work that is not a repo write, such as adding repos or a clone that has no repo yet, is tracked with `Jobs::track` or `Jobs::track_network`. Tests wait for a job's end event, never for a time.
+
+**The askpass helper (D10, `crates/gitcroc-app/src/askpass.rs`).** A network write (`WriteJob::network`) gets `GIT_ASKPASS` and `SSH_ASKPASS` pointing at the gitcroc executable itself, with an address and a token for that job. Started by git in that mode, the executable opens no window: it sends git's prompt to the running app over a local socket, prints the answer and exits. The app asks the user in a dialog of its window. The answer goes to git and nowhere else (never stored, logged or cached), and the token is revoked when the job ends.
+
+## End-to-end smoke test
+
+`just smoke` runs section 12's end-to-end smoke test on the real app, on Linux only (`ui/webdriver/smoke.ts`). It builds the app with the `e2e` Cargo feature into `target/e2e` and drives it through `tauri-driver` and WebKitWebDriver on a throwaway fixture workspace. The test adds a repo, stages a file and commits. It then merges a branch that conflicts, resolves the file in the conflict editor with **Take theirs** and a typed edit, then **Mark resolved** and **Continue**. It checks the history shows the merge commit and the repo is clean. Every step waits in the page for its result in the DOM; none waits for a time. On a failure it saves the window as `target/e2e/failure.png` and keeps the fixture folder it names.
+
+WebDriver cannot drive the native folder dialog, so in an `e2e` build the **Add folder…** dialog is answered by `GITCROC_E2E_PICK_FOLDER`. The feature is never in a release bundle.
+
+It needs the same drivers as `just bench-ui` (below). Run it under `xvfb-run -a just smoke` to keep its window off your desktop; CI's Linux job runs it that way after `just check`.
+
 ## Colors and themes (UI-23)
 
 Colors exist only as CSS variables in `ui/src/theme/tokens.css`, defined once for `:root[data-theme="light"]` and once for `:root[data-theme="dark"]`. Stylesheets and inline styles use `var(--…)`; the test `UI-23 no hardcoded colors` (`ui/src/theme/colors.test.ts`) fails on a hex value, a color function such as `rgb(` or a named color anywhere else.
@@ -44,7 +70,7 @@ The app's settings live in `settings.toml` in the platform config dir under `git
 
 ## Continuous integration
 
-CI (`.github/workflows/ci.yml`) runs `just check` on Linux (ubuntu-22.04), Windows and macOS for every pull request and every push to `main`. It calls only `just check`, so local and CI checks cannot drift (QA-5). The repository owner must mark the three CI jobs (`check (ubuntu-22.04)`, `check (windows-latest)`, `check (macos-latest)`) as required status checks in the branch protection rule for `main`; this is a manual step in the GitHub settings.
+CI (`.github/workflows/ci.yml`) runs `just check` on Linux (ubuntu-22.04), Windows and macOS for every pull request and every push to `main`. It calls only `just check`, so local and CI checks cannot drift (QA-5), and on Linux also `just smoke` (see "End-to-end smoke test"). The repository owner must mark the three CI jobs (`check (ubuntu-22.04)`, `check (windows-latest)`, `check (macos-latest)`) as required status checks in the branch protection rule for `main`; this is a manual step in the GitHub settings.
 
 On Windows, `just` needs `sh` on PATH, which Git for Windows provides.
 
@@ -114,7 +140,7 @@ Some section 9 budgets need the real app: cold start until the tree shows, selec
 
 It needs `tauri-driver` (`cargo install tauri-driver --locked`) and WebKitWebDriver (`sudo apt install webkit2gtk-driver` on Debian and Ubuntu). Run it pinned to 8 cores, with nothing else busy, before a release and for a milestone sign-off: `taskset -c 0-7 just bench-ui`. It does not run in CI.
 
-`--verbose` also prints where memory goes and a timeline of the start: each step the core and the page mark (window created, page started, first script, each command's first call and answer, tree in the DOM, tree visible) and every stall of the app's main loop or the page's main thread, as the median over the runs. `--start-only` measures the cold start alone and ends each run once the tree shows. `--direct` does the same but starts the app itself, without WebDriver.
+`--verbose` also prints where memory goes and a timeline of the start: each step the core and the page mark (window created, page started, first script, each command's first call and answer, tree in the DOM, tree visible) and every stall of the app's main loop or the page's main thread, as the median over the runs. `--job-only` measures `input-latency-job` alone: the filter key while real jobs run, a fetch of every repo from a local bare remote and then a pull of the largest, on working copies made for the run so the data set is never written. `--start-only` measures the cold start alone and ends each run once the tree shows. `--direct` does the same but starts the app itself, without WebDriver.
 
 ## Integration tests and unwrap (QA-4)
 

@@ -1,0 +1,62 @@
+# The operations of spec section 6 and the tests that cover each path (M2-15).
+# `ops_matrix_every_operation_has_success_failure_and_conflict_tests` reads
+# this file: every test named must exist under crates/, every operation
+# needs a success and a failure test, and every `pub async fn` of
+# `gitcroc-git::ops` must be in a row.
+#
+# Columns, separated by " | ":
+#   area | operation | ops functions | success | failure | conflict
+# Several functions or tests are separated by ", "; "-" for an operation that
+# runs no git write, "n/a" where git cannot stop in conflict.
+#
+# Success: the job ends *succeeded* and the repo is as git leaves it.
+# Failure: the job ends *failed* with git's message, or the request is
+# refused with its reason before git runs.
+# Conflict: the job ends *conflict* and the repo is in conflict state.
+
+Repos | Add existing folder | - | grp_1_scan_finds_repos_at_depths_1_to_4, grp_1_adding_a_repo_twice_is_a_no_op | grp_1_a_folder_without_repos_or_missing_is_reported, grp_1_scan_refuses_bare_repos_and_skips_symlinks | n/a
+Repos | Clone | clone | grp_1_a_clone_is_added_to_the_workspace, grp_1_a_clone_into_an_empty_folder_is_added | grp_7_a_failed_clone_is_failed_and_leaves_no_folder, grp_1_a_folder_that_is_not_empty_is_refused_before_git_runs | n/a
+Repos | Remove from workspace | - | grp_3_removing_a_repo_leaves_the_disk_untouched | grp_3_removing_a_repo_leaves_the_disk_untouched | n/a
+Repos | Open in file manager | - | arch_3_open_commands_take_the_path_as_one_argument | plat_1_a_repo_folder_that_is_gone_is_reported_and_nothing_starts | n/a
+Repos | Open in terminal | - | arch_3_open_commands_take_the_path_as_one_argument | plat_1_a_missing_terminal_names_what_was_tried, plat_1_a_repo_folder_that_is_gone_is_reported_and_nothing_starts | n/a
+Working copy | Stage by file | stage | ui_15_stage_and_unstage_a_file, ui_15_stage_and_unstage_several_files_in_one_job | ui_15_a_locked_index_fails_the_job_with_gits_message | n/a
+Working copy | Stage by hunk | apply_patch | ui_15_stage_and_unstage_a_hunk | ui_15_stale_hunk_is_refused, ui_15_hunks_need_the_diff_shown_with_whitespace | n/a
+Working copy | Unstage by file | unstage | ui_15_stage_and_unstage_a_file, ui_15_unstage_on_an_unborn_branch | ui_15_a_locked_index_fails_the_job_with_gits_message | n/a
+Working copy | Unstage by hunk | apply_patch | ui_15_stage_and_unstage_a_hunk | ui_15_stale_hunk_is_refused | n/a
+Working copy | Discard by file | discard_tracked, discard_untracked | ui_15_discard_a_file_and_a_hunk | ui_15_a_locked_index_fails_the_job_with_gits_message, grp_9_discard_needs_confirmation | n/a
+Working copy | Discard by hunk | apply_patch | ui_15_discard_a_file_and_a_hunk | ui_15_stale_hunk_is_refused, grp_9_discard_needs_confirmation | n/a
+Working copy | Commit | commit | ui_15_commit_staged_changes, sec_6_sign_off_follows_git_config | ui_15_commit_without_an_identity_fails_with_gits_message, sec_6_hooks_run_as_on_the_command_line | n/a
+Working copy | Amend last commit | commit | ui_15_amend_last_commit | ui_15_amend_needs_a_commit_and_a_commit_needs_no_conflict | n/a
+Branches | Checkout | switch | ui_7_checkout_a_local_branch | grp_12_checkout_never_stashes, ui_7_checkout_a_local_branch | n/a
+Branches | Create | branch_create | ui_7_create_a_branch | ui_7_create_a_branch, sec_4_invalid_names_are_refused_before_git_runs | n/a
+Branches | Rename | branch_rename | ui_7_rename_a_branch | ui_7_rename_a_branch | n/a
+Branches | Delete | branch_delete, remote_branch_delete | ui_7_delete_a_branch, grp_9_remote_delete_needs_confirmation | ui_7_delete_a_branch, grp_9_force_delete_needs_confirmation | n/a
+Branches | Set upstream | branch_set_upstream | ui_7_set_and_unset_the_upstream | ui_7_set_and_unset_the_upstream | n/a
+Branches | Checkout of a remote branch | switch_track | ui_7_checkout_a_remote_branch | ui_7_checkout_a_remote_branch | n/a
+Branches | Checkout of a commit | switch_detach | ui_7_checkout_a_commit_detached | ui_7_checkout_a_commit_detached | n/a
+Sync | Fetch | fetch_all, fetch_remote | fetch_brings_new_commits_with_progress_then_nothing_to_do | fetch_fails_on_an_unreachable_remote, sync_is_refused_with_the_reason | n/a
+Sync | Pull | pull_fetched | pull_fast_forwards_then_nothing_to_do, pull_merges_or_rebases_diverged_branches | pull_ff_only_is_failed_on_diverged_branches, grp_12_pull_never_stashes | ops_1_a_conflicting_merge_pull_ends_conflict, ops_1_a_conflicting_rebase_pull_ends_conflict
+Sync | Push | push | push_to_the_upstream_then_nothing_to_do, push_sets_the_upstream_of_a_new_branch | push_rejected_as_not_a_fast_forward_is_failed | n/a
+Integrate | Merge | merge | merge_fast_forwards, merge_no_ff_makes_a_merge_commit | merge_ff_only_fails_on_diverged_history, grp_12_merge_never_stashes | ops_1_a_conflicting_merge_ends_conflict_and_abort_restores_the_branch
+Integrate | Rebase | rebase | rebase_replays_the_branch_onto_the_ref | grp_12_merge_never_stashes, merge_and_rebase_are_refused_on_a_detached_head_or_an_unknown_ref | rebase_stops_at_step_2_of_3_continues_into_a_further_conflict_and_aborts
+Integrate | Cherry-pick | cherry_pick | cherry_pick_applies_one_commit, cherry_pick_applies_three_commits_oldest_first | grp_12_cherry_pick_and_revert_never_stash | cherry_pick_conflicts_in_the_second_then_continues
+Integrate | Revert | revert | revert_undoes_a_commit, revert_of_a_merge_commit_asks_for_the_mainline | grp_12_cherry_pick_and_revert_never_stash | a_conflicting_revert_ends_conflict_and_aborts
+Integrate | Abort and continue | resume | merge_continue_commits_the_resolved_merge, rebase_continues_to_the_end, cherry_pick_abort_restores_the_branch, ops_2_abort_follows_the_repo_state | abort_and_continue_are_refused_without_an_operation | n/a
+Stash | Stash | stash_push | stash_with_a_message_and_untracked_files, stash_without_a_message_leaves_untracked_files | stash_message_with_a_nul_character_is_refused | n/a
+Stash | Apply | stash_apply | stash_apply_keeps_the_entry_and_pop_drops_it | grp_12_apply_over_conflicting_local_changes_fails_and_touches_nothing, a_stash_list_changed_since_it_was_read_is_refused | ops_1_a_conflicting_apply_ends_conflict_and_mark_resolved_ends_the_state
+Stash | Pop | stash_apply | stash_apply_keeps_the_entry_and_pop_drops_it | grp_12_apply_over_conflicting_local_changes_fails_and_touches_nothing, a_stash_list_changed_since_it_was_read_is_refused | a_conflicting_pop_keeps_the_stash
+Stash | Drop | stash_drop | stash_drop_needs_confirmation | a_stash_list_changed_since_it_was_read_is_refused | n/a
+Tags | Create | tag_create | create_annotated_and_lightweight_tags_at_head_or_a_commit, create_with_push_creates_and_pushes_the_tag_as_one_job | create_tag_refuses_an_existing_name_a_missing_commit_and_a_blank_message, sec_4_invalid_tag_names_are_refused_before_git_runs | n/a
+Tags | Delete | tag_delete, remote_tag_delete | delete_tag_locally, delete_tag_also_on_the_remote_after_a_confirmation | delete_on_an_unreachable_remote_fails_and_keeps_the_local_tag | n/a
+Tags | Push | tag_push | push_tag_to_a_file_remote_and_fail_on_a_different_tag_of_that_name | push_tag_to_a_file_remote_and_fail_on_a_different_tag_of_that_name, push_tag_asks_for_a_remote_when_there_is_no_origin_and_several | n/a
+Reset | Soft | reset | reset_soft_moves_the_branch_and_keeps_the_index_and_the_working_tree | reset_refuses_what_names_no_commit_and_a_repo_in_conflict_state | n/a
+Reset | Mixed | reset | reset_mixed_resets_the_index_and_keeps_the_working_tree | reset_refuses_what_names_no_commit_and_a_repo_in_conflict_state | n/a
+Reset | Hard | reset | grp_9_hard_reset_needs_confirmation, reset_of_a_detached_head_resets_head_and_says_so | reset_refuses_what_names_no_commit_and_a_repo_in_conflict_state | n/a
+Remotes | Add | remote_add | add_a_remote_and_fetch_it_as_one_job_or_only_add_it | add_with_a_fetch_that_fails_fails_and_keeps_the_remote, sec_4_add_refuses_a_taken_or_invalid_name_and_an_unusable_url_before_git_runs | n/a
+Remotes | Rename | remote_rename | rename_keeps_upstreams_pointing_at_the_renamed_remote | rename_refuses_a_missing_remote_a_taken_name_and_an_invalid_one | n/a
+Remotes | Remove | remote_remove | remove_asks_first_naming_the_upstreams_it_unsets | remove_without_upstreams_still_asks_and_a_missing_remote_is_refused | n/a
+Remotes | Edit URL | remote_set_url | set_url_changes_the_fetch_url_and_a_separate_push_url | set_url_refuses_a_missing_remote_and_an_unusable_url | n/a
+Conflict state | Mark resolved | mark_resolved | ops_5_mark_resolved_writes_and_stages | ops_5_mark_resolved_refuses_markers, ops_5_a_conflict_resolved_meanwhile_is_refused_as_already_resolved | n/a
+Conflict state | Choose a version | choose | ops_6_choice_conflicts | ops_5_a_conflict_resolved_meanwhile_is_refused_as_already_resolved | n/a
+Not in section 6 | Commit-graph cache (PERF-2) | commit_graph_write | arch_1_commit_graph_is_written_by_the_git_cli | arch_1_a_failed_commit_graph_write_is_reported | n/a
+Not in section 6 | File system monitor settings (PERF-7) | fsmonitor_enable | perf_7_never_changes_git_config_without_asking | grp_8_turning_the_settings_on_is_refused_in_conflict_state | n/a

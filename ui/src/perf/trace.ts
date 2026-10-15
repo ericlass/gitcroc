@@ -68,9 +68,20 @@ type Condition = keyof typeof conditions;
 
 interface Result {
   ms: number;
-  /** A refresh was running when the action started (a repo row showed its spinner). */
+  /** What the scenario waits for was running when the action started: see {@link busyWhen}. */
   busy: boolean;
 }
+
+/**
+ * What makes an action busy: a refresh (a repo row shows its spinner), or a
+ * job (the status bar shows one running, M2-15).
+ */
+const busyWhen = {
+  refresh: () => document.querySelector(".tree-pane .spinner") !== null,
+  job: () => document.querySelector(".status-bar .job-running") !== null,
+};
+
+type Busy = keyof typeof busyWhen;
 
 /** What the panes show, for an error message. */
 function snapshot(): string {
@@ -109,7 +120,7 @@ async function until(check: () => boolean, since: number): Promise<number> {
  * frame after `condition` holds. The driver arms, acts through WebDriver,
  * then awaits `result(scenario)`.
  */
-function arm(scenario: string, condition: Condition, argument: string) {
+function arm(scenario: string, condition: Condition, argument: string, busy: Busy = "refresh") {
   const events = ["pointerdown", "mousedown", "keydown"] as const;
   const check = () => conditions[condition](argument);
   const result = new Promise<Result>((resolve, reject) => {
@@ -121,11 +132,11 @@ function arm(scenario: string, condition: Condition, argument: string) {
     const onAction = (event: Event) => {
       stop();
       const start = event.timeStamp;
-      const busy = document.querySelector(".tree-pane .spinner") !== null;
+      const running = busyWhen[busy]();
       until(check, armed).then((end) => {
         const ms = end - start;
-        samples.push({ scenario: busy || condition !== "input" ? scenario : `${scenario}-idle`, ms });
-        resolve({ ms, busy });
+        samples.push({ scenario: running || condition !== "input" ? scenario : `${scenario}-idle`, ms });
+        resolve({ ms, busy: running });
       }, reject);
     };
     const stop = () => {

@@ -12,6 +12,7 @@ check:
     pnpm --dir ui exec playwright test
     just coverage M0
     just coverage M1
+    just coverage M2
 
 # One-time setup after cloning: front-end packages and Playwright's Chromium.
 setup:
@@ -55,6 +56,15 @@ bench-data set:
 # sets that exist locally. Prints JSON.
 bench *flags:
     cargo run --quiet --release -p gitcroc-cli -- bench {{flags}}
+
+# End-to-end smoke test (section 12, M2-15) on the real app, Linux only:
+# add a repo, stage, commit, and resolve a merge conflict by hand. Builds the
+# app with the `e2e` feature into its own target dir and drives it through
+# tauri-driver and WebKitWebDriver. CI's Linux job runs it under xvfb-run.
+smoke:
+    CARGO_TARGET_DIR="{{justfile_directory()}}/target/e2e" TAURI_APP_PATH="{{justfile_directory()}}/crates/gitcroc-app" pnpm --dir ui exec tauri build --debug --no-bundle --features e2e >&2
+    CARGO_TARGET_DIR="{{justfile_directory()}}/target/e2e" cargo build --quiet -p gitcroc-cli
+    node ui/webdriver/smoke.ts
 
 # UI-side budgets of section 9 (PERF-8) on the real app and target-project,
 # Linux only. Builds the app with the `perf-trace` feature into its own target

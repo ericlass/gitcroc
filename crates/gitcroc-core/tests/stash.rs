@@ -367,13 +367,21 @@ async fn grp_12_apply_over_conflicting_local_changes_fails_and_touches_nothing()
     repo.write("a.txt", "local\n").unwrap();
     let mut run = Run::new(&repo).await;
 
-    let stash = run.stash(0);
-    let ended = run.run(StashOp::Pop { stash }).await;
-    outcome(&ended, Outcome::Failed);
-    assert!(ended.output.contains("a.txt"), "{}", ended.output);
-    assert_eq!(read(&repo, "a.txt"), "local\n");
-    assert_eq!(messages(&run), ["On main: work"]);
-    assert!(!run.state().in_conflict());
+    for op in [
+        StashOp::Apply {
+            stash: run.stash(0),
+        },
+        StashOp::Pop {
+            stash: run.stash(0),
+        },
+    ] {
+        let ended = run.run(op).await;
+        outcome(&ended, Outcome::Failed);
+        assert!(ended.output.contains("a.txt"), "{}", ended.output);
+        assert_eq!(read(&repo, "a.txt"), "local\n");
+        assert_eq!(messages(&run), ["On main: work"]);
+        assert!(!run.state().in_conflict());
+    }
 }
 
 #[tokio::test]
