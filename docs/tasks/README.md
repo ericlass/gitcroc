@@ -90,6 +90,37 @@ after them. M2-09 is the risky part of the milestone (hunks from index stages,
 detecting a file edited outside); it can start as soon as M2-08's conflicts
 exist, while M2-12 to M2-14 run beside it.
 
+## M3 Multi-repo
+
+Milestone goal (docs/spec/13-milestones.md): workspaces in tabs, groups,
+multi-selection, preflight, group operations including group commit, the
+result report, merged history, the summary strip, and import and export. Done
+when the mixed-branch scenario passes as a test, all section 9 budgets are met
+on `target-project`, and the stretch results for `many-repos` are reported.
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| [M3-01](M3-01-workspaces.md) | Several open workspaces in the core: list, create, open, close, rename, delete, session restore | M2 |
+| [M3-02](M3-02-workspace-tabs.md) | Tab bar with the "+" menu, reorder and close; each tab restores its state | M3-01 |
+| [M3-03](M3-03-background-tabs.md) | Background tabs not watched or refreshed, history and diffs released, tab badges | M3-02 |
+| [M3-04](M3-04-groups-core.md) | Groups in the core: names, members, order, derived branch and totals, tree with groups | M3-01 |
+| [M3-05](M3-05-groups-in-the-tree.md) | Group rows, group context menus, dragging repos between groups | M3-04 |
+| [M3-06](M3-06-target-sets.md) | Multi-selection, target sets, toolbar on the target set, summary strip | M3-05 |
+| [M3-07](M3-07-merged-history.md) | Merged history: lazy k-way merge, repo column, search; group history budget | M3-06 |
+| [M3-08](M3-08-group-jobs-and-preflight.md) | Group jobs with sub-jobs, preflight, confirm rule, result report, parallelism (core) | M3-06 |
+| [M3-09](M3-09-preflight-dialog-and-report.md) | Preflight dialog, destructive confirmation, result report, Retry failed | M3-08 |
+| [M3-10](M3-10-group-sync.md) | Group fetch, pull and push | M3-09 |
+| [M3-11](M3-11-group-branches.md) | Group checkout, create and delete branch; group Branches double-click; mixed-branch scenario | M3-10 |
+| [M3-12](M3-12-group-merge-rebase-tag.md) | Group merge and rebase with conflict prediction; group create tag | M3-09 |
+| [M3-13](M3-13-group-commit.md) | Group commit: sectioned uncommitted view, one message, one commit per repo | M3-07, M3-09 |
+| [M3-14](M3-14-import-export.md) | Export and import of workspaces, cloning missing repos, clone into a group | M3-02, M3-04 |
+| [M3-15](M3-15-signoff.md) | Multi-repo budgets, many-repos stretch, group smoke test, M3 sign-off | M3-01 to M3-14 |
+
+Two tracks can run side by side after M3-01: tabs (M3-02, M3-03) and groups
+(M3-04 onward). M3-07 and M3-08 can run in parallel after M3-06, and M3-12
+beside M3-10 and M3-11. M3-14 needs only M3-02 and M3-04. M3-08 is the core of
+the milestone: every group operation is built on its classify and run parts.
+
 ## Choices made in these tasks that the spec does not cover
 
 Each is a default so the tasks have no gaps. Veto any of them before the first
@@ -211,3 +242,34 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Clone | Into a parent folder and a name defaulting to the URL's last segment; a non-empty target is refused; cancel and failure remove the folder the clone created. Added to the open workspace and selected | M2-14 |
 | Terminal | Linux: `x-terminal-emulator`, then `gnome-terminal`, `konsole`, `xterm`; macOS: Terminal; Windows: Windows Terminal, else `cmd` | M2-14 |
 | End-to-end smoke | Linux only for now, locally and in CI's Linux job; Windows deferred like the other Windows runs. It waits for results in the DOM, never for a time | M2-15 |
+| What M3 completes | UI-27 to UI-34, GRP-2 to GRP-15, PERF-5, DATA-2, and the group forms of GRP-7 (*skipped*), GRP-8, GRP-9, GRP-10 and GRP-12. UI-1, UI-2 and UI-7 are completed with groups and dragging. The command palette (UI-22) stays M5, but every new control is reachable by keyboard | M3-01 to M3-14 |
+| Workspace names | Trimmed, 1 to 64 characters, unique among the workspace files ignoring case, as GRP-2 has for groups | M3-01 |
+| Rename and delete a workspace | Rename from the tab's context menu. Delete from the "+" menu, only for a workspace that is not open, after a confirmation. It removes the workspace file and nothing else | M3-01, M3-02 |
+| Session file | An optional `[session]` table in `settings.toml`, schema unchanged: `tabs` (open workspace ids in order) and `active`. Without it, the M1 rule opens the newest file or creates "My workspace". A missing file is left out with a warning | M3-01 |
+| No tab open | Closing the last tab is allowed; the window shows an empty state with the "+" menu's actions | M3-01, M3-02 |
+| Closing a tab | Running jobs keep running and stay in the job list. Unsaved conflict editor state (OPS-9) asks first | M3-02 |
+| Tab keyboard | Ctrl/Cmd+Shift+PageUp/PageDown moves a tab | M3-02 |
+| Unseen failure | A *failed* or *conflict* outcome is seen when the job list is opened or its report is shown in the active tab (M2-02's rule, per tab) | M3-03 |
+| Group ids | `g1`, `g2`, … in file order at load, kept in memory only, so the section 10 format is unchanged and a rename keeps the id for the session | M3-04 |
+| Group name "Ungrouped" | Refused, ignoring case, so a group cannot be confused with the built-in node | M3-04 |
+| Mixed count | Distinct current branches of the members whose summary is known; every detached member counts together as one value "detached"; missing members do not count | M3-04 |
+| Group filter | The tree filter also matches group names; a group matched by name shows all its members | M3-04 |
+| Dragging | Onto another group moves the repo from the group it was dragged from; Ctrl (Alt on macOS) adds instead; from Ungrouped always adds; onto Ungrouped removes it from its group. Every drag also exists as a context menu item | M3-05 |
+| Multi-selection order | A multi-selection's target set is in tree order without duplicates. Shift-click ranges over visible repo rows only. Clicking a non-repo row replaces the multi-selection | M3-06 |
+| Merged history order | Newest first by commit date; ties by target-set order, then each repo walk's order. A commit in two repos shows once per repo. Unborn and missing repos add no rows | M3-07 |
+| Merged list menu | The commit menu acts on the row's repo; cherry-pick takes a multi-selection only from one repo | M3-07 |
+| Preflight over IPC | Returns an id at once; the result arrives as `preflight_ready`. Not listed in the job list. Used once; refused when the workspace changed since it ran | M3-08 |
+| Who runs | *Will run* and *needs attention* repos run. *Will skip* and *blocked* repos are reported as *skipped* with their reason, so GRP-7's five outcomes stay exact. GRP-8 is checked again when each sub-job starts | M3-08 |
+| No unchecking in preflight | The dialog cannot remove repos from the target set, since GRP-5 allows no other way to build one; the user changes the selection instead | M3-09 |
+| Parallelism setting | `group_parallelism` in `settings.toml`, 1 to 32, default 8. It sizes the shared pool (PERF-4), so single jobs and the background refresh share it | M3-08 |
+| Report opens by itself | When a group job ends with a *failed* or *conflict* outcome and its tab is active; otherwise the tab marker shows | M3-09 |
+| Askpass in group jobs | Prompts from parallel sub-jobs queue in the one dialog, each naming its repo; cancelling one fails only that sub-job | M3-10 |
+| Group push without origin | Section 5 names `origin/<branch>`, so a repo with no upstream and no `origin` is *will skip*; the single-repo rule of the only remote does not apply to groups | M3-10 |
+| Checkout policy classes | "Switch to default branch" and "create X from HEAD" make the repo *needs attention* with what will happen. X on several remotes and not local is *will skip* | M3-11 |
+| Group remote branch delete | On the remote of X's upstream, else `origin`; with neither, the local delete runs alone and the result says so | M3-11 |
+| Conflict prediction | `git merge-tree --write-tree HEAD X` in preflight. It writes objects only, so the runner allows it as read-only, like M1's commit-graph write. For rebase the same check is labelled "may conflict" | M3-12 |
+| Group commit options | "Stage all tracked changes first" runs `git add -u` in the sub-job. "Push after commit" pushes in the same sub-job; a failed push after a made commit is *failed* with a message saying so. The confirmation always shows | M3-13 |
+| Group message box | Kept per workspace and target set while the app runs; cleared when every repo that ran committed | M3-13 |
+| Export content | Name, repos and groups with paths relative to the exported file and `/` separators. No layout and no offer answers. A path on another Windows drive stays absolute | M3-14 |
+| Import | Makes a new workspace (name gets " (2)" when taken) with the file's ids and groups. Missing repos stay with the missing-path warning, and the clone dialog fills in their path, keeping their id | M3-14 |
+| Tab-switch timing | From the click to the frame after the history's top row changes, between two workspaces with their largest repo selected | M3-15 |
