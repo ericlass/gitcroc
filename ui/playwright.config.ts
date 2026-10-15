@@ -10,6 +10,10 @@ export default defineConfig({
   // macOS runner. The tests share nothing but the preview server.
   workers: process.env.CI ? 4 : undefined,
   fullyParallel: true,
+  // Limits that only end a hang: nothing here waits on a timer, and a loaded
+  // runner can be many times slower than a desktop.
+  timeout: 120_000,
+  expect: { timeout: 30_000 },
   reporter: process.env.CI ? "github" : "list",
   use: {
     baseURL: "http://localhost:4173",

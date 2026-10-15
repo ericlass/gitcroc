@@ -53,6 +53,9 @@ export interface WorkspaceChanges {
   offerAnswered: Record<RepoId, boolean | undefined>;
   /** Why the last answer to the offer failed. */
   offerError: string | null;
+  /** Where the file list and the diff were scrolled, for when they are shown again (UI-29). */
+  listScroll: number;
+  diffScroll: number;
 }
 
 const empty = (): WorkspaceChanges => ({
@@ -72,6 +75,8 @@ const empty = (): WorkspaceChanges => ({
   notice: null,
   offerAnswered: {},
   offerError: null,
+  listScroll: 0,
+  diffScroll: 0,
 });
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -104,6 +109,9 @@ export const ACTION_LIST: Record<ChangeAction, "staged" | "unstaged"> = {
 
 /** The message shown when the core refused a hunk because its file changed. */
 export const FILE_CHANGED = "The file changed; showing it again.";
+
+/** The message shown when a newer read of the list replaced the one the user acted on. */
+export const LIST_CHANGED = "The list changed; showing it again.";
 
 export function createChangesStore(settings: () => ChangesSettings) {
   const [state, setState] = createStore<{ byWorkspace: Record<WorkspaceId, WorkspaceChanges> }>({ byWorkspace: {} });
@@ -239,6 +247,8 @@ export function createChangesStore(settings: () => ChangesSettings) {
         c.diffError = null;
         c.confirm = null;
         c.notice = null;
+        c.listScroll = 0;
+        c.diffScroll = 0;
       });
       return load(id, null);
     });
@@ -261,6 +271,7 @@ export function createChangesStore(settings: () => ChangesSettings) {
     update(id, (c) => {
       c.file = file;
       c.loadAnyway = false;
+      c.diffScroll = 0;
     });
     return loadDiff(id);
   };
@@ -278,6 +289,10 @@ export function createChangesStore(settings: () => ChangesSettings) {
     try {
       const start = await changesApply(id, request);
       if (start === null) {
+        // A refresh read the view again while the user clicked; the core
+        // ran nothing. Say so rather than drop the click.
+        update(id, (c) => (c.notice = LIST_CHANGED));
+        await reload(id);
         return;
       }
       switch (start.kind) {
@@ -359,6 +374,9 @@ export function createChangesStore(settings: () => ChangesSettings) {
       void reload(id);
     });
 
+  const setScroll = (id: WorkspaceId, which: "listScroll" | "diffScroll", scrollTop: number) =>
+    update(id, (c) => (c[which] = scrollTop));
+
   return {
     state,
     changes,
@@ -375,6 +393,7 @@ export function createChangesStore(settings: () => ChangesSettings) {
     cancelDiscard,
     answerOffer,
     dismissOfferError,
+    setScroll,
   };
 }
 

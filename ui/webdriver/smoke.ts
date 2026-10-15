@@ -266,8 +266,28 @@ async function smoke(session: Session, app: string, env: NodeJS.ProcessEnv) {
 
   log("stage a file");
   await session.textIs(FILE_SECTIONS, ["Staged (0)", "Unstaged (1)"]);
-  await session.click([["button", "Stage notes.txt"]]);
-  await session.textIs(FILE_SECTIONS, ["Staged (1)", "Unstaged (0)"]);
+  // The list may be read again while the repo just added settles; a click on
+  // the list it replaced reaches nothing, the app says so, and the user
+  // clicks again.
+  for (let attempt = 1; ; attempt++) {
+    await session.click([["button", "Stage notes.txt"]]);
+    const outcome = await session.until<string>(
+      "the file staged, or the list read again",
+      `const texts = [...document.querySelectorAll(args[0])].map((el) => el.textContent.trim());
+       if (JSON.stringify(texts) === JSON.stringify(args[1])) return "staged";
+       const notices = [...document.querySelectorAll('[role="status"]')].map((el) => el.textContent.trim());
+       return notices.includes(args[2]) ? "again" : null;`,
+      FILE_SECTIONS,
+      ["Staged (1)", "Unstaged (0)"],
+      "The list changed; showing it again.",
+    );
+    if (outcome === "staged") {
+      break;
+    }
+    if (attempt === 3) {
+      throw new Error("the list changed under every click on Stage");
+    }
+  }
 
   log("commit");
   await session.type(
