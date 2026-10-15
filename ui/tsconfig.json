@@ -11,10 +11,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "noEmit": true,
     "types": ["node", "vite/client"]
   },
-  "include": ["src", "e2e", "bench", "vite.config.ts", "playwright.config.ts"]
+  "include": ["src", "e2e", "bench", "webdriver", "vite.config.ts", "playwright.config.ts"]
 }

@@ -585,6 +585,14 @@ async fn ui_15_stale_hunk_is_refused() {
         .await
         .unwrap();
     assert_eq!(answer, Some(ChangeStart::FileChanged));
+    // A discard of that hunk too, confirmed: the edit is never lost.
+    let answer = run
+        .ask(&view, ChangeAction::Discard, target.clone(), true)
+        .await
+        .unwrap();
+    assert_eq!(answer, Some(ChangeStart::FileChanged));
+    let on_disk = std::fs::read_to_string(run.repo.path().join("f.txt")).unwrap();
+    assert!(on_disk.contains("line twenty\n"), "{on_disk}");
     assert_eq!(run.cached_diff(), "");
     assert!(run.jobs.all_views().is_empty());
 
@@ -610,6 +618,20 @@ async fn ui_15_stale_hunk_is_refused() {
     let target = ChangeTarget::Hunk { file, hunk: 0 };
     let ended = run.apply(&view, ChangeAction::Stage, target).await;
     assert_eq!(ended.outcome, Some(Outcome::Succeeded), "{ended:?}");
+
+    // Unstage: the index changed in a terminal while the staged diff is shown.
+    let view = run.view().await;
+    let file = find(&view, FileList::Staged, "f.txt");
+    run.diff(&view, file).await;
+    let staged = run.cached_diff();
+    run.repo.git(["add", "f.txt"]).unwrap();
+    let target = ChangeTarget::Hunk { file, hunk: 0 };
+    let answer = run
+        .ask(&view, ChangeAction::Unstage, target, false)
+        .await
+        .unwrap();
+    assert_eq!(answer, Some(ChangeStart::FileChanged));
+    assert_ne!(run.cached_diff(), staged);
 }
 
 #[tokio::test]
@@ -665,17 +687,27 @@ async fn ui_15_a_locked_index_fails_the_job_with_gits_message() {
     let fixture = Fixture::new().unwrap();
     let repo = new_repo(&fixture);
     repo.commit_file("a.txt", "a\n", "First").unwrap();
+    repo.commit_file("b.txt", "b\n", "Second").unwrap();
     repo.write("a.txt", "changed\n").unwrap();
+    repo.write("b.txt", "staged\n").unwrap();
+    repo.git(["add", "b.txt"]).unwrap();
     let mut run = Run::new(repo).await;
 
     let lock = run.repo.path().join(".git").join("index.lock");
     std::fs::write(&lock, "").unwrap();
     let view = run.view().await;
-    let file = find(&view, FileList::Unstaged, "a.txt");
-    let target = ChangeTarget::Files { files: vec![file] };
-    let ended = run.apply(&view, ChangeAction::Stage, target).await;
-    assert_eq!(ended.outcome, Some(Outcome::Failed));
-    assert!(ended.output.contains("index.lock"), "{ended:?}");
+    // Stage, unstage and discard each fail and change nothing.
+    for (action, list, path) in [
+        (ChangeAction::Stage, FileList::Unstaged, "a.txt"),
+        (ChangeAction::Unstage, FileList::Staged, "b.txt"),
+        (ChangeAction::Discard, FileList::Unstaged, "a.txt"),
+    ] {
+        let file = find(&view, list, path);
+        let target = ChangeTarget::Files { files: vec![file] };
+        let ended = run.apply(&view, action, target).await;
+        assert_eq!(ended.outcome, Some(Outcome::Failed), "{action:?}");
+        assert!(ended.output.contains("index.lock"), "{ended:?}");
+    }
     std::fs::remove_file(&lock).unwrap();
-    assert_eq!(run.status(), " M a.txt\n");
+    assert_eq!(run.status(), " M a.txt\nM  b.txt\n");
 }

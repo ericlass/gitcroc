@@ -693,3 +693,24 @@ async fn a_conflicting_revert_ends_conflict_and_aborts() {
     assert!(!has_ref(&repo, "REVERT_HEAD"));
     assert_eq!(repo.head().unwrap(), before);
 }
+
+#[tokio::test]
+async fn grp_12_cherry_pick_and_revert_never_stash() {
+    let (_fixture, repo, [_, two, _]) = side();
+    // "Two" changes a.txt, edited here; so does reverting "Base".
+    let base = repo.head().unwrap();
+    repo.write("a.txt", "local edit\n").unwrap();
+    repo.git(["config", "rebase.autoStash", "true"]).unwrap();
+    let mut run = Run::new(&repo).await;
+
+    for op in [cherry_pick(&[&two]), revert(&base, None)] {
+        let ended = run.run(op).await;
+        outcome(&ended, Outcome::Failed);
+        assert!(ended.message.is_some(), "git's message: {ended:#?}");
+        assert_eq!(repo.head().unwrap(), base);
+        assert_eq!(read(&repo, "a.txt"), "local edit\n");
+        assert_eq!(repo.git(["stash", "list"]).unwrap(), "");
+        assert!(!has_ref(&repo, "CHERRY_PICK_HEAD"));
+        assert!(!has_ref(&repo, "REVERT_HEAD"));
+    }
+}

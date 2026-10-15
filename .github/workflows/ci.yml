@@ -1,5 +1,6 @@
 # QA-1 and QA-5: every pull request runs `just check` on all three
-# platforms. Only `just check` runs here, so local and CI checks cannot drift.
+# platforms. Only `just check` runs here, so local and CI checks cannot drift,
+# and on Linux `just smoke`, the end-to-end smoke test (section 12, M2-15).
 name: CI
 
 on:
@@ -91,3 +92,22 @@ jobs:
 
       - name: just check
         run: just check
+
+      # WebDriver for WebKitGTK, and a display for the app.
+      - name: Install the smoke test's drivers
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y webkit2gtk-driver xvfb
+          cargo install tauri-driver --version 2.1.0 --locked
+
+      - name: just smoke
+        if: runner.os == 'Linux'
+        run: xvfb-run -a just smoke
+
+      - name: Upload the smoke test's failure screenshot
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-failure
+          path: target/e2e/failure.png
+          if-no-files-found: ignore

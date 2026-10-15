@@ -32,12 +32,21 @@ pub enum LaunchError {
     NotFound { tried: Vec<String> },
     #[error("cannot start {program}: {source}")]
     Start { program: String, source: io::Error },
+    #[error("the folder {} does not exist", path.display())]
+    NoFolder { path: PathBuf },
 }
 
-/// Starts the first of `candidates` that is installed.
+/// Starts the first of `candidates` that is installed. A folder to start in
+/// that is gone is reported as such, not as a missing program, which is how
+/// the spawn would report it.
 pub fn start(candidates: &[Launch]) -> Result<(), LaunchError> {
     let mut tried = Vec::new();
     for launch in candidates {
+        if !launch.cwd.is_dir() {
+            return Err(LaunchError::NoFolder {
+                path: launch.cwd.clone(),
+            });
+        }
         let program = launch.program.to_string_lossy().into_owned();
         let started = Command::new(&launch.program)
             .args(&launch.args)

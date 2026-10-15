@@ -553,6 +553,13 @@ pub async fn workspace_pick_and_add(
     workspace_id: WorkspaceId,
 ) -> Result<(), IpcError> {
     let git = prepare_add(&app, &workspace_id).await?;
+    // The end-to-end smoke test's answer to the dialog, which WebDriver
+    // cannot drive (M2-15); only in builds with the `e2e` feature.
+    #[cfg(feature = "e2e")]
+    if let Some(path) = std::env::var_os("GITCROC_E2E_PICK_FOLDER") {
+        spawn_add(app, workspace_id, PathBuf::from(path), git);
+        return Ok(());
+    }
     let picked = app.clone();
     app.dialog()
         .file()

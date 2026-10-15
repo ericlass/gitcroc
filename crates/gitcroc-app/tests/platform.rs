@@ -183,3 +183,25 @@ fn plat_1_a_missing_terminal_names_what_was_tried() {
         "none of gitcroc-no-such-terminal, gitcroc-nor-this-one was found"
     );
 }
+
+#[test]
+fn plat_1_a_repo_folder_that_is_gone_is_reported_and_nothing_starts() {
+    use gitcroc_app::platform::{
+        FileManager, LaunchError, PlatformFileManager, PlatformTerminal, Terminal, start,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let gone = dir.path().join("deleted repo");
+    // The folder is checked before any program is started.
+    for candidates in [
+        vec![PlatformFileManager::show(&gone)],
+        PlatformTerminal::open_in(&gone),
+    ] {
+        let error = start(&candidates).unwrap_err();
+        assert!(matches!(error, LaunchError::NoFolder { .. }), "{error:?}");
+        assert_eq!(
+            error.to_string(),
+            format!("the folder {} does not exist", gone.display())
+        );
+    }
+}
