@@ -28,8 +28,8 @@ pub use diff::{
     MAX_DIFF_LINES, MAX_IMAGE_BYTES, ModeChange, Person, TextDiff,
 };
 pub use history::{
-    CommitRow, Cursor, Edge, Filter, GraphRow, HistoryError, HistoryStart, PAGE_SIZE, Page,
-    RefKind, RefLabel, RepoRead, Time,
+    CommitRow, Cursor, Edge, Filter, GraphRow, HistoryError, HistoryStart, MergedCursor,
+    MergedPage, MergedRow, PAGE_SIZE, Page, RefKind, RefLabel, RepoRead, Time, merged_history,
 };
 pub use probe::{InspectError, Inspected, Layout, inspect, layout};
 pub use progress::{Progress, parse_progress};

@@ -55,6 +55,8 @@ const conditions = {
     const first = firstRow();
     return first !== null && first !== before;
   },
+  /** The history shows a merged list (PERF-5): its top row names its repo. */
+  merged: () => historyRows()[0]?.querySelector(".history-repo") != null,
   /** The changes pane shows commit `hash`, its file list and its first file's diff. */
   commit: (hash: string) =>
     document.querySelector(".commit-header .commit-hash")?.textContent === hash &&
@@ -215,6 +217,15 @@ function repoRow(name: string): Element | null {
   );
 }
 
+/** The tree row of the group named `name`. */
+function groupRow(name: string): Element | null {
+  return (
+    [...document.querySelectorAll('[role="tree"] [role="treeitem"]')].find(
+      (row) => row.querySelector(".tree-group .tree-label")?.textContent === name,
+    ) ?? null
+  );
+}
+
 /**
  * Scrolls history row `index` to the middle and returns it once its commit
  * `hash` shows. The list re-creates rows as it scrolls, so the row is looked
@@ -272,6 +283,7 @@ const recorder = {
   result,
   scroll,
   repoRow,
+  groupRow,
   historyRow,
   firstRow,
   idle,

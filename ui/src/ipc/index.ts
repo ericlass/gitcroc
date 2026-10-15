@@ -71,6 +71,7 @@ export type {
   CommitMessage,
   CommitRequest,
   CommitRow,
+  HistoryRow,
   UnmergedKind,
   ConfigWarning,
   Context,
@@ -287,8 +288,11 @@ export const targetRepos = (workspaceId: WorkspaceId, target: TargetSet) =>
 export const treeFilter = (workspaceId: WorkspaceId, text: string) =>
   unwrap(core.commands.treeFilter(workspaceId, text));
 
-/** `null` when a newer walk of the workspace superseded this one. */
-export const historyGet = (workspaceId: WorkspaceId, repoId: RepoId, target: HistoryTarget, text: string) =>
+/**
+ * The first page of `target`'s history: of `repoId`, or merged with `repoId` null (PERF-5). `null` when a newer
+ * walk of the workspace superseded this one.
+ */
+export const historyGet = (workspaceId: WorkspaceId, repoId: RepoId | null, target: HistoryTarget, text: string) =>
   unwrap(core.commands.historyGet(workspaceId, repoId, target, text));
 
 /** `null` when a newer walk of the workspace replaced walk `handle`. */

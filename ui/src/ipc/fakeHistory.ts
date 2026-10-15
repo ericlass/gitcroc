@@ -1,7 +1,7 @@
 // Histories for the fake core (fake.ts): a synthetic history of any length
 // with lanes like the core's, paged and filtered like the core does it.
 // Test support only; the real history and its lanes come from the core.
-import type { CommitRow, Edge, GraphRow, HistoryTarget, RefLabel } from "./bindings";
+import type { CommitRow, Edge, GraphRow, HistoryRow, HistoryTarget, RefLabel, RepoId } from "./bindings";
 
 /** Commits on one page (ARCH-8). */
 export const PAGE_SIZE = 500;
@@ -107,6 +107,46 @@ export function nextPage(walk: FakeWalk): { rows: CommitRow[]; done: boolean } {
   return { rows, done: walk.next >= walk.history.length };
 }
 
+/** The next row of `walk` that matches its text, without a graph cell; `null` at its end. */
+function nextRow(walk: FakeWalk): CommitRow | null {
+  while (walk.next < walk.history.length) {
+    const row = commitAt(walk.history, walk.next++);
+    if (walk.text === "" || matches(row, walk.text)) {
+      return { ...row, graph: null };
+    }
+  }
+  return null;
+}
+
+/** A merged walk (PERF-5): one walk per repo, each with its next row read. */
+export interface FakeMerged {
+  streams: { repo: RepoId; walk: FakeWalk; head: CommitRow | null }[];
+}
+
+export function mergedWalk(streams: { repo: RepoId; walk: FakeWalk }[]): FakeMerged {
+  return { streams: streams.map((stream) => ({ ...stream, head: nextRow(stream.walk) })) };
+}
+
+/** The next page of `merged`, newest first by commit date; ties go to the repo listed first. */
+export function nextMergedPage(merged: FakeMerged): { rows: HistoryRow[]; done: boolean } {
+  const rows: HistoryRow[] = [];
+  while (rows.length < PAGE_SIZE) {
+    let newest: FakeMerged["streams"][number] | undefined;
+    for (const stream of merged.streams) {
+      const time = stream.head?.commit_time.seconds;
+      if (time !== undefined && (newest?.head == null || time > newest.head.commit_time.seconds)) {
+        newest = stream;
+      }
+    }
+    if (newest?.head == null) {
+      break;
+    }
+    rows.push({ ...newest.head, repo_id: newest.repo });
+    newest.head = nextRow(newest.walk);
+  }
+  return { rows, done: merged.streams.every((stream) => stream.head === null) };
+}
+
 /** What a target shows when the fake state has nothing for it. */
 export function defaultHistory(repoName: string, target: HistoryTarget): FakeHistory {
   switch (target.kind) {
@@ -114,6 +154,8 @@ export function defaultHistory(repoName: string, target: HistoryTarget): FakeHis
       return { length: 40, prefix: repoName };
     case "stash":
       return { length: 1, prefix: `stash@{${target.index}}` };
+    case "merged":
+      return { length: 0, prefix: "" };
     default:
       return { length: 20, prefix: target.name };
   }
@@ -126,6 +168,8 @@ export function historyKey(repoId: string, target: HistoryTarget): string {
       return repoId;
     case "stash":
       return `${repoId}:stash:${target.index}`;
+    case "merged":
+      return `${repoId}:merged`;
     default:
       return `${repoId}:${target.kind}:${target.name}`;
   }

@@ -1,15 +1,15 @@
 // The history as rows on screen: the "Uncommitted changes" row (UI-10), the
 // loaded commits, then placeholders for the page that loads next (PERF-2).
 // Rows are found by index, so nothing is built per row of a long history.
-import type { CommitRow } from "../ipc";
-import { UNCOMMITTED_ID, type WorkspaceHistory } from "../stores/history";
+import type { HistoryRow } from "../ipc";
+import { rowIdOf, UNCOMMITTED_ID, type WorkspaceHistory } from "../stores/history";
 
 /** Placeholder rows past the loaded ones while more may follow: one page. */
 export const PLACEHOLDER_ROWS = 500;
 
-export type HistoryRow =
+export type ListRow =
   | { kind: "uncommitted"; id: string; count: number }
-  | { kind: "commit"; id: string; commit: CommitRow }
+  | { kind: "commit"; id: string; commit: HistoryRow }
   | { kind: "placeholder"; id: string };
 
 /** What the list shows of `history`, with `changes` uncommitted paths. */
@@ -19,7 +19,7 @@ export interface HistoryRows {
   offset: number;
   /** Index of the first placeholder; `count` when there are none. */
   loaded: number;
-  at: (index: number) => HistoryRow | undefined;
+  at: (index: number) => ListRow | undefined;
   indexOf: (id: string) => number;
 }
 
@@ -33,7 +33,7 @@ export function historyRows(history: WorkspaceHistory, changes: number): History
   const rows = history.rows.list;
   const loaded = offset + rows.length;
   const count = loaded + (history.done ? 0 : PLACEHOLDER_ROWS);
-  const at = (index: number): HistoryRow | undefined => {
+  const at = (index: number): ListRow | undefined => {
     if (index < 0 || index >= count) {
       return undefined;
     }
@@ -41,13 +41,15 @@ export function historyRows(history: WorkspaceHistory, changes: number): History
       return { kind: "uncommitted", id: UNCOMMITTED_ID, count: changes };
     }
     const commit = rows[index - offset];
-    return commit ? { kind: "commit", id: commit.hash, commit } : { kind: "placeholder", id: `placeholder:${index}` };
+    return commit
+      ? { kind: "commit", id: rowIdOf(history.source, commit), commit }
+      : { kind: "placeholder", id: `placeholder:${index}` };
   };
   const indexOf = (id: string) => {
     if (id === UNCOMMITTED_ID) {
       return uncommitted ? 0 : -1;
     }
-    const found = rows.findIndex((row) => row.hash === id);
+    const found = rows.findIndex((row) => rowIdOf(history.source, row) === id);
     return found < 0 ? -1 : found + offset;
   };
   return { count, offset, loaded, at, indexOf };

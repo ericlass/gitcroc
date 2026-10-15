@@ -1,11 +1,11 @@
 // The history each workspace's pane shows, as the core pages it (ARCH-8,
 // PERF-2), and where the user was in each tree selection's history, all
-// keyed by workspace id (ARCH-9). The core walks, lays out lanes and filters
-// (ARCH-6, UI-12); this store only asks for pages and keeps them.
+// keyed by workspace id (ARCH-9). The core walks, merges the histories of a
+// group or several repos (PERF-5), lays out lanes and filters (ARCH-6,
+// UI-12); this store only asks for pages and keeps them.
 import { untrack } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import {
-  type CommitRow,
   commitGraphDecline,
   commitGraphWrite,
   core,
@@ -13,7 +13,9 @@ import {
   type HistoryTarget,
   type HistoryView,
   historyMore,
+  type HistoryRow,
   type RepoId,
+  type TargetSet,
   type TreeItem,
   type WorkspaceId,
 } from "../ipc";
@@ -26,7 +28,8 @@ export const UNCOMMITTED_ID = "uncommitted";
 export interface HistorySource {
   /** Positions are kept under it. */
   key: string;
-  repo: RepoId;
+  /** `null` for the merged history of a group or several repos. */
+  repo: RepoId | null;
   target: HistoryTarget;
   /** The "Uncommitted changes" row may lead the list (UI-10). */
   uncommitted: boolean;
@@ -73,13 +76,45 @@ export function sourceOf(nodeId: string | null, item: TreeItem | null): HistoryS
 }
 
 /**
+ * The merged history of a group or several repos (PERF-5). A multi-selection
+ * keeps one position whatever order its repos were picked in.
+ */
+export function mergedSource(target: TargetSet): HistorySource {
+  const key =
+    target.kind === "group"
+      ? `group:${target.group_id}`
+      : target.kind === "repos"
+        ? `repos:${[...target.repo_ids].sort().join(",")}`
+        : `repo:${target.repo_id}`;
+  return { key: `merged:${key}`, repo: null, target: { kind: "merged", target }, uncommitted: false };
+}
+
+/**
+ * The id of a commit row: its hash, and in a merged history its repo's id
+ * before it, as the same commit may be in two repos.
+ */
+export function rowIdOf(source: HistorySource | null, row: HistoryRow): string {
+  return source?.repo === null ? `${row.repo_id}:${row.hash}` : row.hash;
+}
+
+/** The repo and hash of commit row `rowId` of `source`. */
+export function commitOf(source: HistorySource, rowId: string): { repo: RepoId; hash: string } {
+  if (source.repo !== null) {
+    return { repo: source.repo, hash: rowId };
+  }
+  // A hash has no colon; a repo id may.
+  const at = rowId.lastIndexOf(":");
+  return { repo: rowId.slice(0, at), hash: rowId.slice(at + 1) };
+}
+
+/**
  * The loaded commits of a history. The store keeps them as one value and
  * does not wrap them: rows never change once read, and the store would keep
  * a proxy and a signal per property of every row the list ever showed, for
  * as long as the history stays loaded (M1-14).
  */
 export class Commits {
-  constructor(readonly list: readonly CommitRow[]) {}
+  constructor(readonly list: readonly HistoryRow[]) {}
 
   get length(): number {
     return this.list.length;
@@ -103,6 +138,8 @@ export interface WorkspaceHistory {
   /** The search text (UI-12). */
   text: string;
   rows: Commits;
+  /** The repos the shown history is of, as the core last said; a change to their refs reads it again. */
+  repos: RepoId[];
   /** The core's walk, for `history_more`. */
   handle: number | null;
   /** No page follows the loaded rows. */
@@ -110,7 +147,7 @@ export interface WorkspaceHistory {
   /** A page is being read. */
   loading: boolean;
   error: string | null;
-  /** The selected row's id: a hash or UNCOMMITTED_ID. */
+  /** The selected row's id: UNCOMMITTED_ID or a commit row's, see `rowIdOf`. */
   selected: string | null;
   /**
    * The commit rows selected with Ctrl/Cmd and Shift, for a cherry-pick
@@ -138,6 +175,7 @@ const empty = (): WorkspaceHistory => ({
   source: null,
   text: "",
   rows: NO_COMMITS,
+  repos: [],
   handle: null,
   done: true,
   loading: false,
@@ -191,9 +229,13 @@ export function createHistoryStore(selection: SelectionStore) {
     if (source === null || selected === null) {
       selection.select(id, null);
     } else if (selected === UNCOMMITTED_ID) {
-      selection.select(id, { kind: "uncommitted", repo_id: source.repo });
+      if (source.repo !== null) {
+        selection.select(id, { kind: "uncommitted", repo_id: source.repo });
+      }
     } else {
-      selection.select(id, { kind: "commit", repo_id: source.repo, hash: selected });
+      // A merged row shows its commit of its repo (UI-14).
+      const { repo, hash } = commitOf(source, selected);
+      selection.select(id, { kind: "commit", repo_id: repo, hash });
     }
   };
 
@@ -259,10 +301,11 @@ export function createHistoryStore(selection: SelectionStore) {
       }
       update(id, (h) => {
         h.rows = new Commits(view.rows);
+        h.repos = view.repos;
         h.handle = view.handle;
         h.done = view.done;
         h.loading = false;
-        if (view.offer_commit_graph && !h.answered[source.repo]) {
+        if (source.repo !== null && view.offer_commit_graph && !h.answered[source.repo]) {
           h.offers[source.repo] = true;
         }
       });
@@ -315,6 +358,7 @@ export function createHistoryStore(selection: SelectionStore) {
       h.marked = only(h.selected);
       h.scrollTop = saved?.scrollTop ?? 0;
       h.rows = NO_COMMITS;
+      h.repos = [];
       h.handle = null;
       h.done = true;
       h.error = null;
@@ -354,7 +398,8 @@ export function createHistoryStore(selection: SelectionStore) {
       }
       const rows = [...first.rows];
       let { handle, done } = first;
-      const kept = () => selected === null || selected === UNCOMMITTED_ID || rows.some((row) => row.hash === selected);
+      const has = (rowId: string) => rows.some((row) => rowIdOf(source, row) === rowId);
+      const kept = () => selected === null || selected === UNCOMMITTED_ID || has(selected);
       let extra = 1;
       while (!done && (rows.length < count || (!kept() && extra-- > 0))) {
         const page = await historyMore(id, handle);
@@ -368,6 +413,7 @@ export function createHistoryStore(selection: SelectionStore) {
       restoring.delete(id);
       update(id, (h) => {
         h.rows = new Commits(rows);
+        h.repos = first.repos;
         h.handle = handle;
         h.done = done;
         h.loading = false;
@@ -378,7 +424,7 @@ export function createHistoryStore(selection: SelectionStore) {
         if (gone) {
           h.selected = null;
         }
-        h.marked = h.marked.filter((hash) => rows.some((row) => row.hash === hash));
+        h.marked = h.marked.filter(has);
       });
       if (gone) {
         announce(id);
@@ -442,6 +488,16 @@ export function createHistoryStore(selection: SelectionStore) {
       h.marked = only(rowId);
     });
     announce(id);
+  };
+
+  /** Selects commit `hash` of the repo of the selected commit, such as a parent the changes pane shows. */
+  const selectCommit = (id: WorkspaceId, hash: string) => {
+    const shown = untrack(() => history(id).source);
+    const current = selection.selected(id);
+    if (shown === null || current === null) {
+      return;
+    }
+    select(id, shown.repo === null ? `${current.repo_id}:${hash}` : hash);
   };
 
   /** Selects row `rowId` with commits `hashes` selected for a cherry-pick (UI-13). */
@@ -515,7 +571,8 @@ export function createHistoryStore(selection: SelectionStore) {
         return;
       }
       versions.set(repo_id, refs_version);
-      if (untrack(() => history(id).source?.repo) === repo_id) {
+      const shown = untrack(() => history(id));
+      if (shown.source?.repo === repo_id || (shown.source?.repo === null && shown.repos.includes(repo_id))) {
         void reload(id);
       }
     });
@@ -533,6 +590,7 @@ export function createHistoryStore(selection: SelectionStore) {
     more,
     setText,
     select,
+    selectCommit,
     mark,
     setScrollTop,
     writeCommitGraph,

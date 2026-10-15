@@ -60,11 +60,11 @@ pub use gitcroc_git::{
     Context, Cursor, DiffError, DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback,
     FileDiff, FileStatus, Filter, GitError, GitRepo, GitRunner, GraphRow, Head, HistoryError,
     HistoryStart, Hunk, HunkPatch, Image, ImageFormat, Line, LineKind, LocalBranch,
-    MAX_CONFLICT_TEXT, MAX_COUNTED_FILES, MAX_DIFF_LINES, MAX_IMAGE_BYTES, ModeChange, OpenError,
-    Operation, PAGE_SIZE, Page, Person, RefKind, RefLabel, Refs, RefsError, RefsRead,
-    RemoteBranches, RepoRead, RepoState, RepoSummary, SearchEnv, SideHolds, StashEntry,
-    StatusError, StatusRead, StatusReader, Step, Tag, TextDiff, Time, UnmergedFile, UnmergedKind,
-    Upstream, WorkingCopy,
+    MAX_CONFLICT_TEXT, MAX_COUNTED_FILES, MAX_DIFF_LINES, MAX_IMAGE_BYTES, MergedCursor,
+    MergedPage, MergedRow, ModeChange, OpenError, Operation, PAGE_SIZE, Page, Person, RefKind,
+    RefLabel, Refs, RefsError, RefsRead, RemoteBranches, RepoRead, RepoState, RepoSummary,
+    SearchEnv, SideHolds, StashEntry, StatusError, StatusRead, StatusReader, Step, Tag, TextDiff,
+    Time, UnmergedFile, UnmergedKind, Upstream, WorkingCopy, merged_history,
 };
 pub use gitcroc_git::{
     Askpass, CommandRecord, Exit, Kill, Output, RefSnapshot, log_commands_to, ops,
@@ -72,8 +72,8 @@ pub use gitcroc_git::{
 pub use group::{GroupBranch, GroupSummary, group_branch, group_summaries};
 pub use history::{
     COMMIT_GRAPH_THRESHOLD, CommitGraphError, CommitGraphWrite, Histories, HistoryPageError,
-    HistoryTarget, HistoryView, HistoryViewError, commit_graph_write, history_get, history_more,
-    history_page,
+    HistoryRow, HistoryTarget, HistoryView, HistoryViewError, commit_graph_write, history_get,
+    history_more, history_page,
 };
 pub use integrate::{
     IntegrateError, IntegrateOp, IntegrateRequest, IntegrateStart, MAX_MERGE_TARGETS,

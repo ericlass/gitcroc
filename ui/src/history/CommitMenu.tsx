@@ -1,7 +1,7 @@
 // The context menu of a commit row (UI-13). Entries that cannot apply are
 // disabled, not hidden: with several commits selected only Cherry-pick
-// applies, and a blocked repo (GRP-8) has every write disabled; the core
-// refuses them as well.
+// applies, and only to commits of one repo, and a blocked repo (GRP-8) has
+// every write disabled; the core refuses them as well.
 import { For, onCleanup } from "solid-js";
 
 export type CommitAction = "checkout" | "create_branch" | "create_tag" | "cherry_pick" | "revert" | "reset" | "copy_hash";
@@ -10,6 +10,8 @@ export interface CommitMenuEntry {
   action: CommitAction;
   label: string;
   disabled: boolean;
+  /** Why it is disabled, when that is not plain. */
+  title?: string;
 }
 
 /** What the menu lists for `count` selected commits of a repo that is `blocked` or not. */
@@ -63,6 +65,7 @@ export default function CommitMenu(props: {
               type="button"
               role="menuitem"
               disabled={entry.disabled}
+              title={entry.title}
               onClick={() => props.onAction(entry.action)}
             >
               {entry.label}

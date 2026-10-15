@@ -1,7 +1,8 @@
 // The three panes of section 8: the tree, then the history with the changes
 // pane docked right of it or below it (UI-19). For a group or several repos
-// the history pane shows the target set's summary strip (UI-11). Sizes and the dock position
-// come from the layout store under the given workspace id (ARCH-9).
+// the history pane shows the target set's summary strip (UI-11) above their
+// merged history (PERF-5). Sizes and the dock position come from the layout
+// store under the given workspace id (ARCH-9).
 import ChangesPane from "../changes/ChangesPane";
 import { Show } from "solid-js";
 import HistoryPane from "../history/HistoryPane";
@@ -82,22 +83,22 @@ export default function Panes(props: {
     props.workspaces.state.views?.find((view) => view.id === props.workspace)?.repos.find((known) => known.id === repo)
       ?.name ?? repo;
 
+  const historyPane = () => (
+    <HistoryPane
+      workspace={props.workspace}
+      history={props.history}
+      summaries={props.summaries}
+      name={name}
+      layout={props.layout}
+      branch={props.branch}
+      integrate={props.integrate}
+      tag={props.tag}
+      reset={props.reset}
+    />
+  );
+
   const history = () => (
-    <Show
-      when={several()}
-      fallback={
-        <HistoryPane
-          workspace={props.workspace}
-          history={props.history}
-          summaries={props.summaries}
-          layout={props.layout}
-          branch={props.branch}
-          integrate={props.integrate}
-          tag={props.tag}
-          reset={props.reset}
-        />
-      }
-    >
+    <Show when={several()} fallback={historyPane()}>
       {(target) => (
         <TargetView
           workspace={props.workspace}
@@ -105,7 +106,9 @@ export default function Panes(props: {
           tree={props.tree}
           summaries={props.summaries}
           name={name}
-        />
+        >
+          {historyPane()}
+        </TargetView>
       )}
     </Show>
   );
@@ -118,7 +121,7 @@ export default function Panes(props: {
       conflicts={props.conflicts}
       settings={props.settings}
       layout={props.layout}
-      onSelectCommit={(hash) => props.history.select(props.workspace, hash)}
+      onSelectCommit={(hash) => props.history.selectCommit(props.workspace, hash)}
     />
   );
 

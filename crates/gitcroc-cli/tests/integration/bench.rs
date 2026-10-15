@@ -55,6 +55,11 @@ fn perf_8_harness_prints_json_with_the_open_repo_history_diff_and_status_scenari
         .find(|r| r["scenario"] == "history-first-page")
         .unwrap_or_else(|| panic!("no history-first-page result in {results:?}"));
     assert_eq!(history["budget_ms"], 200.0);
+    let group = results
+        .iter()
+        .find(|r| r["scenario"] == "group-history-first-page")
+        .unwrap_or_else(|| panic!("no group-history-first-page result in {results:?}"));
+    assert_eq!(group["budget_ms"], 300.0);
     // 40 commits have no 10th page; the scenario is skipped, not failed.
     assert!(!results.iter().any(|r| r["scenario"] == "history-page-10"));
 

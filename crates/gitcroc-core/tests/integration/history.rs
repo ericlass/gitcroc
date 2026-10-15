@@ -8,7 +8,8 @@ use std::time::Duration;
 use gitcroc_core::{
     ConfigDir, GitRepo, GitRunner, Histories, HistoryStart, HistoryTarget, HistoryView, JobEvents,
     JobId, JobState, JobView, Jobs, Outcome, PAGE_SIZE, RepoId, RepoRead, Summaries, SummaryCache,
-    SummaryView, WorkspaceId, Workspaces, add_path, commit_graph_write, history_get, history_more,
+    SummaryView, TargetSet, WorkspaceId, Workspaces, add_path, commit_graph_write, history_get,
+    history_more,
 };
 use repo_gen::{Fixture, Repo, RepoSpec};
 
@@ -92,7 +93,7 @@ impl Run {
             self.histories.clone(),
             self.workspaces.clone(),
             self.id.clone(),
-            repo.clone(),
+            Some(repo.clone()),
             target,
             text.to_owned(),
         )
@@ -124,7 +125,10 @@ fn git() -> GitRunner {
 }
 
 fn subjects(view: &HistoryView) -> Vec<&str> {
-    view.rows.iter().map(|row| row.subject.as_str()).collect()
+    view.rows
+        .iter()
+        .map(|row| row.commit.subject.as_str())
+        .collect()
 }
 
 fn empty_commit(repo: &Repo, message: &str) -> String {
@@ -161,7 +165,7 @@ async fn ui_9_history_follows_the_selected_ref() {
     let all = run.get(&app, HistoryTarget::Repo, "").await.unwrap();
     assert_eq!(subjects(&all), ["Third", "On topic", "Second", "First"]);
     assert!(all.done);
-    assert!(all.rows.iter().all(|row| row.graph.is_some()));
+    assert!(all.rows.iter().all(|row| row.commit.graph.is_some()));
 
     let topic = HistoryTarget::Branch {
         name: "topic".into(),
@@ -203,8 +207,113 @@ async fn ui_12_filter_by_subject_author_and_hash() {
         let view = run.get(&app, HistoryTarget::Repo, text).await.unwrap();
         assert_eq!(subjects(&view), expected, "{text}");
         // Filtered rows are not contiguous: no graph lines.
-        assert!(view.rows.iter().all(|row| row.graph.is_none()));
+        assert!(view.rows.iter().all(|row| row.commit.graph.is_none()));
     }
+}
+
+/// Repos `api` and `web` with alternating commits, newest `web 2`, and
+/// the group "Both" of web and api, in that order.
+async fn two_repos(fixture: &Fixture) -> (Run, RepoId, RepoId, TargetSet) {
+    let api = fixture.repo("api").unwrap();
+    let web = fixture.repo("web").unwrap();
+    for (repo, minute, subject) in [
+        (&api, 0, "api 1"),
+        (&web, 10, "web 1"),
+        (&api, 20, "api 2"),
+        (&web, 30, "web 2"),
+    ] {
+        repo.set_clock(minute);
+        empty_commit(repo, subject);
+    }
+    let run = Run::with_repos_in(fixture.path(), Duration::MAX).await;
+    let (api, web) = (run.repo("api"), run.repo("web"));
+    let group = run
+        .workspaces
+        .create_group(&run.id, "Both", &[web.clone(), api.clone()])
+        .unwrap();
+    (run, api, web, TargetSet::Group { group_id: group })
+}
+
+impl Run {
+    async fn merged(&self, target: &TargetSet, text: &str) -> HistoryView {
+        history_get(
+            self.histories.clone(),
+            self.workspaces.clone(),
+            self.id.clone(),
+            None,
+            HistoryTarget::Merged {
+                target: target.clone(),
+            },
+            text.to_owned(),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+    }
+}
+
+#[tokio::test]
+async fn perf_5_merged_rows_carry_their_repo() {
+    let fixture = Fixture::new().unwrap();
+    let (run, api, web, group) = two_repos(&fixture).await;
+
+    let view = run.merged(&group, "").await;
+    assert_eq!(subjects(&view), ["web 2", "api 2", "web 1", "api 1"]);
+    let repos: Vec<&RepoId> = view.rows.iter().map(|row| &row.repo_id).collect();
+    assert_eq!(repos, [&web, &api, &web, &api]);
+    assert_eq!(view.repos, [web.clone(), api.clone()]);
+    assert!(view.done);
+    assert!(!view.offer_commit_graph);
+    assert!(view.rows.iter().all(|row| row.commit.graph.is_none()));
+
+    // A multi-selection resolves in tree order, here the group's.
+    let picked = TargetSet::Repos {
+        repo_ids: vec![api.clone(), web.clone()],
+    };
+    assert_eq!(
+        run.merged(&picked, "").await.repos,
+        [web.clone(), api.clone()]
+    );
+
+    // A newer walk of the workspace supersedes a merged one.
+    let single = run.get(&api, HistoryTarget::Repo, "").await.unwrap();
+    assert!(run.more(view.handle).await.is_none());
+    assert_eq!(single.repos, std::slice::from_ref(&api));
+    assert!(single.rows.iter().all(|row| row.repo_id == api));
+
+    // A single-repo target needs its repo.
+    let missing = history_get(
+        run.histories.clone(),
+        run.workspaces.clone(),
+        run.id.clone(),
+        None,
+        HistoryTarget::Repo,
+        String::new(),
+    )
+    .await;
+    assert!(missing.is_err());
+}
+
+#[tokio::test]
+async fn ui_12_merged_search_filters_in_the_core() {
+    let fixture = Fixture::new().unwrap();
+    let (run, api, web, group) = two_repos(&fixture).await;
+
+    let view = run.merged(&group, "API").await;
+    assert_eq!(subjects(&view), ["api 2", "api 1"]);
+    assert!(view.rows.iter().all(|row| row.repo_id == api));
+    let view = run.merged(&group, " 2").await;
+    assert_eq!(subjects(&view), ["web 2", "api 2"]);
+    let hash = run.merged(&group, "").await.rows[2].commit.hash.clone();
+    let view = run.merged(&group, &hash[..8]).await;
+    assert_eq!(subjects(&view), ["web 1"]);
+    assert_eq!(view.rows[0].repo_id, web);
+    assert!(
+        run.merged(&group, "nothing like this")
+            .await
+            .rows
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -228,7 +337,7 @@ async fn arch_8_history_continues_in_pages_and_a_newer_walk_supersedes() {
     assert_eq!(second.rows.len(), PAGE_SIZE);
     assert_eq!(second.handle, first.handle);
     // Lanes continue across pages: the graph is never restarted.
-    assert!(second.rows.iter().all(|row| row.graph.is_some()));
+    assert!(second.rows.iter().all(|row| row.commit.graph.is_some()));
 
     // A newer walk of the workspace replaces the old one.
     let newer = run.get(&long, HistoryTarget::Repo, "").await.unwrap();
@@ -270,7 +379,7 @@ async fn arch_9_walks_are_kept_per_workspace() {
         run.histories.clone(),
         run.workspaces.clone(),
         WorkspaceId("elsewhere".into()),
-        app,
+        Some(app),
         HistoryTarget::Repo,
         String::new(),
     )
@@ -428,7 +537,7 @@ async fn perf_2_a_walk_keeps_no_repo_open_between_pages() {
     assert_eq!(mapped_packs(&path), 0);
     let second = run.more(first.handle).await.unwrap();
     assert_eq!(second.rows.len(), PAGE_SIZE);
-    assert!(second.rows.iter().all(|row| row.graph.is_some()));
+    assert!(second.rows.iter().all(|row| row.commit.graph.is_some()));
     #[cfg(target_os = "linux")]
     assert_eq!(mapped_packs(&path), 0);
 }

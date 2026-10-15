@@ -14,7 +14,7 @@ use std::time::Instant;
 
 use gitcroc_core::{
     ChangedFile, DiffOptions, DiffRead, DiffSource, GitRepo, GitRunner, GitSetup, HistoryStart,
-    RepoRead, StatusRead, StatusReader,
+    RepoRead, StatusRead, StatusReader, merged_history,
 };
 use serde_json::{Value, json};
 
@@ -75,6 +75,13 @@ const SCENARIOS: &[Scenario] = &[
             ("many-repos", None),
         ],
         prepare: history_first_page,
+    },
+    // Select a group of all the set's repos: the first page of their merged
+    // history (PERF-5; the core part, `bench-ui` measures the UI part).
+    Scenario {
+        name: "group-history-first-page",
+        sets: &[("target-project", Some(300.0)), ("many-repos", None)],
+        prepare: group_history_first_page,
     },
     // Later pages cost no more than the first: page 100 needs 50,000 commits,
     // so target-project shows its last page, the 10th.
@@ -247,6 +254,17 @@ fn history_first_page(set: &DataSet) -> Result<Option<Measured>, String> {
         let page = repo
             .history(HistoryStart::All, None, None)
             .map_err(|error| error.to_string())?;
+        black_box(page);
+        Ok(())
+    })))
+}
+
+/// Reads the first page of the merged history of every repo of the set,
+/// opening each repo as a page does.
+fn group_history_first_page(set: &DataSet) -> Result<Option<Measured>, String> {
+    let paths: Vec<PathBuf> = set.repos.iter().map(|repo| repo.path.clone()).collect();
+    Ok(Some(Box::new(move || {
+        let page = merged_history(&paths, None, None).map_err(|error| error.to_string())?;
         black_box(page);
         Ok(())
     })))
