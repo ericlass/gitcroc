@@ -7,6 +7,8 @@ import { createStore, produce } from "solid-js/store";
 import {
   core,
   groupBranches,
+  type GroupId,
+  type GroupSummary,
   type RepoId,
   type RepoRef,
   refsGet,
@@ -49,6 +51,11 @@ export interface WorkspaceTree {
   filtered: TreeNode[] | null;
   /** Where the tree was scrolled, for when it is shown again (UI-29). */
   scrollTop: number;
+  /**
+   * Group rows the core sent since the last tree read, by group (UI-4);
+   * newer than the summaries in the tree's group nodes.
+   */
+  groups: Record<GroupId, GroupSummary>;
 }
 
 const empty = (): WorkspaceTree => ({
@@ -66,6 +73,7 @@ const empty = (): WorkspaceTree => ({
   filter: "",
   filtered: null,
   scrollTop: 0,
+  groups: {},
 });
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -154,6 +162,7 @@ export function createTreeStore() {
       update(id, (t) => {
         t.roots = roots;
         t.error = null;
+        t.groups = {};
       });
       selectPending(id);
     } catch (error) {
@@ -213,12 +222,20 @@ export function createTreeStore() {
         void Promise.all(stale.map((item) => load(id, item))).then(() => refilter(id));
       }
     };
+    // A member's summary changed: the group's row follows (GRP-4).
+    const onGroupSummary = (event: { payload: GroupSummary }) => {
+      if (event.payload.workspace_id === id) {
+        update(id, (t) => (t.groups[event.payload.group_id] = event.payload));
+      }
+    };
     const stopChanged = await core.events.workspaceChanged.listen(onWorkspaceChanged);
     const stopRefs = await core.events.repoRefsChanged.listen(onRefsChanged);
+    const stopGroups = await core.events.groupSummary.listen(onGroupSummary);
     await reload(id);
     return () => {
       stopChanged();
       stopRefs();
+      stopGroups();
     };
   };
 
@@ -280,7 +297,11 @@ export function createTreeStore() {
 
   const setScrollTop = (id: WorkspaceId, scrollTop: number) => update(id, (t) => (t.scrollTop = scrollTop));
 
-  return { state, tree, subscribe, setExpanded, select, selectRepo, setFilter, setScrollTop };
+  /** What the row of a group node with `summary` shows now. */
+  const groupSummary = (id: WorkspaceId, summary: GroupSummary): GroupSummary =>
+    tree(id).groups[summary.group_id] ?? summary;
+
+  return { state, tree, subscribe, setExpanded, select, selectRepo, setFilter, setScrollTop, groupSummary };
 }
 
 export type TreeStore = ReturnType<typeof createTreeStore>;

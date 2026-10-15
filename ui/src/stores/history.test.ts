@@ -67,12 +67,16 @@ test("section 8 tree selections map to what the history shows", () => {
   expect(sourceOf("repo:r1:local", { kind: "local", repo_id: "r1", group_id: null })).toEqual(api);
   const branch = { repo_id: "r1", name: "main", upstream: null, gone: false, ahead: null, behind: null };
   expect(sourceOf("b", { kind: "branch", current: true, ...branch })).toEqual({
-    key: "b",
+    key: "branch:r1:main",
     repo: "r1",
     target: { kind: "branch", name: "main" },
     uncommitted: true,
   });
   expect(sourceOf("b", { kind: "branch", current: false, ...branch })?.uncommitted).toBe(false);
+  // UI-2: the same branch under two groups is one history.
+  expect(sourceOf("group:g1:repo:r1:local:ref:main", { kind: "branch", current: true, ...branch })?.key).toBe(
+    sourceOf("group:g2:repo:r1:local:ref:main", { kind: "branch", current: true, ...branch })?.key,
+  );
   expect(sourceOf("s", { kind: "stash", repo_id: "r1", index: 2, hash: "h", message: "m", seconds: 0 })?.target).toEqual({
     kind: "stash",
     index: 2,

@@ -137,6 +137,7 @@ test("UI-7 the context menu of each row kind lists its operations", async () => 
   expect(menuOf(row("api", 2))).toEqual([
     "New branch…",
     "New tag…",
+    "Add to group ▸",
     "Open in file manager",
     "Open in terminal",
     "Remove from workspace",
@@ -173,6 +174,8 @@ test("GRP-8 a busy repo's branch operations are disabled", async () => {
   expect(menuOf(row("api", 2))).toEqual([
     "!New branch…",
     "!New tag…",
+    // Groups are not repo writes (GRP-3).
+    "Add to group ▸",
     "Open in file manager",
     "Open in terminal",
     "Remove from workspace",

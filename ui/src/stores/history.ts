@@ -35,8 +35,8 @@ export interface HistorySource {
 /**
  * The history a tree node shows, or `null` for none (Ungrouped, a group's
  * nodes, nothing). A repo and the nodes that only group its refs (Local, a
- * folder, a remote and so on) show the whole repo, under one key wherever
- * the repo appears (UI-2).
+ * folder, a remote and so on) show the whole repo. Each history has one key
+ * wherever the repo appears (UI-2), so both places show the same one.
  */
 export function sourceOf(nodeId: string | null, item: TreeItem | null): HistorySource | null {
   if (nodeId === null || item === null || !("repo_id" in item)) {
@@ -45,13 +45,28 @@ export function sourceOf(nodeId: string | null, item: TreeItem | null): HistoryS
   const repo = item.repo_id;
   switch (item.kind) {
     case "branch":
-      return { key: nodeId, repo, target: { kind: "branch", name: item.name }, uncommitted: item.current };
+      return {
+        key: `branch:${repo}:${item.name}`,
+        repo,
+        target: { kind: "branch", name: item.name },
+        uncommitted: item.current,
+      };
     case "remote_branch":
-      return { key: nodeId, repo, target: { kind: "remote_branch", name: item.name }, uncommitted: false };
+      return {
+        key: `remote_branch:${repo}:${item.name}`,
+        repo,
+        target: { kind: "remote_branch", name: item.name },
+        uncommitted: false,
+      };
     case "tag":
-      return { key: nodeId, repo, target: { kind: "tag", name: item.name }, uncommitted: false };
+      return { key: `tag:${repo}:${item.name}`, repo, target: { kind: "tag", name: item.name }, uncommitted: false };
     case "stash":
-      return { key: nodeId, repo, target: { kind: "stash", index: item.index }, uncommitted: false };
+      return {
+        key: `stash:${repo}:${item.index}`,
+        repo,
+        target: { kind: "stash", index: item.index },
+        uncommitted: false,
+      };
     default:
       return { key: `repo:${repo}`, repo, target: { kind: "repo" }, uncommitted: true };
   }

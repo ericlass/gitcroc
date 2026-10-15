@@ -1146,7 +1146,7 @@ if (picked === "jobs") {
   nextJobId = 100;
 }
 if (data) {
-  fakeState.workspace = { ...defaultWorkspace, repos: data.repos };
+  fakeState.workspace = { ...defaultWorkspace, repos: data.repos, groups: data.groups ?? [] };
   fakeState.refs = data.refs;
   fakeState.summaries = data.summaries;
   fakeState.pickedFolder = data.pickedFolder ?? null;
