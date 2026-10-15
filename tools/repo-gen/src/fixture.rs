@@ -12,8 +12,9 @@
 //! ```
 
 use std::ffi::OsStr;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::process::{Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tempfile::TempDir;
@@ -162,6 +163,51 @@ impl Repo {
     ) -> Result<String, Error> {
         self.write(path, contents)?;
         self.commit_all(message)
+    }
+
+    /// Adds `messages.len()` empty commits on the current branch, one minute
+    /// apart, through a single `git fast-import` (one process instead of one
+    /// per commit). The branch must have a commit. Returns the last commit id.
+    pub fn empty_commits(&self, messages: &[String]) -> Result<String, Error> {
+        let branch = self.git(["symbolic-ref", "HEAD"])?;
+        let branch = branch.trim_end();
+        let mut stream = Vec::new();
+        for (index, message) in messages.iter().enumerate() {
+            let tick = self.clock.fetch_add(1, Ordering::Relaxed);
+            let who = format!(
+                "{FIXTURE_NAME} <{FIXTURE_EMAIL}> {} +0000",
+                FIXTURE_EPOCH + tick * 60
+            );
+            write!(
+                stream,
+                "commit {branch}\nauthor {who}\ncommitter {who}\ndata {}\n{message}\n",
+                message.len()
+            )?;
+            if index == 0 {
+                writeln!(stream, "from {branch}^0")?;
+            }
+            writeln!(stream)?;
+        }
+        stream.extend_from_slice(b"done\n");
+
+        let mut command = self.command(["fast-import", "--quiet", "--done"]);
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn()?;
+        let written = match child.stdin.take() {
+            // fast-import reads all of its input before it writes much, so
+            // this cannot block on a full stderr pipe.
+            Some(mut stdin) => stdin.write_all(&stream).map_err(Error::from),
+            None => Err(Error::Invalid("git fast-import has no stdin".into())),
+        };
+        let output = child.wait_with_output()?;
+        if !output.status.success() {
+            return Err(git::failed(&command, &output));
+        }
+        written?;
+        self.head()
     }
 
     /// The commit id of `HEAD`.

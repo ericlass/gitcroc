@@ -18,19 +18,43 @@ fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// The body lines of a recipe in the workspace `justfile`, trimmed.
-fn recipe(name: &str) -> Vec<String> {
+/// The dependencies and body lines of a recipe in the workspace `justfile`,
+/// trimmed.
+fn recipe_parts(name: &str) -> (Vec<String>, Vec<String>) {
     let text = fs::read_to_string(workspace_root().join("justfile")).unwrap();
     let mut lines = text.lines().skip_while(|line| {
         line.split([' ', ':'])
             .next()
             .is_none_or(|first| first != name)
     });
-    assert!(lines.next().is_some(), "justfile has no `{name}` recipe");
-    lines
+    let header = lines.next();
+    assert!(header.is_some(), "justfile has no `{name}` recipe");
+    let dependencies = header
+        .and_then(|header| header.split_once(':'))
+        .map(|(_, after)| after.split_whitespace().map(str::to_owned).collect())
+        .unwrap_or_default();
+    let body = lines
         .take_while(|line| line.starts_with(' ') || line.starts_with('\t'))
         .map(|line| line.trim().to_owned())
-        .collect()
+        .collect();
+    (dependencies, body)
+}
+
+/// The body lines of a recipe in the workspace `justfile`, trimmed.
+fn recipe(name: &str) -> Vec<String> {
+    recipe_parts(name).1
+}
+
+/// The lines a recipe runs: those of its dependencies, then its own. CI runs
+/// the dependencies of `just check` as separate jobs.
+fn recipe_with_dependencies(name: &str) -> Vec<String> {
+    let (dependencies, body) = recipe_parts(name);
+    let mut lines: Vec<String> = dependencies
+        .iter()
+        .flat_map(|dependency| recipe_with_dependencies(dependency))
+        .collect();
+    lines.extend(body);
+    lines
 }
 
 /// The commands QA-1 requires, as `just check` runs them.
@@ -48,7 +72,7 @@ const QA_1: [&str; 9] = [
 
 #[test]
 fn qa_5_check_recipe_runs_every_command_of_qa_1() {
-    let body = recipe("check");
+    let body = recipe_with_dependencies("check");
     for command in QA_1 {
         assert!(
             body.iter().any(|line| line == command),
@@ -60,7 +84,7 @@ fn qa_5_check_recipe_runs_every_command_of_qa_1() {
 #[test]
 fn qa_5_check_recipe_does_not_ignore_failures() {
     // A leading `-` makes just carry on after a failing line.
-    let body = recipe("check");
+    let body = recipe_with_dependencies("check");
     assert!(
         body.iter().all(|line| !line.starts_with('-')),
         "QA-5: `just check` ignores a failure: {body:?}"
@@ -72,7 +96,7 @@ fn qa_3_check_recipe_runs_coverage_script() {
     // Every finished milestone stays covered.
     for milestone in ["M0", "M1"] {
         assert!(
-            recipe("check")
+            recipe_with_dependencies("check")
                 .iter()
                 .any(|line| *line == format!("just coverage {milestone}")),
             "QA-3: `just check` does not run the coverage script for {milestone}"

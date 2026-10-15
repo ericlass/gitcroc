@@ -6,6 +6,10 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: !!process.env.CI,
+  // Playwright uses half the cores by default, one worker on a three-core
+  // macOS runner. The tests share nothing but the preview server.
+  workers: process.env.CI ? 4 : undefined,
+  fullyParallel: true,
   reporter: process.env.CI ? "github" : "list",
   use: {
     baseURL: "http://localhost:4173",
