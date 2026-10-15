@@ -67,7 +67,8 @@ export default function App() {
   const selection = createSelectionStore();
   const history = createHistoryStore(selection);
   const changes = createChangesStore(settings.changes);
-  const commit = createCommitStore();
+  // A commit from a list a refresh replaced reads the list again.
+  const commit = createCommitStore((id) => void changes.reload(id));
   const conflicts = createConflictStore((id) => void changes.reload(id));
   const branch = createBranchStore();
   const sync = createSyncStore();

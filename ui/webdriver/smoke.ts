@@ -297,11 +297,28 @@ async function smoke(session: Session, app: string, env: NodeJS.ProcessEnv) {
     ],
     "Add notes",
   );
-  await session.click([
-    ["region", "Commit message"],
-    ["button", "Commit"],
-  ]);
-  await session.element([...HISTORY, ["option", "/Add notes/"]]);
+  // As for Stage: a click on a list read again meanwhile is refused and said.
+  for (let attempt = 1; ; attempt++) {
+    await session.click([
+      ["region", "Commit message"],
+      ["button", "Commit"],
+    ]);
+    const outcome = await session.until<string>(
+      "the commit in the history, or the list read again",
+      `const rows = [...document.querySelectorAll('[role="listbox"][aria-label="History"] [role="option"]')];
+       if (rows.some((row) => row.textContent.includes(args[0]))) return "committed";
+       const alerts = [...document.querySelectorAll('[role="alert"]')].map((el) => el.textContent.trim());
+       return alerts.includes(args[1]) ? "again" : null;`,
+      "Add notes",
+      "The list changed; showing it again.",
+    );
+    if (outcome === "committed") {
+      break;
+    }
+    if (attempt === 3) {
+      throw new Error("the list changed under every click on Commit");
+    }
+  }
 
   log("merge a branch that conflicts");
   await session.click([
