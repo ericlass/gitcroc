@@ -2,21 +2,23 @@
 //! each kept in `workspaces/<uuid>.toml` in the config dir (section 10
 //! "Files") under the DATA-1 rules of [`crate::config_file`].
 //!
-//! Until workspace tabs exist (M3) one workspace is open: the most recently
-//! modified file, or a new "My workspace". Every call still names the
-//! workspace by id, so nothing assumes there is only one (ARCH-9).
+//! Several workspaces are open at once, one per tab (UI-27). The open ones,
+//! their order and the active one are kept in the `[session]` table of
+//! `settings.toml` and restored on the next start (UI-33). Every call names
+//! the workspace by id (ARCH-9).
 
 mod add;
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
 use crate::config_file::{self, ConfigWarning, Migration};
+use crate::settings::{Session, SettingsStore};
 use crate::{ConfigDir, WorkspaceId};
 
 pub use add::{AddReport, Refusal, SCAN_DEPTH, add_path};
@@ -29,6 +31,9 @@ pub const WORKSPACES_DIR: &str = "workspaces";
 
 /// The name of the workspace created when there is none.
 pub const DEFAULT_WORKSPACE_NAME: &str = "My workspace";
+
+/// The longest workspace name, in characters.
+pub const MAX_WORKSPACE_NAME: usize = 64;
 
 /// `MIGRATIONS[n - 1]` migrates schema `n`. None exist yet.
 const MIGRATIONS: &[Migration] = &[];
@@ -99,6 +104,29 @@ pub struct WorkspaceView {
     pub warning: Option<ConfigWarning>,
 }
 
+/// The open workspaces as the UI sees them (UI-27, UI-33).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct WorkspaceTabs {
+    /// In tab order. Empty when every tab was closed.
+    pub open: Vec<WorkspaceView>,
+    /// `None` only when no workspace is open.
+    pub active: Option<WorkspaceId>,
+    /// The workspace files the saved tabs named that are gone, left out at
+    /// start. Paths are text for display only (PLAT-2).
+    pub missing: Vec<String>,
+}
+
+/// A workspace file, for the list of every workspace (UI-28).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct WorkspaceListItem {
+    pub id: WorkspaceId,
+    pub name: String,
+    /// It is open in a tab.
+    pub open: bool,
+    /// The file opens read-only; this says why (DATA-1).
+    pub warning: Option<ConfigWarning>,
+}
+
 /// Errors from changing a workspace.
 #[derive(Debug, thiserror::Error)]
 pub enum WorkspaceError {
@@ -106,6 +134,24 @@ pub enum WorkspaceError {
     ReadOnly,
     #[error("no open workspace has the id {0}")]
     UnknownWorkspace(String),
+    #[error("no workspace file has the id {0}")]
+    NoSuchWorkspace(String),
+    #[error("a workspace name cannot be blank")]
+    BlankName,
+    #[error("a workspace name has at most {MAX_WORKSPACE_NAME} characters")]
+    NameTooLong,
+    #[error("a workspace named \"{0}\" exists already")]
+    NameTaken(String),
+    #[error("the workspace is open; close its tab first")]
+    IsOpen,
+    #[error("deleting a workspace needs confirmation")]
+    NotConfirmed,
+    #[error("the tab order must name each open workspace once")]
+    BadOrder,
+    #[error("cannot read {}: {source}", path.display())]
+    Read { path: PathBuf, source: io::Error },
+    #[error("cannot delete {}: {source}", path.display())]
+    Delete { path: PathBuf, source: io::Error },
     #[error("the workspace has no repo with the id {0}")]
     UnknownRepo(RepoId),
     #[error("cannot write {}: {source}", path.display())]
@@ -249,35 +295,269 @@ impl Workspace {
     }
 }
 
-/// The open workspaces, saved on every change.
+/// The open workspaces and the active one.
+#[derive(Debug, Default)]
+struct Tabs {
+    /// In tab order.
+    open: Vec<Workspace>,
+    /// `None` only when `open` is empty.
+    active: Option<WorkspaceId>,
+    /// See [`WorkspaceTabs::missing`].
+    missing: Vec<String>,
+}
+
+impl Tabs {
+    fn ids(&self) -> Vec<WorkspaceId> {
+        self.open
+            .iter()
+            .map(|workspace| workspace.id.clone())
+            .collect()
+    }
+
+    fn is_open(&self, id: &WorkspaceId) -> bool {
+        self.open.iter().any(|workspace| workspace.id == *id)
+    }
+}
+
+/// The open workspaces, saved on every change, and the session in the
+/// settings (UI-33).
 #[derive(Debug)]
 pub struct Workspaces {
+    /// `workspaces/` in the config dir; `None` when there is none.
+    dir: Option<PathBuf>,
+    settings: Arc<SettingsStore>,
     /// Also held while saving, so saves happen one at a time.
-    open: Mutex<Vec<Workspace>>,
+    tabs: Mutex<Tabs>,
 }
 
 impl Workspaces {
-    /// Opens the most recently modified workspace file in `dirs`, or
-    /// creates "My workspace" when there is none. Never fails: problems
-    /// give a read-only workspace and a warning.
+    /// [`Self::load_with`] with the settings of `dirs`, for tools and tests
+    /// that keep no settings store of their own.
     pub fn load(dirs: &dyn ConfigDir) -> Self {
-        let workspace = match dirs.config_dir() {
-            Some(dir) => open_latest(&dir.join(WORKSPACES_DIR)),
-            None => Workspace {
+        Self::load_with(dirs, Arc::new(SettingsStore::load(dirs)))
+    }
+
+    /// Opens the workspaces of the session saved in `settings` (UI-33),
+    /// leaving out those whose file is gone. Without a saved session, opens
+    /// the most recently modified workspace file in `dirs`, or creates "My
+    /// workspace" when there is none. Never fails: problems give read-only
+    /// workspaces and warnings.
+    pub fn load_with(dirs: &dyn ConfigDir, settings: Arc<SettingsStore>) -> Self {
+        let Some(dir) = dirs.config_dir().map(|dir| dir.join(WORKSPACES_DIR)) else {
+            let workspace = Workspace {
                 id: new_id(),
                 path: None,
                 file: WorkspaceFile::default(),
                 warning: Some(ConfigWarning::NoConfigDir),
-            },
+            };
+            return Self {
+                dir: None,
+                settings,
+                tabs: Mutex::new(Tabs {
+                    active: Some(workspace.id.clone()),
+                    open: vec![workspace],
+                    missing: Vec::new(),
+                }),
+            };
+        };
+        let tabs = match settings.session() {
+            Some(session) => restore(&dir, &session),
+            None => {
+                let workspace = open_latest(&dir);
+                Tabs {
+                    active: Some(workspace.id.clone()),
+                    open: vec![workspace],
+                    missing: Vec::new(),
+                }
+            }
         };
         Self {
-            open: Mutex::new(vec![workspace]),
+            dir: Some(dir),
+            settings,
+            tabs: Mutex::new(tabs),
         }
     }
 
     /// The open workspaces, in tab order.
     pub fn views(&self) -> Vec<WorkspaceView> {
-        self.lock().iter().map(Workspace::view).collect()
+        self.lock().open.iter().map(Workspace::view).collect()
+    }
+
+    /// The open workspaces, the active one and the files left out at start.
+    pub fn tabs(&self) -> WorkspaceTabs {
+        let tabs = self.lock();
+        WorkspaceTabs {
+            open: tabs.open.iter().map(Workspace::view).collect(),
+            active: tabs.active.clone(),
+            missing: tabs.missing.clone(),
+        }
+    }
+
+    /// The active workspace, if one is open.
+    pub fn active(&self) -> Option<WorkspaceId> {
+        self.lock().active.clone()
+    }
+
+    /// Every workspace file, open or not, sorted by name, ignoring case. A
+    /// file that cannot be read is listed with its warning (DATA-1). Reads
+    /// every workspace file: call it off the async workers (ARCH-7).
+    pub fn list(&self) -> Result<Vec<WorkspaceListItem>, WorkspaceError> {
+        list(self.dir.as_deref(), &self.lock())
+    }
+
+    /// Creates a workspace named `name`, trimmed, opens it as the last tab
+    /// and makes it active. The name must be unique among the workspace
+    /// files, ignoring case.
+    pub fn create(&self, name: &str) -> Result<WorkspaceId, WorkspaceError> {
+        let name = check_name(name)?;
+        let dir = self.dir.as_deref().ok_or(WorkspaceError::ReadOnly)?;
+        let mut tabs = self.lock();
+        check_unique(&list(Some(dir), &tabs)?, &name, None)?;
+        let id = new_id();
+        let path = file_path(dir, &id);
+        let file = WorkspaceFile {
+            name,
+            ..WorkspaceFile::default()
+        };
+        save(&path, &file)?;
+        tabs.open.push(Workspace {
+            id: id.clone(),
+            path: Some(path),
+            file,
+            warning: None,
+        });
+        tabs.active = Some(id.clone());
+        self.save_session(&tabs);
+        Ok(id)
+    }
+
+    /// Opens workspace `id` as the last tab and makes it active. A
+    /// workspace already open is not opened again; it is made active
+    /// (UI-27). Returns whether it was opened now. Reads its file: call it
+    /// off the async workers (ARCH-7).
+    pub fn open(&self, id: &WorkspaceId) -> Result<bool, WorkspaceError> {
+        let mut tabs = self.lock();
+        if tabs.is_open(id) {
+            tabs.active = Some(id.clone());
+            self.save_session(&tabs);
+            return Ok(false);
+        }
+        let path = self.existing_file(id)?;
+        tabs.open.push(load_file(id.clone(), path));
+        tabs.active = Some(id.clone());
+        self.save_session(&tabs);
+        Ok(true)
+    }
+
+    /// Closes the tab of workspace `id`. Its file and repos stay as they
+    /// are (UI-28). When it was active, the tab that takes its place
+    /// becomes active, or the one before it when it was the last.
+    pub fn close(&self, id: &WorkspaceId) -> Result<(), WorkspaceError> {
+        let mut tabs = self.lock();
+        let index = tabs
+            .open
+            .iter()
+            .position(|workspace| workspace.id == *id)
+            .ok_or_else(|| WorkspaceError::UnknownWorkspace(id.0.clone()))?;
+        tabs.open.remove(index);
+        if tabs.active.as_ref() == Some(id) {
+            let next = tabs.open.get(index).or_else(|| tabs.open.last());
+            tabs.active = next.map(|workspace| workspace.id.clone());
+        }
+        self.save_session(&tabs);
+        Ok(())
+    }
+
+    /// Renames workspace `id`, open or not, with the name rules of
+    /// [`Self::create`]. A change of case only is allowed.
+    pub fn rename(&self, id: &WorkspaceId, name: &str) -> Result<(), WorkspaceError> {
+        let name = check_name(name)?;
+        let mut tabs = self.lock();
+        check_unique(&list(self.dir.as_deref(), &tabs)?, &name, Some(id))?;
+        if let Some(workspace) = tabs.open.iter_mut().find(|workspace| workspace.id == *id) {
+            return workspace.update(|file| {
+                file.name = name;
+                Ok(())
+            });
+        }
+        let mut closed = load_file(id.clone(), self.existing_file(id)?);
+        closed.update(|file| {
+            file.name = name;
+            Ok(())
+        })
+    }
+
+    /// Deletes the file of workspace `id`, and nothing else: the repos stay
+    /// on disk (GRP-3). Refused while it is open, and without `confirmed`.
+    pub fn delete(&self, id: &WorkspaceId, confirmed: bool) -> Result<(), WorkspaceError> {
+        if !confirmed {
+            return Err(WorkspaceError::NotConfirmed);
+        }
+        let tabs = self.lock();
+        if tabs.is_open(id) {
+            return Err(WorkspaceError::IsOpen);
+        }
+        let path = self.existing_file(id)?;
+        fs::remove_file(&path).map_err(|source| WorkspaceError::Delete { path, source })
+    }
+
+    /// Puts the tabs in the order of `ids`, which names each open
+    /// workspace once.
+    pub fn reorder(&self, ids: &[WorkspaceId]) -> Result<(), WorkspaceError> {
+        let mut tabs = self.lock();
+        let mut sorted = ids.to_vec();
+        sorted.sort_by(|a, b| a.0.cmp(&b.0));
+        sorted.dedup();
+        let mut open = tabs.ids();
+        open.sort_by(|a, b| a.0.cmp(&b.0));
+        if sorted.len() != ids.len() || sorted != open {
+            return Err(WorkspaceError::BadOrder);
+        }
+        let mut workspaces = std::mem::take(&mut tabs.open);
+        for id in ids {
+            if let Some(index) = workspaces.iter().position(|workspace| workspace.id == *id) {
+                tabs.open.push(workspaces.swap_remove(index));
+            }
+        }
+        self.save_session(&tabs);
+        Ok(())
+    }
+
+    /// Makes the open workspace `id` the active tab.
+    pub fn activate(&self, id: &WorkspaceId) -> Result<(), WorkspaceError> {
+        let mut tabs = self.lock();
+        if !tabs.is_open(id) {
+            return Err(WorkspaceError::UnknownWorkspace(id.0.clone()));
+        }
+        tabs.active = Some(id.clone());
+        self.save_session(&tabs);
+        Ok(())
+    }
+
+    /// The file of workspace `id`, which must exist.
+    fn existing_file(&self, id: &WorkspaceId) -> Result<PathBuf, WorkspaceError> {
+        let missing = || WorkspaceError::NoSuchWorkspace(id.0.clone());
+        let dir = self.dir.as_deref().ok_or_else(missing)?;
+        if !valid_id(&id.0) {
+            return Err(missing());
+        }
+        let path = file_path(dir, id);
+        if path.is_file() {
+            Ok(path)
+        } else {
+            Err(missing())
+        }
+    }
+
+    /// Keeps the open tabs in the settings for the next start (UI-33). A
+    /// failure is not the change's: the settings banner already says when
+    /// they are read-only, and a failed write leaves the previous session,
+    /// which at worst restores older tabs.
+    fn save_session(&self, tabs: &Tabs) {
+        let _ = self.settings.set_session(Session {
+            tabs: tabs.ids(),
+            active: tabs.active.clone(),
+        });
     }
 
     /// The workspace with id `id`.
@@ -403,18 +683,19 @@ impl Workspaces {
         id: &WorkspaceId,
         action: impl FnOnce(&mut Workspace) -> Result<T, WorkspaceError>,
     ) -> Result<T, WorkspaceError> {
-        let mut open = self.lock();
-        let workspace = open
+        let mut tabs = self.lock();
+        let workspace = tabs
+            .open
             .iter_mut()
             .find(|workspace| workspace.id == *id)
             .ok_or_else(|| WorkspaceError::UnknownWorkspace(id.0.clone()))?;
         action(workspace)
     }
 
-    fn lock(&self) -> MutexGuard<'_, Vec<Workspace>> {
+    fn lock(&self) -> MutexGuard<'_, Tabs> {
         // A panic while holding the lock cannot leave a workspace
         // half-changed: its file is replaced only after a successful save.
-        self.open.lock().unwrap_or_else(PoisonError::into_inner)
+        self.tabs.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -432,6 +713,124 @@ fn new_id() -> WorkspaceId {
     WorkspaceId(uuid::Uuid::new_v4().to_string())
 }
 
+/// Whether `id` can name a workspace file: letters, digits, `-` and `_`,
+/// as in the uuids the app gives. Anything else, such as a path, is never
+/// joined to the workspaces folder.
+fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+fn file_path(dir: &Path, id: &WorkspaceId) -> PathBuf {
+    dir.join(format!("{}.toml", id.0))
+}
+
+/// `name` trimmed, when it is 1 to [`MAX_WORKSPACE_NAME`] characters long.
+fn check_name(name: &str) -> Result<String, WorkspaceError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(WorkspaceError::BlankName);
+    }
+    if name.chars().count() > MAX_WORKSPACE_NAME {
+        return Err(WorkspaceError::NameTooLong);
+    }
+    Ok(name.to_owned())
+}
+
+/// Refuses `name` when a workspace other than `except` has it, ignoring
+/// case.
+fn check_unique(
+    items: &[WorkspaceListItem],
+    name: &str,
+    except: Option<&WorkspaceId>,
+) -> Result<(), WorkspaceError> {
+    let lower = name.to_lowercase();
+    match items
+        .iter()
+        .find(|item| Some(&item.id) != except && item.name.to_lowercase() == lower)
+    {
+        Some(item) => Err(WorkspaceError::NameTaken(item.name.clone())),
+        None => Ok(()),
+    }
+}
+
+/// Every workspace file in `dir` and every open workspace, sorted by name,
+/// ignoring case, then by id.
+fn list(dir: Option<&Path>, tabs: &Tabs) -> Result<Vec<WorkspaceListItem>, WorkspaceError> {
+    let mut items: Vec<WorkspaceListItem> = tabs
+        .open
+        .iter()
+        .map(|workspace| WorkspaceListItem {
+            id: workspace.id.clone(),
+            name: workspace.file.name.clone(),
+            open: true,
+            warning: workspace.warning.clone(),
+        })
+        .collect();
+    if let Some(dir) = dir {
+        for (id, path) in workspace_files(dir).map_err(|source| WorkspaceError::Read {
+            path: dir.to_owned(),
+            source,
+        })? {
+            if tabs.is_open(&id) {
+                continue;
+            }
+            let loaded = config_file::load(&path, MIGRATIONS, decode);
+            // An unreadable file has no name; its id stands in.
+            let name = match loaded.warning {
+                Some(ConfigWarning::Unreadable { .. }) => id.0.clone(),
+                _ => loaded.value.name,
+            };
+            items.push(WorkspaceListItem {
+                id,
+                name,
+                open: false,
+                warning: loaded.warning,
+            });
+        }
+    }
+    items.sort_by(|a, b| (a.name.to_lowercase(), &a.id.0).cmp(&(b.name.to_lowercase(), &b.id.0)));
+    Ok(items)
+}
+
+/// The workspaces of `session` whose file exists, in its order, and the
+/// files that are gone.
+fn restore(dir: &Path, session: &Session) -> Tabs {
+    let mut tabs = Tabs::default();
+    for id in &session.tabs {
+        if tabs.is_open(id) {
+            continue;
+        }
+        let path = file_path(dir, id);
+        if valid_id(&id.0) && path.is_file() {
+            tabs.open.push(load_file(id.clone(), path));
+        } else {
+            tabs.missing.push(path.display().to_string());
+        }
+    }
+    tabs.active = session
+        .active
+        .clone()
+        .filter(|active| tabs.is_open(active))
+        .or_else(|| tabs.open.first().map(|workspace| workspace.id.clone()));
+    tabs
+}
+
+/// Workspace `id` from its file at `path`, read-only when the file cannot
+/// be used (DATA-1).
+fn load_file(id: WorkspaceId, path: PathBuf) -> Workspace {
+    let loaded = config_file::load(&path, MIGRATIONS, decode);
+    Workspace {
+        id,
+        path: Some(path),
+        file: loaded.value,
+        warning: loaded.warning,
+    }
+}
+
 /// The last component of `path`, for display.
 fn folder_name(path: &Path) -> String {
     path.file_name()
@@ -444,15 +843,7 @@ fn folder_name(path: &Path) -> String {
 /// workspace file there.
 fn open_latest(dir: &Path) -> Workspace {
     match latest_file(dir) {
-        Ok(Some((id, path))) => {
-            let loaded = config_file::load(&path, MIGRATIONS, decode);
-            Workspace {
-                id,
-                path: Some(path),
-                file: loaded.value,
-                warning: loaded.warning,
-            }
-        }
+        Ok(Some((id, path))) => load_file(id, path),
         Ok(None) => create(dir),
         // Not knowing which workspace is the user's, creating another one
         // would hide theirs; open none for writing instead.
@@ -468,15 +859,15 @@ fn open_latest(dir: &Path) -> Workspace {
     }
 }
 
-/// The id and path of the most recently modified workspace file in `dir`;
-/// `None` when the folder is missing or has none.
-fn latest_file(dir: &Path) -> io::Result<Option<(WorkspaceId, PathBuf)>> {
+/// The id and path of every workspace file in `dir`: a `*.toml` file whose
+/// name is a valid id. Empty when the folder is missing.
+fn workspace_files(dir: &Path) -> io::Result<Vec<(WorkspaceId, PathBuf)>> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
     };
-    let mut latest: Option<(SystemTime, WorkspaceId, PathBuf)> = None;
+    let mut files = Vec::new();
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
@@ -487,16 +878,25 @@ fn latest_file(dir: &Path) -> io::Result<Option<(WorkspaceId, PathBuf)>> {
         let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
             continue;
         };
-        let metadata = entry.metadata()?;
-        if !metadata.is_file() {
+        if !valid_id(id) || !entry.metadata()?.is_file() {
             continue;
         }
-        let modified = metadata.modified()?;
+        files.push((WorkspaceId(id.to_owned()), path));
+    }
+    Ok(files)
+}
+
+/// The id and path of the most recently modified workspace file in `dir`;
+/// `None` when the folder is missing or has none.
+fn latest_file(dir: &Path) -> io::Result<Option<(WorkspaceId, PathBuf)>> {
+    let mut latest: Option<(SystemTime, WorkspaceId, PathBuf)> = None;
+    for (id, path) in workspace_files(dir)? {
+        let modified = fs::metadata(&path)?.modified()?;
         let newer = latest
             .as_ref()
-            .is_none_or(|(time, latest_id, _)| (modified, id) > (*time, latest_id.0.as_str()));
+            .is_none_or(|(time, latest_id, _)| (modified, &id.0) > (*time, &latest_id.0));
         if newer {
-            latest = Some((modified, WorkspaceId(id.to_owned()), path));
+            latest = Some((modified, id, path));
         }
     }
     Ok(latest.map(|(_, id, path)| (id, path)))
@@ -506,7 +906,7 @@ fn latest_file(dir: &Path) -> io::Result<Option<(WorkspaceId, PathBuf)>> {
 /// starts.
 fn create(dir: &Path) -> Workspace {
     let id = new_id();
-    let path = dir.join(format!("{}.toml", id.0));
+    let path = file_path(dir, &id);
     let file = WorkspaceFile::default();
     let warning = save(&path, &file)
         .err()

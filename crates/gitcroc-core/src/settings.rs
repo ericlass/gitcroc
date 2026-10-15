@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use gitcroc_git::Context;
 
+use crate::WorkspaceId;
 use crate::config_file::{self, ConfigWarning, Migration};
 
 /// The schema this build reads and writes.
@@ -160,6 +161,28 @@ pub struct Settings {
     pub changes: ChangesSettings,
 }
 
+/// The open workspace tabs, kept for the next start (UI-33). Saved as the
+/// optional `[session]` table, so the schema stays the same: older builds
+/// ignore it. The UI never sees it; the core restores the tabs.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Session {
+    /// The open workspaces, in tab order.
+    #[serde(default)]
+    pub tabs: Vec<WorkspaceId>,
+    /// The active tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<WorkspaceId>,
+}
+
+/// The file's contents apart from `schema`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+struct SettingsFile {
+    #[serde(flatten)]
+    settings: Settings,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session: Option<Session>,
+}
+
 /// The settings as the UI sees them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct SettingsView {
@@ -180,8 +203,8 @@ pub enum SettingsError {
     Encode(#[from] toml::ser::Error),
 }
 
-/// The settings, and a warning when the file must not be written.
-type Loaded = config_file::Loaded<Settings>;
+/// The file's contents, and a warning when it must not be written.
+type Loaded = config_file::Loaded<SettingsFile>;
 
 /// The loaded settings for the whole app, saved on every change.
 #[derive(Debug)]
@@ -200,7 +223,7 @@ impl SettingsStore {
             return Self {
                 path: None,
                 state: Mutex::new(Loaded {
-                    value: Settings::default(),
+                    value: SettingsFile::default(),
                     warning: Some(ConfigWarning::NoConfigDir),
                 }),
             };
@@ -222,6 +245,17 @@ impl SettingsStore {
         view(&self.lock())
     }
 
+    /// The tabs saved by the last run, if it saved them (UI-33).
+    pub fn session(&self) -> Option<Session> {
+        self.lock().value.session.clone()
+    }
+
+    /// Keeps the open tabs and saves the file (UI-33).
+    pub fn set_session(&self, session: Session) -> Result<(), SettingsError> {
+        self.update_file(|file| file.session = Some(session))
+            .map(drop)
+    }
+
     /// Changes the theme and saves the file.
     pub fn set_theme(&self, theme: Theme) -> Result<SettingsView, SettingsError> {
         self.update(|settings| settings.theme = theme)
@@ -239,6 +273,13 @@ impl SettingsStore {
     }
 
     fn update(&self, change: impl FnOnce(&mut Settings)) -> Result<SettingsView, SettingsError> {
+        self.update_file(|file| change(&mut file.settings))
+    }
+
+    fn update_file(
+        &self,
+        change: impl FnOnce(&mut SettingsFile),
+    ) -> Result<SettingsView, SettingsError> {
         let mut state = self.lock();
         let path = match (&self.path, &state.warning) {
             (Some(path), None) => path,
@@ -266,7 +307,7 @@ impl SettingsStore {
 
 fn view(state: &Loaded) -> SettingsView {
     SettingsView {
-        settings: state.value.clone(),
+        settings: state.value.settings.clone(),
         read_only: state.warning.is_some(),
         warning: state.warning.clone(),
     }
@@ -275,10 +316,22 @@ fn view(state: &Loaded) -> SettingsView {
 /// Schema 2 added the code themes and fonts; their defaults fill in.
 fn from_schema_1(_table: &mut toml::Table) {}
 
+/// Reads the file's table. A `[session]` that cannot be read is dropped:
+/// the start then opens a workspace as when there is none (UI-33).
+fn decode(mut table: toml::Table) -> Result<SettingsFile, toml::de::Error> {
+    let session = table
+        .remove("session")
+        .and_then(|session| session.try_into().ok());
+    Ok(SettingsFile {
+        settings: decode_settings(table)?,
+        session,
+    })
+}
+
 /// Reads the settings from a file's table, taking the default for every
 /// missing key, inside tables too. Unknown keys, such as `schema`, are
 /// ignored. Font sizes outside the limits are moved to the nearest one.
-fn decode(table: toml::Table) -> Result<Settings, toml::de::Error> {
+fn decode_settings(table: toml::Table) -> Result<Settings, toml::de::Error> {
     let mut full = toml::Table::try_from(Settings::default())
         .map_err(<toml::de::Error as serde::de::Error>::custom)?;
     merge(&mut full, table);

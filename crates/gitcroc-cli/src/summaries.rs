@@ -78,9 +78,8 @@ fn summaries(options: Options) -> Result<String, String> {
     };
     let summaries = Arc::new(Summaries::load(cache, &workspaces));
     let workspace = workspaces
-        .views()
-        .into_iter()
-        .next()
+        .active()
+        .and_then(|id| workspaces.view(&id).ok())
         .ok_or_else(|| "no workspace is open".to_owned())?;
     if !options.cached_only {
         let runtime = tokio::runtime::Builder::new_current_thread()

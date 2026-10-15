@@ -267,6 +267,28 @@ async fn arch_4_one_write_per_repo_at_a_time() {
 }
 
 #[tokio::test]
+async fn ui_21_closing_a_workspace_lets_its_jobs_end_and_keeps_them_listed() {
+    let setup = Setup::new().await;
+    let name = setup.workspaces.view(&setup.id).unwrap().name;
+    let (log, mut started) = Log::new();
+    let (held, release) = setup.held("one", "A", &log);
+    assert_eq!(started.recv().await.unwrap(), "A");
+
+    // What the app does when the tab closes (M3-01).
+    setup.workspaces.close(&setup.id).unwrap();
+    setup.summaries.forget(&setup.id);
+    release.send(()).unwrap();
+
+    let view = ended(held).await;
+    assert_eq!(view.outcome, Some(Outcome::Succeeded));
+    let listed = setup.jobs.all_views();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].job_id, view.job_id);
+    assert_eq!(listed[0].workspace_name, name);
+    assert_eq!(listed[0].state, JobState::Ended);
+}
+
+#[tokio::test]
 async fn arch_4_reads_are_not_blocked_by_a_write() {
     let setup = Setup::new().await;
     let (log, mut started) = Log::new();

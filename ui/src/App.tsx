@@ -81,9 +81,9 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [jobsOpen, setJobsOpen] = createSignal(false);
 
-  // The open tab's workspace: the only one until tabs exist (M3). It is
-  // passed down, never read from a module, so tabs need no rework (ARCH-9).
-  const workspace = () => workspaces.state.views?.[0];
+  // The active tab's workspace (UI-27). It is passed down, never read from
+  // a module, so switching tabs needs no rework (ARCH-9).
+  const workspace = () => workspaces.active();
 
   /** The repo of the tree's selection, and its summary. */
   const selectedRepo = () => {
@@ -311,9 +311,11 @@ export default function App() {
             fallback={
               <main class="main">
                 <p class="placeholder">
-                  {workspaces.state.error === null
-                    ? "Opening the workspace…"
-                    : `Cannot open the workspace: ${workspaces.state.error}`}
+                  {workspaces.state.error !== null
+                    ? `Cannot open the workspace: ${workspaces.state.error}`
+                    : workspaces.state.views === null
+                      ? "Opening the workspace…"
+                      : "No workspace is open."}
                 </p>
               </main>
             }

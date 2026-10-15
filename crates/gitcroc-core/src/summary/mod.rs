@@ -182,6 +182,31 @@ impl Summaries {
         }
     }
 
+    /// Takes the cached summary of every repo of workspace `id`, just
+    /// opened, each marked stale, as [`Self::load`] does at start. Kept as
+    /// it is when the workspace has summaries already. Reads the cache:
+    /// call it off the async workers (ARCH-7).
+    pub fn open(&self, workspaces: &Workspaces, id: &WorkspaceId) {
+        let paths = workspaces.repo_paths(id).unwrap_or_default();
+        if self.lock().contains_key(id) {
+            return;
+        }
+        let mut workspace = WorkspaceState::default();
+        for (repo, path) in paths {
+            workspace
+                .entries
+                .insert(repo, Entry::cached(self.cache.get(&path)));
+        }
+        self.lock().entry(id.clone()).or_insert(workspace);
+    }
+
+    /// Drops the summaries and refresh queue of workspace `id`, whose tab
+    /// closed (ARCH-9). Reads running end after their repo; what they read
+    /// still goes to the cache.
+    pub fn forget(&self, id: &WorkspaceId) {
+        self.lock().remove(id);
+    }
+
     /// Reads in workers of `pool` instead of a pool of its own.
     pub fn with_pool(mut self, pool: Arc<Pool>) -> Self {
         self.pool = pool;
@@ -368,7 +393,13 @@ impl Summaries {
         epoch: u32,
     ) -> SummaryView {
         let mut state = self.lock();
-        let workspace = state.entry(id.clone()).or_default();
+        let Some(workspace) = state.get_mut(id) else {
+            // The workspace closed during the read.
+            if let Outcome::Read(summary) = &outcome {
+                self.cache.put(path, summary);
+            }
+            return Entry::cached(None).view(id, repo);
+        };
         let current = workspace
             .entries
             .get(repo)

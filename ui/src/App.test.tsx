@@ -83,3 +83,10 @@ test("OPS-7 a file watching failure shows a banner until dismissed", async () =>
   fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   expect(screen.queryByRole("alert")).toBeNull();
 });
+
+test("UI-27 with every tab closed the window shows that no workspace is open", async () => {
+  fakeState.workspaceOpen = false;
+  render(() => <App />);
+  expect(await screen.findByText("No workspace is open.")).toBeDefined();
+  expect(screen.queryByRole("region", { name: "Tree" })).toBeNull();
+});

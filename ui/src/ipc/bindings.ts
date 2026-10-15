@@ -22,8 +22,42 @@ export const commands = {
 	settingsGet: () => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_get")),
 	/**  Changes the app theme (UI-23) and saves the settings. */
 	settingsSetTheme: (theme: Theme) => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_set_theme", { theme })),
-	/**  The open workspaces, in tab order. One until workspace tabs exist (M3). */
-	workspaceGet: () => typedError<WorkspaceView[], IpcError>(__TAURI_INVOKE("workspace_get")),
+	/**
+	 *  The open workspaces in tab order, the active one, and the saved tabs
+	 *  whose file was gone at start (UI-27, UI-33).
+	 */
+	workspaceGet: () => typedError<WorkspaceTabs, IpcError>(__TAURI_INVOKE("workspace_get")),
+	/**  Every workspace file, open or not, sorted by name (UI-28). */
+	workspaceList: () => typedError<WorkspaceListItem[], IpcError>(__TAURI_INVOKE("workspace_list")),
+	/**  Creates a workspace, opened as the last tab and made active. */
+	workspaceCreate: (name: string) => typedError<WorkspaceTabs, IpcError>(__TAURI_INVOKE("workspace_create", { name })),
+	/**
+	 *  Opens a workspace as the last tab and makes it active; one already open
+	 *  is made active instead (UI-27).
+	 */
+	workspaceOpen: (workspaceId: WorkspaceId) => typedError<WorkspaceTabs, IpcError>(__TAURI_INVOKE("workspace_open", { workspaceId })),
+	/**
+	 *  Closes a workspace's tab. Its file and repos stay, and its jobs run on
+	 *  (UI-28, UI-21).
+	 */
+	workspaceClose: (workspaceId: WorkspaceId) => typedError<WorkspaceTabs, IpcError>(__TAURI_INVOKE("workspace_close", { workspaceId })),
+	/**  Renames a workspace, open or not. */
+	workspaceRename: (workspaceId: WorkspaceId, name: string) => typedError<WorkspaceTabs, IpcError>(__TAURI_INVOKE("workspace_rename", { workspaceId, name })),
+	/**
+	 *  Deletes the file of a workspace that is not open, and nothing else
+	 *  (GRP-3). Needs `confirmed`.
+	 */
+	workspaceDelete: (workspaceId: WorkspaceId, confirmed: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("workspace_delete", { workspaceId, confirmed })),
+	/**
+	 *  Puts the tabs in the order of `workspace_ids`, which names each open
+	 *  workspace once.
+	 */
+	workspaceReorder: (workspaceIds: WorkspaceId[]) => typedError<WorkspaceTabs, IpcError>(__TAURI_INVOKE("workspace_reorder", { workspaceIds })),
+	/**
+	 *  Makes an open workspace the active tab. It is then watched, and its
+	 *  summaries are read again as when the window regains focus (UI-30).
+	 */
+	workspaceActivate: (workspaceId: WorkspaceId) => typedError<WorkspaceTabs, IpcError>(__TAURI_INVOKE("workspace_activate", { workspaceId })),
 	/**
 	 *  Starts a job that adds the repo at `path`, or every repo found below it,
 	 *  and returns its id at once. Progress arrives as `job_progress` events,
@@ -424,6 +458,7 @@ export const events = {
 	watchWarning: makeEvent<WatchWarningEvent>("watch_warning"),
 	workspaceAddReport: makeEvent<WorkspaceAddReportEvent>("workspace_add_report"),
 	workspaceChanged: makeEvent<WorkspaceChangedEvent>("workspace_changed"),
+	workspacesChanged: makeEvent<WorkspacesChangedEvent>("workspaces_changed"),
 };
 
 /* Types */
@@ -1177,7 +1212,12 @@ export type IpcErrorCode =
 /**  No open workspace has the id, or the workspace has no such repo. */
 "not_found" | 
 /**  No usable git was found (PLAT-3); `git_status` says why. */
-"git_unavailable";
+"git_unavailable" | 
+/**
+ *  The request was refused as it stands, such as a workspace name that
+ *  is taken; the message says why and the user can change it.
+ */
+"refused";
 
 /**
  *  A job ended, sent as event `job_ended` with its outcome and git's
@@ -1906,6 +1946,29 @@ export type WorkspaceChangedEvent = WorkspaceView;
 /**  Identifies a workspace. All session state is keyed by it (ARCH-9). */
 export type WorkspaceId = string;
 
+/**  A workspace file, for the list of every workspace (UI-28). */
+export type WorkspaceListItem = {
+	id: WorkspaceId,
+	name: string,
+	/**  It is open in a tab. */
+	open: boolean,
+	/**  The file opens read-only; this says why (DATA-1). */
+	warning: ConfigWarning | null,
+};
+
+/**  The open workspaces as the UI sees them (UI-27, UI-33). */
+export type WorkspaceTabs = {
+	/**  In tab order. Empty when every tab was closed. */
+	open: WorkspaceView[],
+	/**  `None` only when no workspace is open. */
+	active: WorkspaceId | null,
+	/**
+	 *  The workspace files the saved tabs named that are gone, left out at
+	 *  start. Paths are text for display only (PLAT-2).
+	 */
+	missing: string[],
+};
+
 /**  A workspace as the UI sees it. */
 export type WorkspaceView = {
 	id: WorkspaceId,
@@ -1917,6 +1980,13 @@ export type WorkspaceView = {
 	read_only: boolean,
 	warning: ConfigWarning | null,
 };
+
+/**
+ *  The open workspaces and the active one changed, sent as event
+ *  `workspaces_changed` after every open, close, create, rename, reorder
+ *  and activate (UI-27).
+ */
+export type WorkspacesChangedEvent = WorkspaceTabs;
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
