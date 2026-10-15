@@ -10,6 +10,7 @@ mod cli;
 mod conflict;
 mod diff;
 mod group_run;
+mod group_sync;
 mod history;
 mod quality_gates;
 mod status;

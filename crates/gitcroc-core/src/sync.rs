@@ -127,7 +127,7 @@ fn refused(why: impl Into<String>) -> SyncError {
 
 /// What a job runs.
 #[derive(Debug, Clone)]
-enum Plan {
+pub(crate) enum Plan {
     Fetch {
         prune: Option<bool>,
     },
@@ -297,6 +297,71 @@ fn plan(repo: &GitRepo, op: SyncOp) -> Result<Planned, SyncError> {
     }
 }
 
+/// What `op` runs in `repo` as part of a group operation (section 5
+/// "Fetch", "Pull" and "Push" rows), with why the user should look first;
+/// or why the repo is skipped. Unlike a single repo's push, a branch
+/// without an upstream goes to `origin` only, as section 5 names
+/// `origin/<branch>`. Reads the repo: call it from a thread that may block.
+pub(crate) fn group_plan(repo: &GitRepo, op: &SyncOp) -> Result<(Plan, Option<String>), String> {
+    match *op {
+        SyncOp::Fetch { prune } => {
+            if repo.remote_names().is_empty() {
+                return Err("no remote".to_owned());
+            }
+            match plan(repo, SyncOp::Fetch { prune }) {
+                Ok(Planned::Run(plan)) => Ok((plan, None)),
+                _ => Err("no remote".to_owned()),
+            }
+        }
+        SyncOp::Pull { strategy } => {
+            let branch = repo
+                .current_branch()
+                .ok_or_else(|| "detached HEAD".to_owned())?;
+            if repo.tracking_ref(&branch).is_none() {
+                return Err("no upstream".to_owned());
+            }
+            match plan(repo, SyncOp::Pull { strategy }) {
+                Ok(Planned::Run(plan)) => Ok((plan, None)),
+                _ => Err("no upstream".to_owned()),
+            }
+        }
+        SyncOp::Push {
+            set_upstream,
+            force_with_lease,
+            ..
+        } => {
+            let branch = repo
+                .current_branch()
+                .ok_or_else(|| "detached HEAD".to_owned())?;
+            if let Some(tracked) = repo.tracked_branch(&branch) {
+                let plan = Plan::Push {
+                    remote: tracked.remote,
+                    branch,
+                    remote_branch: tracked.branch,
+                    set_upstream: false,
+                    force_with_lease,
+                };
+                return Ok((plan, None));
+            }
+            if !set_upstream {
+                return Err("no upstream".to_owned());
+            }
+            if !repo.remote_names().iter().any(|remote| remote == "origin") {
+                return Err("no upstream and no origin".to_owned());
+            }
+            let attention = format!("no upstream; will set origin/{branch}");
+            let plan = Plan::Push {
+                remote: "origin".to_owned(),
+                remote_branch: branch.clone(),
+                branch,
+                set_upstream: true,
+                force_with_lease,
+            };
+            Ok((plan, Some(attention)))
+        }
+    }
+}
+
 /// Where a branch without an upstream pushes to: `origin`, else the only
 /// remote; `None` when the user must pick.
 pub(crate) fn default_remote(remotes: &[String]) -> Option<String> {
@@ -334,7 +399,7 @@ fn joined(mut first: Output, then: Result<Output, GitError>) -> Result<Output, G
 
 /// Runs `plan` in `path`, git's progress lines reported as the job's
 /// steps.
-async fn run(job: &JobRun, path: &Path, plan: &Plan) -> Result<Output, GitError> {
+pub(crate) async fn run_plan(job: &JobRun, path: &Path, plan: &Plan) -> Result<Output, GitError> {
     let report = |line: &str| {
         if let Some(progress) = parse_progress(line) {
             job.step(&progress.step, progress.done, progress.total);
@@ -417,11 +482,9 @@ pub async fn op_sync(
         network: true,
         ..WriteJob::single(id, repo_id, plan.label())
     };
-    let handle = jobs.start(
-        git,
-        job,
-        move |job| async move { run(&job, &path, &plan).await },
-    )?;
+    let handle = jobs.start(git, job, move |job| async move {
+        run_plan(&job, &path, &plan).await
+    })?;
     Ok(SyncStart::Started {
         job_id: handle.job_id,
     })

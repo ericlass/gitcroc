@@ -18,6 +18,7 @@ import type { IntegrateStore } from "../stores/integrate";
 import type { ChangesStore } from "../stores/changes";
 import type { ConflictStore } from "../stores/conflicts";
 import type { CommitStore } from "../stores/commit";
+import type { GroupOpStore } from "../stores/groupOps";
 import type { HistoryStore } from "../stores/history";
 import { type LayoutStore, MIN_PANE_HEIGHT, MIN_PANE_WIDTH, type ResizablePane } from "../stores/layout";
 import type { SettingsStore } from "../stores/settings";
@@ -42,6 +43,7 @@ export default function Panes(props: {
   tag: TagStore;
   remote: RemoteStore;
   clone: CloneStore;
+  groupOps: GroupOpStore;
   reset: ResetStore;
   integrate: IntegrateStore;
   settings: SettingsStore;
@@ -138,6 +140,7 @@ export default function Panes(props: {
           tag={props.tag}
           remote={props.remote}
           clone={props.clone}
+          groupOps={props.groupOps}
         />
       </section>
       {splitter("tree", "Resize Tree")}

@@ -6,6 +6,7 @@
 
 mod op;
 mod summary;
+mod sync;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;

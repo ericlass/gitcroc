@@ -283,3 +283,73 @@ test("the group settings round-trip through the core, outside 1 to 32 refused", 
   await settleAll();
   expect(fakeState.settings.settings.always_show_preflight).toBe(true);
 });
+
+/** The tree row labelled `label` at `level`. */
+function row(label: string, level: number): HTMLElement {
+  const found = screen
+    .getAllByRole("treeitem")
+    .find(
+      (item) =>
+        item.getAttribute("aria-level") === String(level) && item.querySelector(".tree-label")?.textContent === label,
+    );
+  if (found === undefined) {
+    throw new Error(`no row ${label} at level ${level}`);
+  }
+  return found;
+}
+
+test("grp_12_the_toolbar_runs_fetch_pull_and_push_on_a_group_through_the_preflight", async () => {
+  await appSetup();
+  fireEvent.click(row("All", 1));
+  await settleAll();
+  const toolbar = within(screen.getByRole("toolbar", { name: "Main" }));
+  const button = (name: string) => toolbar.getByRole<HTMLButtonElement>("button", { name });
+  for (const name of ["Fetch", "Fetch options", "Pull", "Pull options", "Push", "Push options"]) {
+    expect(button(name).disabled).toBe(false);
+  }
+
+  // A click runs with the defaults of section 5; every repo will run, so it starts at once.
+  fireEvent.click(button("Fetch"));
+  await settleAll();
+  fireEvent.click(button("Pull"));
+  await settleAll();
+  fireEvent.click(button("Push"));
+  await settleAll();
+  expect(fakeGroups.preflights.map((preflight) => [preflight.target, preflight.op])).toEqual([
+    [ALL, { kind: "fetch", prune: "config" }],
+    [ALL, { kind: "pull", strategy: "config" }],
+    [ALL, { kind: "push", set_upstream: true, force_with_lease: false }],
+  ]);
+  expect(fakeGroups.starts.map((start) => start.confirmed)).toEqual([false, false, false]);
+
+  // The arrow opens the options; the run still goes through the preflight.
+  fireEvent.click(button("Pull options"));
+  const options = screen.getByRole("dialog", { name: "Pull All" });
+  fireEvent.click(within(options).getByRole("radio", { name: "Rebase" }));
+  fireEvent.click(within(options).getByRole("button", { name: "Pull" }));
+  await settleAll();
+  expect(screen.queryByRole("dialog", { name: "Pull All" })).toBeNull();
+  expect(fakeGroups.preflights.at(-1)?.op).toEqual({ kind: "pull", strategy: "rebase" });
+
+  // Force with lease is destructive: the preflight dialog names every repo (GRP-9).
+  fireEvent.click(button("Push options"));
+  const push = screen.getByRole("dialog", { name: "Push All" });
+  fireEvent.click(within(push).getByRole("checkbox", { name: /Force with lease/ }));
+  fireEvent.click(within(push).getByRole("button", { name: "Push" }));
+  await settleAll();
+  expect(fakeGroups.preflights.at(-1)?.op).toEqual({ kind: "push", set_upstream: true, force_with_lease: true });
+  const confirm = screen.getByRole("alertdialog");
+  expect(within(confirm).getByRole("button", { name: "Force push in 4 repos" })).toBeTruthy();
+  fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+  await settleAll();
+
+  // The group row's menu offers the same three.
+  fireEvent.contextMenu(row("All", 1), { clientX: 10, clientY: 10 });
+  fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Push" }));
+  await settleAll();
+  expect(fakeGroups.preflights.at(-1)).toEqual({
+    workspaceId: id(),
+    target: ALL,
+    op: { kind: "push", set_upstream: true, force_with_lease: false },
+  });
+});

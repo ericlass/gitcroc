@@ -174,7 +174,7 @@ impl GroupOperation for TestOp {
         let name = name_of(&path);
         let act = self.acts.get(&name).copied().unwrap_or(Act::Succeed);
         let gates = self.gates.clone();
-        Box::pin(async move {
+        let ran = async move {
             gates.ran.lock().unwrap().push(name.clone());
             match act {
                 Act::Succeed => {
@@ -207,7 +207,8 @@ impl GroupOperation for TestOp {
                     result
                 }
             }
-        })
+        };
+        Box::pin(async move { Ok(ran.await?) })
     }
 }
 
@@ -353,9 +354,15 @@ impl Setup {
 
     /// Runs a preflight of `op` on the group and waits for its result.
     async fn preflight(&self, op: TestOp) -> PreflightReady {
+        self.preflight_of(Arc::new(op)).await
+    }
+
+    /// Runs a preflight of any operation on the group and waits for its
+    /// result.
+    async fn preflight_of(&self, op: Arc<dyn GroupOperation>) -> PreflightReady {
         let id = self
             .groups
-            .preflight(git(), &self.id, &self.target, Arc::new(op))
+            .preflight(git(), &self.id, &self.target, op)
             .unwrap();
         let ready = self.next_ready().await;
         assert_eq!(ready.preflight_id, id);
@@ -925,10 +932,16 @@ fn grp_9_group_ops_name_what_cannot_be_undone() {
 
 #[tokio::test]
 async fn group_ops_are_not_available_until_their_task() {
-    let op = GroupOp::Fetch {
+    let op = GroupOp::Rebase {
+        onto: "main".to_owned(),
+    };
+    assert!(
+        matches!(op.operation(), Err(GroupError::NotAvailable(name)) if name == "Rebase onto main")
+    );
+    let fetch = GroupOp::Fetch {
         prune: Prune::Config,
     };
-    assert!(matches!(op.operation(), Err(GroupError::NotAvailable(name)) if name == "Fetch"));
+    assert!(fetch.operation().is_ok());
 }
 
 #[tokio::test]
@@ -947,4 +960,130 @@ async fn ops_7_a_repo_is_read_again_when_its_sub_job_ends() {
     control.release("b");
     setup.ended(job).await;
     assert!(setup.ended.2.lock().unwrap().contains(&setup.repo_id("b")));
+}
+
+/// Points `origin` of repo `name` at an ssh URL that git reaches through
+/// `ssh`, a shell script, run with `sh` so that it runs on every platform.
+fn ssh_origin(setup: &Setup, name: &str, ssh: &std::path::Path) {
+    let repo = setup.repo(name);
+    let url = format!("ssh://gitcroc.invalid/{name}.git");
+    repo.git(["remote", "add", "origin", &url]).unwrap();
+    let command = format!("sh '{}'", slash(ssh));
+    repo.git(["config", "core.sshCommand", &command]).unwrap();
+    repo.git(["config", "ssh.variant", "simple"]).unwrap();
+}
+
+fn slash(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn fetch() -> Arc<dyn GroupOperation> {
+    GroupOp::Fetch {
+        prune: Prune::Config,
+    }
+    .operation()
+    .unwrap()
+}
+
+#[tokio::test]
+async fn grp_10_cancel_of_a_group_fetch_kills_it_and_skips_the_queued() {
+    let names = ["a", "b", "c"];
+    let setup = Setup::new(&names).await;
+    setup.set_parallelism(1);
+    let scripts = tempfile::tempdir().unwrap();
+    // A remote that never answers: the fake ssh notes that it started,
+    // then reads its input until git, which writes it, is gone.
+    let started = scripts.path().join("started");
+    let ssh = scripts.path().join("ssh.sh");
+    std::fs::write(
+        &ssh,
+        format!("echo started > '{}'\ncat > /dev/null\n", slash(&started)),
+    )
+    .unwrap();
+    for name in names {
+        ssh_origin(&setup, name, &ssh);
+    }
+
+    let ready = setup.preflight_of(fetch()).await;
+    assert_eq!(ready.label, "Fetch · All (3 repos)");
+    assert!(!ready.needs_confirmation);
+    let job = setup.start(ready.preflight_id);
+    // Polls a file: the wait ends when it appears, however long that takes.
+    while !started.exists() {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    setup.jobs.cancel(job);
+    let view = setup.ended(job).await;
+    assert_eq!(
+        outcomes(&view),
+        names.map(|name| (name.to_owned(), cancelled()))
+    );
+}
+
+/// Hands each network sub-job a fake askpass, refused for repo `a`, and
+/// keeps the repos each grant names.
+struct Prompts {
+    program: PathBuf,
+    issued: Mutex<Vec<Vec<String>>>,
+}
+
+impl gitcroc_core::AskpassIssuer for Prompts {
+    fn issue(&self, job: &JobView) -> Option<gitcroc_core::AskpassGrant> {
+        self.issued.lock().unwrap().push(job.repo_names.clone());
+        let refuse = if job.repo_names == ["a"] { "1" } else { "" };
+        let askpass = gitcroc_core::Askpass {
+            program: self.program.clone(),
+            env: vec![("GITCROC_TEST_REFUSE".to_owned(), refuse.to_owned())],
+        };
+        Some(gitcroc_core::AskpassGrant::new(askpass, || {}))
+    }
+}
+
+#[tokio::test]
+async fn d10_group_prompts_name_their_repo_and_a_cancelled_one_fails_only_its_repo() {
+    let names = ["a", "b"];
+    let setup = Setup::new(&names).await;
+    let scripts = tempfile::tempdir().unwrap();
+    // The askpass helper: no answer for a cancelled prompt.
+    let askpass = scripts.path().join("askpass.sh");
+    std::fs::write(
+        &askpass,
+        "[ -n \"$GITCROC_TEST_REFUSE\" ] && exit 1\necho secret\n",
+    )
+    .unwrap();
+    let prompts = Arc::new(Prompts {
+        program: askpass,
+        issued: Mutex::default(),
+    });
+    assert!(setup.jobs.use_askpass(prompts.clone()));
+    for name in names {
+        // The fake ssh asks for a password, then serves the repo's bare
+        // copy.
+        let bare = scripts.path().join(format!("{name}.git"));
+        let mut args: Vec<std::ffi::OsString> = vec!["clone".into(), "--bare".into()];
+        args.extend(["--quiet".into(), "--".into()]);
+        args.extend([setup.repo(name).path().into(), bare.clone().into()]);
+        setup.repo(name).git(args).unwrap();
+        let ssh = scripts.path().join(format!("ssh-{name}.sh"));
+        std::fs::write(
+            &ssh,
+            format!(
+                "sh \"$SSH_ASKPASS\" 'Password: ' > /dev/null || exit 255\n\
+                 exec git upload-pack '{}'\n",
+                slash(&bare)
+            ),
+        )
+        .unwrap();
+        ssh_origin(&setup, name, &ssh);
+    }
+
+    let ready = setup.preflight_of(fetch()).await;
+    let view = setup.ended(setup.start(ready.preflight_id)).await;
+    let mut issued = prompts.issued.lock().unwrap().clone();
+    issued.sort();
+    assert_eq!(issued, [["a"], ["b"]]);
+    let report = outcomes(&view);
+    assert_eq!(report[0], ("a".to_owned(), Outcome::Failed));
+    assert_eq!(report[1].0, "b");
+    assert_ne!(report[1].1, Outcome::Failed, "{view:#?}");
 }

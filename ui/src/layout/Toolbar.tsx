@@ -1,14 +1,16 @@
 // The toolbar of UI-20. Buttons that cannot apply are disabled, not hidden,
 // and say why when it is not plain, as for a group or several repos (GRP-5).
-// Fetch, Pull and Push act on the selected repo: a click runs with the
-// defaults, the arrow beside Pull and Push opens their options. Merge opens
-// the dialog that merges or rebases, Stash the stash dialog.
+// Fetch, Pull and Push act on the target set: a click runs with the
+// defaults, the arrow beside each opens its options. On a group or several
+// repos they run through the preflight (section 5). Merge opens the dialog
+// that merges or rebases, Stash the stash dialog.
 
 /** What a button does; `null` disables it. */
 type Action = (() => void) | null;
 
 export interface SyncActions {
   fetch: Action;
+  fetchOptions: Action;
   pull: Action;
   pullOptions: Action;
   push: Action;
@@ -62,14 +64,13 @@ export default function Toolbar(props: {
   const why = () => props.disabledWhy ?? {};
   return (
     <div role="toolbar" aria-label="Main" class="toolbar">
-      <button
-        type="button"
-        disabled={props.sync.fetch === null}
-        title={titleOf(props.sync.fetch, "Fetch all remotes of the selected repository", why().fetch)}
-        onClick={() => props.sync.fetch?.()}
-      >
-        Fetch
-      </button>
+      <SplitButton
+        name="Fetch"
+        title="Fetch all remotes"
+        why={why().fetch}
+        run={props.sync.fetch}
+        options={props.sync.fetchOptions}
+      />
       <SplitButton
         name="Pull"
         title="Update the current branch from its upstream"

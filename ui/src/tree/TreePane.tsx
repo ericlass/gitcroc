@@ -14,6 +14,7 @@ import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, untrack } from "solid-js";
 import {
   type RepoId,
+  type TargetSet,
   repoOpenFileManager,
   repoOpenTerminal,
   type TreeItem,
@@ -24,6 +25,7 @@ import {
 } from "../ipc";
 import type { BranchStore } from "../stores/branch";
 import type { CloneStore } from "../stores/clone";
+import { DEFAULT_GROUP_OPS, type GroupOpStore } from "../stores/groupOps";
 import type { StashStore } from "../stores/stash";
 import type { RemoteStore } from "../stores/remote";
 import type { TagStore } from "../stores/tag";
@@ -524,6 +526,7 @@ export default function TreePane(props: {
   tag: TagStore;
   remote: RemoteStore;
   clone: CloneStore;
+  groupOps: GroupOpStore;
 }) {
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [menu, setMenu] = createSignal<{ item: TreeItem; x: number; y: number } | null>(null);
@@ -605,6 +608,15 @@ export default function TreePane(props: {
     switch (entry.action) {
       case "new_group":
         setGroupDialog({ kind: "new", repos: item.kind === "repo" ? [item.repo_id] : [] });
+        return true;
+      case "group_fetch":
+      case "group_pull":
+      case "group_push":
+        if (item.kind === "group") {
+          const kind = entry.action === "group_fetch" ? "fetch" : entry.action === "group_pull" ? "pull" : "push";
+          const target: TargetSet = { kind: "group", group_id: item.group_id };
+          void props.groupOps.run(props.workspace, target, DEFAULT_GROUP_OPS[kind]);
+        }
         return true;
       case "group_rename":
       case "group_delete":

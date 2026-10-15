@@ -2,15 +2,20 @@
 //! supplies to run on a target set: a read-only classification of a repo
 //! and the single-repo run. Each operation's own rules arrive with its task
 //! (M3-10 to M3-13); until then it is refused as not available yet.
+//! Fetch, pull and push are in `super::sync`.
 
 use std::path::PathBuf;
 use std::pin::Pin;
 
-use gitcroc_git::{GitError, GitRepo, GitRunner, Output};
+use gitcroc_git::{GitRepo, GitRunner, Output};
 use serde::{Deserialize, Serialize};
 
 use super::GroupError;
-use crate::{CommitMessage, JobRun, MergeFastForward, Prune, PullStrategy, StartPoint, SubJobSpec};
+use super::sync::GroupSync;
+use crate::{
+    CommitMessage, JobRun, MergeFastForward, Prune, PullStrategy, StartPoint, SubJobError,
+    SubJobSpec, SyncOp,
+};
 
 /// What a group checkout does in a repo without branch X (section 5
 /// "Checkout branch X").
@@ -139,7 +144,24 @@ impl GroupOp {
     /// The code that runs it on a target set; refused until the
     /// operation's task brings its preflight rule and run.
     pub fn operation(&self) -> Result<std::sync::Arc<dyn GroupOperation>, GroupError> {
-        Err(GroupError::NotAvailable(self.name()))
+        let op = match *self {
+            Self::Fetch { prune } => SyncOp::Fetch { prune },
+            Self::Pull { strategy } => SyncOp::Pull { strategy },
+            Self::Push {
+                set_upstream,
+                force_with_lease,
+            } => SyncOp::Push {
+                set_upstream,
+                remote: None,
+                force_with_lease,
+            },
+            _ => return Err(GroupError::NotAvailable(self.name())),
+        };
+        Ok(std::sync::Arc::new(GroupSync {
+            name: self.name(),
+            destructive: self.destructive(),
+            op,
+        }))
     }
 }
 
@@ -163,7 +185,7 @@ pub enum Class {
 }
 
 /// What [`GroupOperation::run`] returns.
-pub type RunFuture = Pin<Box<dyn Future<Output = Result<Output, GitError>> + Send>>;
+pub type RunFuture = Pin<Box<dyn Future<Output = Result<Output, SubJobError>> + Send>>;
 
 /// An operation that runs on a target set: what its code supplies to the
 /// engine of [`super::GroupOps`].

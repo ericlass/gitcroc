@@ -29,6 +29,7 @@ test("UI-20 layout: tab bar, toolbar, three panes and status bar", async () => {
   const buttons = [...toolbar.querySelectorAll("button")];
   expect(buttons.map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual([
     "Fetch",
+    "Fetch options",
     "Pull",
     "Pull options",
     "Push",

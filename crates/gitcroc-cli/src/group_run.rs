@@ -1,8 +1,8 @@
-//! `gitcroc-cli group run <group> --test-op`: runs a group operation on a
-//! group of the active workspace through the core's engine (section 5
-//! "Lifecycle of a group operation") and prints the preflight and the job
-//! with its report as JSON. Until the real operations arrive (M3-10 to
-//! M3-13), only the test operation runs: every repo GRP-8 lets pass will
+//! `gitcroc-cli group run <group> <op>`: runs a group operation on a group
+//! of the active workspace through the core's engine (section 5 "Lifecycle
+//! of a group operation") and prints the preflight and the job with its
+//! report as JSON (section 12 "Group scenarios"). Besides the core's
+//! operations, the test operation runs: every repo GRP-8 lets pass will
 //! run, and its run starts no git, so it ends *nothing to do*.
 
 use std::path::PathBuf;
@@ -15,6 +15,7 @@ use gitcroc_core::{
 };
 use tokio::sync::{mpsc, oneshot};
 
+use crate::group::RunOp;
 use crate::workspace::GivenConfigDir;
 
 /// The test operation.
@@ -72,11 +73,20 @@ impl JobEvents for Ends {
     fn summary(&self, _view: SummaryView, _read: bool) {}
 }
 
-/// Runs the test operation on group `name` of the active workspace and
-/// returns `{ "preflight": ..., "job": ... }` as JSON. A preflight that
-/// needs confirmation runs only with `confirm`; without it, only the
-/// preflight is printed and the result is an error.
-pub fn run(config_dir: Option<&PathBuf>, name: &str, confirm: bool) -> Result<String, String> {
+/// Runs `op` on group `name` of the active workspace and returns
+/// `{ "preflight": ..., "job": ... }` as JSON. A preflight that needs
+/// confirmation runs only with `confirm`; without it, only the preflight is
+/// printed and the result is an error.
+pub fn run(
+    config_dir: Option<&PathBuf>,
+    name: &str,
+    op: &RunOp,
+    confirm: bool,
+) -> Result<String, String> {
+    let op: Arc<dyn GroupOperation> = match op {
+        RunOp::Test => Arc::new(TestOp),
+        RunOp::Op(op) => op.operation().map_err(|error| error.to_string())?,
+    };
     let settings = Arc::new(match config_dir {
         Some(dir) => SettingsStore::load(&GivenConfigDir(dir.clone())),
         None => SettingsStore::load(&PlatformConfigDir),
@@ -113,7 +123,7 @@ pub fn run(config_dir: Option<&PathBuf>, name: &str, confirm: bool) -> Result<St
     let (preflight, job) = runtime.block_on(async {
         let target = TargetSet::Group { group_id: group };
         groups
-            .preflight(git.clone(), &id, &target, Arc::new(TestOp))
+            .preflight(git.clone(), &id, &target, op)
             .map_err(|error| error.to_string())?;
         let preflight: PreflightReady = readies
             .recv()

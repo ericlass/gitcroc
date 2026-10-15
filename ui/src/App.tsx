@@ -12,8 +12,9 @@ import {
 } from "solid-js";
 import AskpassDialog from "./AskpassDialog";
 import GitSetup from "./GitSetup";
+import GroupSyncDialog from "./groups/GroupSyncDialog";
 import PreflightDialog from "./groups/PreflightDialog";
-import { appInfo, type JobId, type WorkspaceId } from "./ipc";
+import { appInfo, type GroupOp, type JobId, type TargetSet, type WorkspaceId } from "./ipc";
 import { needsLook } from "./jobs/GroupReport";
 import JobList from "./jobs/JobList";
 import Panes from "./layout/Panes";
@@ -36,7 +37,7 @@ import { createChangesStore } from "./stores/changes";
 import { createCommitStore } from "./stores/commit";
 import { createConflictStore } from "./stores/conflicts";
 import { createGitStore } from "./stores/git";
-import { createGroupOpStore } from "./stores/groupOps";
+import { createGroupOpStore, DEFAULT_GROUP_OPS, type SyncKind } from "./stores/groupOps";
 import { createHistoryStore, mergedSource, sourceOf } from "./stores/history";
 import { createIntegrateStore } from "./stores/integrate";
 import { createJobStore } from "./stores/jobs";
@@ -94,6 +95,12 @@ export default function App() {
   const watch = createWatchStore();
   const workspaceDialogs = createWorkspaceDialogs();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  /** The options dialog of Fetch, Pull or Push: what it is for, and what runs the picked options. */
+  const [syncOptions, setSyncOptions] = createSignal<{
+    kind: SyncKind;
+    targetName: string;
+    run: (op: GroupOp) => void;
+  } | null>(null);
   /** The job list, when open, and the job it opened on. */
   const [jobsOpen, setJobsOpen] = createSignal<{ initial?: JobId } | null>(null);
   const [missingDismissed, setMissingDismissed] = createSignal(false);
@@ -121,8 +128,8 @@ export default function App() {
   };
 
   /**
-   * Why each button is disabled for a group or several repos (UI-20): their
-   * group operations do not exist yet, and Stash is single-repo only.
+   * Why each button is disabled for a group or several repos (UI-20): Branch
+   * and Merge have no group operation yet, and Stash is single-repo only.
    */
   const disabledWhy = (): ToolbarReasons => {
     const kind = target()?.kind;
@@ -131,12 +138,36 @@ export default function App() {
     }
     const later = "Not available yet for a group or several repositories";
     return {
-      fetch: later,
-      pull: later,
-      push: later,
       branch: later,
       merge: later,
       stash: "Stash works on one repository at a time",
+    };
+  };
+
+  /** How the options dialog names a target set of a group or several repos. */
+  const targetName = (current: TargetSet) => {
+    if (current.kind === "group") {
+      return workspace()?.groups.find((group) => group.id === current.group_id)?.name ?? "the group";
+    }
+    return current.kind === "repos" ? `${current.repo_ids.length} repositories` : repoName(current.repo_id);
+  };
+
+  /**
+   * Fetch, Pull and Push for a group or several repos (GRP-12): a click
+   * runs with the defaults and the arrow opens the options, both through
+   * the preflight, which skips or blocks the repos that cannot take them.
+   */
+  const groupSyncActions = (id: WorkspaceId, current: TargetSet) => {
+    const run = (op: GroupOp) => void groupOps.run(id, current, op);
+    const click = (kind: SyncKind) => () => run(DEFAULT_GROUP_OPS[kind]);
+    const options = (kind: SyncKind) => () => setSyncOptions({ kind, targetName: targetName(current), run });
+    return {
+      fetch: click("fetch"),
+      fetchOptions: options("fetch"),
+      pull: click("pull"),
+      pullOptions: options("pull"),
+      push: click("push"),
+      pushOptions: options("push"),
     };
   };
 
@@ -146,16 +177,28 @@ export default function App() {
     return target === null || isBlocked(target.view) ? null : target;
   };
 
-  /** What the toolbar's Fetch, Pull and Push do for the selected repo (UI-20). */
+  /** What the toolbar's Fetch, Pull and Push do for the target set (UI-20). */
   const syncActions = () => {
-    const target = selectedRepo();
-    if (target === null) {
-      return { fetch: null, pull: null, pullOptions: null, push: null, pushOptions: null };
+    const current = target();
+    const workspaceId = workspace()?.id;
+    if (workspaceId !== undefined && (current?.kind === "group" || current?.kind === "repos")) {
+      return groupSyncActions(workspaceId, current);
     }
-    const { id, repo, view } = target;
+    const selected = selectedRepo();
+    if (selected === null) {
+      return { fetch: null, fetchOptions: null, pull: null, pullOptions: null, push: null, pushOptions: null };
+    }
+    const { id, repo, view } = selected;
+    const fetch = canFetch(view);
     const pullOrPush = canPullOrPush(view);
+    const fetchWith = (op: GroupOp) => {
+      if (op.kind === "fetch") {
+        void sync.run(id, repo, { kind: "fetch", prune: op.prune });
+      }
+    };
     return {
-      fetch: canFetch(view) ? () => void sync.run(id, repo, DEFAULT_OPS.fetch) : null,
+      fetch: fetch ? () => void sync.run(id, repo, DEFAULT_OPS.fetch) : null,
+      fetchOptions: fetch ? () => setSyncOptions({ kind: "fetch", targetName: repoName(repo), run: fetchWith }) : null,
       pull: pullOrPush ? () => void sync.run(id, repo, DEFAULT_OPS.pull) : null,
       pullOptions: pullOrPush ? () => sync.open(id, { kind: "pull", repo }) : null,
       push: pullOrPush ? () => void sync.run(id, repo, DEFAULT_OPS.push) : null,
@@ -445,6 +488,7 @@ export default function App() {
                     tag={tag}
                     remote={remote}
                     clone={clone}
+                    groupOps={groupOps}
                     reset={reset}
                     integrate={integrate}
                     settings={settings}
@@ -479,6 +523,19 @@ export default function App() {
                   setJobsOpen(null);
                   void groupOps.retry(id, job);
                 }}
+              />
+            )}
+          </Show>
+          <Show when={syncOptions()} keyed>
+            {(open) => (
+              <GroupSyncDialog
+                kind={open.kind}
+                targetName={open.targetName}
+                onRun={(op) => {
+                  setSyncOptions(null);
+                  open.run(op);
+                }}
+                onClose={() => setSyncOptions(null)}
               />
             )}
           </Show>
