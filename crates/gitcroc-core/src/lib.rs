@@ -66,7 +66,10 @@ pub use gitcroc_git::{
     RepoSummary, SearchEnv, SideHolds, StashEntry, StatusError, StatusRead, StatusReader, Step,
     Tag, TextDiff, UnmergedFile, WorkingCopy, merged_history,
 };
-pub use group::{GroupBranch, GroupSummary, group_summaries};
+pub use group::{
+    Class, GroupBranch, GroupError, GroupOp, GroupOperation, GroupOps, GroupSummary, MissingBranch,
+    PreflightId, PreflightReady, RepoClass, RunFuture, group_summaries,
+};
 pub use history::{
     CommitGraphError, CommitGraphWrite, Histories, HistoryPageError, HistoryRow, HistoryTarget,
     HistoryView, HistoryViewError, commit_graph_write, history_get, history_more, history_page,
@@ -76,10 +79,10 @@ pub use integrate::{
     conflict_details, merge_targets, op_integrate,
 };
 pub use job::{
-    AskpassGrant, AskpassIssuer, CancelResult, JobError, JobEvents, JobHandle, JobId, JobIds,
-    JobProgress, JobRun, JobState, JobView, Jobs, MAX_ENDED_JOBS, MAX_OUTPUT, NothingToDo,
-    OnCancel, Outcome, POOL_SIZE, Pool, Priority, SkipReason, TrackedJob, Worker, WorkspaceId,
-    WriteJob,
+    AskpassGrant, AskpassIssuer, CancelResult, GroupRun, JobError, JobEvents, JobHandle, JobId,
+    JobIds, JobProgress, JobRun, JobState, JobView, Jobs, MAX_ENDED_JOBS, MAX_OUTPUT, NothingToDo,
+    OnCancel, Outcome, POOL_SIZE, Pool, Priority, RepoResult, SkipReason, SubJob, SubJobSpec,
+    TrackedJob, Worker, WorkspaceId, WriteJob,
 };
 pub use log::{AppLog, LOG_FILE, LOG_FILE_SIZE, LOG_FILES, LogDir, PlatformLogDir};
 pub use ref_name::RefNameError;
@@ -90,8 +93,9 @@ pub use remote::{
 pub use reset::{ResetError, ResetMode, ResetRequest, ResetStart, op_reset};
 pub use settings::{
     Appearance, ChangesSettings, CodeTheme, ConfigDir, DEFAULT_FONT_SIZE, DiffMode, FileListMode,
-    MAX_FONT_SIZE, MIN_FONT_SIZE, PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Session,
-    Settings, SettingsError, SettingsStore, SettingsView, Theme,
+    GroupSettings, MAX_FONT_SIZE, MAX_GROUP_PARALLELISM, MIN_FONT_SIZE, MIN_GROUP_PARALLELISM,
+    PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Session, Settings, SettingsError,
+    SettingsStore, SettingsView, Theme,
 };
 pub use stage::{ChangeAction, ChangeRequest, ChangeStart, ChangeTarget, changes_apply};
 pub use stash::{StashError, StashOp, StashRef, StashRequest, StashStart, op_stash};

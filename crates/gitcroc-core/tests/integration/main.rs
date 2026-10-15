@@ -11,6 +11,7 @@ mod clone;
 mod commit;
 mod conflict;
 mod fsmonitor;
+mod group_jobs;
 mod groups;
 mod history;
 mod integrate;

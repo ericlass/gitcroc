@@ -85,6 +85,8 @@ fn job_view(label: &str) -> JobView {
         outcome: None,
         output: String::new(),
         message: None,
+        sub_jobs: Vec::new(),
+        report: None,
     }
 }
 

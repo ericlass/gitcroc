@@ -9,6 +9,7 @@ mod conflict;
 mod diff;
 mod gate;
 mod group;
+mod group_run;
 mod history;
 mod status;
 mod summaries;

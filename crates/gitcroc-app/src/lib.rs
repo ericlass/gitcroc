@@ -39,6 +39,12 @@ pub fn run() -> Result<(), Error> {
         SummaryCache::open(&PlatformCacheDir),
         &workspaces,
     ));
+    // The pool jobs and the refresh share has as many places as group
+    // operations run sub-jobs at once (PERF-4).
+    let parallelism = settings.view().settings.groups.group_parallelism;
+    summaries
+        .pool()
+        .resize(usize::try_from(parallelism).unwrap_or(gitcroc_core::POOL_SIZE));
     ipc::perf_mark("state loaded");
     let invoke_handler = ipc.invoke_handler();
     // Debug and bench builds note each command's first call (M1-15).
@@ -97,6 +103,7 @@ pub fn run() -> Result<(), Error> {
             }
             app.manage(askpass_ui);
             app.manage(jobs);
+            app.manage(ipc::group_ops(app.handle()));
             ipc::spawn_watching(app.handle());
             ipc::spawn_git_detection(app.handle().clone());
             ipc::perf_mark("setup done");

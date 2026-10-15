@@ -7,6 +7,7 @@
 //! for a write. Running jobs and the background refresh share one pool of
 //! workers, jobs first (PERF-4).
 
+mod group;
 mod pool;
 
 use std::collections::{HashMap, VecDeque};
@@ -25,6 +26,7 @@ use tokio::sync::oneshot;
 use crate::lock;
 use crate::{RepoId, Summaries, SummaryView, WorkspaceError, Workspaces};
 
+pub use group::{GroupRun, SubJobSpec};
 pub use pool::{POOL_SIZE, Pool, Priority, Worker};
 
 /// Identifies a workspace. All session state is keyed by it (ARCH-9).
@@ -68,12 +70,17 @@ pub enum Outcome {
     Conflict,
 }
 
-/// Why a job was skipped.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(rename_all = "snake_case")]
+/// Why a job, or a repo of a group operation, was skipped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SkipReason {
     /// Cancelled before it started, or killed while it ran (GRP-10).
     Cancelled,
+    /// The preflight classed the repo *will skip* for the operation.
+    Preflight { reason: String },
+    /// The repo was blocked (GRP-8), at the preflight or when its sub-job
+    /// was to start.
+    Blocked { reason: String },
 }
 
 /// Where a job is.
@@ -116,6 +123,34 @@ pub struct JobView {
     /// last state; at most [`MAX_OUTPUT`] bytes, the end kept.
     pub output: String,
     /// Why a failed or skipped job did not succeed.
+    pub message: Option<String>,
+    /// A group operation's sub-jobs, one per repo it runs on, in target-set
+    /// order, as they are now; empty for any other job.
+    pub sub_jobs: Vec<SubJob>,
+    /// A group operation's result report, set when it ended: every repo of
+    /// its target set, in target-set order, with one outcome (GRP-7).
+    pub report: Option<Vec<RepoResult>>,
+}
+
+/// A sub-job of a group operation: its repo and where it is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct SubJob {
+    pub repo_id: RepoId,
+    pub repo_name: String,
+    pub state: JobState,
+    /// Set when it ended.
+    pub outcome: Option<Outcome>,
+}
+
+/// One repo's line of a result report (section 3 "Result report").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct RepoResult {
+    pub repo_id: RepoId,
+    pub repo_name: String,
+    pub outcome: Outcome,
+    /// What git printed, as [`JobView::output`].
+    pub output: String,
+    /// Why it failed, as [`JobView::message`].
     pub message: Option<String>,
 }
 
@@ -322,6 +357,8 @@ struct Entry {
     on_cancel: OnCancel,
     /// Wakes the job when it is first in all its repos' queues.
     turn: Option<oneshot::Sender<()>>,
+    /// A group operation's request to start no more sub-jobs (GRP-10).
+    stop: Option<Kill>,
 }
 
 #[derive(Default)]
@@ -447,6 +484,7 @@ impl Jobs {
                 kill: kill.clone(),
                 on_cancel: job.on_cancel,
                 turn: (!first).then_some(turn),
+                stop: None,
             });
             first
         };
@@ -505,6 +543,8 @@ impl Jobs {
             outcome: None,
             output: String::new(),
             message: None,
+            sub_jobs: Vec::new(),
+            report: None,
         })
     }
 
@@ -546,6 +586,7 @@ impl Jobs {
             kill: kill.clone(),
             on_cancel,
             turn: None,
+            stop: None,
         });
         let begun = self.begin(id);
         if let Some(view) = &begun {
@@ -614,6 +655,11 @@ impl Jobs {
         let Some(entry) = state.entry(id) else {
             return CancelResult::Ended;
         };
+        if let Some(stop) = &entry.stop
+            && entry.view.state != JobState::Ended
+        {
+            stop.kill();
+        }
         match (entry.view.state, entry.on_cancel) {
             (JobState::Ended, _) => CancelResult::Ended,
             (JobState::Queued, _) => {
@@ -698,37 +744,64 @@ impl Jobs {
         // Revoked: a prompt still open for the job gets no answer.
         drop(grant);
         let after = see(&paths, &git, job.may_conflict).await;
-        let (outcome, output, message) = judge(&job, &result, &before, &after);
+        let (outcome, output, message) = judge(
+            job.may_conflict,
+            job.nothing_to_do,
+            &result,
+            &before,
+            &after,
+        );
         // OPS-7: the repos it touched, read again at once.
         for (index, repo) in job.repos.iter().enumerate() {
-            let refs_changed = match (before.get(index), after.get(index)) {
-                (
-                    Some(Seen {
-                        refs: Some(old), ..
-                    }),
-                    Some(Seen {
-                        refs: Some(new), ..
-                    }),
-                ) => old != new,
-                _ => true,
-            };
-            let (summaries, workspaces, workspace, repo_id, git) = (
-                self.summaries.clone(),
-                self.workspaces.clone(),
-                job.workspace_id.clone(),
-                repo.clone(),
-                git.clone(),
-            );
-            let view = tokio::task::spawn_blocking(move || {
-                summaries.reread(&workspaces, &workspace, &repo_id, &git, refs_changed)
-            })
+            self.reread(
+                &job.workspace_id,
+                repo,
+                &git,
+                before.get(index),
+                after.get(index),
+            )
             .await;
-            if let Ok(Some(view)) = view {
-                self.events.summary(view, true);
-            }
-            self.events.hold_watch(&job.workspace_id, repo, false);
         }
         self.end(&job, id, outcome, output, message)
+    }
+
+    /// Reads `repo` again at once after a write that saw it as `before` and
+    /// `after` (OPS-7), sends its summary, and lets the watcher refresh it
+    /// again.
+    async fn reread(
+        &self,
+        workspace: &WorkspaceId,
+        repo: &RepoId,
+        git: &GitRunner,
+        before: Option<&Seen>,
+        after: Option<&Seen>,
+    ) {
+        let refs_changed = match (before, after) {
+            (
+                Some(Seen {
+                    refs: Some(old), ..
+                }),
+                Some(Seen {
+                    refs: Some(new), ..
+                }),
+            ) => old != new,
+            _ => true,
+        };
+        let (summaries, workspaces, workspace_id, repo_id, git) = (
+            self.summaries.clone(),
+            self.workspaces.clone(),
+            workspace.clone(),
+            repo.clone(),
+            git.clone(),
+        );
+        let view = tokio::task::spawn_blocking(move || {
+            summaries.reread(&workspaces, &workspace_id, &repo_id, &git, refs_changed)
+        })
+        .await;
+        if let Ok(Some(view)) = view {
+            self.events.summary(view, true);
+        }
+        self.events.hold_watch(workspace, repo, false);
     }
 
     /// Marks job `id` running, unless it was cancelled meanwhile, and
@@ -757,36 +830,16 @@ impl Jobs {
     ) -> JobView {
         let view = {
             let mut state = self.lock();
-            for repo in &job.repos {
-                let key = (job.workspace_id.clone(), repo.clone());
-                if let Some(queue) = state.queues.get_mut(&key) {
-                    queue.retain(|queued| *queued != id);
-                    if queue.is_empty() {
-                        state.queues.remove(&key);
-                    }
-                }
-            }
-            let waiting: Vec<(JobId, Vec<RepoId>)> = state
-                .jobs
-                .iter()
-                .filter(|entry| entry.turn.is_some() && entry.view.workspace_id == job.workspace_id)
-                .map(|entry| (entry.view.job_id, entry.view.repos.clone()))
-                .collect();
-            for (next, repos) in waiting {
-                if state.first(&job.workspace_id, &repos, next)
-                    && let Some(turn) = state.entry(next).and_then(|entry| entry.turn.take())
-                {
-                    // A job cancelled meanwhile no longer waits.
-                    let _ = turn.send(());
-                }
-            }
+            release(&mut state, &job.workspace_id, &job.repos, id);
             finish(&mut state, id, outcome, output, message)
         };
         for repo in &job.repos {
             let summary = self.summaries.set_busy(&job.workspace_id, repo, false);
             self.events.summary(summary, false);
         }
-        let view = view.unwrap_or_else(|ending| ended_view(id, job, ending));
+        let view = view.unwrap_or_else(|ending| {
+            ended_view(id, &job.workspace_id, &job.label, &job.repos, ending)
+        });
         self.events.ended(&view);
         view
     }
@@ -869,6 +922,34 @@ impl Drop for TrackedJob {
     }
 }
 
+/// Takes job `id` out of the queues of `repos` and wakes the jobs now first
+/// in all their repos' queues.
+fn release(state: &mut State, workspace: &WorkspaceId, repos: &[RepoId], id: JobId) {
+    for repo in repos {
+        let key = (workspace.clone(), repo.clone());
+        if let Some(queue) = state.queues.get_mut(&key) {
+            queue.retain(|queued| *queued != id);
+            if queue.is_empty() {
+                state.queues.remove(&key);
+            }
+        }
+    }
+    let waiting: Vec<(JobId, Vec<RepoId>)> = state
+        .jobs
+        .iter()
+        .filter(|entry| entry.turn.is_some() && entry.view.workspace_id == *workspace)
+        .map(|entry| (entry.view.job_id, entry.view.repos.clone()))
+        .collect();
+    for (next, repos) in waiting {
+        if state.first(workspace, &repos, next)
+            && let Some(turn) = state.entry(next).and_then(|entry| entry.turn.take())
+        {
+            // A job cancelled meanwhile no longer waits.
+            let _ = turn.send(());
+        }
+    }
+}
+
 /// How a job ended: its outcome, output and message.
 type Ending = (Outcome, String, Option<String>);
 
@@ -914,14 +995,20 @@ fn finish(
 
 /// The view of a write job whose entry is gone, which a running job's
 /// never is.
-fn ended_view(id: JobId, job: &WriteJob, (outcome, output, message): Ending) -> JobView {
+fn ended_view(
+    id: JobId,
+    workspace: &WorkspaceId,
+    label: &str,
+    repos: &[RepoId],
+    (outcome, output, message): Ending,
+) -> JobView {
     JobView {
         job_id: id,
-        workspace_id: job.workspace_id.clone(),
+        workspace_id: workspace.clone(),
         workspace_name: String::new(),
-        label: job.label.clone(),
-        repos: job.repos.clone(),
-        repo_names: job.repos.iter().map(|repo| repo.0.clone()).collect(),
+        label: label.to_owned(),
+        repos: repos.to_owned(),
+        repo_names: repos.iter().map(|repo| repo.0.clone()).collect(),
         state: JobState::Ended,
         done: 0,
         total: 0,
@@ -931,6 +1018,8 @@ fn ended_view(id: JobId, job: &WriteJob, (outcome, output, message): Ending) -> 
         outcome: Some(outcome),
         output,
         message,
+        sub_jobs: Vec::new(),
+        report: None,
     }
 }
 
@@ -975,13 +1064,14 @@ async fn see(paths: &[PathBuf], git: &GitRunner, conflict: bool) -> Vec<Seen> {
 /// conflict state and left a repo in it, when it was not before or git
 /// failed, as when a continued rebase stops again.
 fn judge(
-    job: &WriteJob,
+    may_conflict: bool,
+    nothing_to_do: NothingToDo,
     result: &Result<Output, GitError>,
     before: &[Seen],
     after: &[Seen],
-) -> (Outcome, String, Option<String>) {
+) -> Ending {
     let output = git_output(result);
-    let conflict = job.may_conflict
+    let conflict = may_conflict
         && after.iter().enumerate().any(|(index, seen)| {
             seen.conflict && (result.is_err() || !before.get(index).is_some_and(|old| old.conflict))
         });
@@ -994,7 +1084,7 @@ fn judge(
         Err(GitError::Killed) => (cancelled(), output, Some("cancelled".to_owned())),
         _ if conflict => (Outcome::Conflict, output, None),
         Err(error) => (Outcome::Failed, output, Some(error.to_string())),
-        Ok(_) if job.nothing_to_do == NothingToDo::WhenRefsUnchanged && unchanged => {
+        Ok(_) if nothing_to_do == NothingToDo::WhenRefsUnchanged && unchanged => {
             (Outcome::NothingToDo, output, None)
         }
         Ok(_) => (Outcome::Succeeded, output, None),

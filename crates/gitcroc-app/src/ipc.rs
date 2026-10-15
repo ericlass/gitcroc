@@ -14,17 +14,17 @@ use gitcroc_core::{
     CancelResult, ChangeRequest, ChangeStart, Changes, ChangesError, ChangesSettings,
     ChangesTarget, ChangesView, ChooseRequest, CloneError, CloneReport, CloneRequest,
     CommitGraphError, CommitRequest, ConflictDetails, ConflictRead, ConflictStart, DiffRequest,
-    FileDiff, FileRef, FsmonitorError, GitRunner, GitSetup, GitStatus, GroupId, GroupSummary,
-    Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, IntegrateError,
-    IntegrateRequest, IntegrateStart, JobError, JobEvents, JobId, JobProgress, JobView, Jobs,
-    Outcome, PaneLayout, PushChoices, Refusal, RemoteError, RemoteRequest, RemoteStart,
-    RemoteUrlsView, RepoChange, RepoId, ResetError, ResetRequest, ResetStart, ResolveRequest,
-    SettingsError, SettingsStore, SettingsView, StashError, StashRequest, StashStart, StatusError,
-    StatusReadError, Summaries, SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch,
-    TagError, TagRequest, TagStart, TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees,
-    WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs,
-    WorkspaceView, Workspaces, add_path, group_summaries, refresh_summaries, refresh_workspace,
-    tree_refs,
+    FileDiff, FileRef, FsmonitorError, GitRunner, GitSetup, GitStatus, GroupError, GroupId,
+    GroupOp, GroupOps, GroupSummary, Histories, HistoryTarget, HistoryView, HistoryViewError,
+    ImageSide, IntegrateError, IntegrateRequest, IntegrateStart, JobError, JobEvents, JobId,
+    JobProgress, JobView, Jobs, Outcome, PaneLayout, PreflightId, PreflightReady, PushChoices,
+    Refusal, RemoteError, RemoteRequest, RemoteStart, RemoteUrlsView, RepoChange, RepoId,
+    ResetError, ResetRequest, ResetStart, ResolveRequest, SettingsError, SettingsStore,
+    SettingsView, StashError, StashRequest, StashStart, StatusError, StatusReadError, Summaries,
+    SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch, TagError, TagRequest, TagStart,
+    TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers,
+    WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces,
+    add_path, group_summaries, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -118,6 +118,7 @@ impl From<SettingsError> for IpcError {
     fn from(error: SettingsError) -> Self {
         let code = match error {
             SettingsError::ReadOnly => IpcErrorCode::SettingsReadOnly,
+            SettingsError::Parallelism => IpcErrorCode::Refused,
             SettingsError::Write { .. } | SettingsError::Encode(_) => IpcErrorCode::Internal,
         };
         Self {
@@ -195,6 +196,27 @@ impl From<HistoryViewError> for IpcError {
     }
 }
 
+impl From<GroupError> for IpcError {
+    fn from(error: GroupError) -> Self {
+        match error {
+            GroupError::Workspace(error) | GroupError::Job(JobError::Workspace(error)) => {
+                error.into()
+            }
+            GroupError::Job(JobError::NoRepo) => Self::internal(error.to_string()),
+            GroupError::NotAvailable(_)
+            | GroupError::NoRepo
+            | GroupError::UnknownPreflight
+            | GroupError::NotReady
+            | GroupError::NeedsConfirmation
+            | GroupError::WorkspaceChanged => Self {
+                code: IpcErrorCode::Refused,
+                message: error.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
 from_op_error!(BranchError, "the repo");
 
 from_op_error!(SyncError, "the repo");
@@ -249,6 +271,12 @@ pub struct AskpassPromptEvent(pub AskpassPrompt);
 pub struct AskpassClosedEvent {
     pub prompt_id: u32,
 }
+
+/// A group operation's preflight finished (section 5, step 1), sent as
+/// event `preflight_ready`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "preflight_ready")]
+pub struct PreflightReadyEvent(pub PreflightReady);
 
 /// A job ended, sent as event `job_ended` with its outcome and git's
 /// output, after its repos' fresh summaries.
@@ -1672,6 +1700,41 @@ pub async fn target_repos(
     )?)
 }
 
+/// Starts the preflight of group operation `op` on `target` (section 5,
+/// step 1) and returns its id at once (ARCH-7); the result arrives as
+/// `preflight_ready`, with whether the user must confirm. Refused for an
+/// operation that is not available yet.
+#[tauri::command]
+#[specta::specta]
+pub async fn group_preflight(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    target: TargetSet,
+    op: GroupOp,
+) -> Result<PreflightId, IpcError> {
+    let operation = op.operation()?;
+    let git = usable_git(&app).await?;
+    let groups = app.state::<Arc<GroupOps>>();
+    Ok(groups.preflight(git, &workspace_id, &target, operation)?)
+}
+
+/// Starts the job of preflight `preflight_id` (section 5, step 3) and
+/// returns its id at once. Refused without `confirmed` when the preflight
+/// said the user must confirm, for a preflight used already, and when the
+/// workspace's repos or groups changed since it ran. Sub-jobs arrive in
+/// the job's `job_progress` events, and its report with `job_ended`.
+#[tauri::command]
+#[specta::specta]
+pub async fn group_start(
+    app: AppHandle,
+    preflight_id: PreflightId,
+    confirmed: bool,
+) -> Result<JobId, IpcError> {
+    let git = usable_git(&app).await?;
+    let groups = app.state::<Arc<GroupOps>>();
+    Ok(groups.start(git, preflight_id, confirmed)?)
+}
+
 /// Checks an add can start: the workspace takes changes and git is usable.
 async fn prepare_add(app: &AppHandle, workspace_id: &WorkspaceId) -> Result<GitRunner, IpcError> {
     let view = app.state::<Arc<Workspaces>>().view(workspace_id)?;
@@ -1856,6 +1919,22 @@ pub fn jobs(app: &AppHandle) -> Arc<Jobs> {
         app.state::<Arc<Workspaces>>().inner().clone(),
         app.state::<Arc<Summaries>>().inner().clone(),
         Arc::new(events),
+    )
+}
+
+/// The group operations' engine (section 5), sending each preflight's
+/// result as `preflight_ready`. Needs the job engine managed first.
+pub fn group_ops(app: &AppHandle) -> Arc<GroupOps> {
+    let ready = app.clone();
+    GroupOps::new(
+        app.state::<Arc<Workspaces>>().inner().clone(),
+        app.state::<Arc<Summaries>>().inner().clone(),
+        app.state::<Arc<SettingsStore>>().inner().clone(),
+        app.state::<Arc<Jobs>>().inner().clone(),
+        move |result: &PreflightReady| {
+            // An emit fails only while the app shuts down.
+            let _ = PreflightReadyEvent(result.clone()).emit(&ready);
+        },
     )
 }
 
@@ -2162,6 +2241,8 @@ macro_rules! with_commands {
                 group_move_repo_between,
                 group_reorder,
                 target_repos,
+                group_preflight,
+                group_start,
                 history_get,
                 history_more,
                 commit_graph_write,
@@ -2243,6 +2324,8 @@ macro_rules! with_commands {
                 group_move_repo_between,
                 group_reorder,
                 target_repos,
+                group_preflight,
+                group_start,
                 history_get,
                 history_more,
                 commit_graph_write,
@@ -2309,6 +2392,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             CommitGraphWrittenEvent,
             WatchWarningEvent,
             JobEndedEvent,
+            PreflightReadyEvent,
             AskpassPromptEvent,
             AskpassClosedEvent
         ])
