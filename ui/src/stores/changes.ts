@@ -110,6 +110,9 @@ export const ACTION_LIST: Record<ChangeAction, "staged" | "unstaged"> = {
 /** The message shown when the core refused a hunk because its file changed. */
 export const FILE_CHANGED = "The file changed; showing it again.";
 
+/** The message shown when a newer read of the list replaced the one the user acted on. */
+export const LIST_CHANGED = "The list changed; showing it again.";
+
 export function createChangesStore(settings: () => ChangesSettings) {
   const [state, setState] = createStore<{ byWorkspace: Record<WorkspaceId, WorkspaceChanges> }>({ byWorkspace: {} });
   /** The latest view and diff request of each workspace; older answers are dropped. */
@@ -286,6 +289,10 @@ export function createChangesStore(settings: () => ChangesSettings) {
     try {
       const start = await changesApply(id, request);
       if (start === null) {
+        // A refresh read the view again while the user clicked; the core
+        // ran nothing. Say so rather than drop the click.
+        update(id, (c) => (c.notice = LIST_CHANGED));
+        await reload(id);
         return;
       }
       switch (start.kind) {

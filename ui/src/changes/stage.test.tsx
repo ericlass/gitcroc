@@ -2,7 +2,8 @@ import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-lib
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { fakeState, reset } from "../ipc/fake";
 import { keep, textFile } from "../ipc/fakeChanges";
-import { createChangesStore, FILE_CHANGED } from "../stores/changes";
+import { changesGet } from "../ipc";
+import { createChangesStore, FILE_CHANGED, LIST_CHANGED } from "../stores/changes";
 import { createCommitStore } from "../stores/commit";
 import { createConflictStore } from "../stores/conflicts";
 import { createLayoutStore } from "../stores/layout";
@@ -289,4 +290,21 @@ test("UI-15 a hunk of a file changed since its diff was read is shown again", as
   expect(fakeState.changesCalls.filter((call) => call.command === "changes").length).toBe(views + 1);
   expect(within(files()).getByRole("option", { selected: true }).textContent).toContain("a.txt");
   expect(listOf("staged")).toEqual(["b.txt"]);
+});
+
+test("UI-15 a click on a list the core has replaced is not lost silently", async () => {
+  await setup();
+  // A refresh read the view again; its answer is not in yet, so the list
+  // shown still has the old handle.
+  await changesGet(id(), "r1", { kind: "uncommitted" });
+  const views = fakeState.changesCalls.filter((call) => call.command === "changes").length;
+  fireEvent.click(within(files()).getByRole("button", { name: "Stage a.txt" }));
+  await settleAll();
+  expect(fakeState.changeRequests).toHaveLength(1);
+  expect(screen.getByRole("status").textContent).toBe(LIST_CHANGED);
+  // The list was read again, so the next click reaches the core.
+  expect(fakeState.changesCalls.filter((call) => call.command === "changes").length).toBe(views + 1);
+  fireEvent.click(within(files()).getByRole("button", { name: "Stage a.txt" }));
+  await settleAll();
+  expect(listOf("staged")).toContain("a.txt");
 });
