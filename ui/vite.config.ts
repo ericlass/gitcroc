@@ -31,6 +31,10 @@ export default defineConfig(({ mode }) => {
       environment: "jsdom",
       include: ["src/**/*.test.{ts,tsx}"],
       setupFiles: ["src/test/setup.ts"],
+      // Tests wait on nothing timed; a loaded CI runner once took 12 s for a
+      // test that runs in 50 ms here. The limit is only there to end a hang.
+      testTimeout: 120_000,
+      hookTimeout: 120_000,
     },
   };
 });

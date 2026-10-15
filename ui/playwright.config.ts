@@ -6,6 +6,10 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: !!process.env.CI,
+  // Limits that only end a hang: nothing here waits on a timer, and a loaded
+  // runner can be many times slower than a desktop.
+  timeout: 120_000,
+  expect: { timeout: 30_000 },
   reporter: process.env.CI ? "github" : "list",
   use: {
     baseURL: "http://localhost:4173",

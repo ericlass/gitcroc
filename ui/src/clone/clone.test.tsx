@@ -28,7 +28,7 @@ const settleAll = async () => {
 };
 
 /** Waits for `check` to pass, as for a fake job's end; the deadline only ends a hung test. */
-const eventually = (check: () => void) => vi.waitFor(check, { timeout: 10_000 });
+const eventually = (check: () => void) => vi.waitFor(check, { timeout: 120_000 });
 
 const id = () => fakeState.workspace.id;
 
