@@ -388,6 +388,12 @@ main:not(.main) {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
+/* The row the keyboard is on while repo rows are multi-selected (UI-6). */
+.tree-scroller:focus-visible .tree-row.cursor {
+  outline: 1px dotted var(--accent);
+  outline-offset: -1px;
+}
+
 /* Drop targets while a repo or group is dragged (UI-7). */
 .tree-row.dragged {
   opacity: 0.5;
@@ -455,6 +461,58 @@ main:not(.main) {
 
 .tree-head.detached {
   font-family: var(--font-code);
+}
+
+/* The summary strip of a group or several repos (UI-11): at most 8 lines,
+   then it scrolls on its own. Its height is that of its lines; the border
+   comes on top. */
+.summary-strip {
+  flex: none;
+  box-sizing: content-box;
+  position: relative;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.strip-lines {
+  position: relative;
+}
+
+.strip-slot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.strip-line {
+  height: 22px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.strip-line:hover {
+  background: var(--bg-2);
+}
+
+.strip-line .tree-label {
+  font-weight: 600;
+}
+
+.strip-line.stale {
+  font-style: italic;
+  color: var(--text-secondary);
 }
 
 .tree-count,

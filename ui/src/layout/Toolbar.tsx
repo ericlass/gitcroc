@@ -1,4 +1,5 @@
-// The toolbar of UI-20. Buttons that cannot apply are disabled, not hidden.
+// The toolbar of UI-20. Buttons that cannot apply are disabled, not hidden,
+// and say why when it is not plain, as for a group or several repos (GRP-5).
 // Fetch, Pull and Push act on the selected repo: a click runs with the
 // defaults, the arrow beside Pull and Push opens their options. Merge opens
 // the dialog that merges or rebases, Stash the stash dialog.
@@ -14,11 +15,22 @@ export interface SyncActions {
   pushOptions: Action;
 }
 
+/** Why a button is disabled, by button; shown as its tooltip while it is. */
+export type ToolbarReasons = Partial<Record<"fetch" | "pull" | "push" | "branch" | "merge" | "stash", string>>;
+
+/** `title`, or `why` while `action` is disabled. */
+const titleOf = (action: Action, title: string, why: string | undefined) => (action === null ? (why ?? title) : title);
+
 /** A button with an arrow beside it that opens its options. */
-function SplitButton(props: { name: string; title: string; run: Action; options: Action }) {
+function SplitButton(props: { name: string; title: string; why: string | undefined; run: Action; options: Action }) {
   return (
     <span class="split-button">
-      <button type="button" disabled={props.run === null} title={props.title} onClick={() => props.run?.()}>
+      <button
+        type="button"
+        disabled={props.run === null}
+        title={titleOf(props.run, props.title, props.why)}
+        onClick={() => props.run?.()}
+      >
         {props.name}
       </button>
       <button
@@ -26,7 +38,7 @@ function SplitButton(props: { name: string; title: string; run: Action; options:
         class="split-arrow"
         disabled={props.options === null}
         aria-label={`${props.name} options`}
-        title={`${props.name} with options`}
+        title={titleOf(props.options, `${props.name} with options`, props.why)}
         onClick={() => props.options?.()}
       >
         <span aria-hidden="true">▾</span>
@@ -43,14 +55,17 @@ export default function Toolbar(props: {
   onMerge: Action;
   /** Opens the stash dialog for the selected repo; `null` when no repo can take it. */
   onStash: Action;
+  /** Why buttons are disabled, when it is not plain. */
+  disabledWhy?: ToolbarReasons;
   onSettings: () => void;
 }) {
+  const why = () => props.disabledWhy ?? {};
   return (
     <div role="toolbar" aria-label="Main" class="toolbar">
       <button
         type="button"
         disabled={props.sync.fetch === null}
-        title="Fetch all remotes of the selected repository"
+        title={titleOf(props.sync.fetch, "Fetch all remotes of the selected repository", why().fetch)}
         onClick={() => props.sync.fetch?.()}
       >
         Fetch
@@ -58,19 +73,21 @@ export default function Toolbar(props: {
       <SplitButton
         name="Pull"
         title="Update the current branch from its upstream"
+        why={why().pull}
         run={props.sync.pull}
         options={props.sync.pullOptions}
       />
       <SplitButton
         name="Push"
         title="Push the current branch to its upstream"
+        why={why().push}
         run={props.sync.push}
         options={props.sync.pushOptions}
       />
       <button
         type="button"
         disabled={props.onBranch === null}
-        title="Create a branch in the selected repository"
+        title={titleOf(props.onBranch, "Create a branch in the selected repository", why().branch)}
         onClick={() => props.onBranch?.()}
       >
         Branch
@@ -78,7 +95,11 @@ export default function Toolbar(props: {
       <button
         type="button"
         disabled={props.onMerge === null}
-        title="Merge a branch into the current branch of the selected repository, or rebase onto it"
+        title={titleOf(
+          props.onMerge,
+          "Merge a branch into the current branch of the selected repository, or rebase onto it",
+          why().merge,
+        )}
         onClick={() => props.onMerge?.()}
       >
         Merge
@@ -86,7 +107,7 @@ export default function Toolbar(props: {
       <button
         type="button"
         disabled={props.onStash === null}
-        title="Stash the local changes of the selected repository"
+        title={titleOf(props.onStash, "Stash the local changes of the selected repository", why().stash)}
         onClick={() => props.onStash?.()}
       >
         Stash

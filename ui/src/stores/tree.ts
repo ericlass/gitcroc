@@ -1,6 +1,6 @@
 // The tree of each workspace as the core reports it, and what the user did
-// with it: expanded nodes, the selected node and the filter text, all keyed
-// by workspace id (ARCH-9, UI-29). The core builds, folds and filters the
+// with it: expanded nodes, the selected node or repo rows (UI-6) and the
+// filter text, all keyed by workspace id (ARCH-9, UI-29). The core builds, folds and filters the
 // tree (ARCH-6); this store only asks for it and keeps the answers.
 import { untrack } from "solid-js";
 import { createStore, produce } from "solid-js/store";
@@ -12,6 +12,7 @@ import {
   type RepoId,
   type RepoRef,
   refsGet,
+  type TargetSet,
   repoSelect,
   type TreeItem,
   type TreeNode,
@@ -41,9 +42,17 @@ export interface WorkspaceTree {
   expanded: Record<string, boolean>;
   /** The same while a filter is shown; cleared when the text changes. */
   filterExpanded: Record<string, boolean>;
+  /** The selected node; while repo rows are multi-selected, the row the keyboard is on. */
   selected: string | null;
-  /** What the selected node is; the history pane follows it. */
+  /** What the selected node is. */
   selectedItem: TreeItem | null;
+  /**
+   * The multi-selected repo rows (UI-6), each repo once; `null` for a
+   * single selection. One row of it is like a single selection.
+   */
+  multi: SelectedRow[] | null;
+  /** Where a Shift range starts. */
+  anchor: string | null;
   /** A repo to select once the tree has its row, such as a clone that was just added. */
   pendingRepo: RepoId | null;
   filter: string;
@@ -58,6 +67,12 @@ export interface WorkspaceTree {
   groups: Record<GroupId, GroupSummary>;
 }
 
+/** A multi-selected repo row. */
+export interface SelectedRow {
+  row: string;
+  item: Extract<TreeItem, { kind: "repo" }>;
+}
+
 const empty = (): WorkspaceTree => ({
   roots: null,
   error: null,
@@ -69,6 +84,8 @@ const empty = (): WorkspaceTree => ({
   filterExpanded: {},
   selected: null,
   selectedItem: null,
+  multi: null,
+  anchor: null,
   pendingRepo: null,
   filter: "",
   filtered: null,
@@ -105,6 +122,23 @@ export function loadKey(item: TreeItem): string | null {
     default:
       return null;
   }
+}
+
+const asRepo = (node: { id: string; item: TreeItem }): SelectedRow | null =>
+  node.item.kind === "repo" ? { row: node.id, item: node.item } : null;
+
+/** The node with id `id` in `nodes` or below. */
+function findNode(nodes: TreeNode[], id: string): TreeNode | undefined {
+  for (const node of nodes) {
+    if (node.id === id) {
+      return node;
+    }
+    const below = findNode(node.children ?? [], id);
+    if (below !== undefined) {
+      return below;
+    }
+  }
+  return undefined;
 }
 
 /** The row of `repo` in `nodes` or below. */
@@ -255,19 +289,134 @@ export function createTreeStore() {
     }
   };
 
-  /** Selects `node` and tells the core which repo it is in. */
-  const select = (id: WorkspaceId, node: TreeNode | null) => {
+  /** Puts the keyboard on `node`, with `multi` selected, and tells the core which repo it is in. */
+  const place = (id: WorkspaceId, node: TreeNode | null, multi: SelectedRow[] | null, anchor: string | null) => {
     const nodeId = node?.id ?? null;
-    if (tree(id).selected === nodeId) {
-      return;
-    }
+    const moved = tree(id).selected !== nodeId;
     update(id, (t) => {
       t.selected = nodeId;
       t.selectedItem = node?.item ?? null;
+      t.multi = multi;
+      t.anchor = anchor;
     });
-    void repoSelect(id, node === null ? null : repoOf(node)).catch(() => {
-      // Only the refresh order depends on it.
-    });
+    if (moved) {
+      void repoSelect(id, node === null ? null : repoOf(node)).catch(() => {
+        // Only the refresh order depends on it.
+      });
+    }
+  };
+
+  /** Selects `node` alone, replacing a multi-selection. */
+  const select = (id: WorkspaceId, node: TreeNode | null) => {
+    const current = tree(id);
+    if (current.selected === (node?.id ?? null) && current.multi === null) {
+      return;
+    }
+    place(id, node, null, node?.id ?? null);
+  };
+
+  /** The selected repo rows: the multi-selection, or the single selection when it is a repo row. */
+  const pickedRows = (id: WorkspaceId): SelectedRow[] => {
+    const current = tree(id);
+    if (current.multi !== null) {
+      return current.multi;
+    }
+    const single =
+      current.selected === null || current.selectedItem === null
+        ? null
+        : asRepo({ id: current.selected, item: current.selectedItem });
+    return single === null ? [] : [single];
+  };
+
+  /**
+   * Ctrl/Cmd-click or Ctrl/Cmd+Space (UI-6): a repo row joins the
+   * selection, or leaves it with every row of its repo, which counts once.
+   * Any other row is selected alone.
+   */
+  const toggle = (id: WorkspaceId, node: TreeNode) => {
+    const picked = asRepo(node);
+    if (picked === null) {
+      select(id, node);
+      return;
+    }
+    const rows = pickedRows(id);
+    const known = rows.some((row) => row.item.repo_id === picked.item.repo_id);
+    const multi = known ? rows.filter((row) => row.item.repo_id !== picked.item.repo_id) : [...rows, picked];
+    place(id, node, multi, node.id);
+  };
+
+  /**
+   * Shift-click or Shift+Up/Down (UI-6): the repo rows of `visible` from the
+   * anchor to `node`, each repo once. Any other row is selected alone.
+   */
+  const extend = (id: WorkspaceId, visible: { id: string; item?: TreeItem }[], node: TreeNode) => {
+    if (asRepo(node) === null) {
+      select(id, node);
+      return;
+    }
+    const anchor = tree(id).anchor ?? tree(id).selected ?? node.id;
+    const from = visible.findIndex((row) => row.id === anchor);
+    const to = visible.findIndex((row) => row.id === node.id);
+    if (from < 0 || to < 0) {
+      // The anchor is no longer shown: the row is selected alone.
+      place(id, node, null, node.id);
+      return;
+    }
+    const multi: SelectedRow[] = [];
+    for (const row of visible.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+      const picked = row.item === undefined ? null : asRepo({ id: row.id, item: row.item });
+      if (picked !== null && !multi.some((known) => known.item.repo_id === picked.item.repo_id)) {
+        multi.push(picked);
+      }
+    }
+    place(id, node, multi, anchor);
+  };
+
+  /** Moves the keyboard to `node`, keeping the selected repo rows (Ctrl/Cmd+Up/Down). */
+  const moveCursor = (id: WorkspaceId, node: TreeNode) => {
+    place(id, node, pickedRows(id), tree(id).anchor);
+  };
+
+  /** Whether the row with id `row` is selected. */
+  const isSelected = (id: WorkspaceId, row: string) => {
+    const current = tree(id);
+    return current.multi === null ? current.selected === row : current.multi.some((known) => known.row === row);
+  };
+
+  /** The one selected row: the single selection, or a multi-selection of one. */
+  const single = (id: WorkspaceId): { row: string; item: TreeItem } | null => {
+    const current = tree(id);
+    if (current.multi !== null) {
+      return current.multi.length === 1 ? (current.multi[0] ?? null) : null;
+    }
+    return current.selected === null || current.selectedItem === null
+      ? null
+      : { row: current.selected, item: current.selectedItem };
+  };
+
+  /**
+   * What the toolbar acts on (GRP-5): the selected row's repo, the selected
+   * group, or the multi-selected repos; `null` for anything else.
+   */
+  const target = (id: WorkspaceId): TargetSet | null => {
+    const current = tree(id);
+    if (current.multi !== null && current.multi.length > 1) {
+      return { kind: "repos", repo_ids: current.multi.map((row) => row.item.repo_id) };
+    }
+    const item = single(id)?.item;
+    if (item?.kind === "group") {
+      return { kind: "group", group_id: item.group_id };
+    }
+    const repo = item === undefined ? null : repoOfItem(item);
+    return repo === null ? null : { kind: "repo", repo_id: repo };
+  };
+
+  /** Selects the row with id `row` alone, when the tree has it. */
+  const selectRow = (id: WorkspaceId, row: string) => {
+    const node = findNode(tree(id).roots ?? [], row);
+    if (node !== undefined) {
+      select(id, node);
+    }
   };
 
   /** Selects the row of the pending repo, once the tree has it. */
@@ -301,7 +450,24 @@ export function createTreeStore() {
   const groupSummary = (id: WorkspaceId, summary: GroupSummary): GroupSummary =>
     tree(id).groups[summary.group_id] ?? summary;
 
-  return { state, tree, subscribe, setExpanded, select, selectRepo, setFilter, setScrollTop, groupSummary };
+  return {
+    state,
+    tree,
+    subscribe,
+    setExpanded,
+    select,
+    toggle,
+    extend,
+    moveCursor,
+    isSelected,
+    single,
+    target,
+    selectRow,
+    selectRepo,
+    setFilter,
+    setScrollTop,
+    groupSummary,
+  };
 }
 
 export type TreeStore = ReturnType<typeof createTreeStore>;

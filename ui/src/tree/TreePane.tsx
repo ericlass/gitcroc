@@ -7,10 +7,11 @@
 // edits or removes it. Group rows (UI-4) and their menus create, rename,
 // delete and reorder groups, and repos are dragged between them (UI-7); every
 // drag is also in a menu, and the context menu key opens a row's menu
-// (UI-22). Everything shown comes from the stores, which take it from the
+// (UI-22). Repo rows are multi-selected with Ctrl/Cmd and Shift (UI-6).
+// Everything shown comes from the stores, which take it from the
 // core; this component only lays it out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, untrack } from "solid-js";
 import {
   type RepoId,
   repoOpenFileManager,
@@ -198,6 +199,37 @@ function TreeList(props: {
     virtualizer.scrollToIndex(index, { align: "auto" });
   };
 
+  /** The visible rows as the store ranges over them. */
+  const visible = () => rows().map((row) => ({ id: row.id, item: row.kind === "node" ? row.node.item : undefined }));
+
+  /** UI-6: a click selects the row; with Ctrl/Cmd it toggles a repo row, with Shift it selects a range. */
+  const clickRow = (index: number, event: MouseEvent) => {
+    const row = rows()[index];
+    if (row?.kind !== "node") {
+      return;
+    }
+    if (event.ctrlKey || event.metaKey) {
+      props.tree.toggle(props.workspace, row.node);
+    } else if (event.shiftKey) {
+      props.tree.extend(props.workspace, visible(), row.node);
+    } else {
+      props.tree.select(props.workspace, row.node);
+    }
+  };
+
+  // The selection moved from outside, as from the summary strip: its row in view.
+  createEffect(
+    on(
+      selectedIndex,
+      (index) => {
+        if (index >= 0) {
+          virtualizer.scrollToIndex(index, { align: "auto" });
+        }
+      },
+      { defer: true },
+    ),
+  );
+
   // Shown again, as when its tab is active again: where it was (UI-29).
   onMount(() => {
     if (scroller) {
@@ -211,34 +243,51 @@ function TreeList(props: {
     }
   };
 
-  /** The next node row from `from` in direction `step`. */
-  const nextNode = (from: number, step: 1 | -1) => {
+  /** The next node row from `from` in direction `step`; with `repos`, the next repo row. */
+  const nextNode = (from: number, step: 1 | -1, repos = false) => {
     for (let index = from + step; index >= 0 && index < rows().length; index += step) {
-      if (rows()[index]?.kind === "node") {
+      const row = rows()[index];
+      if (row?.kind === "node" && (!repos || row.node.item.kind === "repo")) {
         return index;
       }
     }
     return -1;
   };
 
+  /** Arrow keys: Shift extends over repo rows, Ctrl/Cmd moves without changing the selection (UI-6). */
+  const step = (event: KeyboardEvent, direction: 1 | -1) => {
+    const index = selectedIndex();
+    const next = index < 0 ? nextNode(-1, 1, event.shiftKey) : nextNode(index, direction, event.shiftKey);
+    const row = rows()[next];
+    if (row?.kind !== "node") {
+      return;
+    }
+    if (event.shiftKey) {
+      props.tree.extend(props.workspace, visible(), row.node);
+    } else if (event.ctrlKey || event.metaKey) {
+      props.tree.moveCursor(props.workspace, row.node);
+    } else {
+      props.tree.select(props.workspace, row.node);
+    }
+    virtualizer.scrollToIndex(next, { align: "auto" });
+  };
+
   const onKeyDown = (event: KeyboardEvent) => {
     const index = selectedIndex();
     const row = rows()[index];
     switch (event.key) {
-      case "ArrowDown": {
-        const next = nextNode(index, 1);
-        if (next >= 0) {
-          select(next);
-        }
+      case "ArrowDown":
+        step(event, 1);
         break;
-      }
-      case "ArrowUp": {
-        const previous = index < 0 ? nextNode(-1, 1) : nextNode(index, -1);
-        if (previous >= 0) {
-          select(previous);
-        }
+      case "ArrowUp":
+        step(event, -1);
         break;
-      }
+      case " ":
+        if (!(event.ctrlKey || event.metaKey) || row?.kind !== "node") {
+          return;
+        }
+        props.tree.toggle(props.workspace, row.node);
+        break;
       case "ArrowRight":
         if (row?.kind === "node" && row.expandable && !row.expanded) {
           toggle(row);
@@ -318,6 +367,7 @@ function TreeList(props: {
       }}
       role="tree"
       aria-label="Repositories"
+      aria-multiselectable="true"
       tabindex="0"
       aria-activedescendant={selectedIndex() >= 0 ? `tree-row-${selectedIndex()}` : undefined}
       onKeyDown={onKeyDown}
@@ -347,7 +397,8 @@ function TreeList(props: {
                     id={`tree-row-${item.index}`}
                     class="tree-row"
                     classList={{
-                      selected: row().id === tree().selected,
+                      selected: props.tree.isSelected(props.workspace, row().id),
+                      cursor: tree().multi !== null && row().id === tree().selected,
                       dragged: dragged()?.row === row().id,
                       "drop-into": place() === "into",
                       "drop-before": place() === "before",
@@ -356,12 +407,12 @@ function TreeList(props: {
                     role={node() ? "treeitem" : "none"}
                     aria-level={row().depth + 1}
                     aria-expanded={node()?.expandable ? node()?.expanded : undefined}
-                    aria-selected={node() ? row().id === tree().selected : undefined}
+                    aria-selected={node() ? props.tree.isSelected(props.workspace, row().id) : undefined}
                     style={{
                       transform: `translateY(${item.start}px)`,
                       "padding-left": `${4 + row().depth * INDENT}px`,
                     }}
-                    onClick={() => select(item.index)}
+                    onClick={(event) => clickRow(item.index, event)}
                     onDblClick={() => {
                       // UI-7: a local branch is checked out; other rows open or close.
                       const target = node()?.node.item;

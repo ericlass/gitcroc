@@ -17,7 +17,7 @@ import JobList from "./jobs/JobList";
 import Panes from "./layout/Panes";
 import StatusBar from "./layout/StatusBar";
 import TabBar from "./layout/TabBar";
-import Toolbar from "./layout/Toolbar";
+import Toolbar, { type ToolbarReasons } from "./layout/Toolbar";
 import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
 import StashDialogs, { StashOffer } from "./stash/StashDialogs";
@@ -47,7 +47,7 @@ import { createTagStore } from "./stores/tag";
 import { createResetStore } from "./stores/reset";
 import { createSummaryStore, isBlocked } from "./stores/summaries";
 import { canFetch, canPullOrPush, createSyncStore, DEFAULT_OPS } from "./stores/sync";
-import { createTreeStore, repoOfItem } from "./stores/tree";
+import { createTreeStore } from "./stores/tree";
 import { createWatchStore } from "./stores/watch";
 import { createWorkspaceStore } from "./stores/workspaces";
 import { followAppearance, followDesktopFonts, followTheme } from "./theme/theme";
@@ -92,12 +92,40 @@ export default function App() {
   // a module, so switching tabs needs no rework (ARCH-9).
   const workspace = () => workspaces.active();
 
-  /** The repo of the tree's selection, and its summary. */
+  /** What the toolbar acts on (GRP-5). */
+  const target = () => {
+    const id = workspace()?.id;
+    return id === undefined ? null : tree.target(id);
+  };
+
+  /** The repo of the tree's selection, and its summary, when the target set is that one repo. */
   const selectedRepo = () => {
     const id = workspace()?.id;
-    const item = id === undefined ? null : tree.tree(id).selectedItem;
-    const repo = item === null ? null : repoOfItem(item);
-    return id === undefined || repo === null ? null : { id, repo, view: summaries.view(id, repo) };
+    const current = target();
+    if (id === undefined || current?.kind !== "repo") {
+      return null;
+    }
+    return { id, repo: current.repo_id, view: summaries.view(id, current.repo_id) };
+  };
+
+  /**
+   * Why each button is disabled for a group or several repos (UI-20): their
+   * group operations do not exist yet, and Stash is single-repo only.
+   */
+  const disabledWhy = (): ToolbarReasons => {
+    const kind = target()?.kind;
+    if (kind !== "group" && kind !== "repos") {
+      return {};
+    }
+    const later = "Not available yet for a group or several repositories";
+    return {
+      fetch: later,
+      pull: later,
+      push: later,
+      branch: later,
+      merge: later,
+      stash: "Stash works on one repository at a time",
+    };
   };
 
   /** The selected repo, when no write is blocked on it (GRP-8). */
@@ -215,8 +243,8 @@ export default function App() {
     if (id === undefined) {
       return;
     }
-    const current = tree.tree(id);
-    const source = sourceOf(current.selected, current.selectedItem);
+    const shown = tree.single(id);
+    const source = sourceOf(shown?.row ?? null, shown?.item ?? null);
     untrack(() => history.show(id, source));
   });
 
@@ -318,6 +346,7 @@ export default function App() {
             }
             onMerge={mergeAction()}
             onStash={stashAction()}
+            disabledWhy={disabledWhy()}
             onSettings={() => setSettingsOpen(true)}
           />
           <Show when={workspace()?.id}>{(id) => <SyncRefusal workspace={id()} sync={sync} />}</Show>
