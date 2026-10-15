@@ -234,19 +234,21 @@ test("ui_20_toolbar_follows_the_target_set", async () => {
   await setup();
   const toolbar = within(screen.getByRole("toolbar", { name: "Main" }));
   const button = (name: string) => toolbar.getByRole<HTMLButtonElement>("button", { name });
-  const BUTTONS = ["Fetch", "Pull", "Pull options", "Push", "Push options", "Branch", "Merge", "Stash"];
+  const SYNC = ["Fetch", "Fetch options", "Pull", "Pull options", "Push", "Push options"];
+  const BUTTONS = [...SYNC, "Branch", "Merge", "Stash"];
   const enabled = () => BUTTONS.filter((name) => !button(name).disabled);
 
   // A single repo as in M2-07: web is dirty, so it can be stashed.
   await click(row("web", 2));
   expect(enabled()).toEqual(BUTTONS);
-  expect(button("Fetch").title).toBe("Fetch all remotes of the selected repository");
+  expect(button("Fetch").title).toBe("Fetch all remotes");
 
-  // A group: everything is disabled, and says why.
+  // A group: Fetch, Pull and Push run through the preflight (GRP-12); the
+  // others are disabled, and say why.
   await click(row("Backend", 1));
-  expect(enabled()).toEqual([]);
+  expect(enabled()).toEqual(SYNC);
   const later = "Not available yet for a group or several repositories";
-  for (const name of ["Fetch", "Pull", "Pull options", "Push", "Push options", "Branch", "Merge"]) {
+  for (const name of ["Branch", "Merge"]) {
     expect(button(name).title).toBe(later);
   }
   expect(button("Stash").title).toBe("Stash works on one repository at a time");
@@ -254,6 +256,6 @@ test("ui_20_toolbar_follows_the_target_set", async () => {
   // Several repos: the same.
   await click(row("api", 2));
   await click(row("docs", 2), { ctrlKey: true });
-  expect(enabled()).toEqual([]);
+  expect(enabled()).toEqual(SYNC);
   expect(button("Merge").title).toBe(later);
 });

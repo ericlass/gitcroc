@@ -26,7 +26,7 @@ use tokio::sync::oneshot;
 use crate::lock;
 use crate::{RepoId, Summaries, SummaryView, WorkspaceError, Workspaces};
 
-pub use group::{GroupRun, SubJobSpec};
+pub use group::{GroupRun, SubJobError, SubJobSpec};
 pub use pool::{POOL_SIZE, Pool, Priority, Worker};
 
 /// Identifies a workspace. All session state is keyed by it (ARCH-9).

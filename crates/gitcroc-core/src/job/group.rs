@@ -33,6 +33,22 @@ pub struct SubJobSpec {
     pub conflict_allowed: bool,
 }
 
+/// Why a sub-job's run did not succeed.
+#[derive(Debug, thiserror::Error)]
+pub enum SubJobError {
+    /// git failed, or was killed (GRP-10).
+    #[error(transparent)]
+    Git(#[from] GitError),
+    /// The repo no longer fits the operation, as when `HEAD` was detached
+    /// since the preflight: *skipped* with the operation's reason, as the
+    /// preflight would have said.
+    #[error("{0}")]
+    Skip(String),
+    /// The repo could not be read before git ran.
+    #[error("{0}")]
+    Failed(String),
+}
+
 /// A group operation to run, as its preflight left it.
 #[derive(Debug, Clone)]
 pub struct GroupRun {
@@ -69,7 +85,7 @@ impl Jobs {
     ) -> Result<JobHandle, JobError>
     where
         F: Fn(JobRun, PathBuf) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<Output, GitError>> + Send + 'static,
+        Fut: Future<Output = Result<Output, SubJobError>> + Send + 'static,
     {
         if group.repos.is_empty() {
             return Err(JobError::NoRepo);
@@ -156,7 +172,7 @@ impl Jobs {
     ) -> JobView
     where
         F: Fn(JobRun, PathBuf) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<Output, GitError>> + Send + 'static,
+        Fut: Future<Output = Result<Output, SubJobError>> + Send + 'static,
     {
         let workspace = &group.workspace_id;
         let mut endings: Vec<Option<Ending>> = group
@@ -267,7 +283,7 @@ impl Jobs {
     ) -> Ending
     where
         F: Fn(JobRun, PathBuf) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<Output, GitError>> + Send + 'static,
+        Fut: Future<Output = Result<Output, SubJobError>> + Send + 'static,
     {
         if let Some(reason) = self.blocked(id, workspace, &sub, &git, spec).await {
             let ending = (
@@ -291,11 +307,22 @@ impl Jobs {
         self.events.hold_watch(workspace, &sub.repo, true);
         let paths = vec![sub.path.clone()];
         let before = see(&paths, &git, spec.may_conflict).await;
+        // A prompt names the sub-job's repo, not the whole target set (D10).
+        let asking = JobView {
+            repo_names: view
+                .repo_names
+                .get(sub.index)
+                .cloned()
+                .into_iter()
+                .collect(),
+            repos: vec![sub.repo.clone()],
+            ..view.clone()
+        };
         let grant = spec
             .network
             .then(|| self.askpass.get())
             .flatten()
-            .and_then(|issuer| issuer.issue(&view));
+            .and_then(|issuer| issuer.issue(&asking));
         let progress: Arc<ProgressFn> = Arc::new(|_: Option<&str>, _: u32, _: u32| {});
         let result = run(
             JobRun {
@@ -312,13 +339,29 @@ impl Jobs {
         // Revoked: a prompt still open for the sub-job gets no answer.
         drop(grant);
         let after = see(&paths, &git, spec.may_conflict).await;
-        let ending = judge(
-            spec.may_conflict,
-            spec.nothing_to_do,
-            &result,
-            &before,
-            &after,
-        );
+        let judged = |result: &Result<Output, GitError>| {
+            judge(
+                spec.may_conflict,
+                spec.nothing_to_do,
+                result,
+                &before,
+                &after,
+            )
+        };
+        let ending = match result {
+            Ok(output) => judged(&Ok(output)),
+            Err(SubJobError::Git(error)) => judged(&Err(error)),
+            Err(SubJobError::Skip(reason)) => (
+                Outcome::Skipped {
+                    reason: SkipReason::Preflight {
+                        reason: reason.clone(),
+                    },
+                },
+                String::new(),
+                Some(reason),
+            ),
+            Err(SubJobError::Failed(reason)) => (Outcome::Failed, String::new(), Some(reason)),
+        };
         self.reread(workspace, &sub.repo, &git, before.first(), after.first())
             .await;
         self.end_sub(id, workspace, &sub, &ending);

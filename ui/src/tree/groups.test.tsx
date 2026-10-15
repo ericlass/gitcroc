@@ -5,6 +5,7 @@ import { emitRepoSummary, fakeState, reset } from "../ipc/fake";
 import { refNodes, summary } from "../ipc/fakeTree";
 import { createBranchStore } from "../stores/branch";
 import { createCloneStore } from "../stores/clone";
+import { createGroupOpStore } from "../stores/groupOps";
 import { sourceOf } from "../stores/history";
 import { createRemoteStore } from "../stores/remote";
 import { createStashStore } from "../stores/stash";
@@ -102,6 +103,7 @@ async function setup() {
       tag={createTagStore()}
       remote={createRemoteStore()}
       clone={createCloneStore(() => {})}
+      groupOps={createGroupOpStore()}
     />
   ));
   await Promise.all([tree.subscribe(id()), summaries.subscribe(id())]);
@@ -247,8 +249,9 @@ test("ui_7_drag_moves_between_groups_and_ctrl_or_alt_adds", async () => {
 
 test("ui_7_group_and_repo_context_menus_offer_the_group_operations", async () => {
   const { tree } = await setup();
-  expect(menuOf(row("Backend", 1))).toEqual(["Rename…", "Delete…", "New group…", "!Move up", "Move down"]);
-  expect(menuOf(row("Frontend", 1))).toEqual(["Rename…", "Delete…", "New group…", "Move up", "!Move down"]);
+  const group = ["Fetch", "Pull", "Push", "Rename…", "Delete…", "New group…"];
+  expect(menuOf(row("Backend", 1))).toEqual([...group, "!Move up", "Move down"]);
+  expect(menuOf(row("Frontend", 1))).toEqual([...group, "Move up", "!Move down"]);
   expect(menuOf(row("Ungrouped", 1))).toEqual(["New group…"]);
   expect(menuOf(row("api", 2))).toEqual([
     "New branch…",

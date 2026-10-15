@@ -18,6 +18,16 @@ import {
   type WorkspaceId,
 } from "../ipc";
 
+/** The group operations of the toolbar's Fetch, Pull and Push (UI-20). */
+export type SyncKind = "fetch" | "pull" | "push";
+
+/** A click on Fetch, Pull or Push for a group or several repos: the defaults of section 5. */
+export const DEFAULT_GROUP_OPS = {
+  fetch: { kind: "fetch", prune: "config" },
+  pull: { kind: "pull", strategy: "config" },
+  push: { kind: "push", set_upstream: true, force_with_lease: false },
+} as const satisfies Record<SyncKind, GroupOp>;
+
 export interface PendingPreflight {
   workspaceId: WorkspaceId;
   /** `null` until the core answered the request. */

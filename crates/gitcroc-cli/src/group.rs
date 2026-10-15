@@ -1,6 +1,6 @@
 //! `gitcroc-cli group`: list, create, rename and delete the groups of the
 //! active workspace, and add and remove their repos (GRP-2, GRP-3), and run
-//! the test operation on a group (`group_run`). Groups are named by name,
+//! a group operation or the test operation on a group (`group_run`). Groups are named by name,
 //! ignoring case, as their ids last one run only. Also
 //! `gitcroc-cli tree`: the active workspace's tree skeleton (UI-1). Both
 //! print JSON.
@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use gitcroc_core::{
-    GroupId, PlatformCacheDir, PlatformConfigDir, RepoId, Summaries, SummaryCache, Trees,
-    WorkspaceId, Workspaces,
+    GroupId, GroupOp, PlatformCacheDir, PlatformConfigDir, Prune, PullStrategy, RepoId, Summaries,
+    SummaryCache, Trees, WorkspaceId, Workspaces,
 };
 
 use crate::summaries::GivenCacheDir;
@@ -19,7 +19,9 @@ use crate::workspace::GivenConfigDir;
 
 pub const USAGE: &str = "group [--config-dir <dir>] list|create <name> [<repo-id>...]|\
 rename <group> <name>|delete <group>|add <group> <repo-id>...|remove <group> <repo-id>...|\
-run <group> --test-op [--confirm]";
+run <group> --test-op|fetch [--prune|--no-prune]|\
+pull [--strategy config|ff-only|merge|rebase]|push [--no-set-upstream] [--force-with-lease] \
+[--confirm]";
 
 pub const TREE_USAGE: &str = "tree [--config-dir <dir>] [--cache-dir <dir>]";
 
@@ -31,8 +33,62 @@ pub enum Action {
     Delete(String),
     Add(String, Vec<RepoId>),
     Remove(String, Vec<RepoId>),
-    /// Runs the test operation on the group, confirmed when `true`.
-    Run(String, bool),
+    /// Runs an operation on the group, confirmed when `true`.
+    Run(String, RunOp, bool),
+}
+
+/// What `group run` runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunOp {
+    /// The test operation of M3-08.
+    Test,
+    Op(GroupOp),
+}
+
+/// Parses the operation and its options after `run <group>`, then
+/// `--confirm`.
+fn parse_run(args: &[OsString]) -> Option<(RunOp, bool)> {
+    let (args, confirm) = match args {
+        [rest @ .., last] if last == "--confirm" => (rest, true),
+        rest => (rest, false),
+    };
+    let (op, options) = args.split_first()?;
+    let flags: Vec<&str> = options
+        .iter()
+        .map(|arg| arg.to_str())
+        .collect::<Option<_>>()?;
+    let op = match (op.to_str()?, flags.as_slice()) {
+        ("--test-op", []) => RunOp::Test,
+        ("fetch", flags) => RunOp::Op(GroupOp::Fetch {
+            prune: match flags {
+                [] => Prune::Config,
+                ["--prune"] => Prune::Prune,
+                ["--no-prune"] => Prune::NoPrune,
+                _ => return None,
+            },
+        }),
+        ("pull", flags) => RunOp::Op(GroupOp::Pull {
+            strategy: match flags {
+                [] | ["--strategy", "config"] => PullStrategy::Config,
+                ["--strategy", "ff-only"] => PullStrategy::FfOnly,
+                ["--strategy", "merge"] => PullStrategy::Merge,
+                ["--strategy", "rebase"] => PullStrategy::Rebase,
+                _ => return None,
+            },
+        }),
+        ("push", flags) => {
+            let known = ["--no-set-upstream", "--force-with-lease"];
+            if !flags.iter().all(|flag| known.contains(flag)) {
+                return None;
+            }
+            RunOp::Op(GroupOp::Push {
+                set_upstream: !flags.contains(&"--no-set-upstream"),
+                force_with_lease: flags.contains(&"--force-with-lease"),
+            })
+        }
+        _ => return None,
+    };
+    Some((op, confirm))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,13 +121,9 @@ pub fn parse_args(args: &[OsString]) -> Option<Options> {
         [action, group, members @ ..] if action == "remove" && !members.is_empty() => {
             Action::Remove(text(group)?, repos(members)?)
         }
-        [action, group, op] if action == "run" && op == "--test-op" => {
-            Action::Run(text(group)?, false)
-        }
-        [action, group, op, confirm]
-            if action == "run" && op == "--test-op" && confirm == "--confirm" =>
-        {
-            Action::Run(text(group)?, true)
+        [action, group, rest @ ..] if action == "run" => {
+            let (op, confirm) = parse_run(rest)?;
+            Action::Run(text(group)?, op, confirm)
         }
         _ => return None,
     };
@@ -81,10 +133,11 @@ pub fn parse_args(args: &[OsString]) -> Option<Options> {
 /// Prints the groups of the active workspace after the change, as JSON.
 /// Exits 0 on success and 2 on any error, such as a refused name.
 pub fn run(options: Options) -> ExitCode {
-    if let Action::Run(group, confirm) = &options.action {
+    if let Action::Run(group, op, confirm) = &options.action {
         return print(crate::group_run::run(
             options.config_dir.as_ref(),
             group,
+            op,
             *confirm,
         ));
     }
@@ -236,15 +289,49 @@ mod tests {
             parsed(&["remove", "Backend", "r2"]),
             Some(Action::Remove("Backend".to_owned(), repos(&["r2"])))
         );
+        let run = |op: RunOp, confirm: bool| Some(Action::Run("Backend".to_owned(), op, confirm));
         assert_eq!(
             parsed(&["run", "Backend", "--test-op"]),
-            Some(Action::Run("Backend".to_owned(), false))
+            run(RunOp::Test, false)
         );
         assert_eq!(
             parsed(&["run", "Backend", "--test-op", "--confirm"]),
-            Some(Action::Run("Backend".to_owned(), true))
+            run(RunOp::Test, true)
         );
         assert_eq!(parsed(&["run", "Backend"]), None);
+        assert_eq!(
+            parsed(&["run", "Backend", "fetch", "--no-prune"]),
+            run(
+                RunOp::Op(GroupOp::Fetch {
+                    prune: Prune::NoPrune
+                }),
+                false
+            )
+        );
+        assert_eq!(
+            parsed(&["run", "Backend", "pull", "--strategy", "merge"]),
+            run(
+                RunOp::Op(GroupOp::Pull {
+                    strategy: PullStrategy::Merge
+                }),
+                false
+            )
+        );
+        assert_eq!(
+            parsed(&["run", "Backend", "push", "--force-with-lease", "--confirm"]),
+            run(
+                RunOp::Op(GroupOp::Push {
+                    set_upstream: true,
+                    force_with_lease: true
+                }),
+                true
+            )
+        );
+        assert_eq!(
+            parsed(&["run", "Backend", "pull", "--strategy", "squash"]),
+            None
+        );
+        assert_eq!(parsed(&["run", "Backend", "push", "--prune"]), None);
         assert_eq!(parsed(&["add", "Backend"]), None);
         assert_eq!(parsed(&["delete"]), None);
         let with_dir = parse_args(&args(&["--config-dir", "c", "list"])).unwrap();

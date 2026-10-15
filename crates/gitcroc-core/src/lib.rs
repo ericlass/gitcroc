@@ -81,8 +81,8 @@ pub use integrate::{
 pub use job::{
     AskpassGrant, AskpassIssuer, CancelResult, GroupRun, JobError, JobEvents, JobHandle, JobId,
     JobIds, JobProgress, JobRun, JobState, JobView, Jobs, MAX_ENDED_JOBS, MAX_OUTPUT, NothingToDo,
-    OnCancel, Outcome, POOL_SIZE, Pool, Priority, RepoResult, SkipReason, SubJob, SubJobSpec,
-    TrackedJob, Worker, WorkspaceId, WriteJob,
+    OnCancel, Outcome, POOL_SIZE, Pool, Priority, RepoResult, SkipReason, SubJob, SubJobError,
+    SubJobSpec, TrackedJob, Worker, WorkspaceId, WriteJob,
 };
 pub use log::{AppLog, LOG_FILE, LOG_FILE_SIZE, LOG_FILES, LogDir, PlatformLogDir};
 pub use ref_name::RefNameError;

@@ -16,7 +16,7 @@ interface DialogProps<K extends SyncDialog["kind"]> {
   repoName: string;
 }
 
-const STRATEGIES: { strategy: PullStrategy; label: string }[] = [
+export const STRATEGIES: { strategy: PullStrategy; label: string }[] = [
   {
     strategy: "config",
     label: "As git config says (fast-forward only when unset)",

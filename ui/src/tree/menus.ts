@@ -1,7 +1,9 @@
 // The context menu of each tree row (UI-7): the operations valid for its
 // kind, those that cannot apply disabled rather than hidden. A blocked repo
 // (GRP-8) has every repo write disabled; the core refuses them as well. The
-// group entries never touch a repo (GRP-3), so they stay enabled.
+// group entries never touch a repo (GRP-3), so they stay enabled; Fetch,
+// Pull and Push of a group go through its preflight, which skips or blocks
+// each repo that cannot take them (GRP-8).
 import type { GroupId, TreeItem } from "../ipc";
 import type { GroupInfo } from "./groups";
 
@@ -34,7 +36,10 @@ export type MenuAction =
   | "move_up"
   | "move_down"
   | "group_rename"
-  | "group_delete";
+  | "group_delete"
+  | "group_fetch"
+  | "group_pull"
+  | "group_push";
 
 export interface MenuEntry {
   action: MenuAction;
@@ -53,6 +58,9 @@ function groupEntries(item: TreeItem, groups: GroupInfo[]): MenuEntry[] {
     case "group": {
       const index = groups.findIndex((group) => group.id === item.group_id);
       return [
+        entry("group_fetch", "Fetch"),
+        entry("group_pull", "Pull"),
+        entry("group_push", "Push"),
         entry("group_rename", "Rename…"),
         entry("group_delete", "Delete…"),
         entry("new_group", "New group…"),
