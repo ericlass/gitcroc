@@ -56,6 +56,11 @@ export interface WorkspaceChanges {
   /** Where the file list and the diff were scrolled, for when they are shown again (UI-29). */
   listScroll: number;
   diffScroll: number;
+  /**
+   * The tab went to the background and the view and diff were let go
+   * (UI-31): the file to select again when they are read on return.
+   */
+  released: { list: FileKey["list"]; path: string } | null | false;
 }
 
 const empty = (): WorkspaceChanges => ({
@@ -77,6 +82,7 @@ const empty = (): WorkspaceChanges => ({
   offerError: null,
   listScroll: 0,
   diffScroll: 0,
+  released: false,
 });
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -118,6 +124,8 @@ export function createChangesStore(settings: () => ChangesSettings) {
   /** The latest view and diff request of each workspace; older answers are dropped. */
   const viewRequests = new Map<WorkspaceId, number>();
   const diffRequests = new Map<WorkspaceId, number>();
+  /** The file a view being read selects again, by workspace, until it is read. */
+  const keeping = new Map<WorkspaceId, { list: FileKey["list"]; path: string }>();
 
   const changes = (id: WorkspaceId): WorkspaceChanges => state.byWorkspace[id] ?? empty();
 
@@ -180,6 +188,11 @@ export function createChangesStore(settings: () => ChangesSettings) {
   const load = async (id: WorkspaceId, keep: { list: FileKey["list"]; path: string } | null) => {
     const request = next(viewRequests, id);
     next(diffRequests, id);
+    if (keep === null) {
+      keeping.delete(id);
+    } else {
+      keeping.set(id, keep);
+    }
     const { selection, parent } = untrack(() => changes(id));
     if (selection === null) {
       update(id, (c) => {
@@ -201,6 +214,7 @@ export function createChangesStore(settings: () => ChangesSettings) {
       if (view === null || viewRequests.get(id) !== request) {
         return;
       }
+      keeping.delete(id);
       // The same file in the same list, else in the other list, as after
       // staging it whole.
       const files = fileKeys(view);
@@ -231,14 +245,24 @@ export function createChangesStore(settings: () => ChangesSettings) {
     await loadDiff(id);
   };
 
-  /** Shows `selection` (UI-14, UI-15); the same selection again changes nothing. */
+  /**
+   * Shows `selection` (UI-14, UI-15); the same selection again changes
+   * nothing, unless the view was released: then it is read again with the
+   * same file and scroll positions.
+   */
   const show = (id: WorkspaceId, selection: CommitSelection | null) =>
     untrack(() => {
-      if (sameSelection(changes(id).selection, selection)) {
-        return Promise.resolve();
+      const { selection: shown, released } = changes(id);
+      if (sameSelection(shown, selection)) {
+        if (released === false) {
+          return Promise.resolve();
+        }
+        update(id, (c) => (c.released = false));
+        return load(id, released);
       }
       update(id, (c) => {
         c.selection = selection;
+        c.released = false;
         c.parent = 0;
         c.view = null;
         c.file = null;
@@ -280,7 +304,35 @@ export function createChangesStore(settings: () => ChangesSettings) {
   const reload = (id: WorkspaceId) => {
     const { view, file } = untrack(() => changes(id));
     const entry = view === null || file === null ? null : entryOf(view.content, file);
-    return load(id, entry === null || file === null ? null : { list: file.list, path: entry.path });
+    // While a view is read, the file it was to select again.
+    const pending = view === null ? (keeping.get(id) ?? null) : null;
+    return load(id, entry === null || file === null ? pending : { list: file.list, path: entry.path });
+  };
+
+  /**
+   * Lets go of the view and diff of workspace `id`, whose tab went to the
+   * background (UI-31); the core has ended its view. The selection, the
+   * selected file's path, the folders and the scroll positions are kept for
+   * `show`.
+   */
+  const release = (id: WorkspaceId) => {
+    next(viewRequests, id);
+    next(diffRequests, id);
+    const { view, file, released } = untrack(() => changes(id));
+    if (released !== false) {
+      return;
+    }
+    const entry = view === null || file === null ? null : entryOf(view.content, file);
+    const pending = keeping.get(id) ?? null;
+    keeping.delete(id);
+    update(id, (c) => {
+      c.released = entry === null || file === null ? pending : { list: file.list, path: entry.path };
+      c.view = null;
+      c.diff = null;
+      c.loading = false;
+      c.diffLoading = false;
+      c.confirm = null;
+    });
   };
 
   /** Sends `request`; a discard comes back asking for confirmation (GRP-9). */
@@ -381,6 +433,7 @@ export function createChangesStore(settings: () => ChangesSettings) {
     state,
     changes,
     show,
+    release,
     setParent,
     selectFile,
     loadAnyway,

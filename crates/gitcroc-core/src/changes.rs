@@ -260,6 +260,25 @@ impl Changes {
         lock(&self.shown).remove(id);
     }
 
+    /// Ends the view of workspace `id`, whose tab went to the background
+    /// (UI-31): its lists, diff and images go, and its handle then gives
+    /// `None`, as a superseded view's does.
+    pub fn release(&self, id: &WorkspaceId) {
+        if let Some(view) = lock(&self.shown).get_mut(id) {
+            view.handle = view.handle.wrapping_add(1);
+            view.lists = None;
+            view.images = None;
+            view.diff = None;
+        }
+    }
+
+    /// Whether the core holds lists or images of a view of workspace `id`.
+    pub fn holds_view(&self, id: &WorkspaceId) -> bool {
+        lock(&self.shown)
+            .get(id)
+            .is_some_and(|view| view.lists.is_some() || view.images.is_some())
+    }
+
     /// Makes a new view the latest of workspace `id`.
     fn begin(&self, id: &WorkspaceId, repo: RepoId, path: PathBuf) -> u32 {
         let mut shown = lock(&self.shown);

@@ -91,15 +91,45 @@ main:not(.main) {
 }
 
 .tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
   max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   border: none;
   border-radius: 0;
   padding: 6px 4px 6px 16px;
   background: transparent;
+}
+
+.tab-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* UI-32: the jobs of the tab that run or wait, and an unseen failure. */
+.tab-badge,
+.tab-marker {
+  flex: none;
+  min-width: 16px;
+  border-radius: 8px;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.tab-badge {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.tab-marker {
+  background: var(--outcome-failed);
+  color: var(--accent-text);
+  font-weight: 600;
 }
 
 .tab-close {

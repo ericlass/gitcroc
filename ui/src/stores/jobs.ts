@@ -2,7 +2,8 @@
 // `jobs_get` at start, then kept current by `job_progress` and `job_ended`.
 // The store decides nothing about a job (ARCH-6). Besides the mirror it
 // keeps only what the user saw: the job that ended last in each workspace
-// (ARCH-9), and which ended jobs the job list has shown.
+// (ARCH-9), which ended jobs the job list has shown, and which the status
+// bar has shown in their own tab. Tab marks only count (UI-32).
 import { createMemo } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { core, type JobId, type JobView, jobCancel, jobsGet, type WorkspaceId } from "../ipc";
@@ -13,12 +14,20 @@ interface JobsState {
   lastEnded: Record<WorkspaceId, JobId>;
   /** Ended jobs the job list has shown. */
   seen: Record<JobId, true>;
+  /** Ended jobs the status bar has shown, in their workspace's tab. */
+  shown: Record<JobId, true>;
   /** Why `jobs_get` failed, if it did. */
   error: string | null;
 }
 
 export function createJobStore() {
-  const [state, setState] = createStore<JobsState>({ byId: {}, lastEnded: {}, seen: {}, error: null });
+  const [state, setState] = createStore<JobsState>({
+    byId: {},
+    lastEnded: {},
+    seen: {},
+    shown: {},
+    error: null,
+  });
 
   const record = (view: JobView) => setState("byId", view.job_id, reconcile(view));
 
@@ -71,10 +80,36 @@ export function createJobStore() {
     }
   };
 
+  /** The status bar of the job's own tab shows its report. */
+  const markShown = (jobId: JobId) => {
+    if (!state.shown[jobId]) {
+      setState("shown", jobId, true);
+    }
+  };
+
+  /**
+   * What workspace `id`'s tab shows (UI-32): how many of its jobs run or
+   * wait, and whether one ended failed or in conflict and the user has not
+   * seen it, in the job list or in the status bar of that tab.
+   */
+  const marks = (id: WorkspaceId) => {
+    const mine = jobs().filter((job) => job.workspace_id === id);
+    return {
+      active: mine.filter((job) => job.state !== "ended").length,
+      unseen: mine.some(
+        (job) =>
+          job.state === "ended" &&
+          (job.outcome?.kind === "failed" || job.outcome?.kind === "conflict") &&
+          !state.seen[job.job_id] &&
+          !state.shown[job.job_id],
+      ),
+    };
+  };
+
   /** Asks the core to cancel a job (GRP-10); its end arrives as `job_ended`. */
   const cancel = (jobId: JobId) => jobCancel(jobId);
 
-  return { state, jobs, record, subscribe, load, markSeen, cancel };
+  return { state, jobs, record, subscribe, load, markSeen, markShown, marks, cancel };
 }
 
 export type JobStore = ReturnType<typeof createJobStore>;

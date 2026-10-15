@@ -39,6 +39,9 @@ const BUDGETS: Record<string, { budget: number; unit: "ms" | "MB" }> = {
   // The same row of section 9 with a real job running (M2-15).
   "input-latency-job": { budget: 50, unit: "ms" },
   "memory-idle": { budget: 400, unit: "MB" },
+  // The same budget with a second tab of the same repos in the background,
+  // after it was scrolled (UI-31).
+  "memory-two-tabs": { budget: 400, unit: "MB" },
 };
 
 /** Scroll speed: 100 px a frame, about 250 rows a second at 60 fps. */
@@ -404,12 +407,19 @@ async function startDirect(options: Options, env: NodeJS.ProcessEnv, tracePath: 
   }
 }
 
+/** The workspace ids of the run: the one measured, and the second tab of `memory-two-tabs`. */
+interface Tabs {
+  main: string;
+  second: string;
+}
+
 async function runOnce(
   options: Options,
   repos: Repo[],
   commits: { hash: string; index: number }[],
+  tabs: Tabs,
   tracePath: string,
-): Promise<Trace & { memory: number }> {
+): Promise<Trace & { memory: number; twoTabs: number }> {
   const [largest, other] = repos;
   if (largest === undefined || other === undefined) {
     throw new Error(`${SET} has fewer than two repos`);
@@ -425,7 +435,7 @@ async function runOnce(
     if (options.startOnly) {
       rmSync(tracePath, { force: true });
       await session.page(`await p.flush();`);
-      return { ...(JSON.parse(readFileSync(tracePath, "utf8")) as Trace), memory: 0 };
+      return { ...(JSON.parse(readFileSync(tracePath, "utf8")) as Trace), memory: 0, twoTabs: 0 };
     }
 
     // Tree rows are found again before each click: a refresh may re-render them.
@@ -499,6 +509,7 @@ async function runOnce(
     if (options.verbose) {
       log(`  memory: ${processes.map((process) => `${process.name} ${process.mb.toFixed(0)} MB`).join(", ")}`);
     }
+    const twoTabs = await memoryTwoTabs(session, options, largest, commits[0], tabs);
 
     rmSync(tracePath, { force: true });
     await session.page(`await p.flush();`);
@@ -510,7 +521,7 @@ async function runOnce(
           `${(trace.cold_start_ms - toPage).toFixed(0)} ms from the page's start to the tree`,
       );
     }
-    return { ...trace, memory };
+    return { ...trace, memory, twoTabs };
   } catch (error) {
     const path = join(ROOT, "target/bench-ui/failure.png");
     await session.screenshot(path).then(
@@ -521,6 +532,69 @@ async function runOnce(
   } finally {
     await session.end().catch(() => {});
   }
+}
+
+// --- Memory with a background tab (M3-03) ------------------------------------
+
+/**
+ * `memory-two-tabs`: opens the second workspace, of the same repos, as a
+ * tab, scrolls its largest repo's whole history and selects a commit, then
+ * goes back to the first tab and measures the memory once it is idle. The
+ * second tab has let go of its history and diff by then (UI-31). Closes
+ * the second tab, so the next run starts as this one did. Not timed: the
+ * recorder's scroll samples stay those of the first tab.
+ */
+async function memoryTwoTabs(
+  session: Session,
+  options: Options,
+  largest: Repo,
+  commit: { hash: string; index: number } | undefined,
+  tabs: Tabs,
+): Promise<number> {
+  log("  memory-two-tabs");
+  const invoke = (command: string) =>
+    session.page(`await window.__TAURI_INTERNALS__.invoke(args[0], { workspaceId: args[1] });`, command, tabs.second);
+  await invoke("workspace_open");
+  await session.page(
+    `const opened = performance.now();
+     while (p.repoRow(args[0]) === null) {
+       if (performance.now() - opened > 30000) throw new Error("the second tab shows no " + args[0]);
+       await new Promise((resolve) => requestAnimationFrame(resolve));
+     }`,
+    largest.name,
+  );
+  await session.click(await session.page<Element>(`return p.repoRow(args[0]);`, largest.name));
+  // Down to the end of the history, a page at a time.
+  await session.page(`
+    const opened = performance.now();
+    let list = null;
+    while ((list = document.querySelector(".history-scroller")) === null || list.scrollHeight <= list.clientHeight) {
+      if (performance.now() - opened > 30000) throw new Error("the second tab shows no history");
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    // Two seconds with no new page: the end, or a page that never comes.
+    for (let quiet = 0; quiet < 120; ) {
+      const height = list.scrollHeight;
+      list.scrollTop = height;
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      quiet = list.scrollHeight === height ? quiet + 1 : 0;
+    }`);
+  if (commit !== undefined) {
+    const row = await session.page<Element>(`return p.historyRow(args[0], args[1]);`, commit.index, commit.hash);
+    await session.click(row);
+  }
+  await session.page(`await p.idle(1000);`);
+  await session.page(
+    `await window.__TAURI_INTERNALS__.invoke("workspace_activate", { workspaceId: args[0] });`,
+    tabs.main,
+  );
+  await session.page(`await p.idle(3000);`);
+  const processes = memoryMb(processTree(options.app));
+  if (options.verbose) {
+    log(`  memory: ${processes.map((process) => `${process.name} ${process.mb.toFixed(0)} MB`).join(", ")}`);
+  }
+  await invoke("workspace_close");
+  return processes.reduce((sum, process) => sum + process.mb, 0);
 }
 
 // --- Input latency while a job runs (M2-15) ----------------------------------
@@ -735,6 +809,17 @@ async function main() {
       stdio: "pipe",
     });
   }
+  // A second workspace of the same repos, closed, for `memory-two-tabs`.
+  const workspace = (...args: string[]) =>
+    execFileSync(options.cli, ["workspace", "--config-dir", join(config, "gitcroc"), ...args], { encoding: "utf8" });
+  const main = (JSON.parse(workspace("show")) as { id: string }).id;
+  const second = (JSON.parse(workspace("create", "Second tab")) as { active: string }).active;
+  for (const repo of repos) {
+    workspace("add", repo.path);
+  }
+  workspace("close", second);
+  workspace("open", main);
+  const tabs = { main, second };
   execFileSync(
     options.cli,
     ["summaries", "--config-dir", join(config, "gitcroc"), "--cache-dir", join(cache, "gitcroc")],
@@ -758,8 +843,8 @@ async function main() {
     for (let run = 0; run <= (options.jobOnly ? -1 : options.runs); run++) {
       log(run === 0 ? "warm-up run" : `run ${run} of ${options.runs}`);
       const trace = options.direct
-        ? { ...(await startDirect(options, env, tracePath)), memory: 0 }
-        : await runOnce(options, repos, commits, tracePath);
+        ? { ...(await startDirect(options, env, tracePath)), memory: 0, twoTabs: 0 }
+        : await runOnce(options, repos, commits, tabs, tracePath);
       if (run === 0) {
         continue;
       }
@@ -777,6 +862,7 @@ async function main() {
         add(sample.scenario, sample.ms);
       }
       add("memory-idle", trace.memory);
+      add("memory-two-tabs", trace.twoTabs);
     }
     if (options.verbose) {
       log("the start, median and range in ms since run() started:");

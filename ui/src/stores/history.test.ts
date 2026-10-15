@@ -196,3 +196,31 @@ test("OPS-7 a selected commit that no longer exists is deselected", async () => 
   expect(selection.selected(id())).toBeNull();
   unsubscribe();
 });
+
+test("UI-31 a released history reads its rows again and scrolls back, also when a refresh comes meanwhile", async () => {
+  const { history } = setup();
+  const stop = await history.subscribe(id());
+  history.show(id(), api);
+  await settle();
+  await history.more(id());
+  history.select(id(), hashOf(700));
+  history.setScrollTop(id(), 690 * 24);
+
+  history.release(id());
+  expect(history.history(id()).rows.list).toHaveLength(0);
+  expect(history.history(id()).handle).toBeNull();
+
+  // Shown again, a refresh of the repo lands before the rows are read.
+  fakeState.historyCalls = [];
+  history.show(id(), api);
+  emitRepoSummary({ ...summary(id(), "r1", "main"), refs_version: 1 });
+  for (let round = 0; round < 8; round++) {
+    await settle();
+  }
+  const shown = history.history(id());
+  expect(shown.rows.list).toHaveLength(2 * PAGE_SIZE);
+  expect(shown.selected).toBe(hashOf(700));
+  expect(shown.restore).toBe(690 * 24);
+  expect(shown.released).toBe(false);
+  stop();
+});

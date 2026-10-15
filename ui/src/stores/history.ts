@@ -104,6 +104,11 @@ export interface WorkspaceHistory {
   scrollTop: number;
   /** A scroll position for the list to apply once, after a restore. */
   restore: number | null;
+  /**
+   * The tab went to the background and its rows were let go (UI-31); the
+   * position is kept under the source's key and read again on return.
+   */
+  released: boolean;
   positions: Record<string, Position>;
   /** Repos whose commit-graph offer is shown. */
   offers: Record<RepoId, boolean | undefined>;
@@ -125,6 +130,7 @@ const empty = (): WorkspaceHistory => ({
   marked: [],
   scrollTop: 0,
   restore: null,
+  released: false,
   positions: {},
   offers: {},
   answered: {},
@@ -142,6 +148,8 @@ export function createHistoryStore(selection: SelectionStore) {
   const requests = new Map<WorkspaceId, number>();
   /** The last `refs_version` heard of each repo, by workspace (OPS-7). */
   const refsVersions = new Map<WorkspaceId, Map<RepoId, number>>();
+  /** The rows and scroll position a load is restoring, by workspace, until it is done. */
+  const restoring = new Map<WorkspaceId, { rows: number; scrollTop: number }>();
 
   const history = (id: WorkspaceId): WorkspaceHistory => state.byWorkspace[id] ?? empty();
 
@@ -216,8 +224,10 @@ export function createHistoryStore(selection: SelectionStore) {
     const request = begin(id);
     const [source, text] = untrack(() => [history(id).source, history(id).text] as const);
     if (source === null) {
+      restoring.delete(id);
       return;
     }
+    restoring.set(id, { rows, scrollTop });
     update(id, (h) => {
       h.rows = NO_COMMITS;
       h.handle = null;
@@ -254,6 +264,7 @@ export function createHistoryStore(selection: SelectionStore) {
       // Each page brings the restored position closer.
     }
     if (isLatest(id, request)) {
+      restoring.delete(id);
       update(id, (h) => (h.restore = scrollTop));
     }
   };
@@ -263,7 +274,7 @@ export function createHistoryStore(selection: SelectionStore) {
 
   const showSource = (id: WorkspaceId, source: HistorySource | null) => {
     const current = history(id);
-    if (current.source?.key === source?.key) {
+    if (current.source?.key === source?.key && !current.released) {
       if (source !== null) {
         // The same history; only whether uncommitted changes apply may differ.
         update(id, (h) => (h.source = source));
@@ -272,7 +283,8 @@ export function createHistoryStore(selection: SelectionStore) {
     }
     const saved = source === null ? undefined : current.positions[source.key];
     update(id, (h) => {
-      if (h.source !== null) {
+      // A released history kept its position when it let go of its rows.
+      if (h.source !== null && !h.released) {
         h.positions[h.source.key] = {
           scrollTop: h.scrollTop,
           selected: h.selected,
@@ -281,6 +293,7 @@ export function createHistoryStore(selection: SelectionStore) {
         };
       }
       h.source = source;
+      h.released = false;
       h.text = saved?.text ?? "";
       h.selected = saved?.selected ?? null;
       h.marked = only(h.selected);
@@ -307,14 +320,17 @@ export function createHistoryStore(selection: SelectionStore) {
    * once all are read, so the list does not empty in between.
    */
   const reload = async (id: WorkspaceId) => {
-    const request = begin(id);
-    const [source, text, count, selected] = untrack(() => {
+    const [source, text, loaded, selected, released] = untrack(() => {
       const current = history(id);
-      return [current.source, current.text, current.rows.length, current.selected] as const;
+      return [current.source, current.text, current.rows.length, current.selected, current.released] as const;
     });
-    if (source === null) {
+    if (source === null || released) {
       return;
     }
+    const request = begin(id);
+    // A restore this supersedes still wants its rows and scroll position.
+    const restore = restoring.get(id);
+    const count = Math.max(loaded, restore?.rows ?? 0);
     try {
       const first = await historyGet(id, source.repo, source.target, text);
       if (first === null || !isLatest(id, request)) {
@@ -333,12 +349,16 @@ export function createHistoryStore(selection: SelectionStore) {
         ({ handle, done } = page);
       }
       const gone = !kept();
+      restoring.delete(id);
       update(id, (h) => {
         h.rows = new Commits(rows);
         h.handle = handle;
         h.done = done;
         h.loading = false;
         h.error = null;
+        if (restore !== undefined) {
+          h.restore = restore.scrollTop;
+        }
         if (gone) {
           h.selected = null;
         }
@@ -355,6 +375,32 @@ export function createHistoryStore(selection: SelectionStore) {
         });
       }
     }
+  };
+
+  /**
+   * Lets go of the loaded rows of workspace `id`, whose tab went to the
+   * background (UI-31); the core has ended its walk. Where the user was is
+   * kept, and `show` reads as many rows again and scrolls back.
+   */
+  const release = (id: WorkspaceId) => {
+    begin(id);
+    restoring.delete(id);
+    update(id, (h) => {
+      if (h.source !== null && !h.released) {
+        h.positions[h.source.key] = {
+          scrollTop: h.scrollTop,
+          selected: h.selected,
+          text: h.text,
+          rows: h.rows.length,
+        };
+      }
+      h.released = true;
+      h.rows = NO_COMMITS;
+      h.handle = null;
+      h.done = true;
+      h.loading = false;
+      h.restore = null;
+    });
   };
 
   /** Reads the next page, unless one is being read or none follows. */
@@ -467,6 +513,7 @@ export function createHistoryStore(selection: SelectionStore) {
     state,
     history,
     show,
+    release,
     more,
     setText,
     select,

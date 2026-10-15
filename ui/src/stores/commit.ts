@@ -6,6 +6,7 @@
 import { untrack } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { changesCommit, type CommitMessage, core, type JobId, type JobView, type RepoId, type WorkspaceId } from "../ipc";
+import { LIST_CHANGED } from "./changes";
 
 /** A commit or amend the core is running. */
 interface Pending {
@@ -40,7 +41,11 @@ export const isBlank = (draft: CommitMessage) => draft.subject.trim() === "" && 
 /** What the box says when the commit's job failed; its output is in the job list. */
 export const COMMIT_FAILED = "The commit failed. The job list shows what git said.";
 
-export function createCommitStore() {
+/**
+ * `reread` reads the workspace's changes view again, after a newer read of
+ * it replaced the one the user committed from.
+ */
+export function createCommitStore(reread: (id: WorkspaceId) => void = () => {}) {
   const [state, setState] = createStore<{ byWorkspace: Record<WorkspaceId, WorkspaceCommit> }>({ byWorkspace: {} });
   /** Jobs that ended before their start was answered, which the core's events may do. */
   const endedEarly = new Map<JobId, JobView>();
@@ -106,6 +111,10 @@ export function createCommitStore() {
     try {
       const job = await changesCommit(id, { handle, message: sent, amend });
       if (job === null) {
+        // A refresh read the view again while the user clicked; the core
+        // ran nothing. Say so rather than drop the click; the message stays.
+        update(id, (c) => (c.errors[repo] = LIST_CHANGED));
+        reread(id);
         return;
       }
       update(id, (c) => (c.pending = { job, repo, sent }));

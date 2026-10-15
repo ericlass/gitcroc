@@ -21,6 +21,7 @@ mod stage;
 mod stash;
 mod summaries;
 mod sync;
+mod tabs;
 mod tag;
 mod tree;
 mod watch;

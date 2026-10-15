@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { changesGet } from "../ipc";
 import { fakeState, finishCommit, reset } from "../ipc/fake";
 import { type FakeWorkingCopy, textFile } from "../ipc/fakeChanges";
-import { createChangesStore } from "../stores/changes";
+import { createChangesStore, LIST_CHANGED } from "../stores/changes";
 import { COMMIT_FAILED, createCommitStore } from "../stores/commit";
 import { createConflictStore } from "../stores/conflicts";
 import { createLayoutStore } from "../stores/layout";
@@ -53,7 +54,7 @@ async function setup() {
   const settings = createSettingsStore();
   await settings.load();
   const changes = createChangesStore(settings.changes);
-  const commit = createCommitStore();
+  const commit = createCommitStore((workspace) => void changes.reload(workspace));
   render(() => (
     <ChangesPane
       workspace={id()}
@@ -149,6 +150,25 @@ test("UI-15 a commit sends subject and body, then clears the box", async () => {
   // The view was read again: nothing is staged, so Commit stays off.
   type(subject(), "Next");
   expect(commitButton().disabled).toBe(true);
+});
+
+test("UI-15 a commit from a list the core has replaced is not lost silently", async () => {
+  await setup();
+  type(subject(), "Add b.txt");
+  // A refresh read the view again; its answer is not in yet, so the box
+  // still holds the old handle.
+  await changesGet(id(), "r1", { kind: "uncommitted" });
+  fireEvent.click(commitButton());
+  await settleAll();
+  expect(fakeState.commitRequests).toHaveLength(1);
+  expect(within(box()).getByRole("alert").textContent).toBe(LIST_CHANGED);
+  expect(subject().value).toBe("Add b.txt");
+
+  // The list was read again, so the next click reaches the core.
+  fakeState.holdCommits = true;
+  fireEvent.click(commitButton());
+  await settleAll();
+  expect(within(box()).getByRole<HTMLButtonElement>("button", { name: "Committing…" }).disabled).toBe(true);
 });
 
 test("UI-15 a failed commit keeps the message", async () => {
