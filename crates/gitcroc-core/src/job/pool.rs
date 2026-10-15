@@ -1,7 +1,8 @@
 //! The one pool of workers that jobs and the background refresh share
-//! (PERF-4): [`POOL_SIZE`] places. A job waiting for a place gets the next
-//! one free before any refresh read waiting; refresh reads keep their own
-//! order and their lowest thread priority.
+//! (PERF-4): as many places as the setting `group_parallelism`,
+//! [`POOL_SIZE`] by default. A job waiting for a place gets the next one free
+//! before any refresh read waiting; refresh reads keep their own order and
+//! their lowest thread priority.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -10,7 +11,7 @@ use tokio::sync::oneshot;
 
 use crate::lock;
 
-/// Workers in the pool.
+/// Workers in the pool until the settings say otherwise.
 pub const POOL_SIZE: usize = 8;
 
 /// Who asks for a worker.
@@ -24,7 +25,10 @@ pub enum Priority {
 
 #[derive(Debug, Default)]
 struct State {
-    free: usize,
+    size: usize,
+    /// Places in use, which is more than `size` for a while after the pool
+    /// shrank.
+    held: usize,
     jobs: VecDeque<oneshot::Sender<()>>,
     refreshes: VecDeque<oneshot::Sender<()>>,
 }
@@ -39,7 +43,7 @@ impl Pool {
     pub fn new(size: usize) -> Arc<Self> {
         Arc::new(Self {
             state: Mutex::new(State {
-                free: size.max(1),
+                size: size.max(1),
                 ..State::default()
             }),
         })
@@ -56,8 +60,8 @@ impl Pool {
     pub async fn worker(self: &Arc<Self>, priority: Priority) -> Worker {
         let receiver = {
             let mut state = self.lock();
-            if state.free > 0 {
-                state.free -= 1;
+            if state.held < state.size {
+                state.held += 1;
                 return Worker { pool: self.clone() };
             }
             let (sender, receiver) = oneshot::channel();
@@ -86,20 +90,42 @@ impl Pool {
         (state.jobs.len(), state.refreshes.len())
     }
 
-    /// Hands a place to the first request waiting, jobs first, or keeps it
-    /// free. A request given up meanwhile is passed over.
+    /// How many places it has.
+    pub fn size(&self) -> usize {
+        self.lock().size
+    }
+
+    /// Gives the pool `size` places, at least one. Growing, it hands the new
+    /// places to requests waiting; shrinking, it takes places back as they
+    /// are given back, and nothing running stops.
+    pub fn resize(&self, size: usize) {
+        let mut state = self.lock();
+        state.size = size.max(1);
+        hand_out(&mut state);
+    }
+
+    /// Gives a place back and hands free places to the requests waiting.
     fn give_back(&self) {
         let mut state = self.lock();
-        while let Some(next) = state
+        state.held = state.held.saturating_sub(1);
+        hand_out(&mut state);
+    }
+}
+
+/// Hands each free place to the first request waiting, jobs first. A
+/// request given up meanwhile is passed over.
+fn hand_out(state: &mut State) {
+    while state.held < state.size {
+        let Some(next) = state
             .jobs
             .pop_front()
             .or_else(|| state.refreshes.pop_front())
-        {
-            if next.send(()).is_ok() {
-                return;
-            }
+        else {
+            return;
+        };
+        if next.send(()).is_ok() {
+            state.held += 1;
         }
-        state.free += 1;
     }
 }
 
@@ -159,5 +185,28 @@ mod tests {
         }
         assert_eq!(pool.waiting(), (0, 0));
         assert!(poll(pin!(pool.worker(Priority::Refresh))).is_ready());
+    }
+
+    #[test]
+    fn a_resized_pool_hands_out_new_places_and_takes_back_old_ones() {
+        let pool = Pool::new(1);
+        let Poll::Ready(first) = poll(pin!(pool.worker(Priority::Job))) else {
+            panic!("the first worker waits")
+        };
+        let mut second = pin!(pool.worker(Priority::Job));
+        assert!(poll(second.as_mut()).is_pending());
+        pool.resize(2);
+        let Poll::Ready(second) = poll(second) else {
+            panic!("the new place is not handed out")
+        };
+        pool.resize(1);
+        drop(first);
+        let mut third = pin!(pool.worker(Priority::Job));
+        assert!(
+            poll(third.as_mut()).is_pending(),
+            "two places are still held"
+        );
+        drop(second);
+        assert!(poll(third).is_ready());
     }
 }

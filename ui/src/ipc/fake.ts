@@ -9,6 +9,8 @@ import type {
   AppInfo,
   Appearance,
   BranchRequest,
+  GroupSettings,
+  PreflightReady,
   ChangeRequest,
   ChangesContent,
   ChangesSettings,
@@ -112,8 +114,9 @@ export const defaultAppearance: Appearance = {
   code_font: null,
   code_font_size: 13,
 };
+export const defaultGroupSettings: GroupSettings = { group_parallelism: 8, always_show_preflight: false };
 const defaultSettings: SettingsView = {
-  settings: { theme: "system", ...defaultAppearance, changes: defaultChangesSettings },
+  settings: { theme: "system", ...defaultAppearance, ...defaultGroupSettings, changes: defaultChangesSettings },
   read_only: false,
   warning: null,
 };
@@ -164,6 +167,7 @@ const askpassPromptListeners: Listeners<AskpassPrompt> = new Set();
 const askpassClosedListeners: Listeners<AskpassClosedEvent> = new Set();
 const cloneParentPickedListeners: Listeners<CloneParentPickedEvent> = new Set();
 const cloneReportListeners: Listeners<CloneReport> = new Set();
+const preflightReadyListeners: Listeners<PreflightReady> = new Set();
 
 /** Each workspace's changes view, as the core keeps it. */
 const views = new Map<
@@ -1138,6 +1142,7 @@ export function reset(): void {
   jobEndedListeners.clear();
   askpassPromptListeners.clear();
   askpassClosedListeners.clear();
+  preflightReadyListeners.clear();
 }
 
 // Playwright runs the fake build; `?fake=<name>` picks a data set.
@@ -1622,6 +1627,10 @@ export const fake: Core = {
     ...fakeTabCommands,
     ...fakeGroupCommands,
     targetRepos: fakeTargetRepos,
+    // Like the core until the group operations arrive (M3-10 to M3-13):
+    // every one is refused, so no preflight is ever started.
+    groupPreflight: () => nameRefused("this operation on a group is not available yet"),
+    groupStart: () => nameRefused("no such preflight, or it was used already"),
     workspaceAddPath: (workspaceId, path) => {
       if (workspaceId !== fakeState.workspace.id) {
         return notFound(`no open workspace has the id ${workspaceId}`);
@@ -2153,7 +2162,12 @@ export const fake: Core = {
       fakeState.cancels.push(jobId);
       const job = fakeState.jobs.find((known) => known.job_id === jobId);
       if (job?.state === "queued") {
-        sendJob({ ...job, state: "ended", outcome: { kind: "skipped", reason: "cancelled" }, message: "cancelled" });
+        sendJob({
+          ...job,
+          state: "ended",
+          outcome: { kind: "skipped", reason: { kind: "cancelled" } },
+          message: "cancelled",
+        });
         return Promise.resolve({ status: "ok", data: "cancelled" });
       }
       return Promise.resolve({ status: "ok", data: job?.state === "running" ? "finishing" : "ended" });
@@ -2181,5 +2195,6 @@ export const fake: Core = {
     workspaceChanged: fakeEvent(workspaceChangedListeners),
     workspacesChanged: fakeEvent(workspacesChangedListeners),
     groupSummary: fakeEvent(groupSummaryListeners),
+    preflightReady: fakeEvent(preflightReadyListeners),
   },
 };

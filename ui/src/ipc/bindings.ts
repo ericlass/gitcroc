@@ -141,6 +141,21 @@ export const commands = {
 	 */
 	targetRepos: (workspaceId: WorkspaceId, target: TargetSet) => typedError<RepoId[], IpcError>(__TAURI_INVOKE("target_repos", { workspaceId, target })),
 	/**
+	 *  Starts the preflight of group operation `op` on `target` (section 5,
+	 *  step 1) and returns its id at once (ARCH-7); the result arrives as
+	 *  `preflight_ready`, with whether the user must confirm. Refused for an
+	 *  operation that is not available yet.
+	 */
+	groupPreflight: (workspaceId: WorkspaceId, target: TargetSet, op: GroupOp) => typedError<PreflightId, IpcError>(__TAURI_INVOKE("group_preflight", { workspaceId, target, op })),
+	/**
+	 *  Starts the job of preflight `preflight_id` (section 5, step 3) and
+	 *  returns its id at once. Refused without `confirmed` when the preflight
+	 *  said the user must confirm, for a preflight used already, and when the
+	 *  workspace's repos or groups changed since it ran. Sub-jobs arrive in
+	 *  the job's `job_progress` events, and its report with `job_ended`.
+	 */
+	groupStart: (preflightId: PreflightId, confirmed: boolean) => typedError<JobId, IpcError>(__TAURI_INVOKE("group_start", { preflightId, confirmed })),
+	/**
 	 *  The first page of `target`'s history (section 8 "History pane"): of
 	 *  repo `repo_id`, or merged from a target set's repos with `repo_id` null
 	 *  (PERF-5), filtered by `text` when it is not empty (UI-12). It starts a
@@ -503,6 +518,7 @@ export const events = {
 	groupSummary: makeEvent<GroupSummaryEvent>("group_summary"),
 	jobEnded: makeEvent<JobEndedEvent>("job_ended"),
 	jobProgress: makeEvent<JobProgressEvent>("job_progress"),
+	preflightReady: makeEvent<PreflightReadyEvent>("preflight_ready"),
 	repoRefsChanged: makeEvent<RepoRefsChangedEvent>("repo_refs_changed"),
 	repoSummary: makeEvent<RepoSummaryEvent>("repo_summary"),
 	watchWarning: makeEvent<WatchWarningEvent>("watch_warning"),
@@ -815,6 +831,16 @@ export type ChooseRequest = {
 	file: number,
 	side: ConflictChoice,
 };
+
+/**  A repo's class in a preflight (section 5, step 1). */
+export type Class = { kind: "will_run" } | { kind: "will_skip"; reason: string } | 
+/**  GRP-8: missing, in conflict state, or busy with another write. */
+{ kind: "blocked"; reason: string } | 
+/**
+ *  It runs, but the user should look first, as at a predicted conflict
+ *  or a missing upstream.
+ */
+{ kind: "needs_attention"; reason: string };
 
 /**
  *  The parent folder the user picked for a clone, sent as event
@@ -1159,6 +1185,60 @@ export type GroupBranch =
 export type GroupId = string;
 
 /**
+ *  A group-capable operation with its options (section 5 "Group-capable
+ *  operations"). Names are typed or picked once and resolved in each repo
+ *  (GRP-14).
+ */
+export type GroupOp = 
+/**  Fetches all remotes. */
+{ kind: "fetch"; prune: Prune } | 
+/**  Updates the current branch from its upstream. */
+{ kind: "pull"; strategy: PullStrategy } | 
+/**
+ *  Pushes the current branch to its upstream, or to `origin/<branch>`
+ *  with `set_upstream`. `force_with_lease` is destructive (GRP-9).
+ */
+{ kind: "push"; set_upstream: boolean; force_with_lease: boolean } | 
+/**  Switches to branch `name`. */
+{ kind: "checkout"; name: string; missing: MissingBranch } | 
+/**  Creates branch `name` at `start`, and switches to it with `switch`. */
+{ kind: "create_branch"; name: string; start: StartPoint; switch: boolean } | 
+/**
+ *  Deletes branch `name`. `force` and `on_remote` are destructive
+ *  (GRP-9).
+ */
+{ kind: "delete_branch"; name: string; force: boolean; on_remote: boolean } | 
+/**  Merges ref `name` into the current branch. */
+{ kind: "merge"; name: string; fast_forward: MergeFastForward } | 
+/**  Rebases the current branch onto ref `onto`. */
+{ kind: "rebase"; onto: string } | 
+/**
+ *  Creates tag `name` at `HEAD`, annotated with `message` when
+ *  `annotated`, and pushes it with `push`.
+ */
+{ kind: "create_tag"; name: string; annotated: boolean; message: string; push: boolean } | 
+/**  Commits the staged changes with the one shared message (GRP-15). */
+{ kind: "commit"; message: CommitMessage; stage_all: boolean; push: boolean };
+
+/**
+ *  How group operations run (section 5 "Lifecycle of a group operation").
+ *  Saved as top-level keys of the file.
+ */
+export type GroupSettings = {
+	/**
+	 *  How many sub-jobs run at once, [`MIN_GROUP_PARALLELISM`] to
+	 *  [`MAX_GROUP_PARALLELISM`]. The pool that jobs and the refresh share
+	 *  has as many places (PERF-4).
+	 */
+	group_parallelism: number,
+	/**
+	 *  The preflight dialog shows before every group operation, also when
+	 *  every repo will run.
+	 */
+	always_show_preflight: boolean,
+};
+
+/**
  *  What a group's row shows (UI-4), sent with its tree node and as event
  *  `group_summary` when a member's summary changes.
  */
@@ -1390,6 +1470,16 @@ export type JobView = {
 	output: string,
 	/**  Why a failed or skipped job did not succeed. */
 	message: string | null,
+	/**
+	 *  A group operation's sub-jobs, one per repo it runs on, in target-set
+	 *  order, as they are now; empty for any other job.
+	 */
+	sub_jobs: SubJob[],
+	/**
+	 *  A group operation's result report, set when it ended: every repo of
+	 *  its target set, in target-set order, with one outcome (GRP-7).
+	 */
+	report: RepoResult[] | null,
 };
 
 /**  One line of a hunk, without its line terminator. */
@@ -1416,6 +1506,18 @@ export type MergeFastForward =
 "ff_only" | 
 /**  Always a merge commit. */
 "no_ff";
+
+/**
+ *  What a group checkout does in a repo without branch X (section 5
+ *  "Checkout branch X").
+ */
+export type MissingBranch = 
+/**  The repo is skipped. */
+"skip" | 
+/**  The repo switches to its default branch. */
+"default_branch" | 
+/**  X is created from `HEAD`. */
+"create";
 
 /**  Both modes, as git writes them (`100644`), when they differ. */
 export type ModeChange = {
@@ -1502,6 +1604,33 @@ export type Person = {
 	email: string,
 	time: Time,
 };
+
+/**  Identifies a preflight, unique while the app runs. */
+export type PreflightId = number;
+
+/**  A preflight's result, sent as event `preflight_ready`. */
+export type PreflightReady = {
+	workspace_id: WorkspaceId,
+	preflight_id: PreflightId,
+	/**  The job's label, such as `Pull · Backend (5 repos)`. */
+	label: string,
+	/**  The operation is destructive (GRP-9). */
+	destructive: boolean,
+	/**  Every repo of the target set, in target-set order. */
+	repos: RepoClass[],
+	/**
+	 *  The user must confirm before it runs: a repo is not *will run*, the
+	 *  operation is destructive, or the settings always show the dialog
+	 *  (section 5, step 2).
+	 */
+	needs_confirmation: boolean,
+};
+
+/**
+ *  A group operation's preflight finished (section 5, step 1), sent as
+ *  event `preflight_ready`.
+ */
+export type PreflightReadyEvent = PreflightReady;
 
 /**  What git asks for. */
 export type PromptKind = 
@@ -1626,6 +1755,13 @@ export type RemoteUrlsView = {
 	push_url: string | null,
 };
 
+/**  A repo of a preflight and its class. */
+export type RepoClass = {
+	repo_id: RepoId,
+	repo_name: string,
+	class: Class,
+};
+
 /**  Identifies a repo inside its workspace: `r1`, `r2` and so on. */
 export type RepoId = string;
 
@@ -1640,6 +1776,17 @@ export type RepoRef = {
  *  sent as event `repo_refs_changed`; `refs_get` reads them anew.
  */
 export type RepoRefsChangedEvent = RepoRef;
+
+/**  One repo's line of a result report (section 3 "Result report"). */
+export type RepoResult = {
+	repo_id: RepoId,
+	repo_name: string,
+	outcome: Outcome,
+	/**  What git printed, as [`JobView::output`]. */
+	output: string,
+	/**  Why it failed, as [`JobView::message`]. */
+	message: string | null,
+};
 
 /**  Whether a repo is in conflict state (OPS-1). */
 export type RepoState = {
@@ -1725,7 +1872,7 @@ export type ResolveRequest = {
 export type Settings = {
 	theme: Theme,
 	changes: ChangesSettings,
-} & Appearance;
+} & Appearance & GroupSettings;
 
 /**  The settings as the UI sees them. */
 export type SettingsView = {
@@ -1742,10 +1889,17 @@ export type SideHolds = { kind: "deleted" } |
 /**  The submodule's commit, a full hash. */
 { kind: "submodule"; commit: string };
 
-/**  Why a job was skipped. */
+/**  Why a job, or a repo of a group operation, was skipped. */
 export type SkipReason = 
 /**  Cancelled before it started, or killed while it ran (GRP-10). */
-"cancelled";
+{ kind: "cancelled" } | 
+/**  The preflight classed the repo *will skip* for the operation. */
+{ kind: "preflight"; reason: string } | 
+/**
+ *  The repo was blocked (GRP-8), at the preflight or when its sub-job
+ *  was to start.
+ */
+{ kind: "blocked"; reason: string };
 
 /**  Where a new branch starts. */
 export type StartPoint = 
@@ -1803,6 +1957,15 @@ export type Step = {
 	/**  Counted from 1. */
 	current: number,
 	total: number,
+};
+
+/**  A sub-job of a group operation: its repo and where it is. */
+export type SubJob = {
+	repo_id: RepoId,
+	repo_name: string,
+	state: JobState,
+	/**  Set when it ended. */
+	outcome: Outcome | null,
 };
 
 /**  A repo's summary as the UI sees it. */

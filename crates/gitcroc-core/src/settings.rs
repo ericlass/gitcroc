@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use gitcroc_git::Context;
 
-use crate::WorkspaceId;
 use crate::config_file::{self, ConfigWarning, Migration};
 use crate::lock;
+use crate::{POOL_SIZE, WorkspaceId};
 
 /// The schema this build reads and writes.
 pub const SETTINGS_SCHEMA: u32 = 2;
@@ -152,6 +152,48 @@ impl Appearance {
     }
 }
 
+/// The fewest sub-jobs of a group operation that run at once.
+pub const MIN_GROUP_PARALLELISM: u32 = 1;
+/// The most sub-jobs of a group operation that run at once.
+pub const MAX_GROUP_PARALLELISM: u32 = 32;
+
+/// How group operations run (section 5 "Lifecycle of a group operation").
+/// Saved as top-level keys of the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct GroupSettings {
+    /// How many sub-jobs run at once, [`MIN_GROUP_PARALLELISM`] to
+    /// [`MAX_GROUP_PARALLELISM`]. The pool that jobs and the refresh share
+    /// has as many places (PERF-4).
+    pub group_parallelism: u32,
+    /// The preflight dialog shows before every group operation, also when
+    /// every repo will run.
+    pub always_show_preflight: bool,
+}
+
+impl Default for GroupSettings {
+    fn default() -> Self {
+        Self {
+            group_parallelism: POOL_SIZE as u32,
+            always_show_preflight: false,
+        }
+    }
+}
+
+const _: () = assert!(POOL_SIZE as u32 >= MIN_GROUP_PARALLELISM);
+const _: () = assert!(POOL_SIZE as u32 <= MAX_GROUP_PARALLELISM);
+
+impl GroupSettings {
+    /// The parallelism moved into its limits.
+    fn normalized(self) -> Self {
+        Self {
+            group_parallelism: self
+                .group_parallelism
+                .clamp(MIN_GROUP_PARALLELISM, MAX_GROUP_PARALLELISM),
+            ..self
+        }
+    }
+}
+
 /// Every setting. A key missing from the file takes its default (see
 /// [`decode`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -159,6 +201,8 @@ pub struct Settings {
     pub theme: Theme,
     #[serde(flatten)]
     pub appearance: Appearance,
+    #[serde(flatten)]
+    pub groups: GroupSettings,
     pub changes: ChangesSettings,
 }
 
@@ -202,6 +246,10 @@ pub enum SettingsError {
     Write { path: PathBuf, source: io::Error },
     #[error("cannot encode the settings: {0}")]
     Encode(#[from] toml::ser::Error),
+    #[error(
+        "group operations run {MIN_GROUP_PARALLELISM} to {MAX_GROUP_PARALLELISM} repos at once"
+    )]
+    Parallelism,
 }
 
 /// The file's contents, and a warning when it must not be written.
@@ -273,6 +321,15 @@ impl SettingsStore {
         self.update(|settings| settings.appearance = appearance.normalized())
     }
 
+    /// Changes how group operations run and saves the file. A parallelism
+    /// outside its limits is refused.
+    pub fn set_groups(&self, groups: GroupSettings) -> Result<SettingsView, SettingsError> {
+        if !(MIN_GROUP_PARALLELISM..=MAX_GROUP_PARALLELISM).contains(&groups.group_parallelism) {
+            return Err(SettingsError::Parallelism);
+        }
+        self.update(|settings| settings.groups = groups)
+    }
+
     fn update(&self, change: impl FnOnce(&mut Settings)) -> Result<SettingsView, SettingsError> {
         self.update_file(|file| change(&mut file.settings))
     }
@@ -331,13 +388,15 @@ fn decode(mut table: toml::Table) -> Result<SettingsFile, toml::de::Error> {
 
 /// Reads the settings from a file's table, taking the default for every
 /// missing key, inside tables too. Unknown keys, such as `schema`, are
-/// ignored. Font sizes outside the limits are moved to the nearest one.
+/// ignored. Font sizes and the group parallelism outside their limits are
+/// moved to the nearest one.
 fn decode_settings(table: toml::Table) -> Result<Settings, toml::de::Error> {
     let mut full = toml::Table::try_from(Settings::default())
         .map_err(<toml::de::Error as serde::de::Error>::custom)?;
     merge(&mut full, table);
     let mut settings: Settings = toml::Value::Table(full).try_into()?;
     settings.appearance = std::mem::take(&mut settings.appearance).normalized();
+    settings.groups = settings.groups.normalized();
     Ok(settings)
 }
 

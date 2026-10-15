@@ -2,7 +2,7 @@
 // the status bar and the job list (UI-21). Colors and icons are theme
 // tokens (UI-23): `.outcome-<kind>` in App.css.
 import { Match, Show, Switch } from "solid-js";
-import type { JobView, Outcome } from "../ipc";
+import type { JobView, Outcome, SkipReason } from "../ipc";
 
 const OUTCOME_TEXT: Record<Outcome["kind"], string> = {
   succeeded: "Succeeded",
@@ -12,8 +12,15 @@ const OUTCOME_TEXT: Record<Outcome["kind"], string> = {
   conflict: "Conflict",
 };
 
+/** Why a job or a repo was skipped, as the parentheses after "Skipped" say. */
+function skipText(reason: SkipReason): string {
+  return reason.kind === "cancelled" ? "cancelled" : reason.reason;
+}
+
 export function outcomeText(outcome: Outcome): string {
-  return outcome.kind === "skipped" ? `${OUTCOME_TEXT.skipped} (${outcome.reason})` : OUTCOME_TEXT[outcome.kind];
+  return outcome.kind === "skipped"
+    ? `${OUTCOME_TEXT.skipped} (${skipText(outcome.reason)})`
+    : OUTCOME_TEXT[outcome.kind];
 }
 
 /** The outcome's icon and text, in its color. */

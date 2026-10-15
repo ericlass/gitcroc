@@ -9,6 +9,7 @@ mod bench;
 mod cli;
 mod conflict;
 mod diff;
+mod group_run;
 mod history;
 mod quality_gates;
 mod status;

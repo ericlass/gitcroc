@@ -134,6 +134,7 @@ export type {
   ResolveRequest,
   Settings,
   SideHolds,
+  SkipReason,
   SettingsView,
   StartPoint,
   StashOp,

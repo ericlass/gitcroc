@@ -9,6 +9,11 @@ use gitcroc_git::{GitRepo, StatusReader};
 use crate::{GitRunner, OpenError, RepoId, StatusReadError, Summaries, WorkspaceError};
 use crate::{WorkspaceId, Workspaces};
 
+/// GRP-8's reasons a repo is blocked.
+pub(crate) const BUSY: &str = "another operation is running on the repo";
+pub(crate) const MISSING: &str = "the repo's folder is missing";
+pub(crate) const IN_CONFLICT: &str = "the repo is in conflict state; continue or abort first";
+
 /// Why a repo cannot take a write now.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum BlockedError {
@@ -59,11 +64,11 @@ pub(crate) async fn open_unblocked(
 ) -> Result<(PathBuf, GitRepo), BlockedError> {
     let blocked = |why: &str| BlockedError::Blocked(why.to_owned());
     if summaries.busy(id, repo) {
-        return Err(blocked("another operation is running on the repo"));
+        return Err(blocked(BUSY));
     }
     let path = workspaces.repo_path(id, repo)?;
     if !path.exists() {
-        return Err(blocked("the repo's folder is missing"));
+        return Err(blocked(MISSING));
     }
     let opened = {
         let path = path.clone();
@@ -72,9 +77,7 @@ pub(crate) async fn open_unblocked(
     if !conflict_allowed {
         let state = crate::repo_state(StatusReader::new(opened.clone(), git.clone())).await?;
         if state.in_conflict() {
-            return Err(blocked(
-                "the repo is in conflict state; continue or abort first",
-            ));
+            return Err(blocked(IN_CONFLICT));
         }
     }
     Ok((path, opened))

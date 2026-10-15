@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use gitcroc_core::{
     Appearance, ChangesSettings, CodeTheme, ConfigDir, ConfigWarning, Context, DiffMode,
-    FileListMode, SETTINGS_FILE, Settings, SettingsError, SettingsStore, SettingsView, Theme,
+    FileListMode, GroupSettings, SETTINGS_FILE, Settings, SettingsError, SettingsStore,
+    SettingsView, Theme,
 };
 
 /// A config dir inside a temporary dir; it does not exist until a save.
@@ -67,6 +68,10 @@ fn data_1_missing_file_gives_defaults() {
                     ui_font_size: 13,
                     code_font: None,
                     code_font_size: 13,
+                },
+                groups: GroupSettings {
+                    group_parallelism: 8,
+                    always_show_preflight: false,
                 },
                 changes: ChangesSettings::default(),
             },
@@ -294,4 +299,36 @@ fn ui_26_font_sizes_stay_in_range_and_blank_fonts_are_the_system_font() {
     assert_eq!(view.settings.appearance.ui_font_size, 8);
     assert_eq!(view.settings.appearance.code_font_size, 32);
     assert_eq!(view.settings.appearance.code_font, None);
+}
+
+#[test]
+fn group_settings_are_remembered_and_held_to_their_limits() {
+    let config = TempConfig::new();
+    let store = SettingsStore::load(&config);
+    let groups = GroupSettings {
+        group_parallelism: 3,
+        always_show_preflight: true,
+    };
+    store.set_groups(groups).unwrap();
+    let text = fs::read_to_string(config.file()).unwrap();
+    assert!(text.contains("group_parallelism = 3\n"), "{text}");
+    assert!(text.contains("always_show_preflight = true\n"), "{text}");
+    assert_eq!(SettingsStore::load(&config).view().settings.groups, groups);
+
+    for refused in [0, 33] {
+        let result = store.set_groups(GroupSettings {
+            group_parallelism: refused,
+            ..groups
+        });
+        assert!(
+            matches!(result, Err(SettingsError::Parallelism)),
+            "{refused}"
+        );
+    }
+    assert_eq!(store.view().settings.groups, groups);
+
+    // A hand-edited file is held to the same limits.
+    let config = TempConfig::with_file("schema = 2\ngroup_parallelism = 99\n");
+    let view = SettingsStore::load(&config).view();
+    assert_eq!(view.settings.groups.group_parallelism, 32);
 }

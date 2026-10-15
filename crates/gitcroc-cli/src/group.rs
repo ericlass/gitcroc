@@ -1,6 +1,7 @@
 //! `gitcroc-cli group`: list, create, rename and delete the groups of the
-//! active workspace, and add and remove their repos (GRP-2, GRP-3). Groups
-//! are named by name, ignoring case, as their ids last one run only. Also
+//! active workspace, and add and remove their repos (GRP-2, GRP-3), and run
+//! the test operation on a group (`group_run`). Groups are named by name,
+//! ignoring case, as their ids last one run only. Also
 //! `gitcroc-cli tree`: the active workspace's tree skeleton (UI-1). Both
 //! print JSON.
 
@@ -17,7 +18,8 @@ use crate::summaries::GivenCacheDir;
 use crate::workspace::GivenConfigDir;
 
 pub const USAGE: &str = "group [--config-dir <dir>] list|create <name> [<repo-id>...]|\
-rename <group> <name>|delete <group>|add <group> <repo-id>...|remove <group> <repo-id>...";
+rename <group> <name>|delete <group>|add <group> <repo-id>...|remove <group> <repo-id>...|\
+run <group> --test-op [--confirm]";
 
 pub const TREE_USAGE: &str = "tree [--config-dir <dir>] [--cache-dir <dir>]";
 
@@ -29,6 +31,8 @@ pub enum Action {
     Delete(String),
     Add(String, Vec<RepoId>),
     Remove(String, Vec<RepoId>),
+    /// Runs the test operation on the group, confirmed when `true`.
+    Run(String, bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +65,14 @@ pub fn parse_args(args: &[OsString]) -> Option<Options> {
         [action, group, members @ ..] if action == "remove" && !members.is_empty() => {
             Action::Remove(text(group)?, repos(members)?)
         }
+        [action, group, op] if action == "run" && op == "--test-op" => {
+            Action::Run(text(group)?, false)
+        }
+        [action, group, op, confirm]
+            if action == "run" && op == "--test-op" && confirm == "--confirm" =>
+        {
+            Action::Run(text(group)?, true)
+        }
         _ => return None,
     };
     Some(Options { config_dir, action })
@@ -69,6 +81,13 @@ pub fn parse_args(args: &[OsString]) -> Option<Options> {
 /// Prints the groups of the active workspace after the change, as JSON.
 /// Exits 0 on success and 2 on any error, such as a refused name.
 pub fn run(options: Options) -> ExitCode {
+    if let Action::Run(group, confirm) = &options.action {
+        return print(crate::group_run::run(
+            options.config_dir.as_ref(),
+            group,
+            *confirm,
+        ));
+    }
     print(act(options))
 }
 
@@ -133,6 +152,7 @@ fn act(options: Options) -> Result<String, String> {
             let group = group(&workspaces, &id, name)?;
             workspaces.remove_from_group(&id, &group, repos)
         }
+        Action::Run(..) => return Err("a run is not a change of the groups".to_owned()),
     };
     changed.map_err(|error| error.to_string())?;
     let groups = workspaces.groups(&id).map_err(|error| error.to_string())?;
@@ -216,6 +236,15 @@ mod tests {
             parsed(&["remove", "Backend", "r2"]),
             Some(Action::Remove("Backend".to_owned(), repos(&["r2"])))
         );
+        assert_eq!(
+            parsed(&["run", "Backend", "--test-op"]),
+            Some(Action::Run("Backend".to_owned(), false))
+        );
+        assert_eq!(
+            parsed(&["run", "Backend", "--test-op", "--confirm"]),
+            Some(Action::Run("Backend".to_owned(), true))
+        );
+        assert_eq!(parsed(&["run", "Backend"]), None);
         assert_eq!(parsed(&["add", "Backend"]), None);
         assert_eq!(parsed(&["delete"]), None);
         let with_dir = parse_args(&args(&["--config-dir", "c", "list"])).unwrap();

@@ -28,6 +28,8 @@ export function fakeJob(
     outcome: { kind: "succeeded" },
     output: "",
     message: null,
+    sub_jobs: [],
+    report: null,
     ...job,
   };
 }
@@ -77,7 +79,7 @@ export function jobsScenario(workspace: { id: string; name: string }): JobView[]
       label: "Pull",
       repos: ["o1"],
       repo_names: ["docs"],
-      ...ended({ kind: "skipped", reason: "cancelled" }),
+      ...ended({ kind: "skipped", reason: { kind: "cancelled" } }),
       message: "cancelled",
     }),
     fakeJob(workspace, {
