@@ -107,7 +107,7 @@ pub fn tag_name_check(name: &str) -> Option<String> {
 
 /// What a job runs.
 #[derive(Debug, Clone)]
-enum Plan {
+pub(crate) enum Plan {
     Create {
         name: String,
         /// The full hash.
@@ -285,10 +285,54 @@ fn plan(repo: &GitRepo, op: TagOp) -> Result<Planned, TagError> {
     }
 }
 
+/// A tag created on a target set (section 5 "Create tag X"): `name` was
+/// checked once (SEC-4), and an annotated tag's `message` too.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GroupTag {
+    pub(crate) name: String,
+    /// `None` for a lightweight tag.
+    pub(crate) message: Option<String>,
+    pub(crate) push: bool,
+}
+
+/// What creating `tag` runs in `repo` as part of a group operation, at the
+/// repo's own `HEAD` (GRP-14); or why the repo is skipped. A push goes
+/// where a single repo's goes (`origin`, else the only remote); a repo
+/// where the user would have to pick is skipped, as nobody is asked
+/// during a group run. Reads the repo: call it from a thread that may
+/// block.
+pub(crate) fn group_plan(repo: &GitRepo, tag: &GroupTag) -> Result<Plan, String> {
+    let name = &tag.name;
+    if repo.has_tag(name) {
+        return Err(format!("{name} already exists"));
+    }
+    let commit = repo
+        .resolve_commit("HEAD")
+        .ok_or_else(|| "no commit to tag yet".to_owned())?;
+    let push = if tag.push {
+        let remotes = repo.remote_names();
+        match default_remote(&remotes) {
+            Some(remote) => Some(remote),
+            None if remotes.is_empty() => return Err("no remote to push the tag to".to_owned()),
+            None => {
+                return Err("several remotes and no origin; push the tag from the repo".to_owned());
+            }
+        }
+    } else {
+        None
+    };
+    Ok(Plan::Create {
+        name: name.clone(),
+        commit,
+        message: tag.message.clone(),
+        push,
+    })
+}
+
 /// Runs `plan` in `path`, a push's progress lines reported as the job's
 /// steps. A delete on the remote runs first, so the local tag stays when
 /// it fails.
-async fn run(job: &JobRun, path: &Path, plan: &Plan) -> Result<Output, GitError> {
+pub(crate) async fn run_plan(job: &JobRun, path: &Path, plan: &Plan) -> Result<Output, GitError> {
     let report = |line: &str| {
         if let Some(progress) = parse_progress(line) {
             job.step(&progress.step, progress.done, progress.total);
@@ -358,11 +402,9 @@ pub async fn op_tag(
         network: plan.network(),
         ..WriteJob::single(id, repo_id, plan.label())
     };
-    let handle = jobs.start(
-        git,
-        job,
-        move |job| async move { run(&job, &path, &plan).await },
-    )?;
+    let handle = jobs.start(git, job, move |job| async move {
+        run_plan(&job, &path, &plan).await
+    })?;
     Ok(TagStart::Started {
         job_id: handle.job_id,
     })

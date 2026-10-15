@@ -33,9 +33,12 @@ const WRITE_CALLS: [&str; 2] = ["run_write", "write_command"];
 const OPS: &str = "gitcroc-git/src/ops/";
 
 /// The git subcommands run outside [`OPS`], none of which changes a repo:
-/// detection (M0-06), the trust check (M1-04, M1-05) and the status
-/// fallback (M1-04). `diff` and `log` are read with `gix`, not git.
-const READ_ONLY: [&str; 3] = ["--version", "rev-parse", "status"];
+/// detection (M0-06), the trust check (M1-04, M1-05), the status fallback
+/// (M1-04) and the conflict prediction of a group merge (GRP-13, M3-12).
+/// `merge-tree` writes objects to the object store only, never a ref, the
+/// index or a working file, as the commit-graph file of M1 adds only what
+/// git can read faster. `diff` and `log` are read with `gix`, not git.
+const READ_ONLY: [&str; 4] = ["--version", "rev-parse", "status", "merge-tree"];
 
 /// A source file's non-test code, comment lines removed.
 struct Source {

@@ -98,7 +98,7 @@ export default function Toolbar(props: {
         disabled={props.onMerge === null}
         title={titleOf(
           props.onMerge,
-          "Merge a branch into the current branch of the selected repository, or rebase onto it",
+          "Merge a branch into the current branch, or rebase onto it",
           why().merge,
         )}
         onClick={() => props.onMerge?.()}

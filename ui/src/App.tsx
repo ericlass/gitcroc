@@ -12,7 +12,7 @@ import {
 } from "solid-js";
 import AskpassDialog from "./AskpassDialog";
 import GitSetup from "./GitSetup";
-import GroupBranchDialog from "./groups/GroupBranchDialog";
+import GroupNameDialog from "./groups/GroupNameDialog";
 import GroupSyncDialog from "./groups/GroupSyncDialog";
 import PreflightDialog from "./groups/PreflightDialog";
 import { appInfo, type GroupOp, type JobId, type TargetSet, type WorkspaceId } from "./ipc";
@@ -128,19 +128,13 @@ export default function App() {
     return { id, repo: current.repo_id, view: summaries.view(id, current.repo_id) };
   };
 
-  /**
-   * Why each button is disabled for a group or several repos (UI-20): Merge
-   * has no group operation yet, and Stash is single-repo only.
-   */
+  /** Why each button is disabled for a group or several repos (UI-20): Stash is single-repo only. */
   const disabledWhy = (): ToolbarReasons => {
     const kind = target()?.kind;
     if (kind !== "group" && kind !== "repos") {
       return {};
     }
-    return {
-      merge: "Not available yet for a group or several repositories",
-      stash: "Stash works on one repository at a time",
-    };
+    return { stash: "Stash works on one repository at a time" };
   };
 
   /** How the options dialog names a target set of a group or several repos. */
@@ -181,7 +175,7 @@ export default function App() {
     const workspaceId = workspace()?.id;
     if (workspaceId !== undefined && (current?.kind === "group" || current?.kind === "repos")) {
       return () =>
-        groupOps.openBranch({
+        groupOps.openName({
           workspaceId,
           target: current,
           targetName: targetName(current),
@@ -231,13 +225,24 @@ export default function App() {
     };
   };
 
-  /** Opens the merge dialog for the selected repo: not blocked (GRP-8) and on a branch. */
+  /**
+   * What the toolbar's Merge does (UI-20): the merge dialog of the selected
+   * repo, when it is not blocked (GRP-8) and on a branch, or the group merge
+   * and rebase dialog of a group or several repos, whose preflight skips,
+   * blocks or flags each repo (GRP-13).
+   */
   const mergeAction = () => {
-    const target = selectedRepo();
-    if (target === null || !canPullOrPush(target.view)) {
+    const current = target();
+    const workspaceId = workspace()?.id;
+    if (workspaceId !== undefined && (current?.kind === "group" || current?.kind === "repos")) {
+      return () =>
+        groupOps.openName({ workspaceId, target: current, targetName: targetName(current), kind: "merge", name: "" });
+    }
+    const selected = selectedRepo();
+    if (selected === null || !canPullOrPush(selected.view)) {
       return null;
     }
-    return () => integrate.open(target.id, { kind: "merge", repo: target.repo });
+    return () => integrate.open(selected.id, { kind: "merge", repo: selected.repo });
   };
 
   /** Opens the stash dialog for the selected repo: not blocked (GRP-8) and with changes to stash. */
@@ -555,15 +560,15 @@ export default function App() {
               />
             )}
           </Show>
-          <Show when={groupOps.state.branchDialog} keyed>
+          <Show when={groupOps.state.nameDialog} keyed>
             {(dialog) => (
-              <GroupBranchDialog
+              <GroupNameDialog
                 dialog={dialog}
                 onRun={(op) => {
-                  groupOps.closeBranch();
+                  groupOps.closeName();
                   void groupOps.run(dialog.workspaceId, dialog.target, op);
                 }}
-                onClose={() => groupOps.closeBranch()}
+                onClose={() => groupOps.closeName()}
               />
             )}
           </Show>

@@ -10,6 +10,7 @@ mod cli;
 mod conflict;
 mod diff;
 mod group_branches;
+mod group_integrate;
 mod group_run;
 mod group_sync;
 mod group_world;

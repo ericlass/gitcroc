@@ -349,8 +349,9 @@ impl Jobs {
             )
         };
         let ending = match result {
-            Ok(output) => judged(&Ok(output)),
-            Err(SubJobError::Git(error)) => judged(&Err(error)),
+            // Each repo in conflict is resolved on its own (OPS-2).
+            Ok(output) => in_repo(judged(&Ok(output))),
+            Err(SubJobError::Git(error)) => in_repo(judged(&Err(error))),
             Err(SubJobError::Skip(reason)) => (
                 Outcome::Skipped {
                     reason: SkipReason::Preflight {
@@ -440,6 +441,18 @@ impl Jobs {
             self.events.progress(&view);
         }
     }
+}
+
+/// `ending`, its report line saying where a conflict is resolved: in that
+/// repo, whose banner offers Abort and Continue (OPS-2).
+fn in_repo((outcome, output, message): Ending) -> Ending {
+    let message = match outcome {
+        Outcome::Conflict => {
+            message.or_else(|| Some("in conflict state; resolve it in this repo".to_owned()))
+        }
+        _ => message,
+    };
+    (outcome, output, message)
 }
 
 /// The group job's own outcome, which the status bar shows (UI-21): failed

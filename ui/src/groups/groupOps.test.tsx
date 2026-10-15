@@ -436,3 +436,95 @@ test("ui_5_double_click_on_a_group_branch_starts_a_group_checkout", async () => 
   });
   expect(screen.queryByRole("dialog", { name: "New branch in All" })).toBeNull();
 });
+
+test("grp_13_the_toolbar_merge_and_the_group_menu_merge_rebase_and_create_tag", async () => {
+  workspace();
+  fakeState.refs = {
+    ...fakeState.refs,
+    r1: refNodes("r1", { local: ["main", "topic"], current: "main" }),
+  };
+  fakeGroups.classes = { r2: { kind: "needs_attention", reason: "conflicts predicted in 1 file: a.txt" } };
+  render(() => <App />);
+  await screen.findAllByRole("treeitem");
+  await settleAll();
+  fireEvent.click(row("All", 1));
+  await settleAll();
+
+  // The toolbar's Merge picks from the group's branch names and takes any typed ref.
+  const merge = within(screen.getByRole("toolbar", { name: "Main" })).getByRole<HTMLButtonElement>("button", {
+    name: "Merge",
+  });
+  expect(merge.disabled).toBe(false);
+  fireEvent.click(merge);
+  await settleAll();
+  const options = screen.getByRole("dialog", { name: "Merge into the current branch in All" });
+  const names = [...options.querySelectorAll("#group-branch-names option")].map((option) =>
+    option.getAttribute("value"),
+  );
+  expect(names).toEqual(["main", "topic"]);
+  const field = within(options).getByRole("combobox", { name: "Branch, tag or commit" });
+  fireEvent.input(field, { target: { value: "origin/topic" } });
+  fireEvent.click(within(options).getByRole("radio", { name: "Fast-forward only" }));
+  await settleAll();
+  fireEvent.click(within(options).getByRole("button", { name: "Merge" }));
+  await settleAll();
+  expect(fakeGroups.preflights.at(-1)).toEqual({
+    workspaceId: id(),
+    target: ALL,
+    op: { kind: "merge", name: "origin/topic", fast_forward: "ff_only" },
+  });
+
+  // A predicted conflict asks first, with the files in the repo's row (GRP-13).
+  const confirm = dialog() as HTMLElement;
+  expect(within(confirm).getByText("conflicts predicted in 1 file: a.txt")).toBeTruthy();
+  fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+  await settleAll();
+
+  // The same dialog rebases instead.
+  fireEvent.click(merge);
+  const again = screen.getByRole("dialog", { name: "Merge into the current branch in All" });
+  fireEvent.click(within(again).getByRole("radio", { name: "Rebase the current branch onto it" }));
+  fireEvent.input(within(again).getByRole("combobox", { name: "Branch, tag or commit" }), {
+    target: { value: "topic" },
+  });
+  await settleAll();
+  fireEvent.click(within(again).getByRole("button", { name: "Rebase" }));
+  await settleAll();
+  expect(fakeGroups.preflights.at(-1)?.op).toEqual({ kind: "rebase", onto: "topic" });
+  fireEvent.click(within(dialog() as HTMLElement).getByRole("button", { name: "Cancel" }));
+  await settleAll();
+
+  // The group row's Rebase… opens it on rebase; an option-like ref is never sent.
+  fireEvent.contextMenu(row("All", 1), { clientX: 10, clientY: 10 });
+  fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Rebase…" }));
+  const rebase = screen.getByRole("dialog", { name: "Rebase the current branch in All" });
+  fireEvent.input(within(rebase).getByRole("combobox", { name: "Branch, tag or commit" }), {
+    target: { value: "--root" },
+  });
+  await settleAll();
+  expect(within(rebase).getByRole<HTMLButtonElement>("button", { name: "Rebase" }).disabled).toBe(true);
+  fireEvent.click(within(rebase).getByRole("button", { name: "Cancel" }));
+
+  // Create tag…: annotated needs a message; pushing is off unless asked.
+  fakeGroups.classes = {};
+  fireEvent.contextMenu(row("All", 1), { clientX: 10, clientY: 10 });
+  fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Create tag…" }));
+  const tag = screen.getByRole("dialog", { name: "New tag in All" });
+  fireEvent.input(within(tag).getByRole("textbox", { name: "Tag" }), { target: { value: "v1.0" } });
+  await settleAll();
+  const create = within(tag).getByRole<HTMLButtonElement>("button", { name: "Create" });
+  expect(create.disabled).toBe(true);
+  fireEvent.input(within(tag).getByRole("textbox", { name: "Message" }), { target: { value: "Release 1.0" } });
+  fireEvent.click(within(tag).getByRole("checkbox", { name: /Push the tag/ }));
+  await settleAll();
+  fireEvent.click(create);
+  await settleAll();
+  expect(fakeGroups.preflights.at(-1)?.op).toEqual({
+    kind: "create_tag",
+    name: "v1.0",
+    annotated: true,
+    message: "Release 1.0",
+    push: true,
+  });
+  expect(screen.queryByRole("dialog", { name: "New tag in All" })).toBeNull();
+});
