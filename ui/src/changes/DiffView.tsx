@@ -142,6 +142,9 @@ export default function DiffView(props: {
   context: Context;
   /** The hunks' controls; `null` for none, as for a commit's diff. */
   controls: HunkControls | null;
+  /** Where the diff was scrolled when it was last shown (UI-29). */
+  scrollTop: number;
+  onScroll: (scrollTop: number) => void;
 }) {
   let host: HTMLDivElement | undefined;
   let parts: EditorParts = newParts();
@@ -197,6 +200,21 @@ export default function DiffView(props: {
       views = [new EditorView({ state, parent: host })];
     }
     void applyLanguage(parts, props.path, views);
+    follow(merge?.dom ?? views[0]?.scrollDOM);
+  };
+
+  /** Scrolls `scroller` to where the diff was, and keeps where it goes. */
+  const follow = (scroller: HTMLElement | undefined) => {
+    if (scroller === undefined) {
+      return;
+    }
+    const top = props.scrollTop;
+    scroller.scrollTop = top;
+    // The editor measures its lines in the next frame; until then the height may fall short.
+    if (scroller.scrollTop !== top) {
+      requestAnimationFrame(() => (scroller.scrollTop = top));
+    }
+    scroller.addEventListener("scroll", () => props.onScroll(scroller.scrollTop));
   };
 
   createEffect(on(() => [props.diff, sideBySide(), props.context, props.path, props.controls] as const, build));

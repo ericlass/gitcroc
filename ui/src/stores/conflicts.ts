@@ -258,6 +258,22 @@ export function createConflictStore(onResolvedElsewhere: (id: WorkspaceId) => vo
     }
   };
 
+  /** The files of workspace `id` with unsaved edits, by repo and path, for closing its tab (UI-29). */
+  const unsavedFiles = (id: WorkspaceId): { repo: RepoId; path: string }[] =>
+    Object.entries(workspace(id).files).flatMap(([repo, files]) =>
+      Object.entries(files ?? {}).flatMap(([path, kept]) => (kept?.unsaved ? [{ repo, path }] : [])),
+    );
+
+  /** Drops everything of workspace `id`: its tab was closed. */
+  const forgetWorkspace = (id: WorkspaceId) => {
+    for (const key of [...editors.keys()]) {
+      if (key.startsWith(`${id}\n`)) {
+        editors.delete(key);
+      }
+    }
+    update(id, (c) => Object.assign(c, empty()));
+  };
+
   /** Drops a repo's state when a fresh read finds it out of conflict state (OPS-9). */
   const subscribe = async (id: WorkspaceId) =>
     core.events.repoSummary.listen((event) => {
@@ -281,6 +297,8 @@ export function createConflictStore(onResolvedElsewhere: (id: WorkspaceId) => vo
     choose,
     drop,
     prune,
+    unsavedFiles,
+    forgetWorkspace,
     subscribe,
   };
 }

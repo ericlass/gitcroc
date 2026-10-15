@@ -40,6 +40,8 @@ export interface WorkspaceTree {
   filter: string;
   /** The core's answer to `filter`; `null` while the filter is empty. */
   filtered: TreeNode[] | null;
+  /** Where the tree was scrolled, for when it is shown again (UI-29). */
+  scrollTop: number;
 }
 
 const empty = (): WorkspaceTree => ({
@@ -55,6 +57,7 @@ const empty = (): WorkspaceTree => ({
   pendingRepo: null,
   filter: "",
   filtered: null,
+  scrollTop: 0,
 });
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -231,7 +234,9 @@ export function createTreeStore() {
     return refilter(id);
   };
 
-  return { state, tree, subscribe, setExpanded, select, selectRepo, setFilter };
+  const setScrollTop = (id: WorkspaceId, scrollTop: number) => update(id, (t) => (t.scrollTop = scrollTop));
+
+  return { state, tree, subscribe, setExpanded, select, selectRepo, setFilter, setScrollTop };
 }
 
 export type TreeStore = ReturnType<typeof createTreeStore>;

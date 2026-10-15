@@ -70,19 +70,91 @@ main:not(.main) {
   display: flex;
   flex: 1;
   min-width: 0;
+  overflow-x: auto;
 }
 
-.tab {
-  border: none;
+.tab-item {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
   border-right: 1px solid var(--border);
-  border-radius: 0;
-  padding: 6px 16px;
   background: var(--bg-2);
 }
 
-.tab[aria-selected="true"] {
+.tab-item:has(.tab[aria-selected="true"]) {
   background: var(--bg-1);
   box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.tab-item.tab-dragged {
+  opacity: 0.5;
+}
+
+.tab {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: none;
+  border-radius: 0;
+  padding: 6px 4px 6px 16px;
+  background: transparent;
+}
+
+.tab-close {
+  border: none;
+  border-radius: 0;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.tab-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-3);
+}
+
+/* The "+" menu, and the same entries when no tab is open (UI-28). */
+.workspace-menu {
+  min-width: 220px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.workspace-entry {
+  display: flex;
+}
+
+.workspace-entry .workspace-open-button {
+  flex: 1;
+}
+
+.workspace-mark {
+  color: var(--text-secondary);
+}
+
+.menu-separator {
+  width: 100%;
+  margin: 4px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.empty-state {
+  max-width: 420px;
+  margin: 12px;
+}
+
+.workspace-start {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.workspace-start button {
+  text-align: left;
 }
 
 .tab-add {
