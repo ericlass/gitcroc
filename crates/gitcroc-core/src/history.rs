@@ -160,6 +160,12 @@ impl Histories {
         }
     }
 
+    /// Drops the walk of workspace `id`, whose tab closed (ARCH-9). A
+    /// commit-graph write it started runs on as a job.
+    pub fn forget(&self, id: &WorkspaceId) {
+        lock(&self.walks).remove(id);
+    }
+
     /// Makes a new walk the latest of workspace `id`; any older one is
     /// dropped.
     fn begin(

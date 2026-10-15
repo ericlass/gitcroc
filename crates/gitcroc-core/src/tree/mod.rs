@@ -158,6 +158,12 @@ impl Trees {
         Ok(vec![ungrouped(repos)])
     }
 
+    /// Drops everything kept for workspace `id`, whose tab closed (ARCH-9).
+    pub fn forget(&self, id: &WorkspaceId) {
+        lock(&self.refs).remove(id);
+        lock(&self.filters).remove(id);
+    }
+
     /// Forgets the loaded refs of `repo`, for example after its summary was
     /// read again. Returns whether any were loaded.
     pub fn invalidate(&self, id: &WorkspaceId, repo: &RepoId) -> bool {

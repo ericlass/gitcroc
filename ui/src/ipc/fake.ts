@@ -45,6 +45,7 @@ import type {
   TreeNode,
   WatchWarning,
   WorkspaceId,
+  WorkspaceTabs,
   WorkspaceView,
 } from "./bindings";
 import type { Core } from "./core";
@@ -134,6 +135,7 @@ let nextJobId = 1;
 const jobProgressListeners: Listeners<JobView> = new Set();
 const gitStatusListeners: Listeners<GitStatus> = new Set();
 const workspaceChangedListeners: Listeners<WorkspaceView> = new Set();
+const workspacesChangedListeners: Listeners<WorkspaceTabs> = new Set();
 const workspaceAddReportListeners: Listeners<AddReport> = new Set();
 const repoSummaryListeners: Listeners<SummaryView> = new Set();
 const repoRefsChangedListeners: Listeners<RepoRef> = new Set();
@@ -169,7 +171,10 @@ export const fakeState: {
   appInfo: AppInfo;
   gitStatus: GitStatus;
   settings: SettingsView;
+  /** The fake's only workspace; M3-02 brings several. */
   workspace: WorkspaceView;
+  /** Whether its tab is open. */
+  workspaceOpen: boolean;
   /** What the folder dialog returns; `null` is a cancel. */
   pickedFolder: string | null;
   /** What `workspace_summaries` returns, of any workspace. */
@@ -278,6 +283,7 @@ export const fakeState: {
   gitStatus: defaultGitStatus,
   settings: defaultSettings,
   workspace: defaultWorkspace,
+  workspaceOpen: true,
   pickedFolder: null,
   summaries: [],
   selected: {},
@@ -966,6 +972,17 @@ export function emitWorkspaceChanged(payload: WorkspaceView): void {
   emit(workspaceChangedListeners, "workspace_changed", payload);
 }
 
+/** The open tabs as `workspace_get` returns them. */
+export function fakeTabs(): WorkspaceTabs {
+  const open = fakeState.workspaceOpen ? [fakeState.workspace] : [];
+  return { open, active: open[0]?.id ?? null, missing: [] };
+}
+
+/** Delivers a `workspaces_changed` event with the fake's tabs, as the core would. */
+export function emitWorkspacesChanged(): void {
+  emit(workspacesChangedListeners, "workspaces_changed", fakeTabs());
+}
+
 /** Delivers a `repo_summary` event to every listener, as the core would. */
 export function emitRepoSummary(payload: SummaryView): void {
   emit(repoSummaryListeners, "repo_summary", payload);
@@ -994,6 +1011,7 @@ export function reset(): void {
   fakeState.gitStatus = defaultGitStatus;
   fakeState.settings = defaultSettings;
   fakeState.workspace = defaultWorkspace;
+  fakeState.workspaceOpen = true;
   fakeState.pickedFolder = null;
   fakeState.summaries = [];
   fakeState.selected = {};
@@ -1044,6 +1062,7 @@ export function reset(): void {
   jobProgressListeners.clear();
   gitStatusListeners.clear();
   workspaceChangedListeners.clear();
+  workspacesChangedListeners.clear();
   workspaceAddReportListeners.clear();
   repoSummaryListeners.clear();
   repoRefsChangedListeners.clear();
@@ -1099,6 +1118,85 @@ function commitContent(hash: string, parent: number): { content: ChangesContent;
 
 const notFound = (message: string) =>
   Promise.resolve({ status: "error" as const, error: { code: "not_found" as const, message, git_stderr: null } });
+
+const nameRefused = (message: string) =>
+  Promise.resolve({ status: "error" as const, error: { code: "refused" as const, message, git_stderr: null } });
+
+/** Like the core: the tabs after a change, also sent as `workspaces_changed`. */
+const changedTabs = () => {
+  emitWorkspacesChanged();
+  return Promise.resolve({ status: "ok" as const, data: fakeTabs() });
+};
+
+/** Like the core's tab changes, for the fake's one workspace (M3-01). */
+const fakeTabCommands: Pick<
+  Core["commands"],
+  | "workspaceList"
+  | "workspaceCreate"
+  | "workspaceOpen"
+  | "workspaceClose"
+  | "workspaceRename"
+  | "workspaceDelete"
+  | "workspaceReorder"
+  | "workspaceActivate"
+> = {
+  workspaceList: () =>
+    Promise.resolve({
+      status: "ok",
+      data: [{ id: fakeState.workspace.id, name: fakeState.workspace.name, open: fakeState.workspaceOpen, warning: null }],
+    }),
+  workspaceCreate: () => nameRefused("the fake core holds one workspace"),
+  workspaceOpen: (workspaceId) => {
+    if (workspaceId !== fakeState.workspace.id) {
+      return notFound(`no workspace file has the id ${workspaceId}`);
+    }
+    fakeState.workspaceOpen = true;
+    return changedTabs();
+  },
+  workspaceClose: (workspaceId) => {
+    if (!fakeState.workspaceOpen || workspaceId !== fakeState.workspace.id) {
+      return notFound(`no open workspace has the id ${workspaceId}`);
+    }
+    fakeState.workspaceOpen = false;
+    return changedTabs();
+  },
+  workspaceRename: (workspaceId, name) => {
+    if (workspaceId !== fakeState.workspace.id) {
+      return notFound(`no workspace file has the id ${workspaceId}`);
+    }
+    const trimmed = name.trim();
+    if (trimmed === "") {
+      return nameRefused("a workspace name cannot be blank");
+    }
+    if ([...trimmed].length > 64) {
+      return nameRefused("a workspace name has at most 64 characters");
+    }
+    fakeState.workspace = { ...fakeState.workspace, name: trimmed };
+    if (fakeState.workspaceOpen) {
+      emitWorkspaceChanged(fakeState.workspace);
+    }
+    return changedTabs();
+  },
+  workspaceDelete: (workspaceId, confirmed) => {
+    if (workspaceId !== fakeState.workspace.id) {
+      return notFound(`no workspace file has the id ${workspaceId}`);
+    }
+    if (!confirmed) {
+      return nameRefused("deleting a workspace needs confirmation");
+    }
+    return fakeState.workspaceOpen
+      ? nameRefused("the workspace is open; close its tab first")
+      : nameRefused("the fake core keeps its one workspace");
+  },
+  workspaceReorder: (workspaceIds) =>
+    workspaceIds.length === fakeTabs().open.length && workspaceIds.every((id) => id === fakeState.workspace.id)
+      ? changedTabs()
+      : nameRefused("the tab order must name each open workspace once"),
+  workspaceActivate: (workspaceId) =>
+    fakeState.workspaceOpen && workspaceId === fakeState.workspace.id
+      ? changedTabs()
+      : notFound(`no open workspace has the id ${workspaceId}`),
+};
 
 /**
  * Like the core's add job, for one repo at `path`: progress, then the fresh
@@ -1244,7 +1342,8 @@ export const fake: Core = {
       fakeState.settings = { ...fakeState.settings, settings: { ...fakeState.settings.settings, theme } };
       return Promise.resolve({ status: "ok", data: fakeState.settings });
     },
-    workspaceGet: () => Promise.resolve({ status: "ok", data: [fakeState.workspace] }),
+    workspaceGet: () => Promise.resolve({ status: "ok", data: fakeTabs() }),
+    ...fakeTabCommands,
     workspaceAddPath: (workspaceId, path) => {
       if (workspaceId !== fakeState.workspace.id) {
         return notFound(`no open workspace has the id ${workspaceId}`);
@@ -1762,5 +1861,6 @@ export const fake: Core = {
     watchWarning: fakeEvent(watchWarningListeners),
     workspaceAddReport: fakeEvent(workspaceAddReportListeners),
     workspaceChanged: fakeEvent(workspaceChangedListeners),
+    workspacesChanged: fakeEvent(workspacesChangedListeners),
   },
 };

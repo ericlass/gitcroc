@@ -153,6 +153,8 @@ export type {
   Upstream,
   WatchWarning,
   WorkspaceId,
+  WorkspaceListItem,
+  WorkspaceTabs,
   WorkspaceView,
 } from "./bindings";
 
@@ -188,6 +190,24 @@ export const settingsGet = () => unwrap(core.commands.settingsGet());
 export const settingsSetTheme = (theme: Theme) => unwrap(core.commands.settingsSetTheme(theme));
 
 export const workspaceGet = () => unwrap(core.commands.workspaceGet());
+
+export const workspaceList = () => unwrap(core.commands.workspaceList());
+
+export const workspaceCreate = (name: string) => unwrap(core.commands.workspaceCreate(name));
+
+export const workspaceOpen = (workspaceId: WorkspaceId) => unwrap(core.commands.workspaceOpen(workspaceId));
+
+export const workspaceClose = (workspaceId: WorkspaceId) => unwrap(core.commands.workspaceClose(workspaceId));
+
+export const workspaceRename = (workspaceId: WorkspaceId, name: string) =>
+  unwrap(core.commands.workspaceRename(workspaceId, name));
+
+export const workspaceDelete = (workspaceId: WorkspaceId, confirmed: boolean) =>
+  unwrap(core.commands.workspaceDelete(workspaceId, confirmed));
+
+export const workspaceReorder = (workspaceIds: WorkspaceId[]) => unwrap(core.commands.workspaceReorder(workspaceIds));
+
+export const workspaceActivate = (workspaceId: WorkspaceId) => unwrap(core.commands.workspaceActivate(workspaceId));
 
 export const workspaceAddPath = (workspaceId: WorkspaceId, path: string) =>
   unwrap(core.commands.workspaceAddPath(workspaceId, path));

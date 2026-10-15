@@ -255,6 +255,11 @@ impl Changes {
         }
     }
 
+    /// Drops the view of workspace `id`, whose tab closed (ARCH-9).
+    pub fn forget(&self, id: &WorkspaceId) {
+        lock(&self.shown).remove(id);
+    }
+
     /// Makes a new view the latest of workspace `id`.
     fn begin(&self, id: &WorkspaceId, repo: RepoId, path: PathBuf) -> u32 {
         let mut shown = lock(&self.shown);

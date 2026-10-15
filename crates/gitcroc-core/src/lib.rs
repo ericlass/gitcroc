@@ -90,8 +90,8 @@ pub use remote::{
 pub use reset::{ResetError, ResetMode, ResetRequest, ResetStart, op_reset};
 pub use settings::{
     Appearance, ChangesSettings, CodeTheme, ConfigDir, DEFAULT_FONT_SIZE, DiffMode, FileListMode,
-    MAX_FONT_SIZE, MIN_FONT_SIZE, PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Settings,
-    SettingsError, SettingsStore, SettingsView, Theme,
+    MAX_FONT_SIZE, MIN_FONT_SIZE, PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Session,
+    Settings, SettingsError, SettingsStore, SettingsView, Theme,
 };
 pub use stage::{ChangeAction, ChangeRequest, ChangeStart, ChangeTarget, changes_apply};
 pub use stash::{StashError, StashOp, StashRef, StashRequest, StashStart, op_stash};
@@ -108,8 +108,9 @@ pub use tag::{TagError, TagOp, TagRequest, TagStart, op_tag, tag_name_check};
 pub use tree::{TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, tree_filter, tree_refs};
 pub use watch::{DEBOUNCE, MAX_DELAY, RepoChange, WatchWarning, WatchedPath, Watchers};
 pub use workspace::{
-    AddReport, DEFAULT_WORKSPACE_NAME, Dock, PaneLayout, Refusal, RepoId, RepoView, SCAN_DEPTH,
-    WORKSPACE_SCHEMA, WORKSPACES_DIR, WorkspaceError, WorkspaceView, Workspaces, add_path,
+    AddReport, DEFAULT_WORKSPACE_NAME, Dock, MAX_WORKSPACE_NAME, PaneLayout, Refusal, RepoId,
+    RepoView, SCAN_DEPTH, WORKSPACE_SCHEMA, WORKSPACES_DIR, WorkspaceError, WorkspaceListItem,
+    WorkspaceTabs, WorkspaceView, Workspaces, add_path,
 };
 
 /// Errors returned by `gitcroc-core`.

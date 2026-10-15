@@ -22,7 +22,8 @@ use gitcroc_core::{
     SettingsView, StashError, StashRequest, StashStart, StatusError, StatusReadError, Summaries,
     SummaryView, SyncError, SyncRequest, SyncStart, TagError, TagRequest, TagStart, Theme,
     TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId,
-    WorkspaceView, Workspaces, add_path, refresh_summaries, refresh_workspace, tree_refs,
+    WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces, add_path, refresh_summaries,
+    refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -66,6 +67,9 @@ pub enum IpcErrorCode {
     NotFound,
     /// No usable git was found (PLAT-3); `git_status` says why.
     GitUnavailable,
+    /// The request was refused as it stands, such as a workspace name that
+    /// is taken; the message says why and the user can change it.
+    Refused,
 }
 
 impl From<tauri::Error> for IpcError {
@@ -96,10 +100,18 @@ impl From<WorkspaceError> for IpcError {
     fn from(error: WorkspaceError) -> Self {
         let code = match error {
             WorkspaceError::ReadOnly => IpcErrorCode::WorkspaceReadOnly,
-            WorkspaceError::UnknownWorkspace(_) | WorkspaceError::UnknownRepo(_) => {
-                IpcErrorCode::NotFound
-            }
+            WorkspaceError::UnknownWorkspace(_)
+            | WorkspaceError::UnknownRepo(_)
+            | WorkspaceError::NoSuchWorkspace(_) => IpcErrorCode::NotFound,
+            WorkspaceError::BlankName
+            | WorkspaceError::NameTooLong
+            | WorkspaceError::NameTaken(_)
+            | WorkspaceError::IsOpen
+            | WorkspaceError::NotConfirmed
+            | WorkspaceError::BadOrder => IpcErrorCode::Refused,
             WorkspaceError::Write { .. }
+            | WorkspaceError::Read { .. }
+            | WorkspaceError::Delete { .. }
             | WorkspaceError::Encode(_)
             | WorkspaceError::Stopped(_) => IpcErrorCode::Internal,
         };
@@ -407,6 +419,13 @@ pub struct GitStatusEvent(pub GitStatus);
 #[tauri_specta(event_name = "workspace_changed")]
 pub struct WorkspaceChangedEvent(pub WorkspaceView);
 
+/// The open workspaces and the active one changed, sent as event
+/// `workspaces_changed` after every open, close, create, rename, reorder
+/// and activate (UI-27).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "workspaces_changed")]
+pub struct WorkspacesChangedEvent(pub WorkspaceTabs);
+
 /// What an add job did, sent as event `workspace_add_report` when it ends,
 /// after its `workspace_changed`.
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
@@ -504,7 +523,9 @@ pub async fn git_recheck(app: AppHandle) -> Result<(), IpcError> {
 /// The settings, and why they are read-only if they are (DATA-1).
 #[tauri::command]
 #[specta::specta]
-pub async fn settings_get(settings: State<'_, SettingsStore>) -> Result<SettingsView, IpcError> {
+pub async fn settings_get(
+    settings: State<'_, Arc<SettingsStore>>,
+) -> Result<SettingsView, IpcError> {
     Ok(settings.view())
 }
 
@@ -513,19 +534,182 @@ pub async fn settings_get(settings: State<'_, SettingsStore>) -> Result<Settings
 #[specta::specta]
 pub async fn settings_set_theme(app: AppHandle, theme: Theme) -> Result<SettingsView, IpcError> {
     // Saving touches the disk; keep it off the async workers (ARCH-7).
-    let saved =
-        tauri::async_runtime::spawn_blocking(move || app.state::<SettingsStore>().set_theme(theme))
-            .await?;
+    let saved = tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Arc<SettingsStore>>().set_theme(theme)
+    })
+    .await?;
     Ok(saved?)
 }
 
-/// The open workspaces, in tab order. One until workspace tabs exist (M3).
+/// The open workspaces in tab order, the active one, and the saved tabs
+/// whose file was gone at start (UI-27, UI-33).
 #[tauri::command]
 #[specta::specta]
 pub async fn workspace_get(
     workspaces: State<'_, Arc<Workspaces>>,
-) -> Result<Vec<WorkspaceView>, IpcError> {
-    Ok(workspaces.views())
+) -> Result<WorkspaceTabs, IpcError> {
+    Ok(workspaces.tabs())
+}
+
+/// Every workspace file, open or not, sorted by name (UI-28).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_list(app: AppHandle) -> Result<Vec<WorkspaceListItem>, IpcError> {
+    // Reads every workspace file; keep it off the async workers (ARCH-7).
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || workspaces.list()).await??)
+}
+
+/// Creates a workspace, opened as the last tab and made active.
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_create(app: AppHandle, name: String) -> Result<WorkspaceTabs, IpcError> {
+    change_tabs(app, move |workspaces| {
+        let id = workspaces.create(&name)?;
+        Ok(Some(id))
+    })
+    .await
+}
+
+/// Opens a workspace as the last tab and makes it active; one already open
+/// is made active instead (UI-27).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_open(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+) -> Result<WorkspaceTabs, IpcError> {
+    change_tabs(app, move |workspaces| {
+        Ok(workspaces.open(&workspace_id)?.then_some(workspace_id))
+    })
+    .await
+}
+
+/// Closes a workspace's tab. Its file and repos stay, and its jobs run on
+/// (UI-28, UI-21).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_close(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+) -> Result<WorkspaceTabs, IpcError> {
+    let closed = workspace_id.clone();
+    let tabs = change_tabs(app.clone(), move |workspaces| {
+        workspaces.close(&workspace_id)?;
+        Ok(None)
+    })
+    .await?;
+    // Its state goes with its tab (ARCH-9).
+    app.state::<Arc<Watchers>>().stop(&closed);
+    app.state::<Arc<Trees>>().forget(&closed);
+    app.state::<Arc<Histories>>().forget(&closed);
+    app.state::<Arc<Changes>>().forget(&closed);
+    app.state::<Arc<Summaries>>().forget(&closed);
+    Ok(tabs)
+}
+
+/// Renames a workspace, open or not.
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_rename(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    name: String,
+) -> Result<WorkspaceTabs, IpcError> {
+    let tabs = change_tabs(app.clone(), move |workspaces| {
+        workspaces.rename(&workspace_id, &name)?;
+        Ok(None)
+    })
+    .await?;
+    for view in &tabs.open {
+        let _ = WorkspaceChangedEvent(view.clone()).emit(&app);
+    }
+    Ok(tabs)
+}
+
+/// Deletes the file of a workspace that is not open, and nothing else
+/// (GRP-3). Needs `confirmed`.
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_delete(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    confirmed: bool,
+) -> Result<(), IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || workspaces.delete(&workspace_id, confirmed))
+        .await??;
+    Ok(())
+}
+
+/// Puts the tabs in the order of `workspace_ids`, which names each open
+/// workspace once.
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_reorder(
+    app: AppHandle,
+    workspace_ids: Vec<WorkspaceId>,
+) -> Result<WorkspaceTabs, IpcError> {
+    change_tabs(app, move |workspaces| {
+        workspaces.reorder(&workspace_ids)?;
+        Ok(None)
+    })
+    .await
+}
+
+/// Makes an open workspace the active tab. It is then watched, and its
+/// summaries are read again as when the window regains focus (UI-30).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_activate(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+) -> Result<WorkspaceTabs, IpcError> {
+    change_tabs(app, move |workspaces| {
+        workspaces.activate(&workspace_id)?;
+        Ok(None)
+    })
+    .await
+}
+
+/// Runs `change` off the async workers (ARCH-7), as it saves files, then
+/// sends `workspaces_changed`. `change` returns the workspace it opened,
+/// whose cached summaries are then taken. When the active tab changed, the
+/// old one is no longer watched, and the new one is watched and read again.
+async fn change_tabs(
+    app: AppHandle,
+    change: impl FnOnce(&Workspaces) -> Result<Option<WorkspaceId>, WorkspaceError> + Send + 'static,
+) -> Result<WorkspaceTabs, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let summaries = app.state::<Arc<Summaries>>().inner().clone();
+    let (before, tabs) = tauri::async_runtime::spawn_blocking(move || {
+        let before = workspaces.active();
+        if let Some(opened) = change(&workspaces)? {
+            summaries.open(&workspaces, &opened);
+        }
+        Ok::<_, WorkspaceError>((before, workspaces.tabs()))
+    })
+    .await??;
+    let _ = WorkspacesChangedEvent(tabs.clone()).emit(&app);
+    if tabs.active != before {
+        if let Some(before) = &before {
+            app.state::<Arc<Watchers>>().stop(before);
+        }
+        if let Some(active) = tabs.active.clone() {
+            spawn_watch_sync(&app, active.clone());
+            if let Some(git) = app.state::<GitSetup>().git().await {
+                let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+                let summaries = app.state::<Arc<Summaries>>().inner().clone();
+                let emit = summary_sink(app.clone());
+                let git = GitRunner::new(git.path);
+                tauri::async_runtime::spawn(async move {
+                    // A workspace closed since has nothing to read.
+                    let _ = refresh_workspace(workspaces, summaries, active, git, emit).await;
+                });
+            }
+        }
+    }
+    Ok(tabs)
 }
 
 /// Starts a job that adds the repo at `path`, or every repo found below it,
@@ -853,9 +1037,11 @@ pub async fn settings_set_changes(
     changes: ChangesSettings,
 ) -> Result<SettingsView, IpcError> {
     // Saving touches the disk; keep it off the async workers (ARCH-7).
-    tauri::async_runtime::spawn_blocking(move || app.state::<SettingsStore>().set_changes(changes))
-        .await?
-        .map_err(IpcError::from)
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Arc<SettingsStore>>().set_changes(changes)
+    })
+    .await?
+    .map_err(IpcError::from)
 }
 
 /// Changes the code themes and fonts (UI-24, UI-26) and saves the settings.
@@ -868,7 +1054,7 @@ pub async fn settings_set_appearance(
 ) -> Result<SettingsView, IpcError> {
     // Saving touches the disk; keep it off the async workers (ARCH-7).
     tauri::async_runtime::spawn_blocking(move || {
-        app.state::<SettingsStore>().set_appearance(appearance)
+        app.state::<Arc<SettingsStore>>().set_appearance(appearance)
     })
     .await?
     .map_err(IpcError::from)
@@ -1619,18 +1805,24 @@ pub fn watchers(app: &AppHandle) -> Watchers {
     )
 }
 
-/// Watches every open workspace's repos, in the background (ARCH-7).
+/// Watches the active workspace's repos, in the background (ARCH-7). The
+/// other tabs are not watched (UI-30).
 pub fn spawn_watching(app: &AppHandle) {
-    for workspace in app.state::<Arc<Workspaces>>().views() {
-        spawn_watch_sync(app, workspace.id);
+    if let Some(active) = app.state::<Arc<Workspaces>>().active() {
+        spawn_watch_sync(app, active);
     }
 }
 
-/// Brings the workspace's watches in line with its repos, in the background.
+/// Brings the workspace's watches in line with its repos, in the
+/// background, when it is the active one.
 fn spawn_watch_sync(app: &AppHandle, workspace_id: WorkspaceId) {
     let watchers = app.state::<Arc<Watchers>>().inner().clone();
     let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
-    tauri::async_runtime::spawn_blocking(move || watchers.sync(&workspaces, &workspace_id));
+    tauri::async_runtime::spawn_blocking(move || {
+        if workspaces.active().as_ref() == Some(&workspace_id) {
+            watchers.sync(&workspaces, &workspace_id);
+        }
+    });
 }
 
 /// Detects git in the background (ARCH-7), sending `git_status` events when it
@@ -1656,9 +1848,15 @@ pub fn spawn_git_detection(app: AppHandle) {
         let Some(git) = setup.git().await.map(|git| GitRunner::new(git.path)) else {
             return;
         };
-        for workspace in app.state::<Arc<Workspaces>>().views() {
+        // The active tab only; the others are read when they become
+        // active (UI-30).
+        let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+        let active = workspaces
+            .active()
+            .and_then(|active| workspaces.view(&active).ok());
+        if let Some(workspace) = active {
             let repos = workspace.repos.into_iter().map(|repo| repo.id).collect();
-            tauri::async_runtime::spawn(refresh(app.clone(), workspace.id, repos, git.clone()));
+            tauri::async_runtime::spawn(refresh(app.clone(), workspace.id, repos, git));
         }
     });
 }
@@ -1858,6 +2056,14 @@ macro_rules! with_commands {
                 settings_get,
                 settings_set_theme,
                 workspace_get,
+                workspace_list,
+                workspace_create,
+                workspace_open,
+                workspace_close,
+                workspace_rename,
+                workspace_delete,
+                workspace_reorder,
+                workspace_activate,
                 workspace_add_path,
                 workspace_pick_and_add,
                 workspace_remove_repo,
@@ -1921,6 +2127,14 @@ macro_rules! with_commands {
                 settings_get,
                 settings_set_theme,
                 workspace_get,
+                workspace_list,
+                workspace_create,
+                workspace_open,
+                workspace_close,
+                workspace_rename,
+                workspace_delete,
+                workspace_reorder,
+                workspace_activate,
                 workspace_add_path,
                 workspace_pick_and_add,
                 workspace_remove_repo,
@@ -1985,6 +2199,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             JobProgressEvent,
             GitStatusEvent,
             WorkspaceChangedEvent,
+            WorkspacesChangedEvent,
             WorkspaceAddReportEvent,
             CloneParentPickedEvent,
             CloneReportEvent,

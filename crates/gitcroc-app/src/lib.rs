@@ -31,8 +31,10 @@ pub fn run() -> Result<(), Error> {
     let log = Arc::new(AppLog::open(&PlatformLogDir));
     let command_log = log.clone();
     gitcroc_core::log_commands_to(move |record| command_log.command(record));
-    // Small files, read once so the first paint has the workspace.
-    let workspaces = Arc::new(Workspaces::load(&PlatformConfigDir));
+    // Small files, read once before the window shows, so the first paint
+    // already has the saved theme and the workspaces of the saved tabs.
+    let settings = Arc::new(SettingsStore::load(&PlatformConfigDir));
+    let workspaces = Arc::new(Workspaces::load_with(&PlatformConfigDir, settings.clone()));
     // The cached summaries, read once so the first paint shows every repo
     // before git is read (PERF-3); the refresh starts after git detection.
     let summaries = Arc::new(Summaries::load(
@@ -54,9 +56,7 @@ pub fn run() -> Result<(), Error> {
         .invoke_handler(invoke_handler)
         .manage(GitSetup::new())
         .manage(log)
-        // A small file read once, before the window shows, so the first
-        // paint already has the saved theme.
-        .manage(SettingsStore::load(&PlatformConfigDir))
+        .manage(settings)
         .manage(workspaces)
         .manage(summaries)
         .manage(Arc::new(Trees::new()))
