@@ -49,10 +49,17 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      # Installs the version pinned in rust-toolchain.toml.
+      # Installs the version pinned in rust-toolchain.toml and removes the
+      # others the runner image carries: rust-cache keys on every installed
+      # toolchain, and images differ in theirs, so caches would not match.
       - name: Install Rust toolchain
         shell: bash
-        run: rustup toolchain install
+        run: |
+          rustup toolchain install
+          pinned=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup toolchain list | cut -d' ' -f1 | grep -vxF "$pinned" | while read -r other; do
+            rustup toolchain uninstall "$other"
+          done
 
       - name: Install just and cargo-deny
         uses: taiki-e/install-action@v2
@@ -129,9 +136,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Installs the version pinned in rust-toolchain.toml.
+      # Installs the version pinned in rust-toolchain.toml and removes the
+      # others the runner image carries: rust-cache keys on every installed
+      # toolchain, and images differ in theirs, so caches would not match.
       - name: Install Rust toolchain
-        run: rustup toolchain install
+        shell: bash
+        run: |
+          rustup toolchain install
+          pinned=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup toolchain list | cut -d' ' -f1 | grep -vxF "$pinned" | while read -r other; do
+            rustup toolchain uninstall "$other"
+          done
 
       - name: Install just
         uses: taiki-e/install-action@v2
