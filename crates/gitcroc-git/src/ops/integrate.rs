@@ -4,20 +4,10 @@
 //! over `merge.autoStash` and `rebase.autoStash`. Messages are git's own:
 //! `--no-edit`, and the runner's `GIT_EDITOR=true` for a continue.
 
-use std::ffi::OsString;
 use std::path::Path;
 
+use super::run_args;
 use crate::{GitError, GitRunner, Operation, Output, Write};
-
-async fn integrate_write(
-    git: &GitRunner,
-    repo: &Path,
-    args: &[&str],
-    write: Write<'_>,
-) -> Result<Output, GitError> {
-    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    git.run_write(&args, repo, write).await
-}
 
 /// Whether a merge may fast-forward (section 5 "Merge X into current").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,7 +38,7 @@ pub async fn merge(
         FastForward::Never => args.push("--no-ff"),
     }
     args.extend(["--end-of-options", revision]);
-    integrate_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// Rebases the current branch onto `onto`, a ref or a hash, without
@@ -61,7 +51,7 @@ pub async fn rebase(
     write: Write<'_>,
 ) -> Result<Output, GitError> {
     let args = ["rebase", "--no-autostash", "--end-of-options", onto];
-    integrate_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// Applies `commits`, full hashes, in the order given (`git cherry-pick`);
@@ -74,7 +64,7 @@ pub async fn cherry_pick(
 ) -> Result<Output, GitError> {
     let mut args = vec!["cherry-pick", "--end-of-options"];
     args.extend(commits.iter().map(String::as_str));
-    integrate_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// Commits the reverse of `commit`, a full hash, with git's prepared
@@ -93,7 +83,7 @@ pub async fn revert(
         args.extend(["-m", parent]);
     }
     args.extend(["--end-of-options", commit]);
-    integrate_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// What to do with an operation stopped in conflict state (OPS-2).
@@ -127,11 +117,8 @@ pub async fn resume(
         Operation::Revert => "revert",
         Operation::StashApply => {
             return match resume {
-                Resume::Abort => integrate_write(git, repo, &["reset", "--merge"], write).await,
-                Resume::Continue => Ok(Output {
-                    stdout: Vec::new(),
-                    stderr: Vec::new(),
-                }),
+                Resume::Abort => run_args(git, repo, &["reset", "--merge"], write).await,
+                Resume::Continue => Ok(Output::default()),
             };
         }
     };
@@ -139,5 +126,5 @@ pub async fn resume(
         Resume::Abort => "--abort",
         Resume::Continue => "--continue",
     };
-    integrate_write(git, repo, &[command, flag], write).await
+    run_args(git, repo, &[command, flag], write).await
 }

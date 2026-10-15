@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use gitcroc_git::{
     ChangedFile, CommitDetails, ContentKey, Context, DiffOptions, DiffSource, FileDiff, GitRepo,
@@ -14,6 +14,7 @@ use gitcroc_git::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::lock;
 use crate::{DiffReadError, RepoId, StatusReadError, WorkspaceError, WorkspaceId, Workspaces};
 
 /// What to show.
@@ -328,12 +329,6 @@ impl Changes {
             _ => false,
         }
     }
-}
-
-pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    // Every change replaces whole fields, so a panic leaves no half-changed
-    // state.
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Reads what `target` shows in repo `repo_id` as a new view of workspace

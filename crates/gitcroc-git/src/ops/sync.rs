@@ -3,20 +3,10 @@
 //! stashed to make one succeed (GRP-12): `--no-autostash` wins over
 //! `rebase.autoStash` and `merge.autoStash`.
 
-use std::ffi::OsString;
 use std::path::Path;
 
+use super::run_args;
 use crate::{GitError, GitRunner, Output, Write};
-
-async fn sync_write(
-    git: &GitRunner,
-    repo: &Path,
-    args: &[&str],
-    write: Write<'_>,
-) -> Result<Output, GitError> {
-    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    git.run_write(&args, repo, write).await
-}
 
 /// Fetches every remote (`git fetch --all`). `prune` removes remote-tracking
 /// branches whose branch is gone (`--prune`) or keeps them (`--no-prune`);
@@ -33,7 +23,7 @@ pub async fn fetch_all(
         Some(false) => args.push("--no-prune"),
         None => {}
     }
-    sync_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// Fetches remote `remote` as its config says (`git fetch <remote>`).
@@ -43,7 +33,7 @@ pub async fn fetch_remote(
     remote: &str,
     write: Write<'_>,
 ) -> Result<Output, GitError> {
-    sync_write(
+    run_args(
         git,
         repo,
         &["fetch", "--progress", "--end-of-options", remote],
@@ -85,7 +75,7 @@ pub async fn pull_fetched(
         PullMode::Rebase => args.push("--rebase"),
     }
     args.extend(["--end-of-options", ".", tracking]);
-    sync_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// What a push sends where.
@@ -122,5 +112,5 @@ pub async fn push(
     }
     let refspec = format!("refs/heads/{}:refs/heads/{}", to.branch, to.remote_branch);
     args.extend(["--end-of-options", to.remote, &refspec]);
-    sync_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }

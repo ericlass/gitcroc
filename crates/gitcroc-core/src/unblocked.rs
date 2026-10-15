@@ -25,6 +25,27 @@ pub(crate) enum BlockedError {
     Blocked(String),
 }
 
+/// `From<BlockedError>` for an operation's error, which has the variants
+/// `Workspace`, `Open`, `Status`, `Stopped` and `Refused`: a blocked repo is
+/// a refusal.
+macro_rules! from_blocked {
+    ($error:ty) => {
+        impl From<$crate::unblocked::BlockedError> for $error {
+            fn from(error: $crate::unblocked::BlockedError) -> Self {
+                use $crate::unblocked::BlockedError;
+                match error {
+                    BlockedError::Workspace(error) => Self::Workspace(error),
+                    BlockedError::Open(error) => Self::Open(error),
+                    BlockedError::Status(error) => Self::Status(error),
+                    BlockedError::Stopped(error) => Self::Stopped(error),
+                    BlockedError::Blocked(why) => Self::Refused(why),
+                }
+            }
+        }
+    };
+}
+pub(crate) use from_blocked;
+
 /// Opens repo `repo` of workspace `id`, refusing it while blocked (GRP-8):
 /// busy with another write, missing, or in conflict state unless
 /// `conflict_allowed`.

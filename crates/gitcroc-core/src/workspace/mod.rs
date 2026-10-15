@@ -13,12 +13,13 @@ mod group;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
 use crate::config_file::{self, ConfigWarning, Migration};
+use crate::lock;
 use crate::settings::{Session, SettingsStore};
 use crate::{ConfigDir, WorkspaceId};
 
@@ -735,7 +736,7 @@ impl Workspaces {
     fn lock(&self) -> MutexGuard<'_, Tabs> {
         // A panic while holding the lock cannot leave a workspace
         // half-changed: its file is replaced only after a successful save.
-        self.tabs.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.tabs)
     }
 }
 

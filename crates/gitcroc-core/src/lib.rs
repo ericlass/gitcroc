@@ -55,29 +55,25 @@ pub use diff::{DiffReadError, changed_files, commit_details, file_diff};
 pub use fsmonitor::{FSMONITOR_THRESHOLD, FsmonitorError, fsmonitor_enable};
 pub use git::{GitSetup, GitStatus};
 pub use gitcroc_git::{
-    AheadBehind, BranchUpstream, ChangedFile, ChoiceKind, CommitDetails, CommitRow, Conflict,
-    ConflictChunk, ConflictContent, ConflictDetails, ConflictError, ConflictLabels, ContentKey,
-    Context, Cursor, DiffError, DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback,
-    FileDiff, FileStatus, Filter, GitError, GitRepo, GitRunner, GraphRow, Head, HistoryError,
-    HistoryStart, Hunk, HunkPatch, Image, ImageFormat, Line, LineKind, LocalBranch,
-    MAX_CONFLICT_TEXT, MAX_COUNTED_FILES, MAX_DIFF_LINES, MAX_IMAGE_BYTES, MergedCursor,
-    MergedPage, MergedRow, ModeChange, OpenError, Operation, PAGE_SIZE, Page, Person, RefKind,
-    RefLabel, Refs, RefsError, RefsRead, RemoteBranches, RepoRead, RepoState, RepoSummary,
-    SearchEnv, SideHolds, StashEntry, StatusError, StatusRead, StatusReader, Step, Tag, TextDiff,
-    Time, UnmergedFile, UnmergedKind, Upstream, WorkingCopy, merged_history,
-};
-pub use gitcroc_git::{
     Askpass, CommandRecord, Exit, Kill, Output, RefSnapshot, log_commands_to, ops,
 };
-pub use group::{GroupBranch, GroupSummary, group_branch, group_summaries};
+pub use gitcroc_git::{
+    ChangedFile, ChoiceKind, CommitDetails, CommitRow, Conflict, ConflictContent, ConflictDetails,
+    ConflictError, ContentKey, Context, Cursor, DiffError, DiffOptions, DiffRead, DiffSource,
+    Engine, Fallback, FileDiff, FileStatus, Filter, GitError, GitRepo, GitRunner, Head,
+    HistoryError, HistoryStart, Hunk, HunkPatch, Image, Line, LocalBranch, MergedCursor, MergedRow,
+    OpenError, Operation, PAGE_SIZE, Page, Refs, RefsError, RemoteBranches, RepoRead, RepoState,
+    RepoSummary, SearchEnv, SideHolds, StashEntry, StatusError, StatusRead, StatusReader, Step,
+    Tag, TextDiff, UnmergedFile, WorkingCopy, merged_history,
+};
+pub use group::{GroupBranch, GroupSummary, group_summaries};
 pub use history::{
-    COMMIT_GRAPH_THRESHOLD, CommitGraphError, CommitGraphWrite, Histories, HistoryPageError,
-    HistoryRow, HistoryTarget, HistoryView, HistoryViewError, commit_graph_write, history_get,
-    history_more, history_page,
+    CommitGraphError, CommitGraphWrite, Histories, HistoryPageError, HistoryRow, HistoryTarget,
+    HistoryView, HistoryViewError, commit_graph_write, history_get, history_more, history_page,
 };
 pub use integrate::{
-    IntegrateError, IntegrateOp, IntegrateRequest, IntegrateStart, MAX_MERGE_TARGETS,
-    MergeFastForward, conflict_details, merge_targets, op_integrate,
+    IntegrateError, IntegrateOp, IntegrateRequest, IntegrateStart, MergeFastForward,
+    conflict_details, merge_targets, op_integrate,
 };
 pub use job::{
     AskpassGrant, AskpassIssuer, CancelResult, JobError, JobEvents, JobHandle, JobId, JobIds,
@@ -86,7 +82,7 @@ pub use job::{
     WriteJob,
 };
 pub use log::{AppLog, LOG_FILE, LOG_FILE_SIZE, LOG_FILES, LogDir, PlatformLogDir};
-pub use ref_name::{RefNameError, check_branch_name, check_remote_name, check_tag_name};
+pub use ref_name::RefNameError;
 pub use remote::{
     RemoteError, RemoteOp, RemoteRequest, RemoteStart, RemoteUrlsView, op_remote,
     remote_name_check, remote_urls,
@@ -122,9 +118,10 @@ pub use workspace::{
     WorkspaceView, Workspaces, add_path,
 };
 
-/// Errors returned by `gitcroc-core`.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+/// Locks `mutex`, also when a thread panicked while holding it. Every
+/// caller changes its state so that a panic leaves none half-changed.
+pub(crate) fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }

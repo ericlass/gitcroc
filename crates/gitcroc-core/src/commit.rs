@@ -12,10 +12,7 @@ use gitcroc_git::{DiffRead, GitRepo, StatusReader};
 use serde::{Deserialize, Serialize};
 
 use crate::changes::Lists;
-use crate::{
-    Changes, ChangesError, DiffReadError, GitRunner, JobId, Jobs, NothingToDo, OnCancel,
-    WorkspaceId, WriteJob,
-};
+use crate::{Changes, ChangesError, DiffReadError, GitRunner, JobId, Jobs, WorkspaceId, WriteJob};
 
 /// A commit message as the commit box edits it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -147,17 +144,9 @@ pub async fn changes_commit(
         amend,
         sign_off: head.sign_off,
     };
-    let job = WriteJob {
-        workspace_id: id,
-        repos: vec![view.repo],
-        label: label(amend).to_owned(),
-        on_cancel: OnCancel::Finish,
-        may_conflict: false,
-        nothing_to_do: NothingToDo::Never,
-        network: false,
-    };
+    let job = WriteJob::single(id, view.repo, label(amend).to_owned());
     let handle = jobs.start(git, job, move |job| async move {
-        let path = job.paths.first().cloned().unwrap_or(view.path);
+        let path = view.path;
         ops::commit(&job.git, &path, message.as_bytes(), mode, job.write()).await
     })?;
     Ok(Some(handle.job_id))

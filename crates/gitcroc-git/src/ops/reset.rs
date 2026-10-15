@@ -1,8 +1,8 @@
 //! Reset of the current branch to a commit (section 6 "Reset", M2-12).
 
-use std::ffi::OsString;
 use std::path::Path;
 
+use super::run_args;
 use crate::{GitError, GitRunner, Output, Write};
 
 /// What a reset puts at the commit besides the branch.
@@ -34,6 +34,5 @@ pub async fn reset(
         ResetMode::Mixed => "--mixed",
         ResetMode::Hard => "--hard",
     };
-    let args = ["reset", "--quiet", flag, commit, "--"].map(OsString::from);
-    git.run_write(&args, repo, write).await
+    run_args(git, repo, &["reset", "--quiet", flag, commit, "--"], write).await
 }

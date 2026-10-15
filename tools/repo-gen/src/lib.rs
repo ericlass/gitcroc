@@ -14,8 +14,7 @@ mod sets;
 pub use fixture::{FIXTURE_EMAIL, FIXTURE_NAME, Fixture, Repo};
 pub use generate::{RepoSpec, generate_repo};
 pub use sets::{
-    BIG_HISTORY_TAG, BIG_HISTORY_URL, GENERATOR_VERSION, GroupSpec, MANIFEST, Manifest,
-    ManifestRepo, Outcome, SET_NAMES, SetSpec, WORKSPACE, big_tree, clone_big_history,
+    GroupSpec, MANIFEST, Outcome, SET_NAMES, SetSpec, WORKSPACE, big_tree, clone_big_history,
     generate_set, many_repos, target_project,
 };
 

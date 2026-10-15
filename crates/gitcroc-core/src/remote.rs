@@ -12,10 +12,10 @@ use gitcroc_git::{GitError, GitRepo, Output, Write, ops, parse_progress};
 use serde::{Deserialize, Serialize};
 
 use crate::ref_name::{RefNameError, check_remote_name};
-use crate::unblocked::{BlockedError, open_unblocked, repo_name};
+use crate::unblocked::{from_blocked, open_unblocked, repo_name};
 use crate::{
-    GitRunner, JobError, JobId, JobRun, Jobs, NothingToDo, OnCancel, OpenError, RepoId,
-    StatusReadError, Summaries, WorkspaceError, WorkspaceId, Workspaces, WriteJob,
+    GitRunner, JobError, JobId, JobRun, Jobs, OpenError, RepoId, StatusReadError, Summaries,
+    WorkspaceError, WorkspaceId, Workspaces, WriteJob,
 };
 
 /// A remote operation (section 6 "Remotes"). URLs are passed to git as
@@ -92,17 +92,7 @@ pub enum RemoteError {
     Stopped(#[from] tokio::task::JoinError),
 }
 
-impl From<BlockedError> for RemoteError {
-    fn from(error: BlockedError) -> Self {
-        match error {
-            BlockedError::Workspace(error) => Self::Workspace(error),
-            BlockedError::Open(error) => Self::Open(error),
-            BlockedError::Status(error) => Self::Status(error),
-            BlockedError::Stopped(error) => Self::Stopped(error),
-            BlockedError::Blocked(why) => Self::Refused(why),
-        }
-    }
-}
+from_blocked!(RemoteError);
 
 fn refused(why: impl Into<String>) -> RemoteError {
     RemoteError::Refused(why.into())
@@ -262,13 +252,6 @@ fn plan(repo: &GitRepo, op: RemoteOp) -> Result<Plan, RemoteError> {
     }
 }
 
-/// `first`'s output, then `then`'s.
-fn joined(mut first: Output, then: Output) -> Output {
-    first.stdout.extend(then.stdout);
-    first.stderr.extend(then.stderr);
-    first
-}
-
 /// Runs `plan` in `path`, a fetch's progress lines reported as the job's
 /// steps. A fetch after an add that fails leaves the remote added.
 async fn run(job: &JobRun, path: &Path, plan: &Plan) -> Result<Output, GitError> {
@@ -284,13 +267,11 @@ async fn run(job: &JobRun, path: &Path, plan: &Plan) -> Result<Output, GitError>
     let git = &job.git;
     match plan {
         Plan::Add { name, url, fetch } => {
-            let added = ops::remote_add(git, path, name, url, write).await?;
+            let mut all = ops::remote_add(git, path, name, url, write).await?;
             if *fetch {
-                let fetched = ops::fetch_remote(git, path, name, write).await?;
-                Ok(joined(added, fetched))
-            } else {
-                Ok(added)
+                all.append(ops::fetch_remote(git, path, name, write).await?);
             }
+            Ok(all)
         }
         Plan::Rename { name, new_name } => {
             ops::remote_rename(git, path, name, new_name, write).await
@@ -301,15 +282,11 @@ async fn run(job: &JobRun, path: &Path, plan: &Plan) -> Result<Output, GitError>
             url,
             push_url,
         } => {
-            let set = ops::remote_set_url(git, path, name, url, false, write).await?;
-            match push_url {
-                Some(push_url) => {
-                    let pushed =
-                        ops::remote_set_url(git, path, name, push_url, true, write).await?;
-                    Ok(joined(set, pushed))
-                }
-                None => Ok(set),
+            let mut all = ops::remote_set_url(git, path, name, url, false, write).await?;
+            if let Some(push_url) = push_url {
+                all.append(ops::remote_set_url(git, path, name, push_url, true, write).await?);
             }
+            Ok(all)
         }
     }
 }
@@ -362,18 +339,14 @@ pub async fn op_remote(
         });
     }
     let job = WriteJob {
-        workspace_id: id,
-        repos: vec![repo_id],
-        label: plan.label(),
-        on_cancel: OnCancel::Finish,
-        may_conflict: false,
-        nothing_to_do: NothingToDo::Never,
         network: plan.network(),
+        ..WriteJob::single(id, repo_id, plan.label())
     };
-    let handle = jobs.start(git, job, move |job| async move {
-        let path = job.paths.first().cloned().unwrap_or(path);
-        run(&job, &path, &plan).await
-    })?;
+    let handle = jobs.start(
+        git,
+        job,
+        move |job| async move { run(&job, &path, &plan).await },
+    )?;
     Ok(RemoteStart::Started {
         job_id: handle.job_id,
     })

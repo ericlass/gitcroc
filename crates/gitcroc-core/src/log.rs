@@ -8,10 +8,12 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gitcroc_git::{CommandRecord, Exit};
+
+use crate::lock;
 
 /// The current log file, in the log dir.
 pub const LOG_FILE: &str = "gitcroc.log";
@@ -96,7 +98,7 @@ impl AppLog {
 
     fn lock(&self) -> MutexGuard<'_, Option<Current>> {
         // A panic mid-write leaves at worst a partial line.
-        self.current.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.current)
     }
 
     fn line(&self, text: &str) {

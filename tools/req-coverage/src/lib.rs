@@ -27,15 +27,15 @@ const NO_TEST_NEEDED: &str = "No test needed:";
 
 /// The IDs one task file names on its "Implements:" and "No test needed:" lines.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct TaskIds {
-    pub implements: Vec<String>,
+struct TaskIds {
+    implements: Vec<String>,
     /// ID and the reason given in parentheses (empty when there is none).
-    pub no_test_needed: Vec<(String, String)>,
+    no_test_needed: Vec<(String, String)>,
 }
 
 /// Reads the requirement IDs from the text of a task file. `task` names the
 /// file in error messages.
-pub fn parse_task(task: &str, text: &str) -> Result<TaskIds, Error> {
+fn parse_task(task: &str, text: &str) -> Result<TaskIds, Error> {
     let mut ids = TaskIds::default();
     for line in text.lines().map(str::trim) {
         if let Some(rest) = line.strip_prefix(IMPLEMENTS) {
@@ -107,7 +107,7 @@ fn is_id(s: &str) -> bool {
 /// Whether `text` mentions `id` as `GRP-6` or as `grp_6`. The match must not
 /// continue a longer word before it or a longer number after it, so `GRP-6`
 /// is not found in `GRP-60` and `grp_6` is found in `fn grp_6_works`.
-pub fn mentions(text: &str, id: &str) -> bool {
+fn mentions(text: &str, id: &str) -> bool {
     let snake = id.to_ascii_lowercase().replace('-', "_");
     [id, snake.as_str()].into_iter().any(|form| {
         text.match_indices(form).any(|(at, _)| {
@@ -128,7 +128,7 @@ const UI_EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs",
 /// Rust: a whole file under a `tests/` directory, otherwise everything from
 /// the first `#[cfg(test)]`-style attribute on. Front end: files named
 /// `*.test.*` or `*.spec.*`, or under `tests/`, `e2e/` or `__tests__/`.
-pub fn test_code<'a>(path: &Path, text: &'a str) -> Option<&'a str> {
+fn test_code<'a>(path: &Path, text: &'a str) -> Option<&'a str> {
     let in_dir = |names: &[&str]| {
         path.parent().is_some_and(|dir| {
             dir.components()
@@ -161,7 +161,7 @@ pub fn test_code<'a>(path: &Path, text: &'a str) -> Option<&'a str> {
 
 /// The test code of every source file under `dir`, recursively. A missing
 /// `dir` yields nothing.
-pub fn collect_test_code(dir: &Path) -> Result<Vec<String>, Error> {
+fn collect_test_code(dir: &Path) -> Result<Vec<String>, Error> {
     let mut found = Vec::new();
     if dir.is_dir() {
         walk(dir, dir, &mut found)?;
@@ -216,7 +216,7 @@ pub struct Report {
 }
 
 /// One task file: its name (`M0-02-quality-gates`) and its IDs.
-pub type Task = (String, TaskIds);
+type Task = (String, TaskIds);
 
 /// What the tasks of a milestone say about one implemented ID.
 #[derive(Default)]
@@ -229,7 +229,7 @@ struct Claims<'a> {
 
 /// Sorts each implemented ID into covered, missing or no test needed. An ID
 /// counts as no test needed only when every task implementing it says so.
-pub fn report(tasks: &[Task], test_code: &[String]) -> Report {
+fn report(tasks: &[Task], test_code: &[String]) -> Report {
     let mut ids: BTreeMap<&str, Claims> = BTreeMap::new();
     for (name, task) in tasks {
         for id in &task.implements {

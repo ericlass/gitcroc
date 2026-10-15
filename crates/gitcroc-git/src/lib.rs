@@ -35,8 +35,8 @@ pub use probe::{InspectError, Inspected, Layout, inspect, layout};
 pub use progress::{Progress, parse_progress};
 pub use read::{GitRepo, OpenError};
 pub use refs::{
-    AheadBehind, BranchUpstream, LocalBranch, RefSnapshot, Refs, RefsError, RefsRead,
-    RemoteBranches, StashEntry, Tag,
+    AheadBehind, BranchUpstream, LocalBranch, RefSnapshot, Refs, RefsError, RemoteBranches,
+    StashEntry, Tag,
 };
 pub use runner::{
     ASKPASS_VARS, Askpass, CommandRecord, Exit, GIT_ENV, GitError, GitRunner, Kill, Output,
@@ -47,10 +47,3 @@ pub use status::{
     RepoSummary, StatusError, StatusRead, StatusReader, Step, UnmergedFile, UnmergedKind, Upstream,
     WorkingCopy,
 };
-
-/// Errors returned by `gitcroc-git`.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
-}

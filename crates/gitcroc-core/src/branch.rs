@@ -8,14 +8,14 @@
 
 use std::sync::Arc;
 
-use gitcroc_git::{GitError, GitRepo, Output, RefsRead, TrackedBranch, ops};
+use gitcroc_git::{GitError, GitRepo, Output, TrackedBranch, ops};
 use serde::{Deserialize, Serialize};
 
 use crate::ref_name::{RefNameError, check_branch_name};
-use crate::unblocked::{BlockedError, open_unblocked, repo_name};
+use crate::unblocked::{from_blocked, open_unblocked, repo_name};
 use crate::{
-    GitRunner, JobError, JobId, Jobs, NothingToDo, OnCancel, OpenError, RepoId, StatusReadError,
-    Summaries, WorkspaceError, WorkspaceId, Workspaces, WriteJob,
+    GitRunner, JobError, JobId, Jobs, NothingToDo, OpenError, RepoId, StatusReadError, Summaries,
+    WorkspaceError, WorkspaceId, Workspaces, WriteJob,
 };
 
 /// A branch of a remote, such as `feature/x` of `origin`.
@@ -138,17 +138,7 @@ pub enum BranchError {
     Stopped(#[from] tokio::task::JoinError),
 }
 
-impl From<BlockedError> for BranchError {
-    fn from(error: BlockedError) -> Self {
-        match error {
-            BlockedError::Workspace(error) => Self::Workspace(error),
-            BlockedError::Open(error) => Self::Open(error),
-            BlockedError::Status(error) => Self::Status(error),
-            BlockedError::Stopped(error) => Self::Stopped(error),
-            BlockedError::Blocked(why) => Self::Refused(why),
-        }
-    }
-}
+from_blocked!(BranchError);
 
 fn refused(why: impl Into<String>) -> BranchError {
     BranchError::Refused(why.into())
@@ -313,11 +303,10 @@ async fn run(
         } => {
             let mut all = ops::branch_delete(git, path, name, *force, write).await?;
             if let Some(remote) = remote {
-                let output =
+                all.append(
                     ops::remote_branch_delete(git, path, &remote.remote, &remote.branch, write)
-                        .await?;
-                all.stdout.extend(output.stdout);
-                all.stderr.extend(output.stderr);
+                        .await?,
+                );
             }
             Ok(all)
         }
@@ -494,16 +483,11 @@ pub async fn op_branch(
         });
     }
     let job = WriteJob {
-        workspace_id: id,
-        repos: vec![repo_id],
-        label: plan.label(),
-        on_cancel: OnCancel::Finish,
-        may_conflict: false,
         nothing_to_do: plan.nothing_to_do(),
         network: plan.network(),
+        ..WriteJob::single(id, repo_id, plan.label())
     };
     let handle = jobs.start(git, job, move |job| async move {
-        let path = job.paths.first().cloned().unwrap_or(path);
         run(&job.git, &path, &plan, job.write()).await
     })?;
     Ok(BranchStart::Started {

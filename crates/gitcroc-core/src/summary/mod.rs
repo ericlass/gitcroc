@@ -16,12 +16,13 @@ mod cache;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use gitcroc_git::{GitRepo, GitRunner, RepoSummary, StatusRead, StatusReader};
 use serde::{Deserialize, Serialize};
 
 use crate::job::{POOL_SIZE, Pool, Priority};
+use crate::lock;
 use crate::{RepoId, WorkspaceError, WorkspaceId, Workspaces};
 
 pub use cache::{CACHE_FILE, CACHE_SCHEMA, CacheDir, PlatformCacheDir, SummaryCache};
@@ -366,7 +367,7 @@ impl Summaries {
     fn lock(&self) -> MutexGuard<'_, HashMap<WorkspaceId, WorkspaceState>> {
         // Every change below is a single assignment, so a panic leaves no
         // half-changed state.
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     /// Queues `repos` that are not waiting yet and takes the cached summary
@@ -586,7 +587,7 @@ async fn run_in_background<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Option<T> {
     let work = Arc::new(Mutex::new(Some(work)));
-    let take = |work: &Mutex<Option<_>>| work.lock().unwrap_or_else(PoisonError::into_inner).take();
+    let take = |work: &Mutex<Option<_>>| lock(work).take();
     let (done, ended) = tokio::sync::oneshot::channel::<T>();
     let spawned = std::thread::Builder::new()
         .name("gitcroc-refresh".to_owned())

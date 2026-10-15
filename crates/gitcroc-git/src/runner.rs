@@ -52,10 +52,18 @@ impl std::fmt::Debug for Askpass {
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// What a successful git process printed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Output {
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
+}
+
+impl Output {
+    /// Adds what `other`, a later process, printed.
+    pub fn append(&mut self, other: Output) {
+        self.stdout.extend(other.stdout);
+        self.stderr.extend(other.stderr);
+    }
 }
 
 /// Why a git process failed.
@@ -245,25 +253,12 @@ impl GitRunner {
         &self.git
     }
 
-    /// The command [`run`](Self::run) spawns: `git` with `args` as an argument
-    /// array, never through a shell (ARCH-3), and [`GIT_ENV`] set.
+    /// The command [`run`](Self::run) spawns: as
+    /// [`blocking_command`](Self::blocking_command), for tokio, and killed
+    /// when dropped.
     pub fn command(&self, args: &[OsString], cwd: Option<&Path>) -> tokio::process::Command {
-        let mut command = tokio::process::Command::new(&self.git);
-        command.args(args).envs(GIT_ENV);
-        for var in ASKPASS_VARS {
-            command.env_remove(var);
-        }
-        command.envs(self.env.iter().map(|(key, value)| (key, value)));
-        command
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        if let Some(cwd) = cwd {
-            command.current_dir(cwd);
-        }
-        #[cfg(windows)]
-        command.creation_flags(CREATE_NO_WINDOW);
+        let mut command = tokio::process::Command::from(self.blocking_command(args, cwd));
+        command.kill_on_drop(true);
         command
     }
 
@@ -308,8 +303,9 @@ impl GitRunner {
         finish(output.status, output.stdout, output.stderr)
     }
 
-    /// The command [`run_blocking`](Self::run_blocking) spawns: as
-    /// [`command`](Self::command), for a blocking thread.
+    /// The command [`run_blocking`](Self::run_blocking) spawns: `git` with
+    /// `args` as an argument array, never through a shell (ARCH-3), and
+    /// [`GIT_ENV`] set.
     pub fn blocking_command(&self, args: &[OsString], cwd: Option<&Path>) -> std::process::Command {
         let mut command = std::process::Command::new(&self.git);
         command.args(args).envs(GIT_ENV);

@@ -4,20 +4,10 @@
 //! A tag is pushed and deleted on a remote by its full ref name, so a
 //! branch of the same name is never meant.
 
-use std::ffi::OsString;
 use std::path::Path;
 
+use super::run_args;
 use crate::{GitError, GitRunner, Output, Write};
-
-async fn tag_write(
-    git: &GitRunner,
-    repo: &Path,
-    args: &[&str],
-    write: Write<'_>,
-) -> Result<Output, GitError> {
-    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    git.run_write(&args, repo, write).await
-}
 
 /// Creates tag `name` at `commit` (`git tag`): annotated with `message`,
 /// read from stdin, or lightweight when `None`. An existing tag fails; it
@@ -40,7 +30,7 @@ pub async fn tag_create(
         stdin: message,
         ..write
     };
-    tag_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// Deletes local tag `name` (`git tag -d`).
@@ -50,7 +40,7 @@ pub async fn tag_delete(
     name: &str,
     write: Write<'_>,
 ) -> Result<Output, GitError> {
-    tag_write(git, repo, &["tag", "-d", "--end-of-options", name], write).await
+    run_args(git, repo, &["tag", "-d", "--end-of-options", name], write).await
 }
 
 /// Pushes tag `name` to remote `remote` under the same name (`git push
@@ -64,7 +54,7 @@ pub async fn tag_push(
     write: Write<'_>,
 ) -> Result<Output, GitError> {
     let refspec = format!("refs/tags/{name}");
-    tag_write(
+    run_args(
         git,
         repo,
         &["push", "--progress", "--end-of-options", remote, &refspec],
@@ -84,7 +74,7 @@ pub async fn remote_tag_delete(
     write: Write<'_>,
 ) -> Result<Output, GitError> {
     let refspec = format!("refs/tags/{name}");
-    tag_write(
+    run_args(
         git,
         repo,
         &[

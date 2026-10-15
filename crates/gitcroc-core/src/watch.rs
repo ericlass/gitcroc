@@ -21,13 +21,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
 use gitcroc_git::GitRepo;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 
+use crate::lock;
 use crate::{RepoId, WorkspaceId, Workspaces};
 
 /// A repo's change is reported this long after its last event.
@@ -153,18 +154,18 @@ struct Held {
 impl Shared {
     fn held(&self) -> MutexGuard<'_, Held> {
         // Each change is a single insert or removal.
-        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.held)
     }
 
     fn routes(&self) -> MutexGuard<'_, Routes> {
         // Each change is a single assignment; a panic leaves no half state.
-        self.routes.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.routes)
     }
 
     /// Gives the first warning; later ones are only the same problem again.
     fn warn(&self, message: String) {
         let warning = {
-            let mut given = self.warning.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut given = lock(&self.warning);
             if given.is_some() {
                 return;
             }
@@ -417,13 +418,9 @@ impl WorkspaceWatch {
     }
 
     fn lock(&self) -> MutexGuard<'_, Watch> {
-        lock_watch(&self.watch)
+        // A panic while watches change leaves at worst a watch too many.
+        lock(&self.watch)
     }
-}
-
-fn lock_watch(watch: &Mutex<Watch>) -> MutexGuard<'_, Watch> {
-    // A panic while watches change leaves at worst a watch too many.
-    watch.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Watchers {
@@ -443,9 +440,7 @@ impl Watchers {
 
     fn lock(&self) -> MutexGuard<'_, HashMap<WorkspaceId, WorkspaceWatch>> {
         // Entries are only inserted and removed whole.
-        self.workspaces
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.workspaces)
     }
 
     /// The watch of workspace `id`, started if it was not.
@@ -467,7 +462,7 @@ impl Watchers {
             return;
         };
         let (shared, watch) = self.workspace(id);
-        let mut watch = lock_watch(&watch);
+        let mut watch = lock(&watch);
         let known = std::mem::take(&mut shared.routes().repos);
         let repos: Vec<RepoDirs> = paths
             .into_iter()
@@ -500,7 +495,7 @@ impl Watchers {
     /// workers (ARCH-7).
     pub fn follow_selection(&self, id: &WorkspaceId) {
         let (shared, watch) = self.workspace(id);
-        lock_watch(&watch).follow_selection(&shared);
+        lock(&watch).follow_selection(&shared);
     }
 
     /// Drops the events of `repo` of workspace `id` while a write job runs
@@ -537,7 +532,7 @@ impl Watchers {
         let Some(watch) = self.lock().get(id).map(|watch| watch.watch.clone()) else {
             return Vec::new();
         };
-        let watch = lock_watch(&watch);
+        let watch = lock(&watch);
         let mut paths: Vec<WatchedPath> = watch.git.values().flatten().cloned().collect();
         if let Some(tree) = &watch.tree {
             paths.push(WatchedPath {
@@ -553,11 +548,7 @@ impl Watchers {
     /// The warning workspace `id` gave, if any.
     pub fn warning(&self, id: &WorkspaceId) -> Option<WatchWarning> {
         let shared = self.lock().get(id)?.shared.clone();
-        shared
-            .warning
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        lock(&shared.warning).clone()
     }
 }
 
@@ -647,7 +638,7 @@ fn debounce(shared: &Shared, watch: &Weak<Mutex<Watch>>, events: &Receiver<notif
                 if !created.is_empty()
                     && let Some(watch) = watch.upgrade()
                 {
-                    lock_watch(&watch).add_new_folders(shared, &created);
+                    lock(&watch).add_new_folders(shared, &created);
                 }
             }
             Ok(Err(error)) => shared.warn(format!("file watching failed: {error}")),

@@ -4,20 +4,10 @@
 //! the conflict state of a stash apply (OPS-1); its abort is
 //! [`super::resume`].
 
-use std::ffi::OsString;
 use std::path::Path;
 
+use super::run_args;
 use crate::{GitError, GitRunner, Output, Write};
-
-async fn stash_write(
-    git: &GitRunner,
-    repo: &Path,
-    args: &[&str],
-    write: Write<'_>,
-) -> Result<Output, GitError> {
-    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    git.run_write(&args, repo, write).await
-}
 
 /// `stash@{index}`.
 fn entry(index: u32) -> String {
@@ -41,7 +31,7 @@ pub async fn stash_push(
     if untracked {
         args.push("--include-untracked");
     }
-    stash_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// Applies `stash@{index}` to the working copy (`git stash apply`), or
@@ -56,7 +46,7 @@ pub async fn stash_apply(
 ) -> Result<Output, GitError> {
     let entry = entry(index);
     let verb = if pop { "pop" } else { "apply" };
-    stash_write(git, repo, &["stash", verb, &entry], write).await
+    run_args(git, repo, &["stash", verb, &entry], write).await
 }
 
 /// Drops `stash@{index}` (`git stash drop`). Cannot be undone from the
@@ -68,5 +58,5 @@ pub async fn stash_drop(
     write: Write<'_>,
 ) -> Result<Output, GitError> {
     let entry = entry(index);
-    stash_write(git, repo, &["stash", "drop", &entry], write).await
+    run_args(git, repo, &["stash", "drop", &entry], write).await
 }

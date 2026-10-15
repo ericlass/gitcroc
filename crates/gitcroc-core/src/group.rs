@@ -46,7 +46,7 @@ enum Value {
 
 /// The branch of a group whose members have `views`, in any order. A
 /// member with a missing path or no summary does not count.
-pub fn group_branch<'a>(views: impl IntoIterator<Item = &'a SummaryView>) -> GroupBranch {
+fn group_branch<'a>(views: impl IntoIterator<Item = &'a SummaryView>) -> GroupBranch {
     let values: BTreeSet<Value> = views
         .into_iter()
         .filter(|view| !view.missing)

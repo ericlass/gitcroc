@@ -12,9 +12,7 @@ use gitcroc_git::{Conflict, ConflictContent, GitRepo, first_marker_line};
 use serde::{Deserialize, Serialize};
 
 use crate::changes::ViewState;
-use crate::{
-    Changes, ChangesError, GitRunner, JobId, Jobs, NothingToDo, OnCancel, WorkspaceId, WriteJob,
-};
+use crate::{Changes, ChangesError, GitRunner, JobId, Jobs, WorkspaceId, WriteJob};
 
 /// What `conflict_get` found.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
@@ -135,18 +133,9 @@ where
         + Send
         + 'static,
 {
-    let job = WriteJob {
-        workspace_id: id,
-        repos: vec![view.repo],
-        label,
-        on_cancel: OnCancel::Finish,
-        may_conflict: false,
-        nothing_to_do: NothingToDo::Never,
-        network: false,
-    };
-    let fallback = view.path;
+    let job = WriteJob::single(id, view.repo, label);
+    let path = view.path;
     let handle = jobs.start(git, job, move |job| async move {
-        let path = job.paths.first().cloned().unwrap_or(fallback);
         run(job.git.clone(), path, job).await
     })?;
     Ok(ConflictStart::Started {

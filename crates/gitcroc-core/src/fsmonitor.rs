@@ -11,11 +11,11 @@ use std::sync::Arc;
 
 use gitcroc_git::{StatusReader, ops};
 
-use crate::changes::lock;
-use crate::unblocked::{BlockedError, open_unblocked, repo_name};
+use crate::lock;
+use crate::unblocked::{from_blocked, open_unblocked, repo_name};
 use crate::{
-    Changes, ChangesError, GitRunner, JobError, JobId, Jobs, NothingToDo, OnCancel, OpenError,
-    RepoId, StatusReadError, Summaries, WorkspaceError, WorkspaceId, Workspaces, WriteJob,
+    Changes, ChangesError, GitRunner, JobError, JobId, Jobs, OpenError, RepoId, StatusReadError,
+    Summaries, WorkspaceError, WorkspaceId, Workspaces, WriteJob,
 };
 
 /// Over this many tracked files a repo gets the offer (PERF-7).
@@ -71,17 +71,7 @@ pub enum FsmonitorError {
     Stopped(#[from] tokio::task::JoinError),
 }
 
-impl From<BlockedError> for FsmonitorError {
-    fn from(error: BlockedError) -> Self {
-        match error {
-            BlockedError::Workspace(error) => Self::Workspace(error),
-            BlockedError::Open(error) => Self::Open(error),
-            BlockedError::Status(error) => Self::Status(error),
-            BlockedError::Stopped(error) => Self::Stopped(error),
-            BlockedError::Blocked(why) => Self::Refused(why),
-        }
-    }
-}
+from_blocked!(FsmonitorError);
 
 /// The user accepted the offer for repo `repo_id` of workspace `id`: turns
 /// on the offered keys in its local config as a job (ARCH-1). Refused for a
@@ -102,19 +92,10 @@ pub async fn fsmonitor_enable(
     } else {
         format!("Turn on the untracked cache of {name}")
     };
-    let job = WriteJob {
-        workspace_id: id.clone(),
-        repos: vec![repo_id.clone()],
-        label,
-        on_cancel: OnCancel::Finish,
-        may_conflict: false,
-        nothing_to_do: NothingToDo::Never,
-        network: false,
-    };
+    let job = WriteJob::single(id.clone(), repo_id.clone(), label);
     let key = (id, repo_id);
     lock(&changes.enabling).insert(key.clone());
     let started = jobs.start(git, job, move |run| async move {
-        let path = run.paths.first().cloned().unwrap_or(path);
         ops::fsmonitor_enable(&run.git, &path, run.write()).await
     });
     let handle = match started {

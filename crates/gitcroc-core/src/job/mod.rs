@@ -12,7 +12,7 @@ mod pool;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use gitcroc_git::{
@@ -22,6 +22,7 @@ use gitcroc_git::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
+use crate::lock;
 use crate::{RepoId, Summaries, SummaryView, WorkspaceError, Workspaces};
 
 pub use pool::{POOL_SIZE, Pool, Priority, Worker};
@@ -160,6 +161,22 @@ pub struct WriteJob {
     pub network: bool,
 }
 
+impl WriteJob {
+    /// A local write to `repo` that runs to its end when cancelled, cannot
+    /// stop in conflict state and always does something when git succeeds.
+    pub fn single(workspace_id: WorkspaceId, repo: RepoId, label: String) -> Self {
+        Self {
+            workspace_id,
+            repos: vec![repo],
+            label,
+            on_cancel: OnCancel::Finish,
+            may_conflict: false,
+            nothing_to_do: NothingToDo::Never,
+            network: false,
+        }
+    }
+}
+
 /// Lets the prompts of one network job reach the user (D10): the app's
 /// askpass helper, ready for that job.
 pub trait AskpassIssuer: Send + Sync {
@@ -237,11 +254,6 @@ impl JobRun {
             askpass: self.askpass.as_ref(),
             ..Write::default()
         }
-    }
-
-    /// The job's kill request, never made when the job runs to its end.
-    pub fn kill(&self) -> &Kill {
-        &self.kill
     }
 
     /// Reports `done` of `total` steps.
@@ -391,7 +403,7 @@ impl Jobs {
     fn lock(&self) -> MutexGuard<'_, State> {
         // Each change is a push, a removal or a field set, so a panic
         // leaves no half-changed state.
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     /// Starts `job`: it waits for its repos (ARCH-4) and a worker, then runs

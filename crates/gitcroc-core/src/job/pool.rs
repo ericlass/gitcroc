@@ -4,9 +4,11 @@
 //! order and their lowest thread priority.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use tokio::sync::oneshot;
+
+use crate::lock;
 
 /// Workers in the pool.
 pub const POOL_SIZE: usize = 8;
@@ -45,7 +47,7 @@ impl Pool {
 
     fn lock(&self) -> MutexGuard<'_, State> {
         // Each change is a counter step or a queue push or pop.
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     /// Waits for a worker: at once when one is free, else when one is
