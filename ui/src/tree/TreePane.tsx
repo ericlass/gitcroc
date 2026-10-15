@@ -7,7 +7,7 @@
 // edits or removes it. Everything shown comes from the stores, which take it from
 // the core; this component only lays it out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
 import {
   type RepoId,
   repoOpenFileManager,
@@ -154,6 +154,13 @@ function TreeList(props: {
     virtualizer.scrollToIndex(index, { align: "auto" });
   };
 
+  // Shown again, as when its tab is active again: where it was (UI-29).
+  onMount(() => {
+    if (scroller) {
+      scroller.scrollTop = untrack(() => tree().scrollTop);
+    }
+  });
+
   const toggle = (row: Row) => {
     if (row.kind === "node" && row.expandable) {
       props.tree.setExpanded(props.workspace, row.node, !row.expanded);
@@ -232,6 +239,7 @@ function TreeList(props: {
       tabindex="0"
       aria-activedescendant={selectedIndex() >= 0 ? `tree-row-${selectedIndex()}` : undefined}
       onKeyDown={onKeyDown}
+      onScroll={(event) => props.tree.setScrollTop(props.workspace, event.currentTarget.scrollTop)}
     >
       <div class="tree-rows" style={{ height: `${virtualizer.getTotalSize()}px` }}>
         <For each={virtualizer.getVirtualItems()}>

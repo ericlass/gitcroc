@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, expect, test } from "vitest";
 import App from "./App";
 import { emitJobProgress, emitWatchWarning, fakeState, reset } from "./ipc/fake";
@@ -42,7 +42,7 @@ test("UI-20 layout: tab bar, toolbar, three panes and status bar", async () => {
   expect(buttons.filter((b) => !b.disabled).map((b) => b.textContent)).toEqual(["Settings"]);
 
   expect((await screen.findByRole("tab", { name: "My workspace" })).getAttribute("aria-selected")).toBe("true");
-  expect((screen.getByRole("button", { name: "Open workspace" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Open workspace" }) as HTMLButtonElement).disabled).toBe(false);
   for (const pane of ["Tree", "History", "Changes"]) {
     expect(await screen.findByRole("region", { name: pane })).toBeDefined();
   }
@@ -52,6 +52,8 @@ test("UI-20 layout: tab bar, toolbar, three panes and status bar", async () => {
 
 test("ARCH-9 the workspace id comes from the core's workspace file", async () => {
   fakeState.workspace = { ...fakeState.workspace, id: "0b7c6f2e-uuid", name: "Platform" };
+  fakeState.tabs = ["0b7c6f2e-uuid"];
+  fakeState.active = "0b7c6f2e-uuid";
   render(() => <App />);
   const status = await screen.findByRole("status");
   expect(screen.getByRole("tab", { name: "Platform" })).toBeDefined();
@@ -85,8 +87,16 @@ test("OPS-7 a file watching failure shows a banner until dismissed", async () =>
 });
 
 test("UI-27 with every tab closed the window shows that no workspace is open", async () => {
-  fakeState.workspaceOpen = false;
+  fakeState.tabs = [];
+  fakeState.active = null;
   render(() => <App />);
-  expect(await screen.findByText("No workspace is open.")).toBeDefined();
+  expect(await screen.findByText(/No workspace is open/)).toBeDefined();
   expect(screen.queryByRole("region", { name: "Tree" })).toBeNull();
+  // The "+" menu's actions, in place (UI-28).
+  const start = screen.getByRole("group", { name: "Workspaces" });
+  expect(await within(start).findByRole("button", { name: /^My workspace/ })).toBeDefined();
+  expect(within(start).getByRole("button", { name: "New workspace…" })).toBeDefined();
+  expect((within(start).getByRole("button", { name: "Import workspace…" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(within(start).getByRole("button", { name: /^My workspace/ }));
+  expect(await screen.findByRole("region", { name: "Tree" })).toBeDefined();
 });

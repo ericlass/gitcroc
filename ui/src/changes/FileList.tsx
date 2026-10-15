@@ -5,7 +5,7 @@
 // moves a file to the other list. Which files may be changed is the
 // core's to check; this only forwards what was clicked (ARCH-6).
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, For, Match, Show, Switch } from "solid-js";
+import { createMemo, For, Match, onMount, Show, Switch } from "solid-js";
 import type { ChangeAction, ChangesContent, FileListMode, FileStatus, UnmergedKind } from "../ipc";
 import { type FileEntry, type FileKey, type FileRow, fileRows, sameFile } from "./fileRows";
 
@@ -98,6 +98,9 @@ export default function FileList(props: {
   onAction?: (action: ChangeAction, files: FileKey[]) => void;
   /** Whether the conflict editor holds unsaved edits of an unmerged file, by path (OPS-9). */
   unsaved?: (path: string) => boolean;
+  /** Where the list was scrolled when it was last shown (UI-29). */
+  scrollTop: number;
+  onScroll: (scrollTop: number) => void;
 }) {
   let scroller: HTMLDivElement | undefined;
   const rows = createMemo(() => fileRows(props.content, props.mode, props.collapsed));
@@ -111,6 +114,13 @@ export default function FileList(props: {
     getScrollElement: () => scroller ?? null,
     estimateSize: () => FILE_ROW_HEIGHT,
     overscan: OVERSCAN,
+  });
+
+  // Shown again, as when its tab is active again: where it was (UI-29).
+  onMount(() => {
+    if (scroller) {
+      scroller.scrollTop = props.scrollTop;
+    }
   });
 
   const selectAt = (index: number) => {
@@ -291,6 +301,7 @@ export default function FileList(props: {
       tabindex="0"
       aria-activedescendant={selectedIndex() >= 0 ? `file-row-${selectedIndex()}` : undefined}
       onKeyDown={onKeyDown}
+      onScroll={(event) => props.onScroll(event.currentTarget.scrollTop)}
     >
       <div class="file-rows" style={{ height: `${virtualizer.getTotalSize()}px` }}>
         <For each={virtualizer.getVirtualItems()}>

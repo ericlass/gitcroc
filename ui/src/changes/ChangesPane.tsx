@@ -296,6 +296,8 @@ export default function ChangesPane(props: {
                     const repo = changes().selection?.repo_id;
                     return repo !== undefined && props.conflicts.unsaved(props.workspace, repo, path);
                   }}
+                  scrollTop={changes().listScroll}
+                  onScroll={(top) => props.changes.setScroll(props.workspace, "listScroll", top)}
                 />
                 <Show when={committable()}>
                   {(target) => (
@@ -364,6 +366,8 @@ export default function ChangesPane(props: {
                               wrap={view().wrap_lines}
                               context={view().context}
                               controls={controls()}
+                              scrollTop={changes().diffScroll}
+                              onScroll={(top) => props.changes.setScroll(props.workspace, "diffScroll", top)}
                             />
                           )}
                         </Match>

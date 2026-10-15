@@ -12,7 +12,7 @@ import {
 } from "solid-js";
 import AskpassDialog from "./AskpassDialog";
 import GitSetup from "./GitSetup";
-import { appInfo } from "./ipc";
+import { appInfo, type WorkspaceId } from "./ipc";
 import JobList from "./jobs/JobList";
 import Panes from "./layout/Panes";
 import StatusBar from "./layout/StatusBar";
@@ -51,6 +51,8 @@ import { createTreeStore } from "./stores/tree";
 import { createWatchStore } from "./stores/watch";
 import { createWorkspaceStore } from "./stores/workspaces";
 import { followAppearance, followDesktopFonts, followTheme } from "./theme/theme";
+import WorkspaceDialogsView, { createWorkspaceDialogs } from "./workspaces/WorkspaceDialogs";
+import { WorkspaceStart } from "./workspaces/WorkspaceMenu";
 
 export default function App() {
   const [info] = createResource(appInfo);
@@ -78,8 +80,12 @@ export default function App() {
   // An aborted stash apply leaves nothing to offer dropping.
   const integrate = createIntegrateStore((id, repo) => stash.forget(id, repo));
   const watch = createWatchStore();
+  const workspaceDialogs = createWorkspaceDialogs();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [jobsOpen, setJobsOpen] = createSignal(false);
+  const [missingDismissed, setMissingDismissed] = createSignal(false);
+  /** Why a workspace chosen while no tab is open did not open. */
+  const [startError, setStartError] = createSignal<string | null>(null);
 
   // The active tab's workspace (UI-27). It is passed down, never read from
   // a module, so switching tabs needs no rework (ARCH-9).
@@ -142,6 +148,29 @@ export default function App() {
   };
 
   const repoName = (repo: string) => workspace()?.repos.find((known) => known.id === repo)?.name ?? repo;
+
+  /** Closes a tab, after asking when it holds unsaved conflict edits (OPS-9). Its jobs keep running (UI-21). */
+  const closeTab = (id: WorkspaceId) => {
+    const view = workspaces.state.views?.find((open) => open.id === id);
+    const files = conflicts.unsavedFiles(id);
+    if (view === undefined || files.length === 0) {
+      return closeConfirmed(id);
+    }
+    const name = (repo: string) => view.repos.find((known) => known.id === repo)?.name ?? repo;
+    workspaceDialogs.open({
+      kind: "close",
+      id,
+      name: view.name,
+      files: files.map((file) => `${name(file.repo)}: ${file.path}`),
+    });
+    return Promise.resolve();
+  };
+
+  /** Closes a tab; the unsaved conflict edits it held are dropped with it. */
+  const closeConfirmed = async (id: WorkspaceId) => {
+    await workspaces.close(id);
+    conflicts.forgetWorkspace(id);
+  };
 
   followAppearance(settings.appearance, followTheme(settings.theme));
   followDesktopFonts(() => ({ ui: info()?.ui_font ?? null, code: info()?.code_font ?? null }));
@@ -255,7 +284,18 @@ export default function App() {
       </Match>
       <Match when={true}>
         <div class="app">
-          <TabBar name={workspace()?.name} />
+          <TabBar workspaces={workspaces} dialogs={workspaceDialogs} onClose={closeTab} />
+          <Show when={!missingDismissed() && workspaces.state.missing.length > 0}>
+            <div role="alert" class="banner banner-dismissible">
+              <span>
+                These workspace files were not found, so their tabs were not restored:{" "}
+                {workspaces.state.missing.join(", ")}
+              </span>
+              <button type="button" onClick={() => setMissingDismissed(true)}>
+                Dismiss
+              </button>
+            </div>
+          </Show>
           <Toolbar
             sync={syncActions()}
             onBranch={
@@ -306,17 +346,29 @@ export default function App() {
               </Show>
             )}
           </Show>
+          {/* Keyed: each tab's panes are built anew from its own state, so nothing of one tab shows in another
+              (UI-29). */}
           <Show
             when={workspace()?.id}
+            keyed
             fallback={
               <main class="main">
-                <p class="placeholder">
-                  {workspaces.state.error !== null
-                    ? `Cannot open the workspace: ${workspaces.state.error}`
-                    : workspaces.state.views === null
-                      ? "Opening the workspace…"
-                      : "No workspace is open."}
-                </p>
+                <Switch
+                  fallback={
+                    <div class="empty-state">
+                      <p class="placeholder">No workspace is open. Open one or create a new one.</p>
+                      <Show when={startError()}>{(text) => <p role="alert">{text()}</p>}</Show>
+                      <WorkspaceStart workspaces={workspaces} dialogs={workspaceDialogs} onError={setStartError} />
+                    </div>
+                  }
+                >
+                  <Match when={workspaces.state.error !== null}>
+                    <p class="placeholder">Cannot open the workspace: {workspaces.state.error}</p>
+                  </Match>
+                  <Match when={workspaces.state.views === null}>
+                    <p class="placeholder">Opening the workspace…</p>
+                  </Match>
+                </Switch>
               </main>
             }
           >
@@ -324,7 +376,7 @@ export default function App() {
               <>
                 <main class="main">
                   <Panes
-                    workspace={id()}
+                    workspace={id}
                     layout={layout}
                     tree={tree}
                     summaries={summaries}
@@ -343,20 +395,21 @@ export default function App() {
                     settings={settings}
                   />
                 </main>
-                <BranchDialogs workspace={id()} branch={branch} repoName={repoName} />
-                <SyncDialogs workspace={id()} sync={sync} repoName={repoName} />
-                <StashDialogs workspace={id()} stash={stash} repoName={repoName} />
-                <TagDialogs workspace={id()} tag={tag} repoName={repoName} />
-                <RemoteDialogs workspace={id()} remote={remote} repoName={repoName} />
-                <Show when={clone.isOpen(id())}>
-                  <CloneDialog workspace={id()} clone={clone} />
+                <BranchDialogs workspace={id} branch={branch} repoName={repoName} />
+                <SyncDialogs workspace={id} sync={sync} repoName={repoName} />
+                <StashDialogs workspace={id} stash={stash} repoName={repoName} />
+                <TagDialogs workspace={id} tag={tag} repoName={repoName} />
+                <RemoteDialogs workspace={id} remote={remote} repoName={repoName} />
+                <Show when={clone.isOpen(id)}>
+                  <CloneDialog workspace={id} clone={clone} />
                 </Show>
-                <ResetDialogs workspace={id()} reset={reset} repoName={repoName} />
-                <IntegrateDialogs workspace={id()} integrate={integrate} repoName={repoName} branchOf={branchOf} />
-                <StatusBar workspace={id()} jobs={jobs} onOpenJobs={() => setJobsOpen(true)} />
+                <ResetDialogs workspace={id} reset={reset} repoName={repoName} />
+                <IntegrateDialogs workspace={id} integrate={integrate} repoName={repoName} branchOf={branchOf} />
+                <StatusBar workspace={id} jobs={jobs} onOpenJobs={() => setJobsOpen(true)} />
               </>
             )}
           </Show>
+          <WorkspaceDialogsView dialogs={workspaceDialogs} workspaces={workspaces} onCloseTab={closeConfirmed} />
           <Show when={jobsOpen()}>
             <JobList jobs={jobs} onClose={() => setJobsOpen(false)} />
           </Show>

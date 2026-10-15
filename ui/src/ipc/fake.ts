@@ -171,10 +171,14 @@ export const fakeState: {
   appInfo: AppInfo;
   gitStatus: GitStatus;
   settings: SettingsView;
-  /** The fake's only workspace; M3-02 brings several. */
+  /** The first workspace file; the repo and job fakes act on it. */
   workspace: WorkspaceView;
-  /** Whether its tab is open. */
-  workspaceOpen: boolean;
+  /** More workspace files, after `workspace` (UI-27). */
+  others: WorkspaceView[];
+  /** The open tabs by workspace id, in order. */
+  tabs: WorkspaceId[];
+  /** The active tab; `null` when none is open. */
+  active: WorkspaceId | null;
   /** What the folder dialog returns; `null` is a cancel. */
   pickedFolder: string | null;
   /** What `workspace_summaries` returns, of any workspace. */
@@ -283,7 +287,9 @@ export const fakeState: {
   gitStatus: defaultGitStatus,
   settings: defaultSettings,
   workspace: defaultWorkspace,
-  workspaceOpen: true,
+  others: [],
+  tabs: [defaultWorkspace.id],
+  active: defaultWorkspace.id,
   pickedFolder: null,
   summaries: [],
   selected: {},
@@ -972,10 +978,28 @@ export function emitWorkspaceChanged(payload: WorkspaceView): void {
   emit(workspaceChangedListeners, "workspace_changed", payload);
 }
 
+/** Every workspace file of the fake. */
+const fakeWorkspaces = () => [fakeState.workspace, ...fakeState.others];
+
+/** Workspace `id` while its tab is open. */
+function openWorkspace(id: WorkspaceId): WorkspaceView | undefined {
+  return fakeState.tabs.includes(id) ? fakeWorkspaces().find((workspace) => workspace.id === id) : undefined;
+}
+
+/** Replaces the workspace file with `view`'s id. */
+function setFakeWorkspace(view: WorkspaceView): void {
+  if (view.id === fakeState.workspace.id) {
+    fakeState.workspace = view;
+  } else {
+    fakeState.others = fakeState.others.map((other) => (other.id === view.id ? view : other));
+  }
+}
+
 /** The open tabs as `workspace_get` returns them. */
 export function fakeTabs(): WorkspaceTabs {
-  const open = fakeState.workspaceOpen ? [fakeState.workspace] : [];
-  return { open, active: open[0]?.id ?? null, missing: [] };
+  const open = fakeState.tabs.flatMap((id) => fakeWorkspaces().filter((workspace) => workspace.id === id));
+  const active = open.some((workspace) => workspace.id === fakeState.active) ? fakeState.active : null;
+  return { open, active, missing: [] };
 }
 
 /** Delivers a `workspaces_changed` event with the fake's tabs, as the core would. */
@@ -1011,7 +1035,9 @@ export function reset(): void {
   fakeState.gitStatus = defaultGitStatus;
   fakeState.settings = defaultSettings;
   fakeState.workspace = defaultWorkspace;
-  fakeState.workspaceOpen = true;
+  fakeState.others = [];
+  fakeState.tabs = [defaultWorkspace.id];
+  fakeState.active = defaultWorkspace.id;
   fakeState.pickedFolder = null;
   fakeState.summaries = [];
   fakeState.selected = {};
@@ -1128,7 +1154,25 @@ const changedTabs = () => {
   return Promise.resolve({ status: "ok" as const, data: fakeTabs() });
 };
 
-/** Like the core's tab changes, for the fake's one workspace (M3-01). */
+let nextWorkspace = 1;
+
+/** The name checked as the core checks it (UI-27): trimmed, 1 to 64 characters, unique ignoring case. */
+function checkName(name: string, own: WorkspaceId | null) {
+  const trimmed = name.trim();
+  if (trimmed === "") {
+    return { refused: "a workspace name cannot be blank" };
+  }
+  if ([...trimmed].length > 64) {
+    return { refused: "a workspace name has at most 64 characters" };
+  }
+  const lower = trimmed.toLowerCase();
+  if (fakeWorkspaces().some((workspace) => workspace.id !== own && workspace.name.toLowerCase() === lower)) {
+    return { refused: `a workspace named ${trimmed} exists` };
+  }
+  return { name: trimmed };
+}
+
+/** Like the core's tab changes, for the fake's workspace files (UI-27, UI-28). */
 const fakeTabCommands: Pick<
   Core["commands"],
   | "workspaceList"
@@ -1140,62 +1184,97 @@ const fakeTabCommands: Pick<
   | "workspaceReorder"
   | "workspaceActivate"
 > = {
-  workspaceList: () =>
-    Promise.resolve({
-      status: "ok",
-      data: [{ id: fakeState.workspace.id, name: fakeState.workspace.name, open: fakeState.workspaceOpen, warning: null }],
-    }),
-  workspaceCreate: () => nameRefused("the fake core holds one workspace"),
+  workspaceList: () => {
+    const items = fakeWorkspaces().map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      open: fakeState.tabs.includes(workspace.id),
+      warning: workspace.warning,
+    }));
+    items.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.id.localeCompare(b.id));
+    return Promise.resolve({ status: "ok", data: items });
+  },
+  workspaceCreate: (name) => {
+    const checked = checkName(name, null);
+    if (checked.name === undefined) {
+      return nameRefused(checked.refused);
+    }
+    const id = `fake-created-${nextWorkspace++}`;
+    fakeState.others = [...fakeState.others, { ...defaultWorkspace, id, name: checked.name }];
+    fakeState.tabs = [...fakeState.tabs, id];
+    fakeState.active = id;
+    return changedTabs();
+  },
   workspaceOpen: (workspaceId) => {
-    if (workspaceId !== fakeState.workspace.id) {
+    if (!fakeWorkspaces().some((workspace) => workspace.id === workspaceId)) {
       return notFound(`no workspace file has the id ${workspaceId}`);
     }
-    fakeState.workspaceOpen = true;
+    if (!fakeState.tabs.includes(workspaceId)) {
+      fakeState.tabs = [...fakeState.tabs, workspaceId];
+    }
+    fakeState.active = workspaceId;
     return changedTabs();
   },
   workspaceClose: (workspaceId) => {
-    if (!fakeState.workspaceOpen || workspaceId !== fakeState.workspace.id) {
+    const index = fakeState.tabs.indexOf(workspaceId);
+    if (index < 0) {
       return notFound(`no open workspace has the id ${workspaceId}`);
     }
-    fakeState.workspaceOpen = false;
+    fakeState.tabs = fakeState.tabs.filter((id) => id !== workspaceId);
+    // Like the core: the tab that takes its place, else the one before it.
+    if (fakeState.active === workspaceId) {
+      fakeState.active = fakeState.tabs[index] ?? fakeState.tabs[fakeState.tabs.length - 1] ?? null;
+    }
     return changedTabs();
   },
   workspaceRename: (workspaceId, name) => {
-    if (workspaceId !== fakeState.workspace.id) {
+    const workspace = fakeWorkspaces().find((known) => known.id === workspaceId);
+    if (workspace === undefined) {
       return notFound(`no workspace file has the id ${workspaceId}`);
     }
-    const trimmed = name.trim();
-    if (trimmed === "") {
-      return nameRefused("a workspace name cannot be blank");
+    const checked = checkName(name, workspaceId);
+    if (checked.name === undefined) {
+      return nameRefused(checked.refused);
     }
-    if ([...trimmed].length > 64) {
-      return nameRefused("a workspace name has at most 64 characters");
-    }
-    fakeState.workspace = { ...fakeState.workspace, name: trimmed };
-    if (fakeState.workspaceOpen) {
-      emitWorkspaceChanged(fakeState.workspace);
+    const renamed = { ...workspace, name: checked.name };
+    setFakeWorkspace(renamed);
+    if (fakeState.tabs.includes(workspaceId)) {
+      emitWorkspaceChanged(renamed);
     }
     return changedTabs();
   },
   workspaceDelete: (workspaceId, confirmed) => {
-    if (workspaceId !== fakeState.workspace.id) {
+    if (!fakeWorkspaces().some((workspace) => workspace.id === workspaceId)) {
       return notFound(`no workspace file has the id ${workspaceId}`);
     }
     if (!confirmed) {
       return nameRefused("deleting a workspace needs confirmation");
     }
-    return fakeState.workspaceOpen
-      ? nameRefused("the workspace is open; close its tab first")
-      : nameRefused("the fake core keeps its one workspace");
+    if (fakeState.tabs.includes(workspaceId)) {
+      return nameRefused("the workspace is open; close its tab first");
+    }
+    if (workspaceId === fakeState.workspace.id) {
+      return nameRefused("the fake core keeps its first workspace");
+    }
+    fakeState.others = fakeState.others.filter((workspace) => workspace.id !== workspaceId);
+    return Promise.resolve({ status: "ok", data: null });
   },
-  workspaceReorder: (workspaceIds) =>
-    workspaceIds.length === fakeTabs().open.length && workspaceIds.every((id) => id === fakeState.workspace.id)
-      ? changedTabs()
-      : nameRefused("the tab order must name each open workspace once"),
-  workspaceActivate: (workspaceId) =>
-    fakeState.workspaceOpen && workspaceId === fakeState.workspace.id
-      ? changedTabs()
-      : notFound(`no open workspace has the id ${workspaceId}`),
+  workspaceReorder: (workspaceIds) => {
+    const sorted = [...workspaceIds].sort();
+    const open = [...fakeState.tabs].sort();
+    if (sorted.length !== open.length || sorted.some((id, index) => id !== open[index])) {
+      return nameRefused("the tab order must name each open workspace once");
+    }
+    fakeState.tabs = [...workspaceIds];
+    return changedTabs();
+  },
+  workspaceActivate: (workspaceId) => {
+    if (!fakeState.tabs.includes(workspaceId)) {
+      return notFound(`no open workspace has the id ${workspaceId}`);
+    }
+    fakeState.active = workspaceId;
+    return changedTabs();
+  },
 };
 
 /**
@@ -1369,7 +1448,7 @@ export const fake: Core = {
       return Promise.resolve({ status: "ok", data: fakeState.workspace });
     },
     workspaceSummaries: (workspaceId) => {
-      if (workspaceId !== fakeState.workspace.id) {
+      if (openWorkspace(workspaceId) === undefined) {
         return notFound(`no open workspace has the id ${workspaceId}`);
       }
       const summaries = fakeState.summaries.filter((view) => view.workspace_id === workspaceId);
@@ -1380,7 +1459,7 @@ export const fake: Core = {
       return Promise.resolve({ status: "ok", data: null });
     },
     workspaceRefresh: (workspaceId) => {
-      if (workspaceId !== fakeState.workspace.id) {
+      if (openWorkspace(workspaceId) === undefined) {
         return notFound(`no open workspace has the id ${workspaceId}`);
       }
       fakeState.refreshes.push(workspaceId);
@@ -1400,13 +1479,14 @@ export const fake: Core = {
         data: fakeState.watchWarning?.workspace_id === workspaceId ? fakeState.watchWarning : null,
       }),
     treeGet: (workspaceId) => {
-      if (workspaceId !== fakeState.workspace.id) {
+      const workspace = openWorkspace(workspaceId);
+      if (workspace === undefined) {
         return notFound(`no open workspace has the id ${workspaceId}`);
       }
-      return Promise.resolve({ status: "ok", data: skeleton(fakeState.workspace) });
+      return Promise.resolve({ status: "ok", data: skeleton(workspace) });
     },
     refsGet: (workspaceId, repoId) => {
-      if (workspaceId !== fakeState.workspace.id || !fakeState.workspace.repos.some((repo) => repo.id === repoId)) {
+      if (!openWorkspace(workspaceId)?.repos.some((repo) => repo.id === repoId)) {
         return notFound(`the workspace has no repo with the id ${repoId}`);
       }
       fakeState.refsCalls[repoId] = (fakeState.refsCalls[repoId] ?? 0) + 1;
@@ -1420,14 +1500,15 @@ export const fake: Core = {
       return Promise.resolve({ status: "ok", data: refs });
     },
     treeFilter: (workspaceId, text) => {
-      if (workspaceId !== fakeState.workspace.id) {
+      const workspace = openWorkspace(workspaceId);
+      if (workspace === undefined) {
         return notFound(`no open workspace has the id ${workspaceId}`);
       }
-      return Promise.resolve({ status: "ok", data: filterTree(fakeState.workspace, fakeState.refs, text) });
+      return Promise.resolve({ status: "ok", data: filterTree(workspace, fakeState.refs, text) });
     },
     historyGet: (workspaceId, repoId, target, text) => {
-      const repo = fakeState.workspace.repos.find((candidate) => candidate.id === repoId);
-      if (workspaceId !== fakeState.workspace.id || !repo) {
+      const repo = openWorkspace(workspaceId)?.repos.find((candidate) => candidate.id === repoId);
+      if (!repo) {
         return notFound(`the workspace has no repo with the id ${repoId}`);
       }
       fakeState.historyCalls.push({ command: "get", text });
@@ -1537,15 +1618,16 @@ export const fake: Core = {
       return Promise.resolve({ status: "ok", data: fakeState.settings });
     },
     workspaceSetLayout: (workspaceId, layout) => {
-      if (workspaceId !== fakeState.workspace.id) {
+      const workspace = openWorkspace(workspaceId);
+      if (workspace === undefined) {
         return notFound(`no open workspace has the id ${workspaceId}`);
       }
       fakeState.layouts.push(layout);
-      fakeState.workspace = { ...fakeState.workspace, layout };
+      setFakeWorkspace({ ...workspace, layout });
       return Promise.resolve({ status: "ok", data: null });
     },
     changesGet: (workspaceId, repoId, target) => {
-      if (workspaceId !== fakeState.workspace.id || !fakeState.workspace.repos.some((repo) => repo.id === repoId)) {
+      if (!openWorkspace(workspaceId)?.repos.some((repo) => repo.id === repoId)) {
         return notFound(`the workspace has no repo with the id ${repoId}`);
       }
       fakeState.changesCalls.push({ command: "changes", repo: repoId, target });

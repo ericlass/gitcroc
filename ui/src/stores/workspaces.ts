@@ -1,9 +1,24 @@
 // The open workspaces as the core reports them (ARCH-6, ARCH-9). The store
-// only mirrors `workspace_get` and the `workspaces_changed`,
-// `workspace_changed` and `workspace_add_report` events; the core decides
-// and saves.
+// mirrors `workspace_get` and the `workspaces_changed`, `workspace_changed`
+// and `workspace_add_report` events, and sends the tab changes (UI-27,
+// UI-28); the core checks names, decides and saves.
 import { createStore } from "solid-js/store";
-import { type AddReport, core, type WorkspaceId, type WorkspaceTabs, type WorkspaceView, workspaceGet } from "../ipc";
+import {
+  type AddReport,
+  core,
+  type WorkspaceId,
+  workspaceActivate,
+  workspaceClose,
+  workspaceCreate,
+  workspaceDelete,
+  workspaceGet,
+  workspaceList,
+  workspaceOpen,
+  workspaceRename,
+  workspaceReorder,
+  type WorkspaceTabs,
+  type WorkspaceView,
+} from "../ipc";
 
 export interface WorkspacesState {
   /** In tab order; `null` until the first read. */
@@ -79,7 +94,39 @@ export function createWorkspaceStore() {
     return unlisten;
   };
 
-  return { state, active, subscribe };
+  /** Sends a tab change; the tabs it answers with are shown at once, as its event would show them. */
+  const change = async (request: Promise<WorkspaceTabs>) => recordTabs(await request);
+
+  /** Moves open workspace `id` by `step` places in the tab order; past either end it stays. */
+  const move = (id: WorkspaceId, step: number) => {
+    const order = (state.views ?? []).map((view) => view.id);
+    const from = order.indexOf(id);
+    const to = from + step;
+    if (from < 0 || to < 0 || to >= order.length) {
+      return Promise.resolve();
+    }
+    order.splice(from, 1);
+    order.splice(to, 0, id);
+    return change(workspaceReorder(order));
+  };
+
+  return {
+    state,
+    active,
+    subscribe,
+    /** Every workspace file, open ones marked, sorted by name. */
+    list: workspaceList,
+    create: (name: string) => change(workspaceCreate(name)),
+    /** Opens a workspace as the last tab, or switches to it when it is open (UI-27). */
+    open: (id: WorkspaceId) => change(workspaceOpen(id)),
+    close: (id: WorkspaceId) => change(workspaceClose(id)),
+    rename: (id: WorkspaceId, name: string) => change(workspaceRename(id, name)),
+    activate: (id: WorkspaceId) => change(workspaceActivate(id)),
+    reorder: (order: WorkspaceId[]) => change(workspaceReorder(order)),
+    move,
+    /** Deletes the file of a workspace that is not open, after the user confirmed. */
+    remove: (id: WorkspaceId) => workspaceDelete(id, true),
+  };
 }
 
 export type WorkspaceStore = ReturnType<typeof createWorkspaceStore>;
