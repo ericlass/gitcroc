@@ -166,6 +166,21 @@ const imageFiles = new Map<string, { handle: number; file: FakeFile; ref: FileRe
 const walks = new Map<string, FakeWalk & { handle: number }>();
 let nextHandle = 1;
 
+/**
+ * Like the core when a tab goes to the background (UI-31): the workspace's
+ * walk and changes view end, so their handles give `null`.
+ */
+function releaseWorkspace(workspaceId: WorkspaceId): void {
+  walks.delete(workspaceId);
+  views.delete(workspaceId);
+  imageFiles.delete(workspaceId);
+}
+
+/** Whether the fake core holds a walk or a changes view of the workspace. */
+export function holdsViews(workspaceId: WorkspaceId): { walk: boolean; changes: boolean } {
+  return { walk: walks.has(workspaceId), changes: views.has(workspaceId) };
+}
+
 /** What the fake returns; tests change it and call `reset` afterwards. */
 export const fakeState: {
   appInfo: AppInfo;
@@ -1225,6 +1240,7 @@ const fakeTabCommands: Pick<
     if (fakeState.active === workspaceId) {
       fakeState.active = fakeState.tabs[index] ?? fakeState.tabs[fakeState.tabs.length - 1] ?? null;
     }
+    releaseWorkspace(workspaceId);
     return changedTabs();
   },
   workspaceRename: (workspaceId, name) => {
@@ -1272,7 +1288,11 @@ const fakeTabCommands: Pick<
     if (!fakeState.tabs.includes(workspaceId)) {
       return notFound(`no open workspace has the id ${workspaceId}`);
     }
+    const before = fakeState.active;
     fakeState.active = workspaceId;
+    if (before !== null && before !== workspaceId) {
+      releaseWorkspace(before);
+    }
     return changedTabs();
   },
 };

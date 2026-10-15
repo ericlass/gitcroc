@@ -3,8 +3,9 @@ import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-lib
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import App from "../App";
 import type { WorkspaceView } from "../ipc";
-import { emptyLayout, fakeState, reset } from "../ipc/fake";
+import { emitJobEnded, emitJobProgress, emptyLayout, fakeState, holdsViews, reset } from "../ipc/fake";
 import { textFile } from "../ipc/fakeChanges";
+import { fakeJob } from "../ipc/fakeJobs";
 import { summary } from "../ipc/fakeTree";
 
 /** Where each element was scrolled: jsdom lays nothing out and keeps no scroll position. */
@@ -403,4 +404,108 @@ test("ui_29 closing a tab with unsaved conflict edits asks first, naming the fil
   await settleAll();
   await editConflict();
   expect(editor().state.doc.toString().startsWith("mine mine ")).toBe(false);
+});
+
+test("ui_31_a_background_workspace_releases_history_and_diffs", async () => {
+  twoWorkspaces();
+  const main = fakeState.workspace.id;
+  fakeState.histories = { r1: { length: 1200, prefix: "api" } };
+  render(() => <App />);
+  await screen.findByRole("tab", { name: "Java" });
+  await settleAll();
+
+  // A commit and a file selected, and the history scrolled into its second page.
+  fireEvent.click(treeRow("api") as HTMLElement);
+  await settleAll();
+  const history = () => within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history().getAllByRole("option")[1] as HTMLElement);
+  await settleAll();
+  const files = () => within(screen.getByRole("listbox", { name: "Changed files" }));
+  fireEvent.click(files().getAllByRole("option")[1] as HTMLElement);
+  await settleAll();
+  const fileName = files().getByRole("option", { selected: true }).textContent;
+  const scroller = () => document.querySelector(".history-scroller") as HTMLElement;
+  scroller().scrollTop = 495 * 24;
+  fireEvent.scroll(scroller());
+  await settleAll();
+  const shown = () => history().queryAllByText(/^api: change 70[0-9]$/).length;
+  expect(fakeState.historyCalls.filter((call) => call.command === "more")).toHaveLength(1);
+  expect(shown()).toBeGreaterThan(0);
+  expect(holdsViews(main)).toEqual({ walk: true, changes: true });
+
+  // In the background, the core holds no walk or view for it, and the UI no rows.
+  fakeState.historyCalls = [];
+  fireEvent.click(screen.getByRole("tab", { name: "Java" }));
+  await settleAll();
+  expect(holdsViews(main)).toEqual({ walk: false, changes: false });
+
+  // Back, the same rows are read again, and the list scrolls back to them.
+  fireEvent.click(screen.getByRole("tab", { name: "My workspace" }));
+  await settleAll();
+  expect(fakeState.historyCalls.map((call) => call.command)).toEqual(["get", "more"]);
+  expect(scroller().scrollTop).toBe(495 * 24);
+  // A browser sends the scroll event the restore causes; jsdom does not.
+  fireEvent.scroll(scroller());
+  await settleAll();
+  expect(shown()).toBeGreaterThan(0);
+  scroller().scrollTop = 0;
+  fireEvent.scroll(scroller());
+  await settleAll();
+  expect(history().getAllByRole("option")[1]?.getAttribute("aria-selected")).toBe("true");
+  expect(files().getByRole("option", { selected: true }).textContent).toBe(fileName);
+  expect(holdsViews(main)).toEqual({ walk: true, changes: true });
+});
+
+test("ui_32_tab_badge_counts_jobs_and_marks_unseen_failures", async () => {
+  twoWorkspaces();
+  const java = { id: "ws-java", name: "Java" };
+  render(() => <App />);
+  await screen.findByRole("tab", { name: "Java" });
+  await settleAll();
+  const tab = (name: string) => screen.getByRole("tab", { name: new RegExp(`^${name}`) });
+  const badge = (name: string) => tab(name).querySelector(".tab-badge")?.textContent ?? null;
+  const marked = (name: string) => tab(name).querySelector(".tab-marker") !== null;
+  const job = (job_id: number, state: "queued" | "running") =>
+    fakeJob(java, { job_id, label: `Job ${job_id}`, state, outcome: null, duration_ms: null });
+  const ended = (job_id: number, kind: "succeeded" | "failed" | "conflict") =>
+    fakeJob(java, {
+      job_id,
+      label: `Job ${job_id}`,
+      state: "ended",
+      outcome: { kind },
+    });
+
+  // Running and queued jobs of the background tab are counted on it.
+  expect(badge("Java")).toBeNull();
+  emitJobProgress(job(41, "running"));
+  emitJobProgress(job(42, "queued"));
+  await settle();
+  expect(badge("Java")).toBe("2");
+  expect(badge("My workspace")).toBeNull();
+
+  // A success ends quietly; a failure the user has not seen marks the tab.
+  emitJobEnded(ended(42, "succeeded"));
+  await settle();
+  expect(badge("Java")).toBe("1");
+  expect(marked("Java")).toBe(false);
+  emitJobEnded(ended(41, "failed"));
+  await settle();
+  expect(badge("Java")).toBeNull();
+  expect(marked("Java")).toBe(true);
+
+  // Activating the tab shows the report in the status bar: it is seen.
+  fireEvent.click(tab("Java"));
+  await settleAll();
+  expect(screen.getByRole("status").textContent).toContain("Job 41");
+  fireEvent.click(tab("My workspace"));
+  await settleAll();
+  expect(marked("Java")).toBe(false);
+
+  // A conflict is marked too, until the job list has shown it.
+  emitJobEnded(ended(43, "conflict"));
+  await settle();
+  expect(marked("Java")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { description: "Show the job list" }));
+  await settleAll();
+  expect(marked("Java")).toBe(false);
 });

@@ -128,7 +128,6 @@ impl From<tokio::task::JoinError> for HistoryViewError {
 /// Each page opens the repo again.
 #[derive(Debug)]
 struct Walk {
-    handle: u32,
     path: PathBuf,
     start: HistoryStart,
     filter: Option<Filter>,
@@ -136,10 +135,18 @@ struct Walk {
     cursor: Option<Cursor>,
 }
 
+/// A workspace's latest walk handle, and its walk unless it was released
+/// (UI-31). Handles keep counting up, so an old one never comes back.
+#[derive(Debug)]
+struct Slot {
+    handle: u32,
+    walk: Option<Walk>,
+}
+
 /// The walk of every open workspace, and the commit-graph writes running.
 #[derive(Debug)]
 pub struct Histories {
-    walks: Mutex<HashMap<WorkspaceId, Walk>>,
+    walks: Mutex<HashMap<WorkspaceId, Slot>>,
     writes: Mutex<HashMap<(WorkspaceId, RepoId), JobId>>,
     threshold: Duration,
 }
@@ -166,6 +173,22 @@ impl Histories {
         lock(&self.walks).remove(id);
     }
 
+    /// Ends the walk of workspace `id`, whose tab went to the background
+    /// (UI-31): its handle then gives `None`, as a superseded walk's does.
+    pub fn release(&self, id: &WorkspaceId) {
+        if let Some(slot) = lock(&self.walks).get_mut(id) {
+            slot.handle = slot.handle.wrapping_add(1);
+            slot.walk = None;
+        }
+    }
+
+    /// Whether the core holds a walk of workspace `id`.
+    pub fn holds_walk(&self, id: &WorkspaceId) -> bool {
+        lock(&self.walks)
+            .get(id)
+            .is_some_and(|slot| slot.walk.is_some())
+    }
+
     /// Makes a new walk the latest of workspace `id`; any older one is
     /// dropped.
     fn begin(
@@ -176,15 +199,17 @@ impl Histories {
         filter: Option<Filter>,
     ) -> u32 {
         let mut walks = lock(&self.walks);
-        let handle = walks.get(id).map_or(1, |walk| walk.handle.wrapping_add(1));
+        let handle = walks.get(id).map_or(1, |slot| slot.handle.wrapping_add(1));
         walks.insert(
             id.clone(),
-            Walk {
+            Slot {
                 handle,
-                path,
-                start,
-                filter,
-                cursor: None,
+                walk: Some(Walk {
+                    path,
+                    start,
+                    filter,
+                    cursor: None,
+                }),
             },
         );
         handle
@@ -195,7 +220,10 @@ impl Histories {
     fn keep(&self, id: &WorkspaceId, handle: u32, cursor: Option<Cursor>) -> bool {
         let mut walks = lock(&self.walks);
         match walks.get_mut(id) {
-            Some(walk) if walk.handle == handle => {
+            Some(Slot {
+                handle: latest,
+                walk: Some(walk),
+            }) if *latest == handle => {
                 walk.cursor = cursor;
                 true
             }
@@ -265,7 +293,11 @@ pub async fn history_more(
 ) -> Result<Option<HistoryView>, HistoryViewError> {
     let (path, start, filter, cursor) = {
         let mut walks = lock(&histories.walks);
-        let Some(walk) = walks.get_mut(&id).filter(|walk| walk.handle == handle) else {
+        let Some(walk) = walks
+            .get_mut(&id)
+            .filter(|slot| slot.handle == handle)
+            .and_then(|slot| slot.walk.as_mut())
+        else {
             return Ok(None);
         };
         let Some(cursor) = walk.cursor.take() else {

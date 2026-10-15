@@ -175,12 +175,19 @@ export default function App() {
   followAppearance(settings.appearance, followTheme(settings.theme));
   followDesktopFonts(() => ({ ui: info()?.ui_font ?? null, code: info()?.code_font ?? null }));
 
-  // The open workspace's tree and summaries, kept current while it is open;
-  // its repos are read again when the window regains focus (OPS-7).
+  // The active workspace's tree and summaries, kept current while its tab
+  // is active; its repos are read again when the window regains focus
+  // (OPS-7). Background tabs hear nothing (UI-30).
   createEffect(
     on(
       () => workspace()?.id,
-      (id) => {
+      (id, previous) => {
+        // The tab left lets go of its history rows and diffs (UI-31); the
+        // core ended its walk and view.
+        if (previous !== undefined && previous !== id) {
+          history.release(previous);
+          changes.release(previous);
+        }
         if (id === undefined) {
           return;
         }
@@ -284,7 +291,7 @@ export default function App() {
       </Match>
       <Match when={true}>
         <div class="app">
-          <TabBar workspaces={workspaces} dialogs={workspaceDialogs} onClose={closeTab} />
+          <TabBar workspaces={workspaces} jobs={jobs} dialogs={workspaceDialogs} onClose={closeTab} />
           <Show when={!missingDismissed() && workspaces.state.missing.length > 0}>
             <div role="alert" class="banner banner-dismissible">
               <span>

@@ -48,6 +48,14 @@ export default function StatusBar(props: {
     );
   };
 
+  // Shown here, in its own tab, the report is seen for the tab's marker (UI-32).
+  createEffect(() => {
+    const job = running().length === 0 ? ended() : undefined;
+    if (job !== undefined) {
+      props.jobs.markShown(job.job_id);
+    }
+  });
+
   return (
     <footer class="status-bar">
       <button

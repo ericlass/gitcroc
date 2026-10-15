@@ -20,10 +20,10 @@ use gitcroc_core::{
     Refusal, RemoteError, RemoteRequest, RemoteStart, RemoteUrlsView, RepoChange, RepoId,
     ResetError, ResetRequest, ResetStart, ResolveRequest, SettingsError, SettingsStore,
     SettingsView, StashError, StashRequest, StashStart, StatusError, StatusReadError, Summaries,
-    SummaryView, SyncError, SyncRequest, SyncStart, TagError, TagRequest, TagStart, Theme,
-    TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId,
-    WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces, add_path, refresh_summaries,
-    refresh_workspace, tree_refs,
+    SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch, TagError, TagRequest, TagStart,
+    Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError,
+    WorkspaceId, WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces, add_path,
+    refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -675,7 +675,8 @@ pub async fn workspace_activate(
 /// Runs `change` off the async workers (ARCH-7), as it saves files, then
 /// sends `workspaces_changed`. `change` returns the workspace it opened,
 /// whose cached summaries are then taken. When the active tab changed, the
-/// old one is no longer watched, and the new one is watched and read again.
+/// old one goes to the background and the new one is watched and read
+/// again (UI-30, UI-31).
 async fn change_tabs(
     app: AppHandle,
     change: impl FnOnce(&Workspaces) -> Result<Option<WorkspaceId>, WorkspaceError> + Send + 'static,
@@ -692,24 +693,38 @@ async fn change_tabs(
     .await??;
     let _ = WorkspacesChangedEvent(tabs.clone()).emit(&app);
     if tabs.active != before {
+        let switch = tab_switch(&app);
         if let Some(before) = &before {
-            app.state::<Arc<Watchers>>().stop(before);
+            let trees = app.state::<Arc<Trees>>().inner().clone();
+            for view in switch.background(before) {
+                send_summary(&app, &trees, view, false);
+            }
         }
         if let Some(active) = tabs.active.clone() {
-            spawn_watch_sync(&app, active.clone());
-            if let Some(git) = app.state::<GitSetup>().git().await {
-                let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
-                let summaries = app.state::<Arc<Summaries>>().inner().clone();
-                let emit = summary_sink(app.clone());
-                let git = GitRunner::new(git.path);
-                tauri::async_runtime::spawn(async move {
-                    // A workspace closed since has nothing to read.
-                    let _ = refresh_workspace(workspaces, summaries, active, git, emit).await;
-                });
-            }
+            let git = app
+                .state::<GitSetup>()
+                .git()
+                .await
+                .map(|git| GitRunner::new(git.path));
+            let emit = summary_sink(app.clone());
+            tauri::async_runtime::spawn(async move {
+                // A workspace closed since has nothing to read.
+                let _ = switch.foreground(active, git, emit).await;
+            });
         }
     }
     Ok(tabs)
+}
+
+/// The per-workspace state a tab switch acts on.
+fn tab_switch(app: &AppHandle) -> TabSwitch {
+    TabSwitch {
+        workspaces: app.state::<Arc<Workspaces>>().inner().clone(),
+        summaries: app.state::<Arc<Summaries>>().inner().clone(),
+        watchers: app.state::<Arc<Watchers>>().inner().clone(),
+        histories: app.state::<Arc<Histories>>().inner().clone(),
+        changes: app.state::<Arc<Changes>>().inner().clone(),
+    }
 }
 
 /// Starts a job that adds the repo at `path`, or every repo found below it,

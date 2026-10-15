@@ -2,10 +2,13 @@
 // core's order. A click activates a tab; tabs reorder by dragging and with
 // Ctrl/Cmd+Shift+PageUp/PageDown (UI-22), and the arrow keys move between
 // them. Each tab has a close button and a context menu with Rename and
-// Close. "+" lists the workspace files and offers New and Import. The core
-// keeps the tabs; this sends what the user did.
+// Close. "+" lists the workspace files and offers New and Import. A tab
+// shows how many of its jobs run or wait, and a marker for a failed or
+// conflicted job the user has not seen (UI-32). The core keeps the tabs;
+// this sends what the user did.
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { WorkspaceId } from "../ipc";
+import type { JobStore } from "../stores/jobs";
 import type { WorkspaceStore } from "../stores/workspaces";
 import type { WorkspaceDialogs } from "../workspaces/WorkspaceDialogs";
 import WorkspaceMenu from "../workspaces/WorkspaceMenu";
@@ -14,6 +17,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 export default function TabBar(props: {
   workspaces: WorkspaceStore;
+  jobs: JobStore;
   dialogs: WorkspaceDialogs;
   /** Closes a tab; the caller asks first when it holds unsaved conflict edits (OPS-9). */
   onClose: (id: WorkspaceId) => void;
@@ -163,7 +167,23 @@ export default function TabBar(props: {
                     openTabMenu(event.currentTarget, view.id, view.name, event.clientX, event.clientY);
                   }}
                 >
-                  {view.name}
+                  <span class="tab-name">{view.name}</span>
+                  <Show when={props.jobs.marks(view.id).active}>
+                    {(count) => (
+                      <span
+                        class="tab-badge"
+                        aria-label={count() === 1 ? "1 job" : `${count()} jobs`}
+                        title={count() === 1 ? "1 job running or waiting" : `${count()} jobs running or waiting`}
+                      >
+                        {count()}
+                      </span>
+                    )}
+                  </Show>
+                  <Show when={props.jobs.marks(view.id).unseen}>
+                    <span class="tab-marker" aria-label="a job failed" title="A job failed or stopped on a conflict">
+                      !
+                    </span>
+                  </Show>
                 </button>
                 <button
                   type="button"

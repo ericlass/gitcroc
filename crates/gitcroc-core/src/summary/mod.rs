@@ -207,6 +207,26 @@ impl Summaries {
         self.lock().remove(id);
     }
 
+    /// Takes the repos of workspace `id`, whose tab went to the background,
+    /// out of the refresh queue (UI-30). Reads running end after their repo.
+    /// Returns the views of the repos taken out, no longer refreshing; they
+    /// are read when the workspace is active again.
+    pub fn deactivate(&self, id: &WorkspaceId) -> Vec<SummaryView> {
+        let mut state = self.lock();
+        let Some(workspace) = state.get_mut(id) else {
+            return Vec::new();
+        };
+        let waiting: Vec<RepoId> = workspace.queue.drain(..).collect();
+        waiting
+            .iter()
+            .filter_map(|repo| {
+                let entry = workspace.entries.get_mut(repo)?;
+                entry.refreshing = false;
+                Some(entry.view(id, repo))
+            })
+            .collect()
+    }
+
     /// Reads in workers of `pool` instead of a pool of its own.
     pub fn with_pool(mut self, pool: Arc<Pool>) -> Self {
         self.pool = pool;
@@ -255,6 +275,13 @@ impl Summaries {
     /// waits for a refresh (PERF-4). `None` clears the selection.
     pub fn select(&self, id: &WorkspaceId, repo: Option<RepoId>) {
         self.lock().entry(id.clone()).or_default().selected = repo;
+    }
+
+    /// The selected repo of workspace `id`, if any.
+    pub(crate) fn selected(&self, id: &WorkspaceId) -> Option<RepoId> {
+        self.lock()
+            .get(id)
+            .and_then(|workspace| workspace.selected.clone())
     }
 
     /// Notes that the refs or `HEAD` of `repo` changed on disk, so its next
@@ -344,13 +371,18 @@ impl Summaries {
 
     /// Queues `repos` that are not waiting yet and takes the cached summary
     /// of those without one. Returns how many workers to start and the new
-    /// views of the queued repos, now refreshing.
+    /// views of the queued repos, now refreshing. Queues nothing for a
+    /// workspace that is not the active tab: it is read when it becomes
+    /// active (UI-30).
     fn enqueue(
         &self,
         workspaces: &Workspaces,
         id: &WorkspaceId,
         repos: &[RepoId],
     ) -> (usize, Vec<SummaryView>) {
+        if workspaces.active().as_ref() != Some(id) {
+            return (0, Vec::new());
+        }
         let paths = workspaces.repo_paths(id).unwrap_or_default();
         let mut state = self.lock();
         let workspace = state.entry(id.clone()).or_default();
@@ -466,7 +498,8 @@ impl Summaries {
 /// when it is queued, marked refreshing, and again when it has been read.
 /// Repos already waiting keep their place; when reads of this workspace
 /// are already running, they take the new repos too and this returns
-/// sooner. Fresh summaries go to the cache.
+/// sooner. Fresh summaries go to the cache. Reads nothing for a workspace
+/// in a background tab (UI-30).
 pub async fn refresh_summaries(
     workspaces: Arc<Workspaces>,
     summaries: Arc<Summaries>,
@@ -503,6 +536,12 @@ pub async fn refresh_summaries(
                 };
                 loop {
                     let _worker = pool.worker(Priority::Refresh).await;
+                    if workspaces.active().as_ref() != Some(&reader.workspace) {
+                        // The tab went to the background meanwhile (UI-30).
+                        for view in reader.summaries.deactivate(&reader.workspace) {
+                            emit(view);
+                        }
+                    }
                     let Some(repo) = reader.next() else {
                         break;
                     };

@@ -23,6 +23,7 @@ mod stash;
 mod status;
 mod summary;
 mod sync;
+mod tabs;
 mod tag;
 mod tree;
 mod unblocked;
@@ -104,6 +105,7 @@ pub use sync::{
     Prune, PullStrategy, PushChoices, SyncError, SyncOp, SyncRequest, SyncStart, op_sync,
     push_choices,
 };
+pub use tabs::TabSwitch;
 pub use tag::{TagError, TagOp, TagRequest, TagStart, op_tag, tag_name_check};
 pub use tree::{TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, tree_filter, tree_refs};
 pub use watch::{DEBOUNCE, MAX_DELAY, RepoChange, WatchWarning, WatchedPath, Watchers};
