@@ -4,9 +4,11 @@ import { createStore } from "solid-js/store";
 import {
   type Appearance,
   type ChangesSettings,
+  type GroupSettings,
   settingsGet,
   settingsSetAppearance,
   settingsSetChanges,
+  settingsSetGroups,
   settingsSetTheme,
   type SettingsView,
   type Theme,
@@ -31,6 +33,12 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   code_font_size: 13,
 };
 
+/** The group operations' settings until the settings are read; the core's defaults. */
+export const DEFAULT_GROUP_SETTINGS: Readonly<GroupSettings> = { group_parallelism: 8, always_show_preflight: false };
+
+/** How many repos a group operation may run at once, as the core allows (section 5, step 3). */
+export const PARALLELISM_LIMITS = { min: 1, max: 32 } as const;
+
 /** The font size limits the core keeps to (UI-26). */
 export const FONT_SIZE_LIMITS = { min: 8, max: 32 } as const;
 
@@ -38,6 +46,12 @@ export const FONT_SIZE_LIMITS = { min: 8, max: 32 } as const;
 function appearanceOf(settings: Appearance): Appearance {
   const { code_theme_light, code_theme_dark, ui_font, ui_font_size, code_font, code_font_size } = settings;
   return { code_theme_light, code_theme_dark, ui_font, ui_font_size, code_font, code_font_size };
+}
+
+/** The group operations' part of the settings. */
+function groupsOf(settings: GroupSettings): GroupSettings {
+  const { group_parallelism, always_show_preflight } = settings;
+  return { group_parallelism, always_show_preflight };
 }
 
 export interface SettingsState {
@@ -66,11 +80,16 @@ export function createSettingsStore() {
     changes: (): ChangesSettings => state.view?.settings.changes ?? DEFAULT_CHANGES_SETTINGS,
     /** Code themes and fonts (UI-24, UI-26): the saved ones, or the defaults until read. */
     appearance: (): Appearance => (state.view ? appearanceOf(state.view.settings) : DEFAULT_APPEARANCE),
+    /** The group operations' settings: the saved ones, or the defaults until read. */
+    groups: (): GroupSettings => (state.view ? groupsOf(state.view.settings) : DEFAULT_GROUP_SETTINGS),
     load: () => track(settingsGet()),
     setTheme: (theme: Theme) => track(settingsSetTheme(theme)),
     /** Changes some of the changes pane's settings; the core saves them. */
     setChanges: (change: Partial<ChangesSettings>) =>
       track(settingsSetChanges({ ...(state.view?.settings.changes ?? DEFAULT_CHANGES_SETTINGS), ...change })),
+    /** Changes some of the group operations' settings; the core refuses a parallelism outside 1 to 32. */
+    setGroups: (change: Partial<GroupSettings>) =>
+      track(settingsSetGroups({ ...(state.view ? groupsOf(state.view.settings) : DEFAULT_GROUP_SETTINGS), ...change })),
     /** Changes some of the code themes and fonts; the core limits the sizes and saves them. */
     setAppearance: (change: Partial<Appearance>) =>
       track(

@@ -25,8 +25,8 @@ impl GroupOperation for TestOp {
         "Test".to_owned()
     }
 
-    fn destructive(&self) -> bool {
-        false
+    fn destructive(&self) -> Vec<String> {
+        Vec::new()
     }
 
     fn spec(&self) -> SubJobSpec {

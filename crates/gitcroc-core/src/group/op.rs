@@ -104,20 +104,36 @@ impl GroupOp {
         }
     }
 
-    /// Whether it is destructive (GRP-9): force push, force delete of a
-    /// branch and delete of a remote branch.
-    pub fn destructive(&self) -> bool {
-        matches!(
-            self,
+    /// What cannot be undone, for the confirmation that names every
+    /// affected repo (GRP-9): force push, force delete of a branch and
+    /// delete of a remote branch. Empty when nothing is destructive.
+    pub fn destructive(&self) -> Vec<String> {
+        match self {
             Self::Push {
                 force_with_lease: true,
                 ..
-            } | Self::DeleteBranch { force: true, .. }
-                | Self::DeleteBranch {
-                    on_remote: true,
-                    ..
+            } => vec![
+                "Force push the current branch; commits only on the remote branch may be lost"
+                    .to_owned(),
+            ],
+            Self::DeleteBranch {
+                name,
+                force,
+                on_remote,
+            } => {
+                let mut actions = Vec::new();
+                if *force {
+                    actions.push(format!(
+                        "Force-delete branch {name} even if it is not merged; its commits may be lost"
+                    ));
                 }
-        )
+                if *on_remote {
+                    actions.push(format!("Delete branch {name} on the remote"));
+                }
+                actions
+            }
+            _ => Vec::new(),
+        }
     }
 
     /// The code that runs it on a target set; refused until the
@@ -155,8 +171,9 @@ pub trait GroupOperation: Send + Sync + 'static {
     /// The operation as a job's label names it, such as `Pull`.
     fn name(&self) -> String;
 
-    /// Whether it is destructive (GRP-9): the preflight then always asks.
-    fn destructive(&self) -> bool;
+    /// What cannot be undone (GRP-9); empty when nothing is. When it is
+    /// not empty, the preflight always asks.
+    fn destructive(&self) -> Vec<String>;
 
     /// How each sub-job runs.
     fn spec(&self) -> SubJobSpec;

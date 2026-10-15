@@ -7,7 +7,7 @@
 mod op;
 mod summary;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -20,8 +20,9 @@ pub use summary::{GroupBranch, GroupSummary, group_summaries};
 
 use crate::unblocked::{BUSY, IN_CONFLICT, MISSING};
 use crate::{
-    GroupRun, GroupView, JobError, JobId, Jobs, Priority, RepoId, RepoView, SettingsStore,
-    SkipReason, Summaries, TargetSet, WorkspaceError, WorkspaceId, Workspaces, lock, target_repos,
+    GroupRun, GroupView, JobError, JobId, JobState, Jobs, Outcome, Priority, RepoId, RepoView,
+    SettingsStore, SkipReason, Summaries, TargetSet, WorkspaceError, WorkspaceId, Workspaces, lock,
+    target_repos,
 };
 
 /// Identifies a preflight, unique while the app runs.
@@ -43,8 +44,12 @@ pub struct PreflightReady {
     pub preflight_id: PreflightId,
     /// The job's label, such as `Pull · Backend (5 repos)`.
     pub label: String,
-    /// The operation is destructive (GRP-9).
-    pub destructive: bool,
+    /// The operation as its run button names it, such as `Pull` or
+    /// `Delete branch old`.
+    pub action: String,
+    /// What cannot be undone in each repo that runs, for the confirmation
+    /// that names them (GRP-9); empty when nothing is destructive.
+    pub destructive: Vec<String>,
     /// Every repo of the target set, in target-set order.
     pub repos: Vec<RepoClass>,
     /// The user must confirm before it runs: a repo is not *will run*, the
@@ -72,6 +77,12 @@ pub enum GroupError {
     NeedsConfirmation,
     #[error("the workspace changed since the preflight; run it again")]
     WorkspaceChanged,
+    #[error("no such group job")]
+    UnknownJob,
+    #[error("the job has not ended")]
+    NotEnded,
+    #[error("no repo failed in that job")]
+    NothingFailed,
 }
 
 /// The most preflights kept; the oldest is dropped past it.
@@ -92,6 +103,14 @@ struct Preflight {
 
 type ReadyFn = dyn Fn(&PreflightReady) + Send + Sync;
 
+/// The preflights kept for their start, and the operation of each group
+/// job started, for its Retry failed (GRP-11).
+#[derive(Default)]
+struct State {
+    preflights: VecDeque<Preflight>,
+    ran: HashMap<JobId, (WorkspaceId, Arc<dyn GroupOperation>)>,
+}
+
 /// Runs group operations for the whole app.
 pub struct GroupOps {
     workspaces: Arc<Workspaces>,
@@ -100,7 +119,7 @@ pub struct GroupOps {
     jobs: Arc<Jobs>,
     ready: Box<ReadyFn>,
     ids: AtomicU32,
-    preflights: Mutex<VecDeque<Preflight>>,
+    state: Mutex<State>,
 }
 
 impl std::fmt::Debug for GroupOps {
@@ -125,13 +144,13 @@ impl GroupOps {
             jobs,
             ready: Box::new(ready),
             ids: AtomicU32::new(0),
-            preflights: Mutex::new(VecDeque::new()),
+            state: Mutex::new(State::default()),
         })
     }
 
-    fn lock(&self) -> MutexGuard<'_, VecDeque<Preflight>> {
-        // Each change is a push, a removal or a field set.
-        lock(&self.preflights)
+    fn lock(&self) -> MutexGuard<'_, State> {
+        // Each change is a push, a removal, an insert or a field set.
+        lock(&self.state)
     }
 
     /// Starts the preflight of `op` on `target` in workspace `id` and
@@ -165,7 +184,7 @@ impl GroupOps {
         );
         let preflight_id = PreflightId(self.ids.fetch_add(1, Ordering::Relaxed).wrapping_add(1));
         {
-            let mut preflights = self.lock();
+            let preflights = &mut self.lock().preflights;
             if preflights.len() >= MAX_PREFLIGHTS {
                 preflights.pop_front();
             }
@@ -210,19 +229,21 @@ impl GroupOps {
                 });
             }
             let always = engine.settings.view().settings.groups.always_show_preflight;
+            let destructive = op.destructive();
             let needs_confirmation = always
-                || op.destructive()
+                || !destructive.is_empty()
                 || classed.iter().any(|repo| repo.class != Class::WillRun);
             let ready = PreflightReady {
                 workspace_id: workspace,
                 preflight_id,
                 label,
-                destructive: op.destructive(),
+                action: op.name(),
+                destructive,
                 repos: classed,
                 needs_confirmation,
             };
             let kept = {
-                let mut preflights = engine.lock();
+                let preflights = &mut engine.lock().preflights;
                 match preflights.iter_mut().find(|kept| kept.id == preflight_id) {
                     Some(kept) => {
                         kept.ready = Some(ready.clone());
@@ -249,7 +270,7 @@ impl GroupOps {
         confirmed: bool,
     ) -> Result<JobId, GroupError> {
         let preflight = {
-            let mut preflights = self.lock();
+            let preflights = &mut self.lock().preflights;
             let index = preflights
                 .iter()
                 .position(|kept| kept.id == id)
@@ -288,16 +309,63 @@ impl GroupOps {
             })
             .collect();
         let op = preflight.op;
+        let workspace = preflight.workspace_id;
         let group = GroupRun {
-            workspace_id: preflight.workspace_id,
+            workspace_id: workspace.clone(),
             label: preflight.label,
             spec: op.spec(),
             repos,
         };
+        let run = op.clone();
         let handle = self
             .jobs
-            .start_group(git, group, move |job, path| op.run(job, path))?;
+            .start_group(git, group, move |job, path| run.run(job, path))?;
+        self.lock().ran.insert(handle.job_id, (workspace, op));
         Ok(handle.job_id)
+    }
+
+    /// Drops preflight `id`, as the user cancelled its dialog. A preflight
+    /// used or dropped already is ignored.
+    pub fn drop_preflight(&self, id: PreflightId) {
+        self.lock().preflights.retain(|kept| kept.id != id);
+    }
+
+    /// Retry failed (GRP-11): starts a new preflight of the operation of
+    /// ended group job `job`, with the same options, on the repos its
+    /// report has as *failed*, and returns its id at once. The target set
+    /// comes from the report, never from the UI (GRP-5). Needs a tokio
+    /// runtime.
+    pub fn retry_failed(
+        self: &Arc<Self>,
+        git: GitRunner,
+        job: JobId,
+    ) -> Result<PreflightId, GroupError> {
+        let (workspace, op) = self
+            .lock()
+            .ran
+            .get(&job)
+            .cloned()
+            .ok_or(GroupError::UnknownJob)?;
+        let view = self
+            .jobs
+            .all_views()
+            .into_iter()
+            .find(|view| view.job_id == job)
+            .ok_or(GroupError::UnknownJob)?;
+        let report = match (view.state, view.report) {
+            (JobState::Ended, Some(report)) => report,
+            _ => return Err(GroupError::NotEnded),
+        };
+        let failed: Vec<RepoId> = report
+            .into_iter()
+            .filter(|repo| matches!(repo.outcome, Outcome::Failed))
+            .map(|repo| repo.repo_id)
+            .collect();
+        if failed.is_empty() {
+            return Err(GroupError::NothingFailed);
+        }
+        let target = TargetSet::Repos { repo_ids: failed };
+        self.preflight(git, &workspace, &target, op)
     }
 }
 

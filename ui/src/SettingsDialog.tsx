@@ -1,8 +1,9 @@
 // The Settings dialog: the theme (UI-23), code themes (UI-24), fonts
-// (UI-26), and which gitcroc and git are running.
+// (UI-26), group operations (section 5), and which gitcroc and git are
+// running.
 import { For, onMount, Show } from "solid-js";
 import type { Appearance, AppInfo, CodeTheme, GitStatus, Theme } from "./ipc";
-import { FONT_SIZE_LIMITS, type SettingsStore } from "./stores/settings";
+import { FONT_SIZE_LIMITS, PARALLELISM_LIMITS, type SettingsStore } from "./stores/settings";
 import { CODE_THEME_NAMES, CODE_THEMES } from "./theme/codeThemes";
 import CodeThemePreview from "./theme/CodeThemePreview";
 
@@ -44,6 +45,15 @@ export default function SettingsDialog(props: {
       return;
     }
     void props.settings.setAppearance({ [key]: size });
+  };
+
+  // A value the core refuses, or one that is not a number, puts the saved one back.
+  const setParallelism = async (input: HTMLInputElement) => {
+    const parallelism = Number.parseInt(input.value, 10);
+    if (!Number.isNaN(parallelism)) {
+      await props.settings.setGroups({ group_parallelism: parallelism });
+    }
+    input.value = String(props.settings.groups().group_parallelism);
   };
 
   onMount(() => dialog?.querySelector<HTMLElement>("input:checked, input, button")?.focus());
@@ -134,6 +144,29 @@ export default function SettingsDialog(props: {
               </div>
             )}
           </For>
+        </fieldset>
+        <fieldset disabled={readOnly()}>
+          <legend>Group operations</legend>
+          <div class="setting">
+            <label>
+              Repos at once{" "}
+              <input
+                type="number"
+                min={PARALLELISM_LIMITS.min}
+                max={PARALLELISM_LIMITS.max}
+                value={props.settings.groups().group_parallelism}
+                onChange={(event) => void setParallelism(event.currentTarget)}
+              />
+            </label>
+          </div>
+          <label class="choice">
+            <input
+              type="checkbox"
+              checked={props.settings.groups().always_show_preflight}
+              onChange={(event) => void props.settings.setGroups({ always_show_preflight: event.currentTarget.checked })}
+            />
+            Always show the preflight dialog
+          </label>
         </fieldset>
         <Show when={props.settings.state.error}>{(error) => <p role="alert">{error()}</p>}</Show>
         <Show when={props.info}>

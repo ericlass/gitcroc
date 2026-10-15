@@ -20,7 +20,8 @@ interface JobsState {
   error: string | null;
 }
 
-export function createJobStore() {
+/** `onEnded` hears each `job_ended`, after the store has it. */
+export function createJobStore(onEnded: (view: JobView) => void = () => {}) {
   const [state, setState] = createStore<JobsState>({
     byId: {},
     lastEnded: {},
@@ -34,6 +35,7 @@ export function createJobStore() {
   const ended = (view: JobView) => {
     record(view);
     setState("lastEnded", view.workspace_id, view.job_id);
+    onEnded(view);
   };
 
   /** Every job, newest first: ids grow with each job the core starts. */

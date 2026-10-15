@@ -799,6 +799,72 @@ main:not(.main) {
   white-space: pre-wrap;
 }
 
+/* A group job in the job list: its sub-jobs while it runs, its result report
+   when it ended (section 5). */
+
+.group-report,
+.sub-jobs {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.group-report {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.report-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.report-counts {
+  flex: 1;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.report-lines,
+.sub-jobs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-line,
+.sub-job {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.report-toggle {
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+}
+
+.report-name {
+  min-width: 8em;
+  overflow-wrap: anywhere;
+}
+
+.report-reason {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.report-output {
+  flex-basis: 100%;
+  max-height: 240px;
+}
+
 /* Settings dialog */
 
 .backdrop {
@@ -1045,6 +1111,73 @@ button.danger:hover:not(:disabled) {
 .op-actions {
   padding-left: 1.2em;
   overflow-wrap: anywhere;
+}
+
+/* The preflight dialog of a group operation (section 5, step 2). */
+
+.preflight {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preflight-counts,
+.preflight-progress {
+  margin: 0;
+}
+
+.preflight-destructive {
+  padding: 6px 8px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+}
+
+.preflight-destructive p {
+  margin: 0;
+}
+
+.preflight-affected {
+  margin: 0;
+  padding-left: 1.2em;
+  overflow-wrap: anywhere;
+}
+
+.preflight-repos {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.preflight-repo {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 3fr);
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.preflight-needs-attention .preflight-class {
+  color: var(--warning);
+}
+
+.preflight-blocked .preflight-class {
+  color: var(--danger);
+}
+
+.preflight-will-skip .preflight-class,
+.preflight-reason,
+.preflight .hint {
+  color: var(--text-secondary);
+}
+
+.preflight .hint {
+  margin: 0;
 }
 
 .tree-refusal {

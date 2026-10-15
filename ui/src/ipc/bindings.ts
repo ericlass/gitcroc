@@ -480,6 +480,20 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 */
 	settingsSetAppearance: (appearance: Appearance) => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_set_appearance", { appearance })),
 	/**
+	 *  Changes the group operations' settings (section 5, steps 2 and 3) and
+	 *  saves them. A parallelism outside 1 to 32 is refused.
+	 */
+	settingsSetGroups: (groups: GroupSettings) => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_set_groups", { groups })),
+	/**  Drops preflight `preflight_id`, as the user cancelled its dialog. */
+	groupDrop: (preflightId: PreflightId) => __TAURI_INVOKE<void>("group_drop", { preflightId }),
+	/**
+	 *  Retry failed (GRP-11): starts a new preflight of ended group job
+	 *  `job_id`'s operation, with the same options, on the repos its report has
+	 *  as *failed*, and returns its id at once; the result arrives as
+	 *  `preflight_ready`. The core builds the target set from the report (GRP-5).
+	 */
+	groupRetryFailed: (jobId: JobId) => typedError<PreflightId, IpcError>(__TAURI_INVOKE("group_retry_failed", { jobId })),
+	/**
 	 *  Reads every repo of the workspace again, the selected one first, as when
 	 *  the window regains focus (OPS-7). Returns at once; each summary arrives
 	 *  as `repo_summary`.
@@ -1614,8 +1628,16 @@ export type PreflightReady = {
 	preflight_id: PreflightId,
 	/**  The job's label, such as `Pull · Backend (5 repos)`. */
 	label: string,
-	/**  The operation is destructive (GRP-9). */
-	destructive: boolean,
+	/**
+	 *  The operation as its run button names it, such as `Pull` or
+	 *  `Delete branch old`.
+	 */
+	action: string,
+	/**
+	 *  What cannot be undone in each repo that runs, for the confirmation
+	 *  that names them (GRP-9); empty when nothing is destructive.
+	 */
+	destructive: string[],
 	/**  Every repo of the target set, in target-set order. */
 	repos: RepoClass[],
 	/**
