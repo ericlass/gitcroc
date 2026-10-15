@@ -12,6 +12,7 @@ import {
 } from "solid-js";
 import AskpassDialog from "./AskpassDialog";
 import GitSetup from "./GitSetup";
+import GroupBranchDialog from "./groups/GroupBranchDialog";
 import GroupSyncDialog from "./groups/GroupSyncDialog";
 import PreflightDialog from "./groups/PreflightDialog";
 import { appInfo, type GroupOp, type JobId, type TargetSet, type WorkspaceId } from "./ipc";
@@ -128,18 +129,16 @@ export default function App() {
   };
 
   /**
-   * Why each button is disabled for a group or several repos (UI-20): Branch
-   * and Merge have no group operation yet, and Stash is single-repo only.
+   * Why each button is disabled for a group or several repos (UI-20): Merge
+   * has no group operation yet, and Stash is single-repo only.
    */
   const disabledWhy = (): ToolbarReasons => {
     const kind = target()?.kind;
     if (kind !== "group" && kind !== "repos") {
       return {};
     }
-    const later = "Not available yet for a group or several repositories";
     return {
-      branch: later,
-      merge: later,
+      merge: "Not available yet for a group or several repositories",
       stash: "Stash works on one repository at a time",
     };
   };
@@ -169,6 +168,32 @@ export default function App() {
       push: click("push"),
       pushOptions: options("push"),
     };
+  };
+
+  /**
+   * What the toolbar's Branch does (UI-20): the create dialog of the
+   * selected repo, when no write is blocked on it (GRP-8), or the group
+   * create dialog of a group or several repos, whose preflight skips or
+   * blocks each repo that cannot take it.
+   */
+  const branchAction = () => {
+    const current = target();
+    const workspaceId = workspace()?.id;
+    if (workspaceId !== undefined && (current?.kind === "group" || current?.kind === "repos")) {
+      return () =>
+        groupOps.openBranch({
+          workspaceId,
+          target: current,
+          targetName: targetName(current),
+          kind: "create",
+          name: "",
+        });
+    }
+    const selected = branchRepo();
+    if (selected === null) {
+      return null;
+    }
+    return () => branch.open(selected.id, { kind: "create", repo: selected.repo, start: { kind: "head" } });
   };
 
   /** The selected repo, when no write is blocked on it (GRP-8). */
@@ -395,16 +420,7 @@ export default function App() {
           </Show>
           <Toolbar
             sync={syncActions()}
-            onBranch={
-              branchRepo() === null
-                ? null
-                : () => {
-                    const target = branchRepo();
-                    if (target !== null) {
-                      branch.open(target.id, { kind: "create", repo: target.repo, start: { kind: "head" } });
-                    }
-                  }
-            }
+            onBranch={branchAction()}
             onMerge={mergeAction()}
             onStash={stashAction()}
             disabledWhy={disabledWhy()}
@@ -536,6 +552,18 @@ export default function App() {
                   open.run(op);
                 }}
                 onClose={() => setSyncOptions(null)}
+              />
+            )}
+          </Show>
+          <Show when={groupOps.state.branchDialog} keyed>
+            {(dialog) => (
+              <GroupBranchDialog
+                dialog={dialog}
+                onRun={(op) => {
+                  groupOps.closeBranch();
+                  void groupOps.run(dialog.workspaceId, dialog.target, op);
+                }}
+                onClose={() => groupOps.closeBranch()}
               />
             )}
           </Show>

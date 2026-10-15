@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use gitcroc_core::{
-    GroupId, GroupOp, PlatformCacheDir, PlatformConfigDir, Prune, PullStrategy, RepoId, Summaries,
-    SummaryCache, Trees, WorkspaceId, Workspaces,
+    GroupId, GroupOp, MissingBranch, PlatformCacheDir, PlatformConfigDir, Prune, PullStrategy,
+    RepoId, StartPoint, Summaries, SummaryCache, Trees, WorkspaceId, Workspaces,
 };
 
 use crate::summaries::GivenCacheDir;
@@ -20,8 +20,10 @@ use crate::workspace::GivenConfigDir;
 pub const USAGE: &str = "group [--config-dir <dir>] list|create <name> [<repo-id>...]|\
 rename <group> <name>|delete <group>|add <group> <repo-id>...|remove <group> <repo-id>...|\
 run <group> --test-op|fetch [--prune|--no-prune]|\
-pull [--strategy config|ff-only|merge|rebase]|push [--no-set-upstream] [--force-with-lease] \
-[--confirm]";
+pull [--strategy config|ff-only|merge|rebase]|push [--no-set-upstream] [--force-with-lease]|\
+checkout <branch> [--missing skip|default-branch|create]|\
+create-branch <branch> [--start <ref>|--start-default] [--no-switch]|\
+delete-branch <branch> [--force] [--on-remote] [--confirm]";
 
 pub const TREE_USAGE: &str = "tree [--config-dir <dir>] [--cache-dir <dir>]";
 
@@ -84,6 +86,48 @@ fn parse_run(args: &[OsString]) -> Option<(RunOp, bool)> {
             RunOp::Op(GroupOp::Push {
                 set_upstream: !flags.contains(&"--no-set-upstream"),
                 force_with_lease: flags.contains(&"--force-with-lease"),
+            })
+        }
+        ("checkout", [name, rest @ ..]) => RunOp::Op(GroupOp::Checkout {
+            name: (*name).to_owned(),
+            missing: match rest {
+                [] | ["--missing", "skip"] => MissingBranch::Skip,
+                ["--missing", "default-branch"] => MissingBranch::DefaultBranch,
+                ["--missing", "create"] => MissingBranch::Create,
+                _ => return None,
+            },
+        }),
+        ("create-branch", [name, rest @ ..]) => {
+            let (start, rest) = match rest {
+                ["--start", revision, rest @ ..] => (
+                    StartPoint::Revision {
+                        revision: (*revision).to_owned(),
+                    },
+                    rest,
+                ),
+                ["--start-default", rest @ ..] => (StartPoint::DefaultBranch, rest),
+                rest => (StartPoint::Head, rest),
+            };
+            let switch = match rest {
+                [] => true,
+                ["--no-switch"] => false,
+                _ => return None,
+            };
+            RunOp::Op(GroupOp::CreateBranch {
+                name: (*name).to_owned(),
+                start,
+                switch,
+            })
+        }
+        ("delete-branch", [name, rest @ ..]) => {
+            let known = ["--force", "--on-remote"];
+            if !rest.iter().all(|flag| known.contains(flag)) {
+                return None;
+            }
+            RunOp::Op(GroupOp::DeleteBranch {
+                name: (*name).to_owned(),
+                force: rest.contains(&"--force"),
+                on_remote: rest.contains(&"--on-remote"),
             })
         }
         _ => return None,
@@ -332,6 +376,67 @@ mod tests {
             None
         );
         assert_eq!(parsed(&["run", "Backend", "push", "--prune"]), None);
+        assert_eq!(
+            parsed(&[
+                "run",
+                "Backend",
+                "checkout",
+                "main",
+                "--missing",
+                "default-branch"
+            ]),
+            run(
+                RunOp::Op(GroupOp::Checkout {
+                    name: "main".to_owned(),
+                    missing: MissingBranch::DefaultBranch
+                }),
+                false
+            )
+        );
+        assert_eq!(
+            parsed(&[
+                "run",
+                "Backend",
+                "create-branch",
+                "x",
+                "--start",
+                "v1",
+                "--no-switch"
+            ]),
+            run(
+                RunOp::Op(GroupOp::CreateBranch {
+                    name: "x".to_owned(),
+                    start: StartPoint::Revision {
+                        revision: "v1".to_owned()
+                    },
+                    switch: false
+                }),
+                false
+            )
+        );
+        assert_eq!(
+            parsed(&[
+                "run",
+                "Backend",
+                "delete-branch",
+                "x",
+                "--on-remote",
+                "--confirm"
+            ]),
+            run(
+                RunOp::Op(GroupOp::DeleteBranch {
+                    name: "x".to_owned(),
+                    force: false,
+                    on_remote: true
+                }),
+                true
+            )
+        );
+        assert_eq!(parsed(&["run", "Backend", "checkout"]), None);
+        assert_eq!(
+            parsed(&["run", "Backend", "delete-branch", "x", "--prune"]),
+            None
+        );
         assert_eq!(parsed(&["add", "Backend"]), None);
         assert_eq!(parsed(&["delete"]), None);
         let with_dir = parse_args(&args(&["--config-dir", "c", "list"])).unwrap();

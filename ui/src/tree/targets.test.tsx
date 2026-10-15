@@ -243,19 +243,17 @@ test("ui_20_toolbar_follows_the_target_set", async () => {
   expect(enabled()).toEqual(BUTTONS);
   expect(button("Fetch").title).toBe("Fetch all remotes");
 
-  // A group: Fetch, Pull and Push run through the preflight (GRP-12); the
-  // others are disabled, and say why.
+  // A group: Fetch, Pull, Push and Branch run through the preflight
+  // (GRP-12, GRP-14); the others are disabled, and say why.
   await click(row("Backend", 1));
-  expect(enabled()).toEqual(SYNC);
+  expect(enabled()).toEqual([...SYNC, "Branch"]);
   const later = "Not available yet for a group or several repositories";
-  for (const name of ["Branch", "Merge"]) {
-    expect(button(name).title).toBe(later);
-  }
+  expect(button("Merge").title).toBe(later);
   expect(button("Stash").title).toBe("Stash works on one repository at a time");
 
   // Several repos: the same.
   await click(row("api", 2));
   await click(row("docs", 2), { ctrlKey: true });
-  expect(enabled()).toEqual(SYNC);
+  expect(enabled()).toEqual([...SYNC, "Branch"]);
   expect(button("Merge").title).toBe(later);
 });

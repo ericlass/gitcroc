@@ -4,7 +4,9 @@
 //! ref format rules before anything runs (SEC-4). A repo that is busy,
 //! missing or in conflict state is refused (GRP-8). Force delete and
 //! delete on a remote are destructive (GRP-9): without the user's
-//! confirmation the core answers with what they would do instead.
+//! confirmation the core answers with what they would do instead. Group
+//! checkout, create and delete plan here too (`group_plan`) and run with
+//! the same code (section 5 rows).
 
 use std::sync::Arc;
 
@@ -14,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use crate::ref_name::{RefNameError, check_branch_name};
 use crate::unblocked::{from_blocked, open_unblocked, repo_name};
 use crate::{
-    GitRunner, JobError, JobId, Jobs, NothingToDo, OpenError, RepoId, StatusReadError, Summaries,
-    WorkspaceError, WorkspaceId, Workspaces, WriteJob,
+    GitRunner, JobError, JobId, Jobs, MissingBranch, NothingToDo, OpenError, RepoId,
+    StatusReadError, Summaries, WorkspaceError, WorkspaceId, Workspaces, WriteJob,
 };
 
 /// A branch of a remote, such as `feature/x` of `origin`.
@@ -151,7 +153,7 @@ pub fn branch_name_check(name: &str) -> Option<String> {
 
 /// What a job runs.
 #[derive(Debug, Clone)]
-enum Plan {
+pub(crate) enum Plan {
     Switch(String),
     /// Creates a local branch tracking `remote/branch` and checks it out.
     SwitchTrack(RemoteBranchRef),
@@ -173,6 +175,10 @@ enum Plan {
         name: String,
         force: bool,
         remote: Option<TrackedBranch>,
+        /// A group delete with "also on the remote" in a repo without an
+        /// upstream of the branch and without `origin`: its output says
+        /// that the branch was deleted here only.
+        local_only: bool,
     },
     DeleteRemote(RemoteBranchRef),
     SetUpstream {
@@ -194,6 +200,7 @@ impl Plan {
                 name,
                 force,
                 remote,
+                ..
             } => {
                 let verb = if *force { "Force delete" } else { "Delete" };
                 match remote {
@@ -229,6 +236,7 @@ impl Plan {
                 name,
                 force,
                 remote,
+                ..
             } => {
                 let mut actions = Vec::new();
                 if *force {
@@ -277,7 +285,7 @@ impl Plan {
 }
 
 /// Runs `plan` in `path`.
-async fn run(
+pub(crate) async fn run_plan(
     git: &GitRunner,
     path: &std::path::Path,
     plan: &Plan,
@@ -300,6 +308,7 @@ async fn run(
             name,
             force,
             remote,
+            local_only,
         } => {
             let mut all = ops::branch_delete(git, path, name, *force, write).await?;
             if let Some(remote) = remote {
@@ -307,6 +316,16 @@ async fn run(
                     ops::remote_branch_delete(git, path, &remote.remote, &remote.branch, write)
                         .await?,
                 );
+            }
+            if *local_only {
+                let note = format!(
+                    "{name} has no upstream and the repo has no remote origin: \
+                     it was deleted here only, not on a remote.\n"
+                );
+                all.append(Output {
+                    stdout: note.into_bytes(),
+                    stderr: Vec::new(),
+                });
             }
             Ok(all)
         }
@@ -425,6 +444,7 @@ fn plan(repo: &GitRepo, op: BranchOp) -> Result<Plan, BranchError> {
                 name,
                 force,
                 remote,
+                local_only: false,
             })
         }
         BranchOp::DeleteRemote { branch } => {
@@ -445,6 +465,153 @@ fn plan(repo: &GitRepo, op: BranchOp) -> Result<Plan, BranchError> {
             Ok(Plan::SetUpstream { name, upstream })
         }
     }
+}
+
+/// A branch operation on a target set (section 5 "Checkout branch X",
+/// "Create branch X" and "Delete branch X" rows). `name` was checked once
+/// against git's ref format (SEC-4); each repo resolves it on its own
+/// (GRP-14).
+#[derive(Debug, Clone)]
+pub(crate) enum GroupBranchOp {
+    Checkout {
+        name: String,
+        missing: MissingBranch,
+    },
+    Create {
+        name: String,
+        start: StartPoint,
+        switch: bool,
+    },
+    Delete {
+        name: String,
+        force: bool,
+        on_remote: bool,
+    },
+}
+
+/// What `op` runs in `repo` as part of a group operation, with why the
+/// user should look first; or why the repo is skipped. Reads the repo:
+/// call it from a thread that may block.
+pub(crate) fn group_plan(
+    repo: &GitRepo,
+    op: &GroupBranchOp,
+) -> Result<(Plan, Option<String>), String> {
+    match op {
+        GroupBranchOp::Checkout { name, missing } => {
+            if repo.has_local_branch(name) {
+                return Ok((Plan::Switch(name.clone()), None));
+            }
+            let remotes: Vec<String> = repo
+                .remote_names()
+                .into_iter()
+                .filter(|remote| repo.has_remote_branch(remote, name))
+                .collect();
+            match remotes.as_slice() {
+                [] => {}
+                [remote] => {
+                    let branch = RemoteBranchRef {
+                        remote: remote.clone(),
+                        branch: name.clone(),
+                    };
+                    return Ok((Plan::SwitchTrack(branch), None));
+                }
+                _ => return Err(format!("{name} is on several remotes")),
+            }
+            match missing {
+                MissingBranch::Skip => Err(format!("no branch {name}")),
+                MissingBranch::DefaultBranch => {
+                    let (plan, shown) =
+                        default_checkout(repo).ok_or_else(|| "no default branch".to_owned())?;
+                    Ok((plan, Some(format!("no branch {name}; switches to {shown}"))))
+                }
+                MissingBranch::Create => {
+                    let plan = Plan::Create {
+                        name: name.clone(),
+                        start: None,
+                        switch: true,
+                    };
+                    Ok((plan, Some(format!("creates {name}"))))
+                }
+            }
+        }
+        GroupBranchOp::Create {
+            name,
+            start,
+            switch,
+        } => {
+            if repo.has_local_branch(name) {
+                return Err(format!("{name} already exists"));
+            }
+            let start = match start {
+                StartPoint::Head => None,
+                StartPoint::DefaultBranch => Some(
+                    repo.default_branch()
+                        .ok_or_else(|| "no default branch".to_owned())?,
+                ),
+                StartPoint::Revision { revision } => {
+                    resolve(repo, revision).map_err(|_| format!("{revision} not found"))?;
+                    Some(revision.clone())
+                }
+            };
+            let plan = Plan::Create {
+                name: name.clone(),
+                start,
+                switch: *switch,
+            };
+            Ok((plan, None))
+        }
+        GroupBranchOp::Delete {
+            name,
+            force,
+            on_remote,
+        } => {
+            if !repo.has_local_branch(name) {
+                return Err(format!("no branch {name}"));
+            }
+            if repo.current_branch().as_deref() == Some(name.as_str()) {
+                return Err(format!("{name} is the current branch"));
+            }
+            // The remote of the branch's upstream, else `origin`.
+            let remote = if *on_remote {
+                repo.tracked_branch(name).or_else(|| {
+                    let origin = repo.remote_names().iter().any(|remote| remote == "origin");
+                    origin.then(|| TrackedBranch {
+                        remote: "origin".to_owned(),
+                        branch: name.clone(),
+                    })
+                })
+            } else {
+                None
+            };
+            let plan = Plan::Delete {
+                name: name.clone(),
+                force: *force,
+                local_only: *on_remote && remote.is_none(),
+                remote,
+            };
+            Ok((plan, None))
+        }
+    }
+}
+
+/// How a repo switches to its default branch (section 3), and that
+/// branch's local name: `origin/HEAD`'s branch is checked out as the local
+/// branch of the same name, tracking it when there is none yet.
+fn default_checkout(repo: &GitRepo) -> Option<(Plan, String)> {
+    let full = repo.default_branch()?;
+    if let Some(local) = full.strip_prefix("refs/heads/") {
+        return Some((Plan::Switch(local.to_owned()), local.to_owned()));
+    }
+    let branch = full.strip_prefix("refs/remotes/origin/")?.to_owned();
+    let plan = if repo.has_local_branch(&branch) {
+        Plan::Switch(branch.clone())
+    } else {
+        Plan::SwitchTrack(RemoteBranchRef {
+            remote: "origin".to_owned(),
+            branch: branch.clone(),
+        })
+    };
+    Some((plan, branch))
 }
 
 /// The full hash of the commit `revision` names.
@@ -488,7 +655,7 @@ pub async fn op_branch(
         ..WriteJob::single(id, repo_id, plan.label())
     };
     let handle = jobs.start(git, job, move |job| async move {
-        run(&job.git, &path, &plan, job.write()).await
+        run_plan(&job.git, &path, &plan, job.write()).await
     })?;
     Ok(BranchStart::Started {
         job_id: handle.job_id,

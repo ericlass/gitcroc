@@ -4,6 +4,7 @@
 //! and the run is one job with one sub-job per repo, ending with a result
 //! report (D8).
 
+mod branch;
 mod op;
 mod summary;
 mod sync;
@@ -68,6 +69,8 @@ pub enum GroupError {
     Job(#[from] JobError),
     #[error("{0} on a group is not available yet")]
     NotAvailable(String),
+    #[error(transparent)]
+    Name(#[from] crate::RefNameError),
     #[error("the target set has no repo")]
     NoRepo,
     #[error("no such preflight, or it was used already")]

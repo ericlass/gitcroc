@@ -88,7 +88,7 @@ export default function Toolbar(props: {
       <button
         type="button"
         disabled={props.onBranch === null}
-        title={titleOf(props.onBranch, "Create a branch in the selected repository", why().branch)}
+        title={titleOf(props.onBranch, "Create a branch", why().branch)}
         onClick={() => props.onBranch?.()}
       >
         Branch

@@ -2,7 +2,8 @@
 // kind, those that cannot apply disabled rather than hidden. A blocked repo
 // (GRP-8) has every repo write disabled; the core refuses them as well. The
 // group entries never touch a repo (GRP-3), so they stay enabled; Fetch,
-// Pull and Push of a group go through its preflight, which skips or blocks
+// Pull, Push and the branch operations of a group, and those of a name in
+// its Branches node (UI-5), go through its preflight, which skips or blocks
 // each repo that cannot take them (GRP-8).
 import type { GroupId, TreeItem } from "../ipc";
 import type { GroupInfo } from "./groups";
@@ -39,7 +40,10 @@ export type MenuAction =
   | "group_delete"
   | "group_fetch"
   | "group_pull"
-  | "group_push";
+  | "group_push"
+  | "group_checkout"
+  | "group_create"
+  | "group_delete_branch";
 
 export interface MenuEntry {
   action: MenuAction;
@@ -61,6 +65,9 @@ function groupEntries(item: TreeItem, groups: GroupInfo[]): MenuEntry[] {
         entry("group_fetch", "Fetch"),
         entry("group_pull", "Pull"),
         entry("group_push", "Push"),
+        entry("group_checkout", "Check out branch…"),
+        entry("group_create", "New branch…"),
+        entry("group_delete_branch", "Delete branch…"),
         entry("group_rename", "Rename…"),
         entry("group_delete", "Delete…"),
         entry("new_group", "New group…"),
@@ -68,6 +75,8 @@ function groupEntries(item: TreeItem, groups: GroupInfo[]): MenuEntry[] {
         entry("move_down", "Move down", index < 0 || index === groups.length - 1),
       ];
     }
+    case "group_branch":
+      return [entry("group_checkout", "Check out"), entry("group_delete_branch", "Delete…")];
     case "ungrouped":
       return [entry("new_group", "New group…")];
     case "repo": {

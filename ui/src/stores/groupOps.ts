@@ -28,6 +28,20 @@ export const DEFAULT_GROUP_OPS = {
   push: { kind: "push", set_upstream: true, force_with_lease: false },
 } as const satisfies Record<SyncKind, GroupOp>;
 
+/**
+ * The group checkout, create and delete dialogs (section 5 "Checkout branch
+ * X", "Create branch X" and "Delete branch X"): what they run on, how they
+ * name it, and the branch name they start with.
+ */
+export interface GroupBranchDialog {
+  workspaceId: WorkspaceId;
+  target: TargetSet;
+  /** Such as `Backend` or `3 repositories`. */
+  targetName: string;
+  kind: "checkout" | "create" | "delete";
+  name: string;
+}
+
 export interface PendingPreflight {
   workspaceId: WorkspaceId;
   /** `null` until the core answered the request. */
@@ -43,7 +57,10 @@ export interface PendingPreflight {
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export function createGroupOpStore() {
-  const [state, setState] = createStore<{ pending: PendingPreflight | null }>({ pending: null });
+  const [state, setState] = createStore<{ pending: PendingPreflight | null; branchDialog: GroupBranchDialog | null }>({
+    pending: null,
+    branchDialog: null,
+  });
   /** Results that arrived before their request's answer, by preflight. */
   const early = new Map<PreflightId, PreflightReady>();
   /** Counts requests, so an answer to one the user left is dropped. */
@@ -117,6 +134,9 @@ export function createGroupOpStore() {
     /** Runs `op` on `target`, after the preflight dialog when the core asks for it. */
     run: (workspaceId: WorkspaceId, target: TargetSet, op: GroupOp) =>
       begin(workspaceId, groupPreflight(workspaceId, target, op)),
+    /** Opens a group branch dialog; its Run goes through `run`. */
+    openBranch: (dialog: GroupBranchDialog) => setState("branchDialog", dialog),
+    closeBranch: () => setState("branchDialog", null),
     /** Retry failed (GRP-11) of ended group job `jobId`; the core takes its failed repos from the report. */
     retry: (workspaceId: WorkspaceId, jobId: JobId) => begin(workspaceId, groupRetryFailed(jobId)),
     /** The user confirmed the dialog (GRP-9). */
