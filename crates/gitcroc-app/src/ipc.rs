@@ -204,6 +204,7 @@ impl From<GroupError> for IpcError {
             }
             GroupError::Job(JobError::NoRepo) => Self::internal(error.to_string()),
             GroupError::NotAvailable(_)
+            | GroupError::Name(_)
             | GroupError::NoRepo
             | GroupError::UnknownPreflight
             | GroupError::NotReady

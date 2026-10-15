@@ -113,6 +113,7 @@ export type {
   Line,
   LineKind,
   MergeFastForward,
+  MissingBranch,
   ModeChange,
   Outcome,
   PaneLayout,

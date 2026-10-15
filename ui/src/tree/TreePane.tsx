@@ -8,11 +8,14 @@
 // delete and reorder groups, and repos are dragged between them (UI-7); every
 // drag is also in a menu, and the context menu key opens a row's menu
 // (UI-22). Repo rows are multi-selected with Ctrl/Cmd and Shift (UI-6).
+// A name in a group's Branches node is checked out on the group by
+// double-click (UI-5), and group rows' menus run the group operations.
 // Everything shown comes from the stores, which take it from the
 // core; this component only lays it out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, untrack } from "solid-js";
 import {
+  type GroupId,
   type RepoId,
   type TargetSet,
   repoOpenFileManager,
@@ -171,6 +174,8 @@ function TreeList(props: {
   groups: GroupInfo[];
   onMenu: (item: TreeItem, x: number, y: number) => void;
   onCheckout: (repo: RepoId, name: string) => void;
+  /** A double-click on branch `name` of group `group`'s Branches node (UI-5). */
+  onGroupCheckout: (group: GroupId, name: string) => void;
   /** A drop changed the groups (UI-7). */
   onGroupOp: (op: GroupOp) => void;
   ref: (element: HTMLDivElement) => void;
@@ -416,10 +421,13 @@ function TreeList(props: {
                     }}
                     onClick={(event) => clickRow(item.index, event)}
                     onDblClick={() => {
-                      // UI-7: a local branch is checked out; other rows open or close.
+                      // UI-7: a local branch is checked out, UI-5: a group's branch name is checked
+                      // out on the group; other rows open or close.
                       const target = node()?.node.item;
                       if (target?.kind === "branch") {
                         props.onCheckout(target.repo_id, target.name);
+                      } else if (target?.kind === "group_branch") {
+                        props.onGroupCheckout(target.group_id, target.name);
                       } else {
                         toggle(row());
                       }
@@ -601,6 +609,12 @@ export default function TreePane(props: {
 
   const run = (repo: RepoId, op: Parameters<BranchStore["run"]>[2]) => void props.branch.run(props.workspace, repo, op);
 
+  /** UI-5: a group checkout of branch `name` on group `group`'s members, through the preflight. */
+  const groupCheckout = (group: GroupId, name: string) => {
+    const target: TargetSet = { kind: "group", group_id: group };
+    void props.groupOps.run(props.workspace, target, { kind: "checkout", name, missing: "skip" });
+  };
+
   /** Does what a group `entry` of the menu of `item` says; `false` for other entries. */
   const actOnGroups = (entry: MenuEntry, item: TreeItem): boolean => {
     const step = entry.action === "move_up" ? -1 : 1;
@@ -616,6 +630,25 @@ export default function TreePane(props: {
           const kind = entry.action === "group_fetch" ? "fetch" : entry.action === "group_pull" ? "pull" : "push";
           const target: TargetSet = { kind: "group", group_id: item.group_id };
           void props.groupOps.run(props.workspace, target, DEFAULT_GROUP_OPS[kind]);
+        }
+        return true;
+      case "group_checkout":
+      case "group_create":
+      case "group_delete_branch":
+        if (item.kind === "group" || item.kind === "group_branch") {
+          const kind =
+            entry.action === "group_checkout" ? "checkout" : entry.action === "group_create" ? "create" : "delete";
+          if (kind === "checkout" && item.kind === "group_branch") {
+            groupCheckout(item.group_id, item.name);
+            return true;
+          }
+          props.groupOps.openBranch({
+            workspaceId: props.workspace,
+            target: { kind: "group", group_id: item.group_id },
+            targetName: named(item.group_id),
+            kind,
+            name: item.kind === "group_branch" ? item.name : "",
+          });
         }
         return true;
       case "group_rename":
@@ -866,6 +899,7 @@ export default function TreePane(props: {
               run(repo, { kind: "checkout", name });
             }
           }}
+          onGroupCheckout={groupCheckout}
         />
       </Show>
       <Show when={addMenu()}>

@@ -2,7 +2,8 @@
 //! supplies to run on a target set: a read-only classification of a repo
 //! and the single-repo run. Each operation's own rules arrive with its task
 //! (M3-10 to M3-13); until then it is refused as not available yet.
-//! Fetch, pull and push are in `super::sync`.
+//! Fetch, pull and push are in `super::sync`; checkout, create and delete
+//! of a branch in `super::branch`.
 
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -11,7 +12,10 @@ use gitcroc_git::{GitRepo, GitRunner, Output};
 use serde::{Deserialize, Serialize};
 
 use super::GroupError;
+use super::branch::GroupBranches;
 use super::sync::GroupSync;
+use crate::branch::GroupBranchOp;
+use crate::ref_name::check_branch_name;
 use crate::{
     CommitMessage, JobRun, MergeFastForward, Prune, PullStrategy, StartPoint, SubJobError,
     SubJobSpec, SyncOp,
@@ -142,9 +146,11 @@ impl GroupOp {
     }
 
     /// The code that runs it on a target set; refused until the
-    /// operation's task brings its preflight rule and run.
+    /// operation's task brings its preflight rule and run. A branch name
+    /// is checked here, once for every repo (SEC-4, GRP-14).
     pub fn operation(&self) -> Result<std::sync::Arc<dyn GroupOperation>, GroupError> {
-        let op = match *self {
+        let (name, destructive) = (self.name(), self.destructive());
+        let op = match self.clone() {
             Self::Fetch { prune } => SyncOp::Fetch { prune },
             Self::Pull { strategy } => SyncOp::Pull { strategy },
             Self::Push {
@@ -155,14 +161,57 @@ impl GroupOp {
                 remote: None,
                 force_with_lease,
             },
-            _ => return Err(GroupError::NotAvailable(self.name())),
+            Self::Checkout { name: x, missing } => {
+                check_branch_name(&x)?;
+                let op = GroupBranchOp::Checkout { name: x, missing };
+                return Ok(branches(name, destructive, op));
+            }
+            Self::CreateBranch {
+                name: x,
+                start,
+                switch,
+            } => {
+                check_branch_name(&x)?;
+                let op = GroupBranchOp::Create {
+                    name: x,
+                    start,
+                    switch,
+                };
+                return Ok(branches(name, destructive, op));
+            }
+            Self::DeleteBranch {
+                name: x,
+                force,
+                on_remote,
+            } => {
+                check_branch_name(&x)?;
+                let op = GroupBranchOp::Delete {
+                    name: x,
+                    force,
+                    on_remote,
+                };
+                return Ok(branches(name, destructive, op));
+            }
+            _ => return Err(GroupError::NotAvailable(name)),
         };
         Ok(std::sync::Arc::new(GroupSync {
-            name: self.name(),
-            destructive: self.destructive(),
+            name,
+            destructive,
             op,
         }))
     }
+}
+
+fn branches(
+    name: String,
+    destructive: Vec<String>,
+    op: GroupBranchOp,
+) -> std::sync::Arc<dyn GroupOperation> {
+    std::sync::Arc::new(GroupBranches {
+        name,
+        destructive,
+        op,
+    })
 }
 
 /// A repo's class in a preflight (section 5, step 1).

@@ -353,3 +353,86 @@ test("grp_12_the_toolbar_runs_fetch_pull_and_push_on_a_group_through_the_preflig
     op: { kind: "push", set_upstream: true, force_with_lease: false },
   });
 });
+
+test("ui_5_double_click_on_a_group_branch_starts_a_group_checkout", async () => {
+  workspace();
+  fakeState.refs = {
+    ...fakeState.refs,
+    r1: refNodes("r1", { local: ["main", "topic"], current: "main" }),
+    r2: refNodes("r2", { local: ["main", "topic"], current: "topic" }),
+  };
+  render(() => <App />);
+  await screen.findAllByRole("treeitem");
+  await settleAll();
+  fireEvent.click(within(row("Branches", 2)).getByText("▸"));
+  await settleAll();
+
+  // A double-click checks the name out on the group's members, through the preflight.
+  fireEvent.dblClick(row("topic", 3));
+  await settleAll();
+  expect(fakeGroups.preflights).toEqual([
+    { workspaceId: id(), target: ALL, op: { kind: "checkout", name: "topic", missing: "skip" } },
+  ]);
+  expect(fakeState.branchRequests).toEqual([]);
+
+  // The name's menu offers Check out and Delete; Delete opens the dialog on that name.
+  fireEvent.contextMenu(row("topic", 3), { clientX: 10, clientY: 10 });
+  const menu = within(screen.getByRole("menu"));
+  expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Check out", "Delete…"]);
+  fireEvent.click(menu.getByRole("menuitem", { name: "Delete…" }));
+  await settleAll();
+  const remove = screen.getByRole("dialog", { name: "Delete a branch in All" });
+  expect(within(remove).getByRole<HTMLInputElement>("combobox", { name: "Branch" }).value).toBe("topic");
+  fireEvent.click(within(remove).getByRole("checkbox", { name: /Force/ }));
+  fireEvent.click(within(remove).getByRole("button", { name: "Delete" }));
+  await settleAll();
+  expect(fakeGroups.preflights.at(-1)?.op).toEqual({
+    kind: "delete_branch",
+    name: "topic",
+    force: true,
+    on_remote: false,
+  });
+  // Destructive: the preflight dialog asks (GRP-9).
+  fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+  await settleAll();
+
+  // The group row's Check out branch… picks from the group's branch names.
+  fireEvent.contextMenu(row("All", 1), { clientX: 10, clientY: 10 });
+  fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Check out branch…" }));
+  await settleAll();
+  const checkout = screen.getByRole("dialog", { name: "Check out a branch in All" });
+  const options = [...checkout.querySelectorAll("#group-branch-names option")];
+  const names = options.map((option) => option.getAttribute("value"));
+  expect(names).toEqual(["main", "topic"]);
+  fireEvent.input(within(checkout).getByRole("combobox", { name: "Branch" }), { target: { value: "topic" } });
+  fireEvent.click(within(checkout).getByRole("radio", { name: "Switch to its default branch" }));
+  await settleAll();
+  fireEvent.click(within(checkout).getByRole("button", { name: "Check out" }));
+  await settleAll();
+  expect(fakeGroups.preflights.at(-1)?.op).toEqual({ kind: "checkout", name: "topic", missing: "default_branch" });
+
+  // The toolbar's Branch opens the group create dialog; the core checks the name (SEC-4).
+  fireEvent.click(row("All", 1));
+  await settleAll();
+  const branch = within(screen.getByRole("toolbar", { name: "Main" })).getByRole<HTMLButtonElement>("button", {
+    name: "Branch",
+  });
+  expect(branch.disabled).toBe(false);
+  fireEvent.click(branch);
+  const create = screen.getByRole("dialog", { name: "New branch in All" });
+  const field = within(create).getByRole("textbox", { name: "Branch" });
+  fireEvent.input(field, { target: { value: "bad..name" } });
+  await settleAll();
+  expect(within(create).getByRole<HTMLButtonElement>("button", { name: "Create" }).disabled).toBe(true);
+  fireEvent.input(field, { target: { value: "feature/y" } });
+  await settleAll();
+  fireEvent.click(within(create).getByRole("button", { name: "Create" }));
+  await settleAll();
+  expect(fakeGroups.preflights.at(-1)?.op).toEqual({
+    kind: "create_branch",
+    name: "feature/y",
+    start: { kind: "head" },
+    switch: true,
+  });
+  expect(screen.queryByRole("dialog", { name: "New branch in All" })).toBeNull();
+});

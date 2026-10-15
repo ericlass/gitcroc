@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-lib
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import type { SummaryView } from "../ipc";
 import { emitRepoSummary, fakeState, reset } from "../ipc/fake";
+import { fakeGroups } from "../ipc/fakeGroups";
 import { refNodes, summary } from "../ipc/fakeTree";
 import { createBranchStore } from "../stores/branch";
 import { createCloneStore } from "../stores/clone";
@@ -191,10 +192,13 @@ test("ui_4_group_row_shows_count_branch_and_totals", async () => {
     .filter((item) => item.getAttribute("aria-level") === "3")
     .map((item) => item.textContent);
   expect(counts).toEqual(["main(2/2)", "topic(1/2)"]);
-  // Double-click on a group branch does nothing yet (M3-11).
+  // Double-click on a group branch starts a group checkout, never a single repo's.
   fireEvent.dblClick(screen.getByLabelText("in 1 of 2 members"));
   await settleAll();
   expect(fakeState.branchRequests).toEqual([]);
+  expect(fakeGroups.preflights.map((preflight) => preflight.op)).toEqual([
+    { kind: "checkout", name: "topic", missing: "skip" },
+  ]);
 });
 
 test("ui_7_drag_moves_between_groups_and_ctrl_or_alt_adds", async () => {
@@ -249,7 +253,17 @@ test("ui_7_drag_moves_between_groups_and_ctrl_or_alt_adds", async () => {
 
 test("ui_7_group_and_repo_context_menus_offer_the_group_operations", async () => {
   const { tree } = await setup();
-  const group = ["Fetch", "Pull", "Push", "Rename…", "Delete…", "New group…"];
+  const group = [
+    "Fetch",
+    "Pull",
+    "Push",
+    "Check out branch…",
+    "New branch…",
+    "Delete branch…",
+    "Rename…",
+    "Delete…",
+    "New group…",
+  ];
   expect(menuOf(row("Backend", 1))).toEqual([...group, "!Move up", "Move down"]);
   expect(menuOf(row("Frontend", 1))).toEqual([...group, "Move up", "!Move down"]);
   expect(menuOf(row("Ungrouped", 1))).toEqual(["New group…"]);

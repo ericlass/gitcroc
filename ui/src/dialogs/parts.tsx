@@ -36,7 +36,14 @@ export function createNameCheck(name: () => string, check: (name: string) => Pro
   };
 }
 
-export function NameField(props: { label: string; value: string; error: string | null; onInput: (value: string) => void }) {
+export function NameField(props: {
+  label: string;
+  value: string;
+  error: string | null;
+  onInput: (value: string) => void;
+  /** The id of a `datalist` of names to pick from. */
+  list?: string;
+}) {
   return (
     <label class="field">
       <span>{props.label}</span>
@@ -44,6 +51,7 @@ export function NameField(props: { label: string; value: string; error: string |
         type="text"
         autocomplete="off"
         spellcheck={false}
+        list={props.list}
         value={props.value}
         aria-invalid={props.error !== null}
         aria-describedby={props.error === null ? undefined : "name-error"}
