@@ -70,10 +70,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libdbus-1-dev librsvg2-dev patchelf
 
+      # Only main saves: the repo's 10 GB of caches hold main's, which pull
+      # requests restore, instead of evicting them with a copy per branch.
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
         with:
           key: build-${{ matrix.platform }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Installs the pnpm version in ui/package.json's packageManager field.
       - name: Install pnpm
