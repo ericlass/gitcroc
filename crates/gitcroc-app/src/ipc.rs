@@ -14,16 +14,16 @@ use gitcroc_core::{
     CancelResult, ChangeRequest, ChangeStart, Changes, ChangesError, ChangesSettings,
     ChangesTarget, ChangesView, ChooseRequest, CloneError, CloneReport, CloneRequest,
     CommitGraphError, CommitRequest, ConflictDetails, ConflictRead, ConflictStart, DiffRequest,
-    FileDiff, FileRef, FsmonitorError, GitRunner, GitSetup, GitStatus, Histories, HistoryTarget,
-    HistoryView, HistoryViewError, ImageSide, IntegrateError, IntegrateRequest, IntegrateStart,
-    JobError, JobEvents, JobId, JobProgress, JobView, Jobs, Outcome, PaneLayout, PushChoices,
-    Refusal, RemoteError, RemoteRequest, RemoteStart, RemoteUrlsView, RepoChange, RepoId,
-    ResetError, ResetRequest, ResetStart, ResolveRequest, SettingsError, SettingsStore,
-    SettingsView, StashError, StashRequest, StashStart, StatusError, StatusReadError, Summaries,
-    SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch, TagError, TagRequest, TagStart,
-    Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError,
-    WorkspaceId, WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces, add_path,
-    refresh_summaries, refresh_workspace, tree_refs,
+    FileDiff, FileRef, FsmonitorError, GitRunner, GitSetup, GitStatus, GroupId, GroupSummary,
+    Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, IntegrateError,
+    IntegrateRequest, IntegrateStart, JobError, JobEvents, JobId, JobProgress, JobView, Jobs,
+    Outcome, PaneLayout, PushChoices, Refusal, RemoteError, RemoteRequest, RemoteStart,
+    RemoteUrlsView, RepoChange, RepoId, ResetError, ResetRequest, ResetStart, ResolveRequest,
+    SettingsError, SettingsStore, SettingsView, StashError, StashRequest, StashStart, StatusError,
+    StatusReadError, Summaries, SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch,
+    TagError, TagRequest, TagStart, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning,
+    Watchers, WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs, WorkspaceView,
+    Workspaces, add_path, group_summaries, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -102,13 +102,19 @@ impl From<WorkspaceError> for IpcError {
             WorkspaceError::ReadOnly => IpcErrorCode::WorkspaceReadOnly,
             WorkspaceError::UnknownWorkspace(_)
             | WorkspaceError::UnknownRepo(_)
+            | WorkspaceError::UnknownGroup(_)
             | WorkspaceError::NoSuchWorkspace(_) => IpcErrorCode::NotFound,
             WorkspaceError::BlankName
             | WorkspaceError::NameTooLong
             | WorkspaceError::NameTaken(_)
             | WorkspaceError::IsOpen
             | WorkspaceError::NotConfirmed
-            | WorkspaceError::BadOrder => IpcErrorCode::Refused,
+            | WorkspaceError::BadOrder
+            | WorkspaceError::BlankGroupName
+            | WorkspaceError::GroupNameTooLong
+            | WorkspaceError::GroupNameTaken(_)
+            | WorkspaceError::GroupNameReserved
+            | WorkspaceError::BadGroupOrder => IpcErrorCode::Refused,
             WorkspaceError::Write { .. }
             | WorkspaceError::Read { .. }
             | WorkspaceError::Delete { .. }
@@ -127,6 +133,7 @@ impl From<TreeError> for IpcError {
     fn from(error: TreeError) -> Self {
         match error {
             TreeError::Workspace(error) => error.into(),
+            TreeError::UnknownGroup(group) => WorkspaceError::UnknownGroup(group).into(),
             TreeError::Open(_) | TreeError::Refs(_) | TreeError::Stopped(_) => Self {
                 code: IpcErrorCode::Internal,
                 message: error.to_string(),
@@ -412,6 +419,12 @@ pub struct JobEndedEvent(pub JobView);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "git_status")]
 pub struct GitStatusEvent(pub GitStatus);
+
+/// A group's row after a member's summary changed, sent as event
+/// `group_summary` (GRP-4, UI-4).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "group_summary")]
+pub struct GroupSummaryEvent(pub GroupSummary);
 
 /// A workspace's fresh state, sent as event `workspace_changed` after it
 /// changes (ARCH-6).
@@ -854,21 +867,24 @@ pub async fn watch_warning(
     Ok(watchers.warning(&workspace_id))
 }
 
-/// The workspace's tree (UI-1): Ungrouped with every repo, each with its
+/// The workspace's tree (UI-1): each group with its Branches node and its
+/// members, then Ungrouped with the repos in no group. Each repo has its
 /// Local, Remotes, Tags and Stashes nodes not loaded; `refs_get` loads
-/// them (ARCH-8).
+/// them, and `group_branches` a group's Branches node (ARCH-8).
 #[tauri::command]
 #[specta::specta]
 pub async fn tree_get(
     workspaces: State<'_, Arc<Workspaces>>,
+    summaries: State<'_, Arc<Summaries>>,
     trees: State<'_, Arc<Trees>>,
     workspace_id: WorkspaceId,
 ) -> Result<Vec<TreeNode>, IpcError> {
-    Ok(trees.tree(&workspaces, &workspace_id)?)
+    Ok(trees.tree(&workspaces, &summaries, &workspace_id)?)
 }
 
-/// One repo's Local, Remotes, Tags and Stashes nodes, loaded, with ahead
-/// and behind for each local branch.
+/// One repo's Local, Remotes, Tags and Stashes nodes where it appears under
+/// group `group_id`, or under Ungrouped for `null`, loaded, with ahead and
+/// behind for each local branch.
 #[tauri::command]
 #[specta::specta]
 pub async fn refs_get(
@@ -876,9 +892,24 @@ pub async fn refs_get(
     trees: State<'_, Arc<Trees>>,
     workspace_id: WorkspaceId,
     repo_id: RepoId,
+    group_id: Option<GroupId>,
 ) -> Result<Vec<TreeNode>, IpcError> {
     let (trees, workspaces) = (trees.inner().clone(), workspaces.inner().clone());
-    Ok(tree_refs(trees, workspaces, workspace_id, repo_id).await?)
+    Ok(tree_refs(trees, workspaces, workspace_id, repo_id, group_id).await?)
+}
+
+/// The children of a group's Branches node (UI-5): every local branch name
+/// of at least one member, with how many members have it.
+#[tauri::command]
+#[specta::specta]
+pub async fn group_branches(
+    workspaces: State<'_, Arc<Workspaces>>,
+    trees: State<'_, Arc<Trees>>,
+    workspace_id: WorkspaceId,
+    group_id: GroupId,
+) -> Result<Vec<TreeNode>, IpcError> {
+    let (trees, workspaces) = (trees.inner().clone(), workspaces.inner().clone());
+    Ok(gitcroc_core::group_branches(trees, workspaces, workspace_id, group_id).await?)
 }
 
 /// The tree filtered by `text` (UI-8); empty text gives the whole tree.
@@ -887,12 +918,14 @@ pub async fn refs_get(
 #[specta::specta]
 pub async fn tree_filter(
     workspaces: State<'_, Arc<Workspaces>>,
+    summaries: State<'_, Arc<Summaries>>,
     trees: State<'_, Arc<Trees>>,
     workspace_id: WorkspaceId,
     text: String,
 ) -> Result<Option<Vec<TreeNode>>, IpcError> {
     let (trees, workspaces) = (trees.inner().clone(), workspaces.inner().clone());
-    Ok(gitcroc_core::tree_filter(trees, workspaces, workspace_id, text).await?)
+    let summaries = summaries.inner().clone();
+    Ok(gitcroc_core::tree_filter(trees, workspaces, summaries, workspace_id, text).await?)
 }
 
 /// The first page of `target`'s history in a repo (section 8 "History
@@ -1627,6 +1660,158 @@ pub async fn workspace_remove_repo(
     Ok(view)
 }
 
+/// Runs `change` on the workspace's groups off the async workers, as it
+/// saves the file (ARCH-7), then sends `workspace_changed`, which also
+/// makes the UI read the tree again. Nothing on disk but the workspace
+/// file changes (GRP-3).
+async fn change_groups<T: Send + 'static>(
+    app: &AppHandle,
+    workspace_id: WorkspaceId,
+    change: impl FnOnce(&Workspaces, &WorkspaceId) -> Result<T, WorkspaceError> + Send + 'static,
+) -> Result<(T, WorkspaceView), IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let (result, view) = tauri::async_runtime::spawn_blocking(move || {
+        let result = change(&workspaces, &workspace_id)?;
+        Ok::<_, WorkspaceError>((result, workspaces.view(&workspace_id)?))
+    })
+    .await??;
+    let _ = WorkspaceChangedEvent(view.clone()).emit(app);
+    Ok((result, view))
+}
+
+/// Creates a group as the last one, with `repo_ids` as its members in
+/// that order (GRP-2), and returns its id.
+#[tauri::command]
+#[specta::specta]
+pub async fn group_create(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    name: String,
+    repo_ids: Vec<RepoId>,
+) -> Result<GroupId, IpcError> {
+    let (group, _) = change_groups(&app, workspace_id, move |workspaces, id| {
+        workspaces.create_group(id, &name, &repo_ids)
+    })
+    .await?;
+    Ok(group)
+}
+
+/// Renames a group (GRP-2); its id stays.
+#[tauri::command]
+#[specta::specta]
+pub async fn group_rename(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    group_id: GroupId,
+    name: String,
+) -> Result<WorkspaceView, IpcError> {
+    let (_, view) = change_groups(&app, workspace_id, move |workspaces, id| {
+        workspaces.rename_group(id, &group_id, &name)
+    })
+    .await?;
+    Ok(view)
+}
+
+/// Deletes a group; its repos stay in the workspace (GRP-3).
+#[tauri::command]
+#[specta::specta]
+pub async fn group_delete(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    group_id: GroupId,
+) -> Result<WorkspaceView, IpcError> {
+    let (_, view) = change_groups(&app, workspace_id, move |workspaces, id| {
+        workspaces.delete_group(id, &group_id)
+    })
+    .await?;
+    Ok(view)
+}
+
+/// Adds repos to a group at position `at`, or at the end; a member moves
+/// there.
+#[tauri::command]
+#[specta::specta]
+pub async fn group_add_repos(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    group_id: GroupId,
+    repo_ids: Vec<RepoId>,
+    at: Option<u32>,
+) -> Result<WorkspaceView, IpcError> {
+    let (_, view) = change_groups(&app, workspace_id, move |workspaces, id| {
+        workspaces.add_to_group(id, &group_id, &repo_ids, at)
+    })
+    .await?;
+    Ok(view)
+}
+
+/// Removes repos from a group; they stay in the workspace (GRP-3).
+#[tauri::command]
+#[specta::specta]
+pub async fn group_remove_repos(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    group_id: GroupId,
+    repo_ids: Vec<RepoId>,
+) -> Result<WorkspaceView, IpcError> {
+    let (_, view) = change_groups(&app, workspace_id, move |workspaces, id| {
+        workspaces.remove_from_group(id, &group_id, &repo_ids)
+    })
+    .await?;
+    Ok(view)
+}
+
+/// Moves members of a group to position `at` among the others.
+#[tauri::command]
+#[specta::specta]
+pub async fn group_move_repos(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    group_id: GroupId,
+    repo_ids: Vec<RepoId>,
+    at: u32,
+) -> Result<WorkspaceView, IpcError> {
+    let (_, view) = change_groups(&app, workspace_id, move |workspaces, id| {
+        workspaces.move_in_group(id, &group_id, &repo_ids, at)
+    })
+    .await?;
+    Ok(view)
+}
+
+/// Moves a repo from one group to another at position `at`, or at the
+/// end, in one save.
+#[tauri::command]
+#[specta::specta]
+pub async fn group_move_repo_between(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    repo_id: RepoId,
+    from: GroupId,
+    to: GroupId,
+    at: Option<u32>,
+) -> Result<WorkspaceView, IpcError> {
+    let (_, view) = change_groups(&app, workspace_id, move |workspaces, id| {
+        workspaces.move_between_groups(id, &repo_id, &from, &to, at)
+    })
+    .await?;
+    Ok(view)
+}
+
+/// Puts the groups in the order of `group_ids`, which names each once.
+#[tauri::command]
+#[specta::specta]
+pub async fn group_reorder(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    group_ids: Vec<GroupId>,
+) -> Result<WorkspaceView, IpcError> {
+    let (_, view) = change_groups(&app, workspace_id, move |workspaces, id| {
+        workspaces.reorder_groups(id, &group_ids)
+    })
+    .await?;
+    Ok(view)
+}
+
 /// Checks an add can start: the workspace takes changes and git is usable.
 async fn prepare_add(app: &AppHandle, workspace_id: &WorkspaceId) -> Result<GitRunner, IpcError> {
     let view = app.state::<Arc<Workspaces>>().view(workspace_id)?;
@@ -1741,8 +1926,35 @@ fn send_summary(app: &AppHandle, trees: &Trees, view: SummaryView, read: bool) {
     };
     // An emit fails only while the app shuts down.
     let _ = RepoSummaryEvent(view).emit(app);
+    send_group_summaries(app, &changed);
     if read && trees.invalidate(&changed.workspace_id, &changed.repo_id) {
         let _ = RepoRefsChangedEvent(changed).emit(app);
+    }
+}
+
+/// Sends the summary of each group `changed` is a member of, as
+/// `group_summary`: its row's branch and totals follow its members (GRP-4).
+fn send_group_summaries(app: &AppHandle, changed: &RepoRef) {
+    let workspaces = app.state::<Arc<Workspaces>>();
+    let Ok(groups) = workspaces.groups(&changed.workspace_id) else {
+        return;
+    };
+    let member: Vec<&GroupId> = groups
+        .iter()
+        .filter(|group| group.repos.contains(&changed.repo_id))
+        .map(|group| &group.id)
+        .collect();
+    if member.is_empty() {
+        return;
+    }
+    let summaries = app.state::<Arc<Summaries>>();
+    let Ok(rows) = group_summaries(&workspaces, &summaries, &changed.workspace_id) else {
+        return;
+    };
+    for row in rows {
+        if member.contains(&&row.group_id) {
+            let _ = GroupSummaryEvent(row).emit(app);
+        }
     }
 }
 
@@ -2087,6 +2299,15 @@ macro_rules! with_commands {
                 tree_get,
                 refs_get,
                 tree_filter,
+                group_branches,
+                group_create,
+                group_rename,
+                group_delete,
+                group_add_repos,
+                group_remove_repos,
+                group_move_repos,
+                group_move_repo_between,
+                group_reorder,
                 history_get,
                 history_more,
                 commit_graph_write,
@@ -2158,6 +2379,15 @@ macro_rules! with_commands {
                 tree_get,
                 refs_get,
                 tree_filter,
+                group_branches,
+                group_create,
+                group_rename,
+                group_delete,
+                group_add_repos,
+                group_remove_repos,
+                group_move_repos,
+                group_move_repo_between,
+                group_reorder,
                 history_get,
                 history_more,
                 commit_graph_write,
@@ -2214,6 +2444,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             JobProgressEvent,
             GitStatusEvent,
             WorkspaceChangedEvent,
+            GroupSummaryEvent,
             WorkspacesChangedEvent,
             WorkspaceAddReportEvent,
             CloneParentPickedEvent,

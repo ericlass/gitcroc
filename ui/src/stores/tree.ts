@@ -6,6 +6,7 @@ import { untrack } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import {
   core,
+  groupBranches,
   type RepoId,
   type RepoRef,
   refsGet,
@@ -22,12 +23,18 @@ export interface WorkspaceTree {
   roots: TreeNode[] | null;
   /** Why the last `tree_get` failed. */
   error: string | null;
-  /** Each repo's loaded ref nodes from `refs_get`. */
-  refs: Record<RepoId, TreeNode[]>;
-  /** Why a repo's refs could not be loaded. */
-  refsErrors: Record<RepoId, string | undefined>;
-  /** Repos whose refs are being loaded. */
-  loading: Record<RepoId, boolean | undefined>;
+  /**
+   * Loaded children by {@link loadKey}: a repo's ref nodes from `refs_get`
+   * for each place it appears in, and a group's Branches node's children
+   * from `group_branches`.
+   */
+  refs: Record<string, TreeNode[]>;
+  /** What each entry of `refs` was loaded for, to load it again. */
+  loadedFor: Record<string, TreeItem>;
+  /** Why loading failed, by key. */
+  refsErrors: Record<string, string | undefined>;
+  /** Keys being loaded. */
+  loading: Record<string, boolean | undefined>;
   /** Expanded or collapsed nodes by id; others use their default. */
   expanded: Record<string, boolean>;
   /** The same while a filter is shown; cleared when the text changes. */
@@ -48,6 +55,7 @@ const empty = (): WorkspaceTree => ({
   roots: null,
   error: null,
   refs: {},
+  loadedFor: {},
   refsErrors: {},
   loading: {},
   expanded: {},
@@ -62,9 +70,33 @@ const empty = (): WorkspaceTree => ({
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+/** The repo an item belongs to; `null` for Ungrouped and a group's nodes. */
+export function repoOfItem(item: TreeItem): RepoId | null {
+  return "repo_id" in item ? item.repo_id : null;
+}
+
 /** The repo a node belongs to, if any. */
 export function repoOf(node: TreeNode): RepoId | null {
-  return node.item.kind === "ungrouped" ? null : node.item.repo_id;
+  return repoOfItem(node.item);
+}
+
+/**
+ * Where the loaded children of a node not loaded are kept: a repo's ref
+ * nodes for the place the repo appears in (UI-2), or a group's Branches
+ * node by its group. `null` for nodes that are never loaded.
+ */
+export function loadKey(item: TreeItem): string | null {
+  switch (item.kind) {
+    case "local":
+    case "remotes":
+    case "tags":
+    case "stashes":
+      return `refs:${item.group_id ?? ""}:${item.repo_id}`;
+    case "group_branches":
+      return `branches:${item.group_id}`;
+    default:
+      return null;
+  }
 }
 
 /** The row of `repo` in `nodes` or below. */
@@ -79,12 +111,6 @@ function findRepo(nodes: TreeNode[], repo: RepoId): TreeNode | undefined {
     }
   }
   return undefined;
-}
-
-/** A repo's Local, Remotes, Tags and Stashes node. */
-export function isRefsNode(node: TreeNode): boolean {
-  const kind = node.item.kind;
-  return kind === "local" || kind === "remotes" || kind === "tags" || kind === "stashes";
 }
 
 export function createTreeStore() {
@@ -138,18 +164,27 @@ export function createTreeStore() {
     }
   };
 
-  const loadRefs = async (id: WorkspaceId, repo: RepoId) => {
-    update(id, (t) => (t.loading[repo] = true));
+  /** Loads the children kept under `item`'s {@link loadKey}. */
+  const load = async (id: WorkspaceId, item: TreeItem) => {
+    const key = loadKey(item);
+    if (key === null) {
+      return;
+    }
+    update(id, (t) => (t.loading[key] = true));
     try {
-      const refs = await refsGet(id, repo);
+      const nodes =
+        item.kind === "group_branches"
+          ? await groupBranches(id, item.group_id)
+          : await refsGet(id, repoOfItem(item) ?? "", "group_id" in item ? item.group_id : null);
       update(id, (t) => {
-        t.refs[repo] = refs;
-        t.refsErrors[repo] = undefined;
+        t.refs[key] = nodes;
+        t.loadedFor[key] = item;
+        t.refsErrors[key] = undefined;
       });
     } catch (error) {
-      update(id, (t) => (t.refsErrors[repo] = message(error)));
+      update(id, (t) => (t.refsErrors[key] = message(error)));
     } finally {
-      update(id, (t) => (t.loading[repo] = false));
+      update(id, (t) => (t.loading[key] = false));
     }
   };
 
@@ -164,10 +199,18 @@ export function createTreeStore() {
         void reload(id);
       }
     };
+    // A repo's refs changed: its loaded places, and the loaded Branches
+    // nodes of groups, which may count it, are read again.
     const onRefsChanged = (event: { payload: RepoRef }) => {
       const { workspace_id, repo_id } = event.payload;
-      if (workspace_id === id && untrack(() => tree(id).refs[repo_id])) {
-        void loadRefs(id, repo_id).then(() => refilter(id));
+      if (workspace_id !== id) {
+        return;
+      }
+      const stale = untrack(() => Object.values(tree(id).loadedFor)).filter(
+        (item) => item.kind === "group_branches" || repoOfItem(item) === repo_id,
+      );
+      if (stale.length > 0) {
+        void Promise.all(stale.map((item) => load(id, item))).then(() => refilter(id));
       }
     };
     const stopChanged = await core.events.workspaceChanged.listen(onWorkspaceChanged);
@@ -181,16 +224,17 @@ export function createTreeStore() {
 
   /**
    * Expands or collapses `node`. Expanding one of a repo's ref nodes the
-   * first time loads that repo's refs, and with them ahead and behind.
+   * first time loads that repo's refs, and with them ahead and behind;
+   * expanding a group's Branches node loads its branch names (UI-5).
    */
   const setExpanded = (id: WorkspaceId, node: TreeNode, expanded: boolean) => {
     update(id, (t) => {
       (t.filtered === null ? t.expanded : t.filterExpanded)[node.id] = expanded;
     });
-    const repo = repoOf(node);
+    const key = loadKey(node.item);
     const current = tree(id);
-    if (expanded && repo !== null && isRefsNode(node) && !current.refs[repo] && !current.loading[repo]) {
-      void loadRefs(id, repo);
+    if (expanded && key !== null && !current.refs[key] && !current.loading[key]) {
+      void load(id, node.item);
     }
   };
 

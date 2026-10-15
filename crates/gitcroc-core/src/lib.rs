@@ -10,6 +10,7 @@ mod conflict;
 mod diff;
 mod fsmonitor;
 mod git;
+mod group;
 mod history;
 mod integrate;
 mod job;
@@ -67,6 +68,7 @@ pub use gitcroc_git::{
 pub use gitcroc_git::{
     Askpass, CommandRecord, Exit, Kill, Output, RefSnapshot, log_commands_to, ops,
 };
+pub use group::{GroupBranch, GroupSummary, group_branch, group_summaries};
 pub use history::{
     COMMIT_GRAPH_THRESHOLD, CommitGraphError, CommitGraphWrite, Histories, HistoryPageError,
     HistoryTarget, HistoryView, HistoryViewError, commit_graph_write, history_get, history_more,
@@ -107,12 +109,15 @@ pub use sync::{
 };
 pub use tabs::TabSwitch;
 pub use tag::{TagError, TagOp, TagRequest, TagStart, op_tag, tag_name_check};
-pub use tree::{TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, tree_filter, tree_refs};
+pub use tree::{
+    TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, group_branches, tree_filter, tree_refs,
+};
 pub use watch::{DEBOUNCE, MAX_DELAY, RepoChange, WatchWarning, WatchedPath, Watchers};
 pub use workspace::{
-    AddReport, DEFAULT_WORKSPACE_NAME, Dock, MAX_WORKSPACE_NAME, PaneLayout, Refusal, RepoId,
-    RepoView, SCAN_DEPTH, WORKSPACE_SCHEMA, WORKSPACES_DIR, WorkspaceError, WorkspaceListItem,
-    WorkspaceTabs, WorkspaceView, Workspaces, add_path,
+    AddReport, DEFAULT_WORKSPACE_NAME, Dock, GroupId, GroupView, MAX_GROUP_NAME,
+    MAX_WORKSPACE_NAME, PaneLayout, Refusal, RepoId, RepoView, SCAN_DEPTH, UNGROUPED_NAME,
+    WORKSPACE_SCHEMA, WORKSPACES_DIR, WorkspaceError, WorkspaceListItem, WorkspaceTabs,
+    WorkspaceView, Workspaces, add_path,
 };
 
 /// Errors returned by `gitcroc-core`.

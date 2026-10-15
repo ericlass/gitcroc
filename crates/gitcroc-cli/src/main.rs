@@ -8,6 +8,7 @@ mod bench;
 mod conflict;
 mod diff;
 mod gate;
+mod group;
 mod history;
 mod status;
 mod summaries;
@@ -15,13 +16,15 @@ mod workspace;
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}",
+        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}",
         history::USAGE,
         diff::USAGE,
         conflict::USAGE,
         status::STATUS_USAGE,
         status::SUMMARY_USAGE,
         workspace::USAGE,
+        group::USAGE,
+        group::TREE_USAGE,
         summaries::USAGE,
         bench::USAGE,
         gate::COMPARE_USAGE,
@@ -60,6 +63,14 @@ fn main() -> ExitCode {
         },
         [command, rest @ ..] if command == "workspace" => match workspace::parse_args(rest) {
             Some(options) => workspace::run(options),
+            None => usage(),
+        },
+        [command, rest @ ..] if command == "group" => match group::parse_args(rest) {
+            Some(options) => group::run(options),
+            None => usage(),
+        },
+        [command, rest @ ..] if command == "tree" => match group::parse_tree_args(rest) {
+            Some(options) => group::run_tree(&options),
             None => usage(),
         },
         [command, rest @ ..] if command == "summaries" => match summaries::parse_args(rest) {

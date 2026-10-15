@@ -3,6 +3,10 @@
 // `?fake=<name>`. Test support only; the real tree comes from the core.
 import type {
   ConflictDetails,
+  GroupBranch,
+  GroupId,
+  GroupSummary,
+  GroupView,
   RemoteUrlsView,
   RepoId,
   RepoView,
@@ -22,24 +26,152 @@ const CATEGORIES = [
   ["stashes", "Stashes"],
 ] as const;
 
-/** Ungrouped with every repo, each with its four ref nodes not loaded. */
-export function skeleton(workspace: WorkspaceView): TreeNode[] {
-  const repos = workspace.repos.map(repoNode);
-  return [{ id: "ungrouped", label: "Ungrouped", item: { kind: "ungrouped" }, children: repos }];
+/** What node ids start with in a place: under group `group`, or under Ungrouped for `null`. */
+const placeOf = (group: GroupId | null) => (group === null ? "" : `group:${group}:`);
+
+/** Like the core's derived group branch (GRP-4). */
+function groupBranch(views: SummaryView[]): GroupBranch {
+  const values = new Set<string>();
+  for (const view of views) {
+    const head = view.missing ? undefined : view.summary?.head;
+    if (head !== undefined) {
+      values.add(head.kind === "branch" ? `branch:${head.name}` : "detached");
+    }
+  }
+  const [only] = values;
+  if (only === undefined) {
+    return { kind: "none" };
+  }
+  if (values.size > 1) {
+    return { kind: "mixed", count: values.size };
+  }
+  return only === "detached" ? { kind: "detached" } : { kind: "branch", name: only.slice("branch:".length) };
 }
 
-function repoNode(repo: RepoView): TreeNode {
+/** A group's row as the core derives it from its members' summaries (UI-4). */
+export function groupSummary(workspaceId: string, group: GroupView, summaries: SummaryView[]): GroupSummary {
+  const members = group.repos.flatMap((repo) =>
+    summaries.filter((view) => view.workspace_id === workspaceId && view.repo_id === repo),
+  );
   return {
-    id: `repo:${repo.id}`,
+    workspace_id: workspaceId,
+    group_id: group.id,
+    branch: groupBranch(members),
+    members: group.repos.length,
+    dirty: members.filter((view) => !view.missing && view.summary?.dirty === true).length,
+    conflicts: members.filter((view) => view.conflict).length,
+  };
+}
+
+function groupNode(
+  workspace: WorkspaceView,
+  group: GroupView,
+  members: TreeNode[],
+  summaries: SummaryView[],
+): TreeNode {
+  const branches: TreeNode = {
+    id: `group:${group.id}:branches`,
+    label: "Branches",
+    item: { kind: "group_branches", group_id: group.id },
+    children: null,
+  };
+  return {
+    id: `group:${group.id}`,
+    label: group.name,
+    item: { kind: "group", group_id: group.id, summary: groupSummary(workspace.id, group, summaries) },
+    children: [branches, ...members],
+  };
+}
+
+const ungrouped = (repos: TreeNode[]): TreeNode => ({
+  id: "ungrouped",
+  label: "Ungrouped",
+  item: { kind: "ungrouped" },
+  children: repos,
+});
+
+/** The members of `group`, in its order. */
+const membersOf = (workspace: WorkspaceView, group: GroupView) =>
+  group.repos.flatMap((id) => workspace.repos.filter((repo) => repo.id === id));
+
+/** The repos in no group, in workspace order. */
+const ungroupedRepos = (workspace: WorkspaceView) =>
+  workspace.repos.filter((repo) => !workspace.groups.some((group) => group.repos.includes(repo.id)));
+
+/** Each group with its Branches node and members, then Ungrouped; each repo with its four ref nodes not loaded. */
+export function skeleton(workspace: WorkspaceView, summaries: SummaryView[] = []): TreeNode[] {
+  const groups = workspace.groups.map((group) =>
+    groupNode(
+      workspace,
+      group,
+      membersOf(workspace, group).map((repo) => repoNode(repo, group.id)),
+      summaries,
+    ),
+  );
+  return [...groups, ungrouped(ungroupedRepos(workspace).map((repo) => repoNode(repo, null)))];
+}
+
+function repoNode(repo: RepoView, group: GroupId | null): TreeNode {
+  const base = `${placeOf(group)}repo:${repo.id}`;
+  return {
+    id: base,
     label: repo.name,
-    item: { kind: "repo", repo_id: repo.id },
+    item: { kind: "repo", repo_id: repo.id, group_id: group },
     children: CATEGORIES.map(([key, label]) => ({
-      id: `repo:${repo.id}:${key}`,
+      id: `${base}:${key}`,
       label,
-      item: { kind: key, repo_id: repo.id },
+      item: { kind: key, repo_id: repo.id, group_id: group },
       children: null,
     })),
   };
+}
+
+/** `refNodes`' nodes as `refs_get` returns them for the place under group `group`. */
+export function inPlace(nodes: TreeNode[], group: GroupId | null): TreeNode[] {
+  if (group === null) {
+    return nodes;
+  }
+  const place = (node: TreeNode): TreeNode => {
+    const item = node.item;
+    const placed =
+      item.kind === "local" || item.kind === "remotes" || item.kind === "tags" || item.kind === "stashes"
+        ? { ...item, group_id: group }
+        : item;
+    return { ...node, id: `${placeOf(group)}${node.id}`, item: placed, children: node.children?.map(place) ?? null };
+  };
+  return nodes.map(place);
+}
+
+/** The local branch names of loaded ref nodes. */
+function localBranches(nodes: TreeNode[]): string[] {
+  const names: string[] = [];
+  const visit = (node: TreeNode) => {
+    if (node.item.kind === "branch") {
+      names.push(node.item.name);
+    }
+    node.children?.forEach(visit);
+  };
+  nodes.filter((node) => node.item.kind === "local").forEach(visit);
+  return names;
+}
+
+/** A group's Branches node's children as `group_branches` returns them, not folded. */
+export function groupBranchNodes(group: GroupView, refs: Record<RepoId, TreeNode[]>): TreeNode[] {
+  const present = new Map<string, number>();
+  for (const repo of group.repos) {
+    for (const name of new Set(localBranches(refs[repo] ?? []))) {
+      present.set(name, (present.get(name) ?? 0) + 1);
+    }
+  }
+  return [...present.keys()].sort().map((name) =>
+    leaf(`group:${group.id}:branches:ref:${name}`, name, {
+      kind: "group_branch",
+      group_id: group.id,
+      name,
+      present: present.get(name) ?? 0,
+      members: group.repos.length,
+    }),
+  );
 }
 
 export interface FakeRefs {
@@ -135,7 +267,7 @@ export function refNodes(repoId: RepoId, refs: FakeRefs): TreeNode[] {
   return CATEGORIES.map(([key, label], index) => ({
     id: `${base}:${key}`,
     label,
-    item: { kind: key, repo_id: repoId },
+    item: { kind: key, repo_id: repoId, group_id: null },
     children: children[index] ?? [],
   }));
 }
@@ -151,21 +283,36 @@ function prune(node: TreeNode, text: string): TreeNode | null {
 }
 
 /** Like the core's filter: matching repos and refs with their ancestors. */
-export function filterTree(workspace: WorkspaceView, refs: Record<RepoId, TreeNode[]>, text: string): TreeNode[] {
+export function filterTree(
+  workspace: WorkspaceView,
+  refs: Record<RepoId, TreeNode[]>,
+  text: string,
+  summaries: SummaryView[] = [],
+): TreeNode[] {
   const lower = text.toLowerCase();
   if (lower === "") {
-    return skeleton(workspace);
+    return skeleton(workspace, summaries);
   }
-  const repos: TreeNode[] = [];
-  for (const repo of workspace.repos) {
-    const kept = (refs[repo.id] ?? []).map((node) => prune(node, lower)).filter((node) => node !== null);
+  const filtered = (repo: RepoView, group: GroupId | null): TreeNode[] => {
+    const loaded = inPlace(refs[repo.id] ?? [], group);
+    const kept = loaded.map((node) => prune(node, lower)).filter((node) => node !== null);
     if (kept.length > 0) {
-      repos.push({ ...repoNode(repo), children: kept });
-    } else if (repo.name.toLowerCase().includes(lower)) {
-      repos.push(repoNode(repo));
+      return [{ ...repoNode(repo, group), children: kept }];
+    }
+    return repo.name.toLowerCase().includes(lower) ? [repoNode(repo, group)] : [];
+  };
+  const groups: TreeNode[] = [];
+  for (const group of workspace.groups) {
+    // A group matched by name shows all its members, not loaded.
+    const named = group.name.toLowerCase().includes(lower);
+    const members = membersOf(workspace, group).flatMap((repo) =>
+      named ? [repoNode(repo, group.id)] : filtered(repo, group.id),
+    );
+    if (named || members.length > 0) {
+      groups.push(groupNode(workspace, group, members, summaries));
     }
   }
-  return [{ id: "ungrouped", label: "Ungrouped", item: { kind: "ungrouped" }, children: repos }];
+  return [...groups, ungrouped(ungroupedRepos(workspace).flatMap((repo) => filtered(repo, null)))];
 }
 
 export function summary(workspaceId: string, repoId: RepoId, branch: string, change: Partial<SummaryView> = {}) {

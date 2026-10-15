@@ -1,25 +1,32 @@
 //! The tree of one workspace (UI-1) and its filter (UI-8).
 //!
-//! The tree crosses IPC in two parts so that nothing unbounded is sent at
-//! once (ARCH-8): [`Trees::tree`] is the skeleton, every repo with its
-//! **Local**, **Remotes**, **Tags** and **Stashes** nodes not yet loaded,
-//! and [`tree_refs`] loads one repo's ref nodes when one of them is first
-//! expanded. Only then are ahead and behind counted for its branches.
+//! The tree crosses IPC in parts so that nothing unbounded is sent at once
+//! (ARCH-8): [`Trees::tree`] is the skeleton, and [`tree_refs`] loads one
+//! repo's ref nodes when one of them is first expanded, counting ahead and
+//! behind only then. [`group_branches`] loads a group's **Branches** node
+//! the same way.
 //!
-//! Until groups exist (M3) every repo sits under **Ungrouped**. Branch names
-//! containing `/` fold into folders; within a node folders come first, then
-//! refs, each sorted by name.
+//! The skeleton has one node per group in the user's order, then
+//! **Ungrouped** with the repos in no group. A group holds its **Branches**
+//! node, then its members in order; each repo holds its **Local**,
+//! **Remotes**, **Tags** and **Stashes** nodes, not loaded. A repo in
+//! several groups appears under each (UI-2): its nodes' ids carry the
+//! place, `group:<id>:` before the repo's own, so they are unique, and its
+//! items carry the place's group. Branch names containing `/` fold into
+//! folders; within a node folders come first, then refs, each sorted by
+//! name.
 //!
 //! Loaded refs are kept per workspace and repo (ARCH-9) until the repo's
 //! summary is read again ([`Trees::invalidate`]).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use gitcroc_git::{GitRepo, OpenError, Refs, RefsError, RefsRead};
 use serde::{Deserialize, Serialize};
 
-use crate::{RepoId, WorkspaceError, WorkspaceId, Workspaces};
+use crate::group::{GroupSummary, group_summaries};
+use crate::{GroupId, RepoId, Summaries, WorkspaceError, WorkspaceId, Workspaces};
 
 /// The id of the **Ungrouped** node.
 pub const UNGROUPED_ID: &str = "ungrouped";
@@ -41,21 +48,51 @@ pub struct TreeNode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TreeItem {
+    /// A group (UI-4), with what its row shows (GRP-4).
+    Group {
+        group_id: GroupId,
+        summary: GroupSummary,
+    },
+    /// A group's **Branches** node (UI-5); `group_branches` loads it.
+    GroupBranches {
+        group_id: GroupId,
+    },
+    /// One `/`-separated part of the branch names of a group's
+    /// **Branches** node.
+    GroupFolder {
+        group_id: GroupId,
+    },
+    /// A local branch name that exists in `present` of the group's
+    /// `members` (UI-5).
+    GroupBranch {
+        group_id: GroupId,
+        /// The full short name, for example `feature/x`.
+        name: String,
+        present: u32,
+        members: u32,
+    },
     Ungrouped,
+    /// A repo, under the group `group_id` or under **Ungrouped**.
     Repo {
         repo_id: RepoId,
+        group_id: Option<GroupId>,
     },
+    /// A repo's ref nodes carry the repo's place, for `refs_get`.
     Local {
         repo_id: RepoId,
+        group_id: Option<GroupId>,
     },
     Remotes {
         repo_id: RepoId,
+        group_id: Option<GroupId>,
     },
     Tags {
         repo_id: RepoId,
+        group_id: Option<GroupId>,
     },
     Stashes {
         repo_id: RepoId,
+        group_id: Option<GroupId>,
     },
     Remote {
         repo_id: RepoId,
@@ -113,6 +150,8 @@ pub enum TreeItem {
 pub enum TreeError {
     #[error(transparent)]
     Workspace(#[from] WorkspaceError),
+    #[error("the workspace has no group with the id {0}")]
+    UnknownGroup(GroupId),
     #[error(transparent)]
     Open(#[from] OpenError),
     #[error(transparent)]
@@ -142,20 +181,36 @@ impl Trees {
         Self::default()
     }
 
-    /// The skeleton of workspace `id`: **Ungrouped** with every repo in
-    /// workspace order, each with its four ref nodes not loaded.
+    /// The skeleton of workspace `id` (UI-1): each group in the user's
+    /// order with its **Branches** node and its members, then
+    /// **Ungrouped** with the repos in no group, in workspace order. Each
+    /// repo has its four ref nodes, not loaded. The group nodes carry what
+    /// `summaries` give their rows (GRP-4, UI-4).
     pub fn tree(
         &self,
         workspaces: &Workspaces,
+        summaries: &Summaries,
         id: &WorkspaceId,
     ) -> Result<Vec<TreeNode>, WorkspaceError> {
-        let view = workspaces.view(id)?;
-        let repos = view
-            .repos
-            .into_iter()
-            .map(|repo| repo_node(&repo.id, repo.name))
+        let layout = Layout::read(workspaces, summaries, id)?;
+        let mut nodes: Vec<TreeNode> = layout
+            .groups
+            .iter()
+            .map(|group| {
+                let members = group
+                    .members
+                    .iter()
+                    .map(|repo| layout.repo_node(repo, Some(&group.summary.group_id)))
+                    .collect();
+                group_node(group, members)
+            })
             .collect();
-        Ok(vec![ungrouped(repos)])
+        let repos = layout
+            .ungrouped()
+            .map(|repo| layout.repo_node(repo, None))
+            .collect();
+        nodes.push(ungrouped(repos));
+        Ok(nodes)
     }
 
     /// Drops everything kept for workspace `id`, whose tab closed (ARCH-9).
@@ -219,38 +274,64 @@ impl Trees {
     fn filter(
         &self,
         workspaces: &Workspaces,
+        summaries: &Summaries,
         id: &WorkspaceId,
         text: &str,
         request: u64,
     ) -> Result<Option<Vec<TreeNode>>, WorkspaceError> {
         let text = text.to_lowercase();
         if text.is_empty() {
-            return self.tree(workspaces, id).map(Some);
+            return self.tree(workspaces, summaries, id).map(Some);
         }
-        let view = workspaces.view(id)?;
-        let mut repos = Vec::new();
-        for repo in view.repos {
-            if !self.is_latest(id, request) {
-                return Ok(None);
-            }
-            let named = repo.name.to_lowercase().contains(&text);
-            // A repo whose refs cannot be read is matched by its name only.
-            let refs = self.read(workspaces, id, &repo.id, false).ok();
+        let layout = Layout::read(workspaces, summaries, id)?;
+        // Each repo's refs are read once, wherever it appears.
+        let mut read: HashMap<RepoId, Option<Refs>> = HashMap::new();
+        let mut filtered = |repo: &RepoId, place: Option<&GroupId>| -> Option<TreeNode> {
+            let refs = read
+                .entry(repo.clone())
+                // A repo whose refs cannot be read is matched by its name only.
+                .or_insert_with(|| self.read(workspaces, id, repo, false).ok());
             let kept: Vec<TreeNode> = refs
-                .map(|refs| ref_nodes(&repo.id, &refs))
+                .as_ref()
+                .map(|refs| ref_nodes(repo, place, refs))
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|node| prune(node, &text))
                 .collect();
+            let mut node = layout.repo_node(repo, place);
             if !kept.is_empty() {
-                let mut node = repo_node(&repo.id, repo.name);
                 node.children = Some(kept);
-                repos.push(node);
-            } else if named {
-                repos.push(repo_node(&repo.id, repo.name));
+                return Some(node);
+            }
+            node.label.to_lowercase().contains(&text).then_some(node)
+        };
+        let mut nodes = Vec::new();
+        for group in &layout.groups {
+            if !self.is_latest(id, request) {
+                return Ok(None);
+            }
+            let place = Some(&group.summary.group_id);
+            // A group matched by name shows all its members, not loaded.
+            let members: Vec<TreeNode> = if group.name.to_lowercase().contains(&text) {
+                let members = group.members.iter();
+                members.map(|repo| layout.repo_node(repo, place)).collect()
+            } else {
+                let members = group.members.iter();
+                members.filter_map(|repo| filtered(repo, place)).collect()
+            };
+            if !members.is_empty() || group.name.to_lowercase().contains(&text) {
+                nodes.push(group_node(group, members));
             }
         }
-        Ok(self.is_latest(id, request).then(|| vec![ungrouped(repos)]))
+        let mut repos = Vec::new();
+        for repo in layout.ungrouped() {
+            if !self.is_latest(id, request) {
+                return Ok(None);
+            }
+            repos.extend(filtered(repo, None));
+        }
+        nodes.push(ungrouped(repos));
+        Ok(self.is_latest(id, request).then_some(nodes))
     }
 }
 
@@ -260,17 +341,68 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The four ref nodes of `repo`, loaded, with ahead and behind counted.
+/// The four ref nodes of `repo` where it appears under group `place`, or
+/// under **Ungrouped** for `None`, loaded, with ahead and behind counted.
 /// Reads the repo off the async workers (ARCH-7).
 pub async fn tree_refs(
     trees: Arc<Trees>,
     workspaces: Arc<Workspaces>,
     id: WorkspaceId,
     repo: RepoId,
+    place: Option<GroupId>,
 ) -> Result<Vec<TreeNode>, TreeError> {
     tokio::task::spawn_blocking(move || {
         let refs = trees.read(&workspaces, &id, &repo, true)?;
-        Ok(ref_nodes(&repo, &refs))
+        Ok(ref_nodes(&repo, place.as_ref(), &refs))
+    })
+    .await?
+}
+
+/// The children of group `group`'s **Branches** node (UI-5): every local
+/// branch name of at least one member, with how many of the members have
+/// it, folded into folders. Members whose refs cannot be read have none.
+/// Reads the members off the async workers (ARCH-7), without ahead and
+/// behind.
+pub async fn group_branches(
+    trees: Arc<Trees>,
+    workspaces: Arc<Workspaces>,
+    id: WorkspaceId,
+    group: GroupId,
+) -> Result<Vec<TreeNode>, TreeError> {
+    tokio::task::spawn_blocking(move || {
+        let members = workspaces
+            .groups(&id)?
+            .into_iter()
+            .find(|known| known.id == group)
+            .ok_or_else(|| TreeError::UnknownGroup(group.clone()))?
+            .repos;
+        let total = u32::try_from(members.len()).unwrap_or(u32::MAX);
+        let mut present: BTreeMap<String, u32> = BTreeMap::new();
+        for repo in &members {
+            let Ok(refs) = trees.read(&workspaces, &id, repo, false) else {
+                continue;
+            };
+            let names: HashSet<&String> = refs.local.iter().map(|branch| &branch.name).collect();
+            for name in names {
+                *present.entry(name.clone()).or_default() += 1;
+            }
+        }
+        let branches = present
+            .into_iter()
+            .map(|(name, present)| {
+                let item = TreeItem::GroupBranch {
+                    group_id: group.clone(),
+                    name: name.clone(),
+                    present,
+                    members: total,
+                };
+                (name, item)
+            })
+            .collect();
+        let folder = || TreeItem::GroupFolder {
+            group_id: group.clone(),
+        };
+        Ok(fold(&branches_id(&group), &folder, branches))
     })
     .await?
 }
@@ -279,7 +411,8 @@ pub async fn tree_refs(
 /// name or ref name contains it, ignoring case, with their ancestors. A
 /// repo matched by name alone keeps its ref nodes, not loaded. Empty text
 /// gives the whole skeleton. Refs not loaded yet are read without ahead
-/// and behind.
+/// and behind. A group matched by name shows all its members, not loaded;
+/// another group shows the members that match, and only when one does.
 ///
 /// Each call supersedes the previous one for the same workspace: an older
 /// call still running returns `None` (`Ok(None)`), so results never arrive
@@ -287,11 +420,12 @@ pub async fn tree_refs(
 pub async fn tree_filter(
     trees: Arc<Trees>,
     workspaces: Arc<Workspaces>,
+    summaries: Arc<Summaries>,
     id: WorkspaceId,
     text: String,
 ) -> Result<Option<Vec<TreeNode>>, WorkspaceError> {
     let request = trees.begin_filter(&id);
-    tokio::task::spawn_blocking(move || trees.filter(&workspaces, &id, &text, request))
+    tokio::task::spawn_blocking(move || trees.filter(&workspaces, &summaries, &id, &text, request))
         .await
         .map_err(WorkspaceError::Stopped)?
 }
@@ -305,13 +439,108 @@ fn ungrouped(repos: Vec<TreeNode>) -> TreeNode {
     }
 }
 
-fn repo_id(repo: &RepoId) -> String {
-    format!("repo:{}", repo.0)
+/// What the skeleton is built from: the groups with their rows' summaries,
+/// and the repos' names.
+struct Layout {
+    groups: Vec<GroupLayout>,
+    /// Every repo's name, in workspace order.
+    repos: Vec<(RepoId, String)>,
+}
+
+struct GroupLayout {
+    name: String,
+    members: Vec<RepoId>,
+    summary: GroupSummary,
+}
+
+impl Layout {
+    fn read(
+        workspaces: &Workspaces,
+        summaries: &Summaries,
+        id: &WorkspaceId,
+    ) -> Result<Self, WorkspaceError> {
+        let view = workspaces.view(id)?;
+        let mut rows = group_summaries(workspaces, summaries, id)?.into_iter();
+        let groups = view
+            .groups
+            .into_iter()
+            .filter_map(|group| {
+                let summary = rows.find(|row| row.group_id == group.id)?;
+                Some(GroupLayout {
+                    name: group.name,
+                    members: group.repos,
+                    summary,
+                })
+            })
+            .collect();
+        let repos = view
+            .repos
+            .into_iter()
+            .map(|repo| (repo.id, repo.name))
+            .collect();
+        Ok(Self { groups, repos })
+    }
+
+    /// The repos in no group, in workspace order.
+    fn ungrouped(&self) -> impl Iterator<Item = &RepoId> {
+        self.repos
+            .iter()
+            .map(|(repo, _)| repo)
+            .filter(|repo| !self.groups.iter().any(|group| group.members.contains(repo)))
+    }
+
+    /// The node of `repo` under group `place`, or under **Ungrouped**.
+    fn repo_node(&self, repo: &RepoId, place: Option<&GroupId>) -> TreeNode {
+        let name = self
+            .repos
+            .iter()
+            .find(|(known, _)| known == repo)
+            .map_or_else(|| repo.0.clone(), |(_, name)| name.clone());
+        repo_node(repo, place, name)
+    }
+}
+
+fn group_id(group: &GroupId) -> String {
+    format!("group:{}", group.0)
+}
+
+fn branches_id(group: &GroupId) -> String {
+    format!("{}:branches", group_id(group))
+}
+
+/// A group node with its **Branches** node, not loaded, and `members`.
+fn group_node(group: &GroupLayout, members: Vec<TreeNode>) -> TreeNode {
+    let group_id = &group.summary.group_id;
+    let branches = TreeNode {
+        id: branches_id(group_id),
+        label: "Branches".to_owned(),
+        item: TreeItem::GroupBranches {
+            group_id: group_id.clone(),
+        },
+        children: None,
+    };
+    TreeNode {
+        id: self::group_id(group_id),
+        label: group.name.clone(),
+        item: TreeItem::Group {
+            group_id: group_id.clone(),
+            summary: group.summary.clone(),
+        },
+        children: Some(std::iter::once(branches).chain(members).collect()),
+    }
+}
+
+/// The id of `repo`'s node under group `place`, or under **Ungrouped**.
+fn repo_id(repo: &RepoId, place: Option<&GroupId>) -> String {
+    match place {
+        Some(group) => format!("{}:repo:{}", group_id(group), repo.0),
+        None => format!("repo:{}", repo.0),
+    }
 }
 
 /// A repo node with its four ref nodes, not loaded.
-fn repo_node(repo: &RepoId, name: String) -> TreeNode {
-    let children = categories(repo)
+fn repo_node(repo: &RepoId, place: Option<&GroupId>, name: String) -> TreeNode {
+    let children = categories(repo, place)
         .into_iter()
         .map(|(id, label, item)| TreeNode {
             id,
@@ -321,46 +550,63 @@ fn repo_node(repo: &RepoId, name: String) -> TreeNode {
         })
         .collect();
     TreeNode {
-        id: repo_id(repo),
+        id: repo_id(repo, place),
         label: name,
         item: TreeItem::Repo {
             repo_id: repo.clone(),
+            group_id: place.cloned(),
         },
         children: Some(children),
     }
 }
 
 /// Id, label and item of the four ref nodes, in tree order.
-fn categories(repo: &RepoId) -> [(String, &'static str, TreeItem); 4] {
-    let base = repo_id(repo);
+fn categories(repo: &RepoId, place: Option<&GroupId>) -> [(String, &'static str, TreeItem); 4] {
+    let base = repo_id(repo, place);
     let repo_id = || repo.clone();
+    let group_id = || place.cloned();
     [
         (
             format!("{base}:local"),
             "Local",
-            TreeItem::Local { repo_id: repo_id() },
+            TreeItem::Local {
+                repo_id: repo_id(),
+                group_id: group_id(),
+            },
         ),
         (
             format!("{base}:remotes"),
             "Remotes",
-            TreeItem::Remotes { repo_id: repo_id() },
+            TreeItem::Remotes {
+                repo_id: repo_id(),
+                group_id: group_id(),
+            },
         ),
         (
             format!("{base}:tags"),
             "Tags",
-            TreeItem::Tags { repo_id: repo_id() },
+            TreeItem::Tags {
+                repo_id: repo_id(),
+                group_id: group_id(),
+            },
         ),
         (
             format!("{base}:stashes"),
             "Stashes",
-            TreeItem::Stashes { repo_id: repo_id() },
+            TreeItem::Stashes {
+                repo_id: repo_id(),
+                group_id: group_id(),
+            },
         ),
     ]
 }
 
-/// The four ref nodes of `repo`, loaded from `refs`.
-fn ref_nodes(repo: &RepoId, refs: &Refs) -> Vec<TreeNode> {
-    let [local, remotes, tags, stashes] = categories(repo);
+/// The four ref nodes of `repo` under group `place`, loaded from `refs`.
+fn ref_nodes(repo: &RepoId, place: Option<&GroupId>, refs: &Refs) -> Vec<TreeNode> {
+    let [local, remotes, tags, stashes] = categories(repo, place);
+    let folder = || TreeItem::Folder {
+        repo_id: repo.clone(),
+    };
     let node = |(id, label, item): (String, &str, TreeItem), children| TreeNode {
         id,
         label: label.to_owned(),
@@ -388,7 +634,7 @@ fn ref_nodes(repo: &RepoId, refs: &Refs) -> Vec<TreeNode> {
             )
         })
         .collect();
-    let local_children = fold(&local.0, repo, branches);
+    let local_children = fold(&local.0, &folder, branches);
 
     let remote_children = refs
         .remotes
@@ -411,7 +657,7 @@ fn ref_nodes(repo: &RepoId, refs: &Refs) -> Vec<TreeNode> {
                 })
                 .collect();
             TreeNode {
-                children: Some(fold(&id, repo, branches)),
+                children: Some(fold(&id, &folder, branches)),
                 id,
                 label: remote.remote.clone(),
                 item: TreeItem::Remote {
@@ -463,25 +709,32 @@ fn ref_nodes(repo: &RepoId, refs: &Refs) -> Vec<TreeNode> {
 }
 
 /// Folds `/`-separated names into folders below the node `parent`: folders
-/// first, then refs, each sorted by name.
-fn fold(parent: &str, repo: &RepoId, refs: Vec<(String, TreeItem)>) -> Vec<TreeNode> {
+/// first, then refs, each sorted by name. `folder` gives a folder's item.
+fn fold(
+    parent: &str,
+    folder: &dyn Fn() -> TreeItem,
+    refs: Vec<(String, TreeItem)>,
+) -> Vec<TreeNode> {
     #[derive(Default)]
     struct Folder {
         folders: BTreeMap<String, Folder>,
         refs: BTreeMap<String, TreeItem>,
     }
 
-    fn build(folder: Folder, parent: &str, path: &str, repo: &RepoId) -> Vec<TreeNode> {
+    fn build(
+        folder: Folder,
+        parent: &str,
+        path: &str,
+        item: &dyn Fn() -> TreeItem,
+    ) -> Vec<TreeNode> {
         let mut nodes = Vec::new();
         for (name, sub) in folder.folders {
             let path = format!("{path}{name}/");
             nodes.push(TreeNode {
                 id: format!("{parent}:dir:{path}"),
                 label: name,
-                item: TreeItem::Folder {
-                    repo_id: repo.clone(),
-                },
-                children: Some(build(sub, parent, &path, repo)),
+                item: item(),
+                children: Some(build(sub, parent, &path, item)),
             });
         }
         for (name, item) in folder.refs {
@@ -505,7 +758,7 @@ fn fold(parent: &str, repo: &RepoId, refs: Vec<(String, TreeItem)>) -> Vec<TreeN
         }
         folder.refs.insert(leaf, item);
     }
-    build(root, parent, "", repo)
+    build(root, parent, "", folder)
 }
 
 /// The text a node is matched by: a ref's full name. Other nodes are kept
@@ -552,13 +805,18 @@ mod tests {
     #[test]
     fn ui_8_a_newer_filter_supersedes_an_older_one() {
         let workspaces = Workspaces::load(&NoConfigDir);
+        let summaries = Summaries::load(crate::SummaryCache::none(), &workspaces);
         let id = workspaces.views()[0].id.clone();
         let other = WorkspaceId("other".to_owned());
         let trees = Trees::new();
         let older = trees.begin_filter(&id);
         let elsewhere = trees.begin_filter(&other);
         let newer = trees.begin_filter(&id);
-        let filter = |request| trees.filter(&workspaces, &id, "x", request).unwrap();
+        let filter = |request| {
+            trees
+                .filter(&workspaces, &summaries, &id, "x", request)
+                .unwrap()
+        };
         assert_eq!(filter(older), None);
         assert!(filter(newer).is_some());
         // ARCH-9: requests of another workspace supersede nothing here.
@@ -587,7 +845,7 @@ mod tests {
             }],
             ..Refs::default()
         };
-        let nodes = ref_nodes(&repo, &refs);
+        let nodes = ref_nodes(&repo, None, &refs);
         assert_eq!(labels(&nodes), ["Local", "Remotes", "Tags", "Stashes"]);
         let local = nodes[0].children.as_deref().unwrap_or_default();
         assert_eq!(labels(local), ["bugfix", "feature", "main", "zeta"]);

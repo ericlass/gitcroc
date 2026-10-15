@@ -8,7 +8,7 @@ import { createRemoteStore } from "../stores/remote";
 import { createStashStore } from "../stores/stash";
 import { createSummaryStore } from "../stores/summaries";
 import { createTagStore } from "../stores/tag";
-import { createTreeStore } from "../stores/tree";
+import { createTreeStore, loadKey } from "../stores/tree";
 import { createWorkspaceStore } from "../stores/workspaces";
 import BranchDialogs from "./BranchDialogs";
 import TreePane from "./TreePane";
@@ -83,7 +83,9 @@ async function setup(change: { busy?: boolean } = {}) {
     tree.setExpanded(id(), child, true);
   }
   await settleAll();
-  for (const remote of tree.tree(id()).refs.r1?.[1]?.children ?? []) {
+  const remotes = repo.children?.[1];
+  const loaded = remotes === undefined ? null : loadKey(remotes.item);
+  for (const remote of (loaded === null ? undefined : tree.tree(id()).refs[loaded]?.[1]?.children) ?? []) {
     tree.setExpanded(id(), remote, true);
   }
   await settleAll();

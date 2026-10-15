@@ -11,6 +11,7 @@ import type {
   CommitRequest,
   DiffRequest,
   FileRef,
+  GroupId,
   HistoryTarget,
   ImageSide,
   IntegrateRequest,
@@ -83,6 +84,10 @@ export type {
   FileStatus,
   GitStatus,
   GraphRow,
+  GroupBranch,
+  GroupId,
+  GroupSummary,
+  GroupView,
   Head,
   HistoryTarget,
   HistoryView,
@@ -230,7 +235,47 @@ export const watchWarning = (workspaceId: WorkspaceId) => unwrap(core.commands.w
 
 export const treeGet = (workspaceId: WorkspaceId) => unwrap(core.commands.treeGet(workspaceId));
 
-export const refsGet = (workspaceId: WorkspaceId, repoId: RepoId) => unwrap(core.commands.refsGet(workspaceId, repoId));
+/** A repo's ref nodes where it appears under group `groupId`, or under Ungrouped for `null`. */
+export const refsGet = (workspaceId: WorkspaceId, repoId: RepoId, groupId: GroupId | null) =>
+  unwrap(core.commands.refsGet(workspaceId, repoId, groupId));
+
+/** The children of a group's Branches node (UI-5). */
+export const groupBranches = (workspaceId: WorkspaceId, groupId: GroupId) =>
+  unwrap(core.commands.groupBranches(workspaceId, groupId));
+
+/** Creates a group with `repoIds` as its members (GRP-2); resolves to its id. */
+export const groupCreate = (workspaceId: WorkspaceId, name: string, repoIds: RepoId[]) =>
+  unwrap(core.commands.groupCreate(workspaceId, name, repoIds));
+
+export const groupRename = (workspaceId: WorkspaceId, groupId: GroupId, name: string) =>
+  unwrap(core.commands.groupRename(workspaceId, groupId, name));
+
+/** Deletes a group; its repos stay in the workspace (GRP-3). */
+export const groupDelete = (workspaceId: WorkspaceId, groupId: GroupId) =>
+  unwrap(core.commands.groupDelete(workspaceId, groupId));
+
+/** Adds repos to a group at `at`, or at the end. */
+export const groupAddRepos = (workspaceId: WorkspaceId, groupId: GroupId, repoIds: RepoId[], at: number | null) =>
+  unwrap(core.commands.groupAddRepos(workspaceId, groupId, repoIds, at));
+
+export const groupRemoveRepos = (workspaceId: WorkspaceId, groupId: GroupId, repoIds: RepoId[]) =>
+  unwrap(core.commands.groupRemoveRepos(workspaceId, groupId, repoIds));
+
+/** Moves members of a group to `at` among the others. */
+export const groupMoveRepos = (workspaceId: WorkspaceId, groupId: GroupId, repoIds: RepoId[], at: number) =>
+  unwrap(core.commands.groupMoveRepos(workspaceId, groupId, repoIds, at));
+
+/** Moves a repo from one group to another, at `at` or at the end. */
+export const groupMoveRepoBetween = (
+  workspaceId: WorkspaceId,
+  repoId: RepoId,
+  from: GroupId,
+  to: GroupId,
+  at: number | null,
+) => unwrap(core.commands.groupMoveRepoBetween(workspaceId, repoId, from, to, at));
+
+export const groupReorder = (workspaceId: WorkspaceId, groupIds: GroupId[]) =>
+  unwrap(core.commands.groupReorder(workspaceId, groupIds));
 
 /** `null` when a newer filter of the workspace superseded this one. */
 export const treeFilter = (workspaceId: WorkspaceId, text: string) =>

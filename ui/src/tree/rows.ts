@@ -2,7 +2,7 @@
 // nodes (PERF-1 renders just the visible slice of these). Which nodes exist
 // and match a filter is the core's answer; this only lays it out.
 import type { TreeNode } from "../ipc";
-import { isRefsNode, repoOf, type WorkspaceTree } from "../stores/tree";
+import { loadKey, type WorkspaceTree } from "../stores/tree";
 
 export type Row =
   | {
@@ -17,16 +17,22 @@ export type Row =
     }
   | { kind: "message"; id: string; depth: number; parent: string; text: string; error: boolean };
 
-/** `node`'s children: its own, or its repo's loaded ones; `null` if not loaded. */
+/** `node`'s children: its own, or the loaded ones kept for it; `null` if not loaded. */
 function childrenOf(node: TreeNode, tree: WorkspaceTree): TreeNode[] | null {
   if (node.children !== null) {
     return node.children;
   }
-  const repo = repoOf(node);
-  if (repo === null || !isRefsNode(node)) {
+  const key = loadKey(node.item);
+  const loaded = key === null ? undefined : tree.refs[key];
+  if (loaded === undefined) {
     return null;
   }
-  return tree.refs[repo]?.find((loaded) => loaded.id === node.id)?.children ?? null;
+  // A group's Branches node gets its children; a repo's four ref nodes come
+  // together, each in place of the node of the same id.
+  if (node.item.kind === "group_branches") {
+    return loaded;
+  }
+  return loaded.find((ref) => ref.id === node.id)?.children ?? null;
 }
 
 /**
@@ -43,7 +49,9 @@ export function flatten(tree: WorkspaceTree): Row[] {
     for (const node of nodes) {
       const children = childrenOf(node, tree);
       const expandable = children === null || children.length > 0;
-      const opened = filtering && node.children !== null ? true : node.item.kind === "ungrouped";
+      // Ungrouped and the groups start open, showing their repos.
+      const kind = node.item.kind;
+      const opened = filtering && node.children !== null ? true : kind === "ungrouped" || kind === "group";
       const expanded = expandable && (toggled[node.id] ?? opened);
       rows.push({ kind: "node", id: node.id, node, depth, parent, expandable, expanded });
       if (!expanded) {
@@ -53,8 +61,8 @@ export function flatten(tree: WorkspaceTree): Row[] {
         visit(children, depth + 1, node.id);
         continue;
       }
-      const repo = repoOf(node);
-      const error = repo === null ? undefined : tree.refsErrors[repo];
+      const key = loadKey(node.item);
+      const error = key === null ? undefined : tree.refsErrors[key];
       rows.push({
         kind: "message",
         id: `${node.id}:message`,

@@ -33,7 +33,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const id = () => fakeState.workspace.id;
 
-const repoItem = { kind: "repo" as const, repo_id: "r1" };
+const repoItem = { kind: "repo" as const, repo_id: "r1", group_id: null };
 
 async function setup(options: { changes?: number } = {}) {
   fakeState.workspace = {

@@ -399,7 +399,7 @@ async fn ui_31_a_background_workspace_releases_history_and_diffs() {
     assert!(diff(changes.handle).await.unwrap().is_some());
     assert!(switch.histories.holds_walk(&tabs.b));
     assert!(switch.changes.holds_view(&tabs.b));
-    let kept = tabs.summary(&tabs.b, &b1);
+    assert!(tabs.summary(&tabs.b, &b1).summary.is_some());
 
     tabs.switch_to(&tabs.a, &Sink::default()).await;
     assert!(!switch.histories.holds_walk(&tabs.b));
@@ -408,8 +408,9 @@ async fn ui_31_a_background_workspace_releases_history_and_diffs() {
     let more = history_more(switch.histories.clone(), tabs.b.clone(), history.handle);
     assert!(more.await.unwrap().is_none());
     assert!(diff(changes.handle).await.unwrap().is_none());
-    // The summaries stay.
-    assert_eq!(tabs.summary(&tabs.b, &b1), kept);
+    // The summaries stay. A read in flight at the switch may still land,
+    // so the summary is kept, not frozen.
+    assert!(tabs.summary(&tabs.b, &b1).summary.is_some());
 
     // Back, the history and the changes are read again.
     tabs.switch_to(&tabs.b, &Sink::default()).await;

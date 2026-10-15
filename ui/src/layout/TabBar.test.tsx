@@ -56,6 +56,7 @@ const workspace = (id: string, name: string, repos: WorkspaceView["repos"] = [])
   id,
   name,
   repos,
+  groups: [],
   layout: emptyLayout,
   read_only: false,
   warning: null,

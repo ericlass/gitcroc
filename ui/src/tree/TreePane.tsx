@@ -373,14 +373,14 @@ export default function TreePane(props: {
   };
 
   const blocked = (repo: RepoId) => isBlocked(props.summaries.view(props.workspace, repo));
-  const itemBlocked = (item: TreeItem) => item.kind !== "ungrouped" && blocked(item.repo_id);
+  const itemBlocked = (item: TreeItem) => "repo_id" in item && blocked(item.repo_id);
 
   const run = (repo: RepoId, op: Parameters<BranchStore["run"]>[2]) => void props.branch.run(props.workspace, repo, op);
 
   /** Does what `action` of the menu of `item` says. */
   const act = (action: MenuAction, item: TreeItem) => {
     setMenu(null);
-    if (item.kind === "ungrouped") {
+    if (!("repo_id" in item)) {
       return;
     }
     const repo = item.repo_id;

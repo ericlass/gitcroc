@@ -33,12 +33,13 @@ export interface HistorySource {
 }
 
 /**
- * The history a tree node shows, or `null` for none (Ungrouped, nothing).
- * A repo and the nodes that only group its refs (Local, a folder, a remote
- * and so on) show the whole repo, under one key.
+ * The history a tree node shows, or `null` for none (Ungrouped, a group's
+ * nodes, nothing). A repo and the nodes that only group its refs (Local, a
+ * folder, a remote and so on) show the whole repo, under one key wherever
+ * the repo appears (UI-2).
  */
 export function sourceOf(nodeId: string | null, item: TreeItem | null): HistorySource | null {
-  if (nodeId === null || item === null || item.kind === "ungrouped") {
+  if (nodeId === null || item === null || !("repo_id" in item)) {
     return null;
   }
   const repo = item.repo_id;
