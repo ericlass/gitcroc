@@ -4,10 +4,13 @@
 // branch; a repo row's menu also opens the repo in the file manager or a
 // terminal, a stash row's applies, pops or drops it, a tag row's pushes or
 // deletes it, the Remotes node's adds a remote and a remote row's renames,
-// edits or removes it. Everything shown comes from the stores, which take it from
-// the core; this component only lays it out and forwards input.
+// edits or removes it. Group rows (UI-4) and their menus create, rename,
+// delete and reorder groups, and repos are dragged between them (UI-7); every
+// drag is also in a menu, and the context menu key opens a row's menu
+// (UI-22). Everything shown comes from the stores, which take it from the
+// core; this component only lays it out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch, untrack } from "solid-js";
 import {
   type RepoId,
   repoOpenFileManager,
@@ -26,7 +29,22 @@ import type { TagStore } from "../stores/tag";
 import { isBlocked, type SummaryStore } from "../stores/summaries";
 import type { TreeStore } from "../stores/tree";
 import type { WorkspaceStore } from "../stores/workspaces";
-import { type MenuAction, menuFor } from "./menus";
+import GroupDialogs, { type GroupDialog } from "./GroupDialogs";
+import GroupRow from "./GroupRow";
+import {
+  type Dragged,
+  draggedOf,
+  dropOp,
+  type DropPlace,
+  dropPlace,
+  type GroupInfo,
+  type GroupOp,
+  groupsOf,
+  moveGroup,
+  moveMember,
+  runGroupOp,
+} from "./groups";
+import { type MenuEntry, menuFor } from "./menus";
 import RepoRow, { AheadBehind } from "./RepoRow";
 import { flatten, type Row } from "./rows";
 
@@ -49,6 +67,8 @@ const MENU_NAMES: Partial<Record<TreeItem["kind"], string>> = {
   stash: "Stash",
   remotes: "Remotes",
   remote: "Remote",
+  group: "Group",
+  ungrouped: "Ungrouped",
 };
 
 const asNode = (row: Row) => (row.kind === "node" ? row : undefined);
@@ -64,13 +84,29 @@ function RefLabel(props: { node: TreeNode }) {
     const item = props.node.item;
     return item.kind === "stash" ? item : undefined;
   };
+  const groupBranch = () => {
+    const item = props.node.item;
+    return item.kind === "group_branch" ? item : undefined;
+  };
   return (
     <Show
       when={branch()}
       fallback={
-        <span class="tree-label" title={stash() ? new Date((stash()?.seconds ?? 0) * 1000).toLocaleString() : undefined}>
-          {props.node.label}
-        </span>
+        <>
+          <span
+            class="tree-label"
+            title={stash() ? new Date((stash()?.seconds ?? 0) * 1000).toLocaleString() : undefined}
+          >
+            {props.node.label}
+          </span>
+          <Show when={groupBranch()}>
+            {(name) => (
+              <span class="tree-count" aria-label={`in ${name().present} of ${name().members} members`}>
+                ({name().present}/{name().members})
+              </span>
+            )}
+          </Show>
+        </>
       }
     >
       {(b) => (
@@ -128,10 +164,18 @@ function TreeList(props: {
   workspace: WorkspaceId;
   tree: TreeStore;
   summaries: SummaryStore;
+  /** The workspace's groups, from the unfiltered tree. */
+  groups: GroupInfo[];
   onMenu: (item: TreeItem, x: number, y: number) => void;
   onCheckout: (repo: RepoId, name: string) => void;
+  /** A drop changed the groups (UI-7). */
+  onGroupOp: (op: GroupOp) => void;
+  ref: (element: HTMLDivElement) => void;
 }) {
   let scroller: HTMLDivElement | undefined;
+  const [dragged, setDragged] = createSignal<{ row: string; what: Dragged } | null>(null);
+  /** The row a drop would land on, and where on it. */
+  const [target, setTarget] = createSignal<{ row: string; place: DropPlace } | null>(null);
   const tree = () => props.tree.tree(props.workspace);
   const rows = createMemo(() => flatten(tree()));
   const selectedIndex = () => rows().findIndex((row) => row.id === tree().selected);
@@ -219,10 +263,41 @@ function TreeList(props: {
       case "End":
         select(nextNode(rows().length, -1));
         break;
+      case "ContextMenu":
+      case "F10": {
+        if (event.key === "F10" && !event.shiftKey) {
+          return;
+        }
+        // UI-22: the menu of the selected row, below it.
+        const item = row?.kind === "node" ? row.node.item : undefined;
+        if (item !== undefined && menuFor(item, false, props.groups).length > 0) {
+          const box = document.getElementById(`tree-row-${index}`)?.getBoundingClientRect();
+          props.onMenu(item, box?.left ?? 0, box?.bottom ?? 0);
+        }
+        break;
+      }
       default:
         return;
     }
     event.preventDefault();
+  };
+
+  /** Where on its row `event` would drop what is dragged; `null` when it cannot. */
+  const placeOf = (event: DragEvent, item: TreeItem) => {
+    const what = dragged()?.what;
+    if (what === undefined) {
+      return null;
+    }
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    return dropPlace(what, item, box.height > 0 ? (event.clientY - box.top) / box.height : 0.5);
+  };
+
+  /** UI-7: Ctrl adds instead of moving, or Alt as on macOS. */
+  const adds = (event: DragEvent) => event.ctrlKey || event.altKey;
+
+  const endDrag = () => {
+    setDragged(null);
+    setTarget(null);
   };
 
   const summary = (node: TreeNode) => {
@@ -230,16 +305,28 @@ function TreeList(props: {
     return repo === null ? undefined : props.summaries.state.byWorkspace[props.workspace]?.[repo];
   };
 
+  /** What a group node's row shows now (UI-4). */
+  const groupOf = (node: TreeNode) =>
+    node.item.kind === "group" ? props.tree.groupSummary(props.workspace, node.item.summary) : undefined;
+
   return (
     <div
       class="tree-scroller"
-      ref={(element) => (scroller = element)}
+      ref={(element) => {
+        scroller = element;
+        props.ref(element);
+      }}
       role="tree"
       aria-label="Repositories"
       tabindex="0"
       aria-activedescendant={selectedIndex() >= 0 ? `tree-row-${selectedIndex()}` : undefined}
       onKeyDown={onKeyDown}
       onScroll={(event) => props.tree.setScrollTop(props.workspace, event.currentTarget.scrollTop)}
+      onDragLeave={(event) => {
+        if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
+          setTarget(null);
+        }
+      }}
     >
       <div class="tree-rows" style={{ height: `${virtualizer.getTotalSize()}px` }}>
         <For each={virtualizer.getVirtualItems()}>
@@ -247,11 +334,25 @@ function TreeList(props: {
             <Show when={rows()[item.index]}>
               {(row) => {
                 const node = () => asNode(row());
+                const what = () => {
+                  const shown = node();
+                  return shown === undefined ? null : draggedOf(shown.node.item);
+                };
+                const place = () => {
+                  const current = target();
+                  return current?.row === row().id ? current.place : null;
+                };
                 return (
                   <div
                     id={`tree-row-${item.index}`}
                     class="tree-row"
-                    classList={{ selected: row().id === tree().selected }}
+                    classList={{
+                      selected: row().id === tree().selected,
+                      dragged: dragged()?.row === row().id,
+                      "drop-into": place() === "into",
+                      "drop-before": place() === "before",
+                      "drop-after": place() === "after",
+                    }}
                     role={node() ? "treeitem" : "none"}
                     aria-level={row().depth + 1}
                     aria-expanded={node()?.expandable ? node()?.expanded : undefined}
@@ -272,12 +373,52 @@ function TreeList(props: {
                     }}
                     onContextMenu={(event) => {
                       const target = node()?.node.item;
-                      if (target !== undefined && menuFor(target, false).length > 0) {
+                      if (target !== undefined && menuFor(target, false, props.groups).length > 0) {
                         event.preventDefault();
                         select(item.index);
                         props.onMenu(target, event.clientX, event.clientY);
                       }
                     }}
+                    draggable={what() !== null}
+                    onDragStart={(event) => {
+                      const dragging = what();
+                      if (dragging === null) {
+                        return;
+                      }
+                      setDragged({ row: row().id, what: dragging });
+                      if (event.dataTransfer) {
+                        event.dataTransfer.effectAllowed = "copyMove";
+                        event.dataTransfer.setData("text/plain", node()?.node.label ?? "");
+                      }
+                    }}
+                    onDragOver={(event) => {
+                      const over = node()?.node.item;
+                      const at = over === undefined ? null : placeOf(event, over);
+                      if (at === null) {
+                        setTarget(null);
+                        return;
+                      }
+                      event.preventDefault();
+                      if (event.dataTransfer) {
+                        event.dataTransfer.dropEffect = adds(event) ? "copy" : "move";
+                      }
+                      setTarget({ row: row().id, place: at });
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const over = node()?.node.item;
+                      const at = over === undefined ? null : placeOf(event, over);
+                      const dropped = dragged()?.what;
+                      endDrag();
+                      const op =
+                        over === undefined || at === null || dropped === undefined
+                          ? null
+                          : dropOp(props.groups, dropped, over, at, adds(event));
+                      if (op !== null) {
+                        props.onGroupOp(op);
+                      }
+                    }}
+                    onDragEnd={endDrag}
                   >
                     <Show
                       when={node()}
@@ -300,9 +441,14 @@ function TreeList(props: {
                           >
                             {shown().expandable ? (shown().expanded ? "▾" : "▸") : ""}
                           </span>
-                          <Show when={shown().node.item.kind === "repo"} fallback={<RefLabel node={shown().node} />}>
-                            <RepoRow name={shown().node.label} view={summary(shown().node)} />
-                          </Show>
+                          <Switch fallback={<RefLabel node={shown().node} />}>
+                            <Match when={shown().node.item.kind === "repo"}>
+                              <RepoRow name={shown().node.label} view={summary(shown().node)} />
+                            </Match>
+                            <Match when={groupOf(shown().node)}>
+                              {(summary) => <GroupRow name={shown().node.label} summary={summary()} />}
+                            </Match>
+                          </Switch>
                         </>
                       )}
                     </Show>
@@ -330,12 +476,36 @@ export default function TreePane(props: {
 }) {
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [menu, setMenu] = createSignal<{ item: TreeItem; x: number; y: number } | null>(null);
+  /** The entries beside the menu entry they belong to, such as Add to group's. */
+  const [submenu, setSubmenu] = createSignal<{
+    entry: MenuEntry;
+    x: number;
+    y: number;
+    from: HTMLElement;
+  } | null>(null);
+  const [groupDialog, setGroupDialog] = createSignal<GroupDialog | null>(null);
+  let treeElement: HTMLDivElement | undefined;
   /** Where the add menu opened, below its button. */
   const [addMenu, setAddMenu] = createSignal<{ x: number; y: number } | null>(null);
 
   const tree = () => props.tree.tree(props.workspace);
   /** Loaded, unfiltered and without repos. */
-  const empty = () => tree().filtered === null && tree().roots?.[0]?.children?.length === 0;
+  const empty = () =>
+    tree().filtered === null && tree().roots?.length === 1 && tree().roots?.[0]?.children?.length === 0;
+  const groups = createMemo(() => groupsOf(tree().roots ?? []));
+
+  const closeMenu = () => {
+    setSubmenu(null);
+    if (menu() !== null) {
+      setMenu(null);
+      treeElement?.focus();
+    }
+  };
+
+  const sendGroupOp = (op: GroupOp) => {
+    setActionError(null);
+    runGroupOp(props.workspace, op).catch((error) => setActionError(message(error)));
+  };
 
   const add = () => {
     setAddMenu(null);
@@ -377,10 +547,54 @@ export default function TreePane(props: {
 
   const run = (repo: RepoId, op: Parameters<BranchStore["run"]>[2]) => void props.branch.run(props.workspace, repo, op);
 
-  /** Does what `action` of the menu of `item` says. */
-  const act = (action: MenuAction, item: TreeItem) => {
-    setMenu(null);
-    if (!("repo_id" in item)) {
+  /** Does what a group `entry` of the menu of `item` says; `false` for other entries. */
+  const actOnGroups = (entry: MenuEntry, item: TreeItem): boolean => {
+    const step = entry.action === "move_up" ? -1 : 1;
+    const named = (group: string) => groups().find((known) => known.id === group)?.name ?? "";
+    switch (entry.action) {
+      case "new_group":
+        setGroupDialog({ kind: "new", repos: item.kind === "repo" ? [item.repo_id] : [] });
+        return true;
+      case "group_rename":
+      case "group_delete":
+        if (item.kind === "group") {
+          const kind = entry.action === "group_rename" ? "rename" : "delete";
+          setGroupDialog({ kind, group: item.group_id, name: named(item.group_id) });
+        }
+        return true;
+      case "add_to_group":
+        if (item.kind === "repo" && entry.group !== undefined) {
+          sendGroupOp({ kind: "add", group: entry.group, repo: item.repo_id, at: null });
+        }
+        return true;
+      case "remove_from_group":
+        if (item.kind === "repo" && item.group_id !== null) {
+          sendGroupOp({ kind: "remove", group: item.group_id, repo: item.repo_id });
+        }
+        return true;
+      case "move_up":
+      case "move_down": {
+        const op =
+          item.kind === "group"
+            ? moveGroup(groups(), item.group_id, step)
+            : item.kind === "repo" && item.group_id !== null
+              ? moveMember(groups(), item.group_id, item.repo_id, step)
+              : null;
+        if (op !== null) {
+          sendGroupOp(op);
+        }
+        return true;
+      }
+      default:
+        return false;
+    }
+  };
+
+  /** Does what `entry` of the menu of `item` says. */
+  const act = (entry: MenuEntry, item: TreeItem) => {
+    const action = entry.action;
+    closeMenu();
+    if (actOnGroups(entry, item) || !("repo_id" in item)) {
       return;
     }
     const repo = item.repo_id;
@@ -485,14 +699,28 @@ export default function TreePane(props: {
     }
   };
 
-  const closeMenu = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
-      setMenu(null);
-      setAddMenu(null);
-    }
+  /** Opens `entry`'s submenu beside it, its first entry focused. */
+  const openSubmenu = (entry: MenuEntry, button: HTMLElement) => {
+    const box = button.getBoundingClientRect();
+    setSubmenu({ entry, x: box.right, y: box.top, from: button });
   };
-  document.addEventListener("keydown", closeMenu);
-  onCleanup(() => document.removeEventListener("keydown", closeMenu));
+
+  /** Escape closes the submenu, then the menus. */
+  const closeOnEscape = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    const open = submenu();
+    if (open !== null) {
+      setSubmenu(null);
+      open.from.focus();
+      return;
+    }
+    closeMenu();
+    setAddMenu(null);
+  };
+  document.addEventListener("keydown", closeOnEscape);
+  onCleanup(() => document.removeEventListener("keydown", closeOnEscape));
 
   return (
     <div class="tree-pane">
@@ -563,7 +791,13 @@ export default function TreePane(props: {
           workspace={props.workspace}
           tree={props.tree}
           summaries={props.summaries}
-          onMenu={(item, x, y) => setMenu({ item, x, y })}
+          groups={groups()}
+          onMenu={(item, x, y) => {
+            setSubmenu(null);
+            setMenu({ item, x, y });
+          }}
+          onGroupOp={sendGroupOp}
+          ref={(element) => (treeElement = element)}
           onCheckout={(repo, name) => {
             if (!blocked(repo)) {
               run(repo, { kind: "checkout", name });
@@ -594,7 +828,7 @@ export default function TreePane(props: {
       </Show>
       <Show when={menu()}>
         {(open) => (
-          <div class="menu-backdrop" onClick={() => setMenu(null)} onContextMenu={(event) => event.preventDefault()}>
+          <div class="menu-backdrop" onClick={closeMenu} onContextMenu={(event) => event.preventDefault()}>
             <div
               class="menu"
               role="menu"
@@ -605,22 +839,79 @@ export default function TreePane(props: {
               }
               onClick={(event) => event.stopPropagation()}
             >
-              <For each={menuFor(open().item, itemBlocked(open().item))}>
+              <For each={menuFor(open().item, itemBlocked(open().item), groups())}>
                 {(entry) => (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={entry.disabled}
-                    onClick={() => act(entry.action, open().item)}
+                  <Show
+                    when={entry.submenu}
+                    fallback={
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={entry.disabled}
+                        onClick={() => act(entry, open().item)}
+                      >
+                        {entry.label}
+                      </button>
+                    }
                   >
-                    {entry.label}
-                  </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-haspopup="menu"
+                      aria-expanded={submenu()?.entry.label === entry.label}
+                      disabled={entry.disabled}
+                      onClick={(event) => openSubmenu(entry, event.currentTarget)}
+                      onKeyDown={(event) => {
+                        if (event.key === "ArrowRight") {
+                          event.preventDefault();
+                          openSubmenu(entry, event.currentTarget);
+                        }
+                      }}
+                    >
+                      {entry.label} ▸
+                    </button>
+                  </Show>
                 )}
               </For>
             </div>
+            <Show when={submenu()}>
+              {(beside) => (
+                <div
+                  class="menu"
+                  role="menu"
+                  aria-label={beside().entry.label}
+                  style={{ left: `${beside().x}px`, top: `${beside().y}px` }}
+                  ref={(element) =>
+                    queueMicrotask(() => element.querySelector<HTMLElement>("[role=menuitem]")?.focus())
+                  }
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowLeft") {
+                      event.preventDefault();
+                      setSubmenu(null);
+                      beside().from.focus();
+                    }
+                  }}
+                >
+                  <For each={beside().entry.submenu}>
+                    {(entry) => (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={entry.disabled}
+                        onClick={() => act(entry, open().item)}
+                      >
+                        {entry.label}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              )}
+            </Show>
           </div>
         )}
       </Show>
+      <GroupDialogs workspace={props.workspace} dialog={groupDialog()} onClose={() => setGroupDialog(null)} />
     </div>
   );
 }

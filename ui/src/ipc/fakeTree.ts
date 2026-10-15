@@ -339,6 +339,7 @@ export function summary(workspaceId: string, repoId: RepoId, branch: string, cha
 
 export interface Scenario {
   repos: RepoView[];
+  groups?: GroupView[];
   /** What the folder dialog returns. */
   pickedFolder?: string;
   /** What the clone's folder dialog returns. */
@@ -424,6 +425,19 @@ export function scenario(name: string, workspaceId: string): Scenario | null {
         },
       },
     };
+  }
+  if (name === "groups") {
+    // The tree data set with api and web in Backend and web and login-service in Services (UI-4, UI-7).
+    const base = scenario("tree", workspaceId);
+    return base === null
+      ? null
+      : {
+          ...base,
+          groups: [
+            { id: "g1", name: "Backend", repos: ["r1", "r2"] },
+            { id: "g2", name: "Services", repos: ["r2", "r3"] },
+          ],
+        };
   }
   if (name === "conflict") {
     // api is merging feature/login and stopped on two files (OPS-3).

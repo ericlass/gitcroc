@@ -1,7 +1,9 @@
 // The context menu of each tree row (UI-7): the operations valid for its
 // kind, those that cannot apply disabled rather than hidden. A blocked repo
-// (GRP-8) has every repo write disabled; the core refuses them as well.
-import type { TreeItem } from "../ipc";
+// (GRP-8) has every repo write disabled; the core refuses them as well. The
+// group entries never touch a repo (GRP-3), so they stay enabled.
+import type { GroupId, TreeItem } from "../ipc";
+import type { GroupInfo } from "./groups";
 
 export type MenuAction =
   | "checkout"
@@ -25,16 +27,72 @@ export type MenuAction =
   | "remote_remove"
   | "open_file_manager"
   | "open_terminal"
-  | "remove_repo";
+  | "remove_repo"
+  | "add_to_group"
+  | "new_group"
+  | "remove_from_group"
+  | "move_up"
+  | "move_down"
+  | "group_rename"
+  | "group_delete";
 
 export interface MenuEntry {
   action: MenuAction;
   label: string;
   disabled: boolean;
+  /** The group `add_to_group` adds to. */
+  group?: GroupId;
+  /** Entries shown beside this one when it is chosen. */
+  submenu?: MenuEntry[];
 }
 
-/** What the menu of a row for `item` lists; empty when the row has none. */
-export function menuFor(item: TreeItem, blocked: boolean): MenuEntry[] {
+/** The entries of `item`'s row that change groups (UI-7). */
+function groupEntries(item: TreeItem, groups: GroupInfo[]): MenuEntry[] {
+  const entry = (action: MenuAction, label: string, disabled = false): MenuEntry => ({ action, label, disabled });
+  switch (item.kind) {
+    case "group": {
+      const index = groups.findIndex((group) => group.id === item.group_id);
+      return [
+        entry("group_rename", "Rename…"),
+        entry("group_delete", "Delete…"),
+        entry("new_group", "New group…"),
+        entry("move_up", "Move up", index <= 0),
+        entry("move_down", "Move down", index < 0 || index === groups.length - 1),
+      ];
+    }
+    case "ungrouped":
+      return [entry("new_group", "New group…")];
+    case "repo": {
+      const others = groups.filter((group) => !group.repos.includes(item.repo_id));
+      const add: MenuEntry = {
+        ...entry("add_to_group", "Add to group"),
+        submenu: [
+          ...others.map((group) => ({ ...entry("add_to_group", group.name), group: group.id })),
+          entry("new_group", "New group…"),
+        ],
+      };
+      if (item.group_id === null) {
+        return [add];
+      }
+      const members = groups.find((group) => group.id === item.group_id)?.repos ?? [];
+      const index = members.indexOf(item.repo_id);
+      return [
+        add,
+        entry("remove_from_group", "Remove from group"),
+        entry("move_up", "Move up", index <= 0),
+        entry("move_down", "Move down", index < 0 || index === members.length - 1),
+      ];
+    }
+    default:
+      return [];
+  }
+}
+
+/**
+ * What the menu of a row for `item` lists, with `groups` the workspace's
+ * groups; empty when the row has none.
+ */
+export function menuFor(item: TreeItem, blocked: boolean, groups: GroupInfo[]): MenuEntry[] {
   const entry = (action: MenuAction, label: string, disabled = false): MenuEntry => ({
     action,
     label,
@@ -45,6 +103,7 @@ export function menuFor(item: TreeItem, blocked: boolean): MenuEntry[] {
       return [
         entry("create", "New branch…"),
         entry("tag_create", "New tag…"),
+        ...groupEntries(item, groups),
         // Not writes: a blocked repo opens all the same.
         { action: "open_file_manager", label: "Open in file manager", disabled: false },
         { action: "open_terminal", label: "Open in terminal", disabled: false },
@@ -83,6 +142,6 @@ export function menuFor(item: TreeItem, blocked: boolean): MenuEntry[] {
     case "stash":
       return [entry("stash_apply", "Apply"), entry("stash_pop", "Pop"), entry("stash_drop", "Drop…")];
     default:
-      return [];
+      return groupEntries(item, groups);
   }
 }

@@ -115,3 +115,52 @@ test("UI-1 an empty workspace offers to add repositories", async ({ page }) => {
   await expect(page.getByText("This workspace has no repositories yet.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Add repository" })).toHaveCount(2);
 });
+
+test("UI-7 repos are dragged between groups and groups reordered", async ({ page }) => {
+  await page.goto("/?fake=groups");
+  const scroller = tree(page);
+  await expect(item(page, /^Backend/)).toBeVisible();
+  expect(await rows(scroller)).toEqual([
+    "Backend",
+    "  Branches",
+    "  api",
+    "  web",
+    "Services",
+    "  Branches",
+    "  web",
+    "  login-service",
+    "Ungrouped",
+  ]);
+
+  // api moves from Backend to Services.
+  await item(page, /^api/).dragTo(item(page, /^Services/));
+  await expect(item(page, /^Backend/).locator(".tree-count")).toHaveText("1");
+  expect(await rows(scroller)).toEqual([
+    "Backend",
+    "  Branches",
+    "  web",
+    "Services",
+    "  Branches",
+    "  web",
+    "  login-service",
+    "  api",
+    "Ungrouped",
+  ]);
+
+  // Dropped on Ungrouped, web leaves Backend only.
+  await item(page, /^web/).first().dragTo(item(page, /^Ungrouped/));
+  await expect(item(page, /^Backend/).locator(".tree-count")).toHaveText("0");
+
+  // Services dropped above Backend comes first.
+  await item(page, /^Services/).dragTo(item(page, /^Backend/), { targetPosition: { x: 20, y: 3 } });
+  await expect.poll(() => rows(scroller)).toEqual([
+    "Services",
+    "  Branches",
+    "  web",
+    "  login-service",
+    "  api",
+    "Backend",
+    "  Branches",
+    "Ungrouped",
+  ]);
+});
