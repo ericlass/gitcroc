@@ -254,8 +254,15 @@ struct Setup {
     target: TargetSet,
 }
 
+/// git with an identity for the merge commits it may make: the machine's
+/// config may have none, as on CI.
 fn git() -> GitRunner {
-    GitRunner::new(PathBuf::from("git"))
+    GitRunner::new(PathBuf::from("git")).with_env([
+        ("GIT_AUTHOR_NAME", "Test"),
+        ("GIT_AUTHOR_EMAIL", "test@example.com"),
+        ("GIT_COMMITTER_NAME", "Test"),
+        ("GIT_COMMITTER_EMAIL", "test@example.com"),
+    ])
 }
 
 impl Setup {
