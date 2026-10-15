@@ -12,6 +12,8 @@ import type {
   DiffRequest,
   FileRef,
   GroupId,
+  GroupOp,
+  GroupSettings,
   HistoryTarget,
   ImageSide,
   IntegrateRequest,
@@ -19,6 +21,7 @@ import type {
   JobId,
   PaneLayout,
   PerfTrace,
+  PreflightId,
   RemoteRequest,
   RepoId,
   TargetSet,
@@ -86,8 +89,11 @@ export type {
   FileStatus,
   GitStatus,
   GraphRow,
+  Class,
   GroupBranch,
   GroupId,
+  GroupOp,
+  GroupSettings,
   GroupSummary,
   GroupView,
   Head,
@@ -114,6 +120,8 @@ export type {
   PerfTrace,
   Person,
   Operation,
+  PreflightId,
+  PreflightReady,
   PromptKind,
   Prune,
   PullStrategy,
@@ -126,7 +134,9 @@ export type {
   RemoteRequest,
   RemoteStart,
   RemoteUrlsView,
+  RepoClass,
   RepoId,
+  RepoResult,
   RepoRef,
   RepoState,
   RepoSummary,
@@ -141,6 +151,7 @@ export type {
   StashRef,
   StashRequest,
   StashStart,
+  SubJob,
   TagOp,
   TagRequest,
   TagStart,
@@ -281,6 +292,23 @@ export const groupMoveRepoBetween = (
 export const groupReorder = (workspaceId: WorkspaceId, groupIds: GroupId[]) =>
   unwrap(core.commands.groupReorder(workspaceId, groupIds));
 
+/**
+ * Starts the preflight of group operation `op` on `target` (section 5); its result arrives as `preflight_ready`,
+ * with whether the user must confirm.
+ */
+export const groupPreflight = (workspaceId: WorkspaceId, target: TargetSet, op: GroupOp) =>
+  unwrap(core.commands.groupPreflight(workspaceId, target, op));
+
+/** Starts preflight `preflightId`'s job; refused without `confirmed` when the preflight said to confirm. */
+export const groupStart = (preflightId: PreflightId, confirmed: boolean) =>
+  unwrap(core.commands.groupStart(preflightId, confirmed));
+
+/** Drops a preflight whose dialog the user cancelled. */
+export const groupDrop = (preflightId: PreflightId) => core.commands.groupDrop(preflightId);
+
+/** Retry failed (GRP-11): a new preflight on the job's failed repos, which the core takes from its report. */
+export const groupRetryFailed = (jobId: JobId) => unwrap(core.commands.groupRetryFailed(jobId));
+
 /** The repos of `target` as the workspace is now (GRP-5); refused for a group or repo that no longer exists. */
 export const targetRepos = (workspaceId: WorkspaceId, target: TargetSet) =>
   unwrap(core.commands.targetRepos(workspaceId, target));
@@ -319,6 +347,8 @@ export const commitGraphDecline = (workspaceId: WorkspaceId, repoId: RepoId) =>
 export const settingsSetChanges = (changes: ChangesSettings) => unwrap(core.commands.settingsSetChanges(changes));
 export const settingsSetAppearance = (appearance: Appearance) =>
   unwrap(core.commands.settingsSetAppearance(appearance));
+/** Changes the group operations' settings; a parallelism outside 1 to 32 is refused. */
+export const settingsSetGroups = (groups: GroupSettings) => unwrap(core.commands.settingsSetGroups(groups));
 
 export const workspaceSetLayout = (workspaceId: WorkspaceId, layout: PaneLayout) =>
   unwrap(core.commands.workspaceSetLayout(workspaceId, layout));

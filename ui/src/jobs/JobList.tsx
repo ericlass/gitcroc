@@ -1,11 +1,13 @@
 // The job list of UI-21: every job of this run across all workspaces,
 // newest first, virtualized (PERF-1). The selected job shows git's raw
-// output as text (SEC-3) and, while it has not ended, Cancel (GRP-10).
-// Opening it marks every ended job seen; Escape closes it.
+// output as text (SEC-3) and, while it has not ended, Cancel (GRP-10); a
+// group job shows its sub-jobs while it runs and its result report when it
+// ended (section 5). Opening it marks every ended job seen; Escape closes it.
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import type { CancelResult, JobId } from "../ipc";
+import { createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import type { CancelResult, JobId, RepoId, WorkspaceId } from "../ipc";
 import type { JobStore } from "../stores/jobs";
+import { GroupReport, SubJobList } from "./GroupReport";
 import { formatDuration, formatStart, JobStateLabel } from "./outcome";
 
 /** Height of one row in CSS pixels; `.job-row` in App.css sets it. */
@@ -22,10 +24,19 @@ const CANCEL_TEXT: Record<CancelResult, string | null> = {
   ended: null,
 };
 
-export default function JobList(props: { jobs: JobStore; onClose: () => void }) {
+export default function JobList(props: {
+  jobs: JobStore;
+  /** The job selected when it opens; the newest without. */
+  initial?: JobId;
+  onClose: () => void;
+  /** Selects a repo of a report in its workspace's tree. */
+  onSelectRepo: (workspace: WorkspaceId, repo: RepoId) => void;
+  /** Retry failed of a group job (GRP-11). */
+  onRetry: (workspace: WorkspaceId, job: JobId) => void;
+}) {
   let scroller: HTMLDivElement | undefined;
   const opener = document.activeElement;
-  const [selected, setSelected] = createSignal<JobId | null>(props.jobs.jobs()[0]?.job_id ?? null);
+  const [selected, setSelected] = createSignal<JobId | null>(props.initial ?? props.jobs.jobs()[0]?.job_id ?? null);
   const [cancelled, setCancelled] = createSignal<Record<JobId, string>>({});
 
   const rows = () => props.jobs.jobs();
@@ -46,6 +57,9 @@ export default function JobList(props: { jobs: JobStore; onClose: () => void }) 
 
   onMount(() => {
     props.jobs.markSeen();
+    if (selectedIndex() > 0) {
+      virtualizer.scrollToIndex(selectedIndex(), { align: "auto" });
+    }
     scroller?.focus();
   });
   onCleanup(() => {
@@ -174,9 +188,27 @@ export default function JobList(props: { jobs: JobStore; onClose: () => void }) 
                 </div>
                 <Show when={cancelled()[shown().job_id]}>{(text) => <p aria-live="polite">{text()}</p>}</Show>
                 <Show when={shown().message}>{(message) => <p class="job-message">{message()}</p>}</Show>
-                <Show when={shown().output} fallback={<p class="placeholder">No output.</p>}>
-                  <pre class="job-output">{shown().output}</pre>
-                </Show>
+                <Switch
+                  fallback={
+                    <Show when={shown().output} fallback={<p class="placeholder">No output.</p>}>
+                      <pre class="job-output">{shown().output}</pre>
+                    </Show>
+                  }
+                >
+                  <Match when={shown().report}>
+                    {(report) => (
+                      <GroupReport
+                        job={shown()}
+                        report={report()}
+                        onSelectRepo={(repo) => props.onSelectRepo(shown().workspace_id, repo)}
+                        onRetry={() => props.onRetry(shown().workspace_id, shown().job_id)}
+                      />
+                    )}
+                  </Match>
+                  <Match when={shown().sub_jobs.length > 0}>
+                    <SubJobList job={shown()} />
+                  </Match>
+                </Switch>
               </>
             )}
           </Show>

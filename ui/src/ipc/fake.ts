@@ -83,6 +83,7 @@ import { labelsOf, planResolution, textConflict } from "./fakeConflict";
 import { mergeTargetsOf, planIntegrate } from "./fakeIntegrate";
 import { fakeRemoteNameCheck, planRemote } from "./fakeRemotes";
 import { planReset, planTag, type TagPlan } from "./fakeTags";
+import { fakeDrop, fakePreflight, fakeRetry, fakeStart, type GroupDeps, resetGroups } from "./fakeGroups";
 import { fakeJob, jobsScenario } from "./fakeJobs";
 import { applySync, planSync, pushChoicesOf } from "./fakeSync";
 import {
@@ -1005,6 +1006,14 @@ function sendJob(view: JobView): void {
   }
 }
 
+/** What the fake's group operations use of the fake core. */
+const groupDeps: GroupDeps = {
+  emitReady: (ready) => emit(preflightReadyListeners, "preflight_ready", ready),
+  sendJob,
+  newJobId: () => nextJobId++,
+  alwaysShow: () => fakeState.settings.settings.always_show_preflight,
+};
+
 /** Delivers a `git_status` event to every listener, as the core would. */
 export function emitGitStatus(payload: GitStatus): void {
   emit(gitStatusListeners, "git_status", payload);
@@ -1143,6 +1152,7 @@ export function reset(): void {
   askpassPromptListeners.clear();
   askpassClosedListeners.clear();
   preflightReadyListeners.clear();
+  resetGroups();
 }
 
 // Playwright runs the fake build; `?fake=<name>` picks a data set.
@@ -1627,10 +1637,28 @@ export const fake: Core = {
     ...fakeTabCommands,
     ...fakeGroupCommands,
     targetRepos: fakeTargetRepos,
-    // Like the core until the group operations arrive (M3-10 to M3-13):
-    // every one is refused, so no preflight is ever started.
-    groupPreflight: () => nameRefused("this operation on a group is not available yet"),
-    groupStart: () => nameRefused("no such preflight, or it was used already"),
+    // Unlike the core until the group operations arrive (M3-10 to M3-13):
+    // every operation runs, as fakeGroups.ts sets it (M3-09).
+    groupPreflight: async (workspaceId, target, op) => {
+      const workspace = openWorkspace(workspaceId);
+      const repos = await fakeTargetRepos(workspaceId, target);
+      if (workspace === undefined || repos.status === "error") {
+        return repos.status === "error" ? repos : notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      if (repos.data.length === 0) {
+        return nameRefused("the target set has no repo");
+      }
+      return { status: "ok", data: fakePreflight(groupDeps, workspace, target, repos.data, op) };
+    },
+    groupStart: (preflightId, confirmed) => {
+      const name = (id: WorkspaceId) => fakeWorkspaces().find((known) => known.id === id)?.name ?? id;
+      return Promise.resolve(fakeStart(groupDeps, name, preflightId, confirmed));
+    },
+    groupDrop: (preflightId) => {
+      fakeDrop(preflightId);
+      return Promise.resolve();
+    },
+    groupRetryFailed: (jobId) => Promise.resolve(fakeRetry(groupDeps, fakeState.jobs, openWorkspace, jobId)),
     workspaceAddPath: (workspaceId, path) => {
       if (workspaceId !== fakeState.workspace.id) {
         return notFound(`no open workspace has the id ${workspaceId}`);
@@ -1833,6 +1861,24 @@ export const fake: Core = {
         });
       }
       fakeState.settings = { ...fakeState.settings, settings: { ...fakeState.settings.settings, changes } };
+      return Promise.resolve({ status: "ok", data: fakeState.settings });
+    },
+    // Like the core: a parallelism outside 1 to 32 is refused.
+    settingsSetGroups: (groups) => {
+      if (fakeState.settings.read_only) {
+        return Promise.resolve({
+          status: "error",
+          error: {
+            code: "settings_read_only",
+            message: "the settings are read-only, so the change was not saved",
+            git_stderr: null,
+          },
+        });
+      }
+      if (groups.group_parallelism < 1 || groups.group_parallelism > 32) {
+        return nameRefused("group operations run 1 to 32 repos at once");
+      }
+      fakeState.settings = { ...fakeState.settings, settings: { ...fakeState.settings.settings, ...groups } };
       return Promise.resolve({ status: "ok", data: fakeState.settings });
     },
     // Like the core: sizes limited to 8 to 32, a blank font the system font.

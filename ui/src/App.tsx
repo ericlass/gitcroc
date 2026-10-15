@@ -12,7 +12,9 @@ import {
 } from "solid-js";
 import AskpassDialog from "./AskpassDialog";
 import GitSetup from "./GitSetup";
-import { appInfo, type WorkspaceId } from "./ipc";
+import PreflightDialog from "./groups/PreflightDialog";
+import { appInfo, type JobId, type WorkspaceId } from "./ipc";
+import { needsLook } from "./jobs/GroupReport";
 import JobList from "./jobs/JobList";
 import Panes from "./layout/Panes";
 import StatusBar from "./layout/StatusBar";
@@ -34,6 +36,7 @@ import { createChangesStore } from "./stores/changes";
 import { createCommitStore } from "./stores/commit";
 import { createConflictStore } from "./stores/conflicts";
 import { createGitStore } from "./stores/git";
+import { createGroupOpStore } from "./stores/groupOps";
 import { createHistoryStore, mergedSource, sourceOf } from "./stores/history";
 import { createIntegrateStore } from "./stores/integrate";
 import { createJobStore } from "./stores/jobs";
@@ -56,7 +59,15 @@ import { WorkspaceStart } from "./workspaces/WorkspaceMenu";
 
 export default function App() {
   const [info] = createResource(appInfo);
-  const jobs = createJobStore();
+  // A group job's report opens by itself when a repo failed or is in
+  // conflict and its tab is active; otherwise its tab shows the marker
+  // (UI-32).
+  const jobs = createJobStore((view) => {
+    if (view.report !== null && needsLook(view.report) && view.workspace_id === workspaces.active()?.id) {
+      setJobsOpen({ initial: view.job_id });
+    }
+  });
+  const groupOps = createGroupOpStore();
   const askpass = createAskpassStore();
   const git = createGitStore();
   const settings = createSettingsStore();
@@ -83,7 +94,8 @@ export default function App() {
   const watch = createWatchStore();
   const workspaceDialogs = createWorkspaceDialogs();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
-  const [jobsOpen, setJobsOpen] = createSignal(false);
+  /** The job list, when open, and the job it opened on. */
+  const [jobsOpen, setJobsOpen] = createSignal<{ initial?: JobId } | null>(null);
   const [missingDismissed, setMissingDismissed] = createSignal(false);
   /** Why a workspace chosen while no tab is open did not open. */
   const [startError, setStartError] = createSignal<string | null>(null);
@@ -291,6 +303,7 @@ export default function App() {
     void settings.load();
     const unlisten = [
       jobs.subscribe(),
+      groupOps.subscribe(),
       askpass.subscribe(),
       git.subscribe(),
       workspaces.subscribe(),
@@ -447,13 +460,30 @@ export default function App() {
                 </Show>
                 <ResetDialogs workspace={id} reset={reset} repoName={repoName} />
                 <IntegrateDialogs workspace={id} integrate={integrate} repoName={repoName} branchOf={branchOf} />
-                <StatusBar workspace={id} jobs={jobs} onOpenJobs={() => setJobsOpen(true)} />
+                <StatusBar workspace={id} jobs={jobs} onOpenJobs={() => setJobsOpen({})} />
               </>
             )}
           </Show>
           <WorkspaceDialogsView dialogs={workspaceDialogs} workspaces={workspaces} onCloseTab={closeConfirmed} />
-          <Show when={jobsOpen()}>
-            <JobList jobs={jobs} onClose={() => setJobsOpen(false)} />
+          <Show when={jobsOpen()} keyed>
+            {(open) => (
+              <JobList
+                jobs={jobs}
+                initial={open.initial}
+                onClose={() => setJobsOpen(null)}
+                onSelectRepo={(id, repo) => {
+                  setJobsOpen(null);
+                  void workspaces.open(id).then(() => tree.selectRepo(id, repo));
+                }}
+                onRetry={(id, job) => {
+                  setJobsOpen(null);
+                  void groupOps.retry(id, job);
+                }}
+              />
+            )}
+          </Show>
+          <Show when={groupOps.state.pending}>
+            {(pending) => <PreflightDialog pending={pending()} groupOps={groupOps} />}
           </Show>
           <Show when={askpass.current()} keyed>
             {(prompt) => (

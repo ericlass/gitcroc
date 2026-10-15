@@ -15,11 +15,11 @@ use gitcroc_core::{
     ChangesTarget, ChangesView, ChooseRequest, CloneError, CloneReport, CloneRequest,
     CommitGraphError, CommitRequest, ConflictDetails, ConflictRead, ConflictStart, DiffRequest,
     FileDiff, FileRef, FsmonitorError, GitRunner, GitSetup, GitStatus, GroupError, GroupId,
-    GroupOp, GroupOps, GroupSummary, Histories, HistoryTarget, HistoryView, HistoryViewError,
-    ImageSide, IntegrateError, IntegrateRequest, IntegrateStart, JobError, JobEvents, JobId,
-    JobProgress, JobView, Jobs, Outcome, PaneLayout, PreflightId, PreflightReady, PushChoices,
-    Refusal, RemoteError, RemoteRequest, RemoteStart, RemoteUrlsView, RepoChange, RepoId,
-    ResetError, ResetRequest, ResetStart, ResolveRequest, SettingsError, SettingsStore,
+    GroupOp, GroupOps, GroupSettings, GroupSummary, Histories, HistoryTarget, HistoryView,
+    HistoryViewError, ImageSide, IntegrateError, IntegrateRequest, IntegrateStart, JobError,
+    JobEvents, JobId, JobProgress, JobView, Jobs, Outcome, PaneLayout, PreflightId, PreflightReady,
+    PushChoices, Refusal, RemoteError, RemoteRequest, RemoteStart, RemoteUrlsView, RepoChange,
+    RepoId, ResetError, ResetRequest, ResetStart, ResolveRequest, SettingsError, SettingsStore,
     SettingsView, StashError, StashRequest, StashStart, StatusError, StatusReadError, Summaries,
     SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch, TagError, TagRequest, TagStart,
     TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers,
@@ -208,7 +208,10 @@ impl From<GroupError> for IpcError {
             | GroupError::UnknownPreflight
             | GroupError::NotReady
             | GroupError::NeedsConfirmation
-            | GroupError::WorkspaceChanged => Self {
+            | GroupError::WorkspaceChanged
+            | GroupError::UnknownJob
+            | GroupError::NotEnded
+            | GroupError::NothingFailed => Self {
                 code: IpcErrorCode::Refused,
                 message: error.to_string(),
                 git_stderr: None,
@@ -958,6 +961,22 @@ pub async fn settings_set_changes(
     // Saving touches the disk; keep it off the async workers (ARCH-7).
     tauri::async_runtime::spawn_blocking(move || {
         app.state::<Arc<SettingsStore>>().set_changes(changes)
+    })
+    .await?
+    .map_err(IpcError::from)
+}
+
+/// Changes the group operations' settings (section 5, steps 2 and 3) and
+/// saves them. A parallelism outside 1 to 32 is refused.
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_set_groups(
+    app: AppHandle,
+    groups: GroupSettings,
+) -> Result<SettingsView, IpcError> {
+    // Saving touches the disk; keep it off the async workers (ARCH-7).
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Arc<SettingsStore>>().set_groups(groups)
     })
     .await?
     .map_err(IpcError::from)
@@ -1735,6 +1754,25 @@ pub async fn group_start(
     Ok(groups.start(git, preflight_id, confirmed)?)
 }
 
+/// Drops preflight `preflight_id`, as the user cancelled its dialog.
+#[tauri::command]
+#[specta::specta]
+pub async fn group_drop(app: AppHandle, preflight_id: PreflightId) {
+    app.state::<Arc<GroupOps>>().drop_preflight(preflight_id);
+}
+
+/// Retry failed (GRP-11): starts a new preflight of ended group job
+/// `job_id`'s operation, with the same options, on the repos its report has
+/// as *failed*, and returns its id at once; the result arrives as
+/// `preflight_ready`. The core builds the target set from the report (GRP-5).
+#[tauri::command]
+#[specta::specta]
+pub async fn group_retry_failed(app: AppHandle, job_id: JobId) -> Result<PreflightId, IpcError> {
+    let git = usable_git(&app).await?;
+    let groups = app.state::<Arc<GroupOps>>();
+    Ok(groups.retry_failed(git, job_id)?)
+}
+
 /// Checks an add can start: the workspace takes changes and git is usable.
 async fn prepare_add(app: &AppHandle, workspace_id: &WorkspaceId) -> Result<GitRunner, IpcError> {
     let view = app.state::<Arc<Workspaces>>().view(workspace_id)?;
@@ -2283,6 +2321,9 @@ macro_rules! with_commands {
                 conflict_resolve,
                 conflict_choose,
                 settings_set_appearance,
+                settings_set_groups,
+                group_drop,
+                group_retry_failed,
                 workspace_refresh,
                 watch_warning,
                 askpass_answer,
@@ -2366,6 +2407,9 @@ macro_rules! with_commands {
                 conflict_resolve,
                 conflict_choose,
                 settings_set_appearance,
+                settings_set_groups,
+                group_drop,
+                group_retry_failed,
                 workspace_refresh,
                 watch_warning,
                 askpass_answer

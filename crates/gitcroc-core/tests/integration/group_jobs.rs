@@ -147,8 +147,12 @@ impl GroupOperation for TestOp {
         "Test".to_owned()
     }
 
-    fn destructive(&self) -> bool {
-        self.destructive
+    fn destructive(&self) -> Vec<String> {
+        if self.destructive {
+            vec!["Destroy the test branch".to_owned()]
+        } else {
+            Vec::new()
+        }
     }
 
     fn spec(&self) -> SubJobSpec {
@@ -353,14 +357,19 @@ impl Setup {
             .groups
             .preflight(git(), &self.id, &self.target, Arc::new(op))
             .unwrap();
-        // Each test runs one preflight at a time.
-        let mut receiver = self.ready.lock().await;
-        let ready = tokio::time::timeout(Duration::from_secs(60), receiver.recv())
-            .await
-            .expect("the preflight never finished")
-            .unwrap();
+        let ready = self.next_ready().await;
         assert_eq!(ready.preflight_id, id);
         ready
+    }
+
+    /// Waits for the next preflight's result; each test runs one preflight
+    /// at a time.
+    async fn next_ready(&self) -> PreflightReady {
+        let mut receiver = self.ready.lock().await;
+        tokio::time::timeout(Duration::from_secs(60), receiver.recv())
+            .await
+            .expect("the preflight never finished")
+            .unwrap()
     }
 
     /// Starts preflight `id`, confirmed.
@@ -786,7 +795,8 @@ async fn group_confirmation_rule() {
     op.destructive = true;
     let ready = setup.preflight(op).await;
     assert!(ready.needs_confirmation);
-    assert!(ready.destructive);
+    assert_eq!(ready.destructive, ["Destroy the test branch"]);
+    assert_eq!(ready.action, "Test");
 
     // So does every operation with the setting on.
     setup
@@ -826,6 +836,91 @@ async fn group_preflight_is_used_once_and_not_after_the_workspace_changed() {
         Err(GroupError::WorkspaceChanged)
     ));
     assert!(control.ran().is_empty());
+
+    // A preflight whose dialog was cancelled is dropped.
+    let (op, control) = TestOp::new(&[]);
+    let setup = Setup::new(&["a"]).await;
+    let ready = setup.preflight(op).await;
+    setup.groups.drop_preflight(ready.preflight_id);
+    assert!(matches!(
+        setup.groups.start(git(), ready.preflight_id, true),
+        Err(GroupError::UnknownPreflight)
+    ));
+    assert!(control.ran().is_empty());
+}
+
+#[tokio::test]
+async fn grp_11_retry_failed_targets_only_the_failed_repos() {
+    let setup = Setup::new(&["a", "b", "c", "d"]).await;
+    let (op, control) = TestOp::new(&[
+        ("a", Act::Fail),
+        ("b", Act::Nothing),
+        ("c", Act::Fail),
+        ("d", Act::Succeed),
+    ]);
+    let (view, _) = setup.run(op).await;
+    let mut ran = control.ran();
+    ran.sort();
+    assert_eq!(ran, ["a", "b", "c", "d"]);
+
+    let id = setup.groups.retry_failed(git(), view.job_id).unwrap();
+    let ready = setup.next_ready().await;
+    assert_eq!(ready.preflight_id, id);
+    assert_eq!(ready.label, "Test · 2 repos");
+    assert_eq!(
+        classes(&ready),
+        [
+            ("a".to_owned(), Class::WillRun),
+            ("c".to_owned(), Class::WillRun)
+        ]
+    );
+    let retried = setup.ended(setup.start(id)).await;
+    assert_eq!(
+        outcomes(&retried),
+        [
+            ("a".to_owned(), Outcome::Failed),
+            ("c".to_owned(), Outcome::Failed)
+        ]
+    );
+    let mut again = control.ran()[4..].to_vec();
+    again.sort();
+    assert_eq!(again, ["a", "c"]);
+
+    // Only an ended group job with a failed repo can be retried.
+    let (op, _control) = TestOp::new(&[
+        ("a", Act::Nothing),
+        ("b", Act::Nothing),
+        ("c", Act::Nothing),
+        ("d", Act::Nothing),
+    ]);
+    let (clean, _) = setup.run(op).await;
+    assert!(matches!(
+        setup.groups.retry_failed(git(), clean.job_id),
+        Err(GroupError::NothingFailed)
+    ));
+    assert!(matches!(
+        setup.groups.retry_failed(git(), JobId(9999)),
+        Err(GroupError::UnknownJob)
+    ));
+}
+
+#[test]
+fn grp_9_group_ops_name_what_cannot_be_undone() {
+    let push = |force_with_lease| GroupOp::Push {
+        set_upstream: true,
+        force_with_lease,
+    };
+    assert!(push(false).destructive().is_empty());
+    assert_eq!(push(true).destructive().len(), 1);
+    let delete = |force, on_remote| GroupOp::DeleteBranch {
+        name: "old".to_owned(),
+        force,
+        on_remote,
+    };
+    assert!(delete(false, false).destructive().is_empty());
+    let both = delete(true, true).destructive();
+    assert_eq!(both.len(), 2);
+    assert!(both.iter().all(|action| action.contains("old")));
 }
 
 #[tokio::test]

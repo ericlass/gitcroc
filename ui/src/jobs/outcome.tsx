@@ -4,7 +4,7 @@
 import { Match, Show, Switch } from "solid-js";
 import type { JobView, Outcome, SkipReason } from "../ipc";
 
-const OUTCOME_TEXT: Record<Outcome["kind"], string> = {
+export const OUTCOME_TEXT: Record<Outcome["kind"], string> = {
   succeeded: "Succeeded",
   nothing_to_do: "Nothing to do",
   skipped: "Skipped",
@@ -35,7 +35,8 @@ export function OutcomeLabel(props: { outcome: Outcome }) {
 
 /**
  * Running progress: the phase git names, such as `Receiving objects`, then
- * `done/total`, or a spinner while the total is not known.
+ * `done/total`, or a spinner while the total is not known. A group job
+ * counts its repos.
  */
 export function JobProgressLabel(props: { job: JobView }) {
   return (
@@ -48,6 +49,7 @@ export function JobProgressLabel(props: { job: JobView }) {
         <Match when={true}>
           <span class="job-progress">
             {props.job.done}/{props.job.total}
+            {props.job.sub_jobs.length > 0 ? " repos" : ""}
           </span>
         </Match>
       </Switch>

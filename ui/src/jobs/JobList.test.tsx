@@ -38,7 +38,7 @@ async function setup(jobs: JobView[] = []) {
     <>
       <StatusBar workspace={WORKSPACE.id} jobs={store} onOpenJobs={() => setOpen(true)} />
       <Show when={open()}>
-        <JobList jobs={store} onClose={() => setOpen(false)} />
+        <JobList jobs={store} onClose={() => setOpen(false)} onSelectRepo={() => {}} onRetry={() => {}} />
       </Show>
     </>
   ));
