@@ -26,7 +26,7 @@ pub struct BranchUpstream {
     pub name: String,
     /// The upstream is configured but its ref does not exist.
     pub gone: bool,
-    /// `None` when not asked for (see [`RefsRead::refs`]), when the upstream
+    /// `None` when not asked for (see [`GitRepo::refs`]), when the upstream
     /// is gone, or when the branch has no commit.
     pub counts: Option<AheadBehind>,
 }
@@ -93,16 +93,11 @@ impl From<gix::Error> for RefsError {
     }
 }
 
-/// Ref reads (ARCH-2).
-pub trait RefsRead {
-    /// The repo's refs. With `counts`, each local branch with an upstream
-    /// also gets its ahead and behind counts, which walks history; without,
-    /// only refs are read.
-    fn refs(&self, counts: bool) -> Result<Refs, RefsError>;
-}
-
-impl RefsRead for GitRepo {
-    fn refs(&self, counts: bool) -> Result<Refs, RefsError> {
+impl GitRepo {
+    /// The repo's refs (ARCH-2). With `counts`, each local branch with an
+    /// upstream also gets its ahead and behind counts, which walks history;
+    /// without, only refs are read.
+    pub fn refs(&self, counts: bool) -> Result<Refs, RefsError> {
         let repo = self.thread_local();
         Ok(Refs {
             local: local(&repo, counts)?,
@@ -111,9 +106,7 @@ impl RefsRead for GitRepo {
             stashes: stashes(&repo),
         })
     }
-}
 
-impl GitRepo {
     /// The stash entries, newest first, without reading other refs.
     pub fn stashes(&self) -> Vec<StashEntry> {
         stashes(&self.thread_local())

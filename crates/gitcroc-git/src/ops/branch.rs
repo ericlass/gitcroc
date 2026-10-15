@@ -4,20 +4,10 @@
 //! Local changes git refuses to carry make a checkout fail with git's
 //! message; nothing is stashed (GRP-12).
 
-use std::ffi::OsString;
 use std::path::Path;
 
+use super::run_args;
 use crate::{GitError, GitRunner, Output, Write};
-
-async fn branch_write(
-    git: &GitRunner,
-    repo: &Path,
-    args: &[&str],
-    write: Write<'_>,
-) -> Result<Output, GitError> {
-    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    git.run_write(&args, repo, write).await
-}
 
 /// Checks out local branch `branch` (`git switch`). A missing branch fails;
 /// git does not guess one from a remote.
@@ -27,7 +17,7 @@ pub async fn switch(
     branch: &str,
     write: Write<'_>,
 ) -> Result<Output, GitError> {
-    branch_write(
+    run_args(
         git,
         repo,
         &["switch", "--no-guess", "--end-of-options", branch],
@@ -45,7 +35,7 @@ pub async fn switch_track(
     remote_branch: &str,
     write: Write<'_>,
 ) -> Result<Output, GitError> {
-    branch_write(
+    run_args(
         git,
         repo,
         &["switch", "--track", "--end-of-options", remote_branch],
@@ -62,7 +52,7 @@ pub async fn switch_detach(
     commit: &str,
     write: Write<'_>,
 ) -> Result<Output, GitError> {
-    branch_write(
+    run_args(
         git,
         repo,
         &["switch", "--detach", "--end-of-options", commit],
@@ -88,7 +78,7 @@ pub async fn branch_create(
         vec!["branch", "--end-of-options", name]
     };
     args.extend(start);
-    branch_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// Renames branch `old` to `new` (`git branch -m`); an existing `new`
@@ -100,7 +90,7 @@ pub async fn branch_rename(
     new: &str,
     write: Write<'_>,
 ) -> Result<Output, GitError> {
-    branch_write(
+    run_args(
         git,
         repo,
         &["branch", "-m", "--end-of-options", old, new],
@@ -120,7 +110,7 @@ pub async fn branch_delete(
     write: Write<'_>,
 ) -> Result<Output, GitError> {
     let flag = if force { "-D" } else { "-d" };
-    branch_write(
+    run_args(
         git,
         repo,
         &["branch", flag, "--end-of-options", name],
@@ -139,7 +129,7 @@ pub async fn remote_branch_delete(
     branch: &str,
     write: Write<'_>,
 ) -> Result<Output, GitError> {
-    branch_write(
+    run_args(
         git,
         repo,
         &["push", "--delete", "--end-of-options", remote, branch],
@@ -168,5 +158,5 @@ pub async fn branch_set_upstream(
         None => args.push("--unset-upstream"),
     }
     args.extend(["--end-of-options", branch]);
-    branch_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }

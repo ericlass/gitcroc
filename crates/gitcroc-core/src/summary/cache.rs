@@ -5,11 +5,13 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gitcroc_git::RepoSummary;
 use rusqlite::{Connection, OptionalExtension, params};
+
+use crate::lock;
 
 /// The file name inside the cache dir.
 pub const CACHE_FILE: &str = "cache.db";
@@ -100,70 +102,59 @@ impl SummaryCache {
 
     fn lock(&self) -> MutexGuard<'_, Option<Connection>> {
         // A statement either ran or did not; a panic leaves nothing half done.
-        self.connection
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.connection)
     }
 }
 
 /// Opens the cache in `dir`; on any problem deletes it and tries once more.
 fn open_or_recreate(dir: &Path) -> Option<Connection> {
     let path = dir.join(CACHE_FILE);
-    if let Ok(connection) = open(&path) {
+    if let Some(connection) = open(&path) {
         return Some(connection);
     }
     remove(&path);
-    open(&path).ok()
+    open(&path)
 }
 
-/// Why an existing file is not used.
-#[derive(Debug)]
-enum OpenError {
-    Sqlite,
-    OtherVersion,
-}
-
-impl From<rusqlite::Error> for OpenError {
-    fn from(_: rusqlite::Error) -> Self {
-        Self::Sqlite
-    }
-}
-
-impl From<std::io::Error> for OpenError {
-    fn from(_: std::io::Error) -> Self {
-        Self::Sqlite
-    }
-}
-
-fn open(path: &Path) -> Result<Connection, OpenError> {
+/// Opens the cache at `path`; `None` when it cannot be opened, is not a
+/// database, or has another schema.
+fn open(path: &Path) -> Option<Connection> {
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+        fs::create_dir_all(dir).ok()?;
     }
-    let connection = Connection::open(path)?;
+    let connection = Connection::open(path).ok()?;
     // Reading the version reads the header, so a file that is not a
     // database fails here.
-    let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let version: i32 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .ok()?;
     match version {
         0 => {
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS summaries (
+            connection
+                .execute_batch(
+                    "CREATE TABLE IF NOT EXISTS summaries (
                      path TEXT PRIMARY KEY NOT NULL,
                      summary TEXT NOT NULL,
                      read_at INTEGER NOT NULL
                  ) WITHOUT ROWID;",
-            )?;
-            connection.pragma_update(None, "user_version", CACHE_SCHEMA)?;
+                )
+                .ok()?;
+            connection
+                .pragma_update(None, "user_version", CACHE_SCHEMA)
+                .ok()?;
         }
         CACHE_SCHEMA => {}
-        _ => return Err(OpenError::OtherVersion),
+        _ => return None,
     }
     // Proves the table has the columns this build uses.
-    connection.query_row(
-        "SELECT count(*) FROM summaries WHERE path = '' AND summary = '' AND read_at = 0",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?;
-    Ok(connection)
+    connection
+        .query_row(
+            "SELECT count(*) FROM summaries WHERE path = '' AND summary = '' AND read_at = 0",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .ok()?;
+    Some(connection)
 }
 
 /// Deletes the database and the files SQLite keeps beside it.

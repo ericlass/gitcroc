@@ -3,20 +3,10 @@
 //! `-` first (SEC-4); `--end-of-options` keeps either from being read as an
 //! option all the same.
 
-use std::ffi::OsString;
 use std::path::Path;
 
+use super::run_args;
 use crate::{GitError, GitRunner, Output, Write};
-
-async fn remote_write(
-    git: &GitRunner,
-    repo: &Path,
-    args: &[&str],
-    write: Write<'_>,
-) -> Result<Output, GitError> {
-    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    git.run_write(&args, repo, write).await
-}
 
 /// Adds remote `name` at `url` (`git remote add`), without fetching it. An
 /// existing name fails.
@@ -28,7 +18,7 @@ pub async fn remote_add(
     write: Write<'_>,
 ) -> Result<Output, GitError> {
     let args = ["remote", "add", "--end-of-options", name, url];
-    remote_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// Renames remote `name` to `new_name` (`git remote rename`); git moves its
@@ -41,7 +31,7 @@ pub async fn remote_rename(
     write: Write<'_>,
 ) -> Result<Output, GitError> {
     let args = ["remote", "rename", "--end-of-options", name, new_name];
-    remote_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// Removes remote `name` (`git remote remove`) with its remote-tracking
@@ -54,7 +44,7 @@ pub async fn remote_remove(
     write: Write<'_>,
 ) -> Result<Output, GitError> {
     let args = ["remote", "remove", "--end-of-options", name];
-    remote_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// Sets the first URL of remote `name` (`git remote set-url`): the fetch
@@ -72,5 +62,5 @@ pub async fn remote_set_url(
         args.push("--push");
     }
     args.extend(["--end-of-options", name, url]);
-    remote_write(git, repo, &args, write).await
+    run_args(git, repo, &args, write).await
 }

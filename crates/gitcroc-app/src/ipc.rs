@@ -73,13 +73,44 @@ pub enum IpcErrorCode {
     Refused,
 }
 
-impl From<tauri::Error> for IpcError {
-    fn from(error: tauri::Error) -> Self {
+impl IpcError {
+    /// An [`IpcErrorCode::Internal`] error.
+    fn internal(message: impl Into<String>) -> Self {
         Self {
             code: IpcErrorCode::Internal,
-            message: error.to_string(),
+            message: message.into(),
             git_stderr: None,
         }
+    }
+}
+
+/// `From` for the error of an operation on a repo, which has the variants
+/// `Workspace`, `Job` and `Status`: git's refusal to read `$what` keeps
+/// git's message for the user (SEC-6).
+macro_rules! from_op_error {
+    ($error:ident, $what:literal) => {
+        impl From<$error> for IpcError {
+            fn from(error: $error) -> Self {
+                match error {
+                    $error::Workspace(error) | $error::Job(JobError::Workspace(error)) => {
+                        error.into()
+                    }
+                    $error::Status(StatusReadError::Read(StatusError::Refused { message })) => {
+                        Self {
+                            git_stderr: Some(message),
+                            ..Self::internal(concat!("git refused to read ", $what))
+                        }
+                    }
+                    other => Self::internal(other.to_string()),
+                }
+            }
+        }
+    };
+}
+
+impl From<tauri::Error> for IpcError {
+    fn from(error: tauri::Error) -> Self {
+        Self::internal(error.to_string())
     }
 }
 
@@ -135,11 +166,9 @@ impl From<TreeError> for IpcError {
         match error {
             TreeError::Workspace(error) => error.into(),
             TreeError::UnknownGroup(group) => WorkspaceError::UnknownGroup(group).into(),
-            TreeError::Open(_) | TreeError::Refs(_) | TreeError::Stopped(_) => Self {
-                code: IpcErrorCode::Internal,
-                message: error.to_string(),
-                git_stderr: None,
-            },
+            TreeError::Open(_) | TreeError::Refs(_) | TreeError::Stopped(_) => {
+                Self::internal(error.to_string())
+            }
         }
     }
 }
@@ -149,11 +178,7 @@ impl From<CommitGraphError> for IpcError {
         match error {
             CommitGraphError::Workspace(error)
             | CommitGraphError::Job(JobError::Workspace(error)) => error.into(),
-            CommitGraphError::Job(JobError::NoRepo) => Self {
-                code: IpcErrorCode::Internal,
-                message: error.to_string(),
-                git_stderr: None,
-            },
+            CommitGraphError::Job(JobError::NoRepo) => Self::internal(error.to_string()),
         }
     }
 }
@@ -165,163 +190,24 @@ impl From<HistoryViewError> for IpcError {
             HistoryViewError::Open(_)
             | HistoryViewError::Page(_)
             | HistoryViewError::NoPage
-            | HistoryViewError::NoRepo => Self {
-                code: IpcErrorCode::Internal,
-                message: error.to_string(),
-                git_stderr: None,
-            },
+            | HistoryViewError::NoRepo => Self::internal(error.to_string()),
         }
     }
 }
 
-impl From<BranchError> for IpcError {
-    fn from(error: BranchError) -> Self {
-        match error {
-            BranchError::Workspace(error) | BranchError::Job(JobError::Workspace(error)) => {
-                error.into()
-            }
-            // git refused the repo; its message is for the user (SEC-6).
-            BranchError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
-                code: IpcErrorCode::Internal,
-                message: "git refused to read the repo".to_owned(),
-                git_stderr: Some(message),
-            },
-            other => Self {
-                code: IpcErrorCode::Internal,
-                message: other.to_string(),
-                git_stderr: None,
-            },
-        }
-    }
-}
+from_op_error!(BranchError, "the repo");
 
-impl From<SyncError> for IpcError {
-    fn from(error: SyncError) -> Self {
-        match error {
-            SyncError::Workspace(error) | SyncError::Job(JobError::Workspace(error)) => {
-                error.into()
-            }
-            // git refused the repo; its message is for the user (SEC-6).
-            SyncError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
-                code: IpcErrorCode::Internal,
-                message: "git refused to read the repo".to_owned(),
-                git_stderr: Some(message),
-            },
-            other => Self {
-                code: IpcErrorCode::Internal,
-                message: other.to_string(),
-                git_stderr: None,
-            },
-        }
-    }
-}
+from_op_error!(SyncError, "the repo");
 
-impl From<IntegrateError> for IpcError {
-    fn from(error: IntegrateError) -> Self {
-        match error {
-            IntegrateError::Workspace(error) | IntegrateError::Job(JobError::Workspace(error)) => {
-                error.into()
-            }
-            // git refused the repo; its message is for the user (SEC-6).
-            IntegrateError::Status(StatusReadError::Read(StatusError::Refused { message })) => {
-                Self {
-                    code: IpcErrorCode::Internal,
-                    message: "git refused to read the repo".to_owned(),
-                    git_stderr: Some(message),
-                }
-            }
-            other => Self {
-                code: IpcErrorCode::Internal,
-                message: other.to_string(),
-                git_stderr: None,
-            },
-        }
-    }
-}
+from_op_error!(IntegrateError, "the repo");
 
-impl From<TagError> for IpcError {
-    fn from(error: TagError) -> Self {
-        match error {
-            TagError::Workspace(error) | TagError::Job(JobError::Workspace(error)) => error.into(),
-            // git refused the repo; its message is for the user (SEC-6).
-            TagError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
-                code: IpcErrorCode::Internal,
-                message: "git refused to read the repo".to_owned(),
-                git_stderr: Some(message),
-            },
-            other => Self {
-                code: IpcErrorCode::Internal,
-                message: other.to_string(),
-                git_stderr: None,
-            },
-        }
-    }
-}
+from_op_error!(TagError, "the repo");
 
-impl From<ResetError> for IpcError {
-    fn from(error: ResetError) -> Self {
-        match error {
-            ResetError::Workspace(error) | ResetError::Job(JobError::Workspace(error)) => {
-                error.into()
-            }
-            // git refused the repo; its message is for the user (SEC-6).
-            ResetError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
-                code: IpcErrorCode::Internal,
-                message: "git refused to read the repo".to_owned(),
-                git_stderr: Some(message),
-            },
-            other => Self {
-                code: IpcErrorCode::Internal,
-                message: other.to_string(),
-                git_stderr: None,
-            },
-        }
-    }
-}
+from_op_error!(ResetError, "the repo");
 
-impl From<RemoteError> for IpcError {
-    fn from(error: RemoteError) -> Self {
-        match error {
-            RemoteError::Workspace(error) | RemoteError::Job(JobError::Workspace(error)) => {
-                error.into()
-            }
-            // git refused the repo; its message is for the user (SEC-6).
-            RemoteError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
-                code: IpcErrorCode::Internal,
-                message: "git refused to read the repo".to_owned(),
-                git_stderr: Some(message),
-            },
-            other => Self {
-                code: IpcErrorCode::Internal,
-                message: other.to_string(),
-                git_stderr: None,
-            },
-        }
-    }
-}
+from_op_error!(RemoteError, "the repo");
 
-impl From<FsmonitorError> for IpcError {
-    fn from(error: FsmonitorError) -> Self {
-        match error {
-            FsmonitorError::Workspace(error) | FsmonitorError::Job(JobError::Workspace(error)) => {
-                error.into()
-            }
-            // git refused the repo; its message is for the user (SEC-6).
-            FsmonitorError::Status(StatusReadError::Read(StatusError::Refused { message })) => {
-                Self {
-                    code: IpcErrorCode::Internal,
-                    message: "git refused to read the repo".to_owned(),
-                    git_stderr: Some(message),
-                }
-            }
-            other => Self {
-                code: IpcErrorCode::Internal,
-                message: other.to_string(),
-                git_stderr: None,
-            },
-        }
-    }
-}
+from_op_error!(FsmonitorError, "the repo");
 
 impl From<CloneError> for IpcError {
     fn from(error: CloneError) -> Self {
@@ -329,66 +215,20 @@ impl From<CloneError> for IpcError {
             CloneError::Workspace(error) | CloneError::Job(JobError::Workspace(error)) => {
                 error.into()
             }
-            other => Self {
-                code: IpcErrorCode::Internal,
-                message: other.to_string(),
-                git_stderr: None,
-            },
+            other => Self::internal(other.to_string()),
         }
     }
 }
 
 impl From<LaunchError> for IpcError {
     fn from(error: LaunchError) -> Self {
-        Self {
-            code: IpcErrorCode::Internal,
-            message: error.to_string(),
-            git_stderr: None,
-        }
+        Self::internal(error.to_string())
     }
 }
 
-impl From<StashError> for IpcError {
-    fn from(error: StashError) -> Self {
-        match error {
-            StashError::Workspace(error) | StashError::Job(JobError::Workspace(error)) => {
-                error.into()
-            }
-            // git refused the repo; its message is for the user (SEC-6).
-            StashError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
-                code: IpcErrorCode::Internal,
-                message: "git refused to read the repo".to_owned(),
-                git_stderr: Some(message),
-            },
-            other => Self {
-                code: IpcErrorCode::Internal,
-                message: other.to_string(),
-                git_stderr: None,
-            },
-        }
-    }
-}
+from_op_error!(StashError, "the repo");
 
-impl From<ChangesError> for IpcError {
-    fn from(error: ChangesError) -> Self {
-        match error {
-            ChangesError::Workspace(error) | ChangesError::Job(JobError::Workspace(error)) => {
-                error.into()
-            }
-            // git refused the repo; its message is for the user (SEC-6).
-            ChangesError::Status(StatusReadError::Read(StatusError::Refused { message })) => Self {
-                code: IpcErrorCode::Internal,
-                message: "git refused to read the working copy".to_owned(),
-                git_stderr: Some(message),
-            },
-            other => Self {
-                code: IpcErrorCode::Internal,
-                message: other.to_string(),
-                git_stderr: None,
-            },
-        }
-    }
-}
+from_op_error!(ChangesError, "the working copy");
 
 /// A job was queued, began to run, or made progress, sent as event
 /// `job_progress` (ARCH-7, UI-21).
@@ -2072,10 +1912,6 @@ fn spawn_watch_sync(app: &AppHandle, workspace_id: WorkspaceId) {
     });
 }
 
-/// Detects git in the background (ARCH-7), sending `git_status` events when it
-/// starts and when it is done. Window creation never waits for it. With a
-/// usable git, every repo's summary is then read again (PERF-3); until
-/// then the cached summaries stand.
 /// Records a step of the start for `just bench-ui --verbose` (M1-15); does
 /// nothing in release builds.
 pub fn perf_mark(_name: &str) {
@@ -2083,6 +1919,10 @@ pub fn perf_mark(_name: &str) {
     debug::mark(_name);
 }
 
+/// Detects git in the background (ARCH-7), sending `git_status` events when it
+/// starts and when it is done. Window creation never waits for it. With a
+/// usable git, every repo's summary is then read again (PERF-3); until
+/// then the cached summaries stand.
 pub fn spawn_git_detection(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let setup = app.state::<GitSetup>();
@@ -2121,7 +1961,7 @@ pub mod debug {
     use specta::Type;
     use tauri::AppHandle;
 
-    use super::{IpcError, IpcErrorCode};
+    use super::IpcError;
 
     /// Where `perf_trace_write` writes; set by `just bench-ui`.
     pub const PERF_TRACE_ENV: &str = "GITCROC_PERF_TRACE";
@@ -2235,14 +2075,6 @@ pub mod debug {
         pub unix_ms: f64,
     }
 
-    fn internal(message: String) -> IpcError {
-        IpcError {
-            code: IpcErrorCode::Internal,
-            message,
-            git_stderr: None,
-        }
-    }
-
     /// Writes the UI's measurements to the JSON file `$GITCROC_PERF_TRACE`
     /// names, with the cold start (process start to tree visible) worked
     /// out. Fails in builds without the `perf-trace` feature.
@@ -2250,11 +2082,11 @@ pub mod debug {
     #[specta::specta]
     pub async fn perf_trace_write(trace: PerfTrace) -> Result<(), IpcError> {
         if !cfg!(feature = "perf-trace") {
-            return Err(internal("this build has no perf-trace feature".into()));
+            return Err(IpcError::internal("this build has no perf-trace feature"));
         }
         let path = std::env::var_os(PERF_TRACE_ENV)
             .map(PathBuf::from)
-            .ok_or_else(|| internal(format!("{PERF_TRACE_ENV} is not set")))?;
+            .ok_or_else(|| IpcError::internal(format!("{PERF_TRACE_ENV} is not set")))?;
         let started = PROCESS_START.get().copied().and_then(unix_ms);
         let cold_start_ms = trace
             .tree_visible_unix_ms
@@ -2268,10 +2100,11 @@ pub mod debug {
             "core_marks": core_marks(),
             "page_marks": trace.marks,
         });
-        let text = serde_json::to_vec_pretty(&json).map_err(|error| internal(error.to_string()))?;
-        tokio::fs::write(&path, text)
-            .await
-            .map_err(|error| internal(format!("cannot write {}: {error}", path.display())))
+        let text = serde_json::to_vec_pretty(&json)
+            .map_err(|error| IpcError::internal(error.to_string()))?;
+        tokio::fs::write(&path, text).await.map_err(|error| {
+            IpcError::internal(format!("cannot write {}: {error}", path.display()))
+        })
     }
 
     fn core_marks() -> Vec<PerfMark> {

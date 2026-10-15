@@ -1,9 +1,7 @@
 //! The refs the tree shows (UI-1): local branches with and without an
 //! upstream, remote branches by remote, both kinds of tag, and stashes.
 
-use gitcroc_git::{
-    AheadBehind, BranchUpstream, GitRepo, LocalBranch, RefsRead, RemoteBranches, Tag,
-};
+use gitcroc_git::{AheadBehind, BranchUpstream, GitRepo, LocalBranch, RemoteBranches, Tag};
 use repo_gen::Fixture;
 
 #[test]

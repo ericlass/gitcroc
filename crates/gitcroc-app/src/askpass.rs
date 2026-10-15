@@ -315,13 +315,12 @@ impl WindowAskpassUi {
         self.pending.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The user's answer to prompt `prompt_id`; `None` is a cancel.
-    /// Returns `false` when the prompt is no longer open.
-    pub fn answer(&self, prompt_id: u32, answer: Option<String>) -> bool {
-        let Some(sender) = self.lock().remove(&prompt_id) else {
-            return false;
-        };
-        sender.send(answer).is_ok()
+    /// The user's answer to prompt `prompt_id`; `None` is a cancel. Does
+    /// nothing when the prompt is no longer open.
+    pub fn answer(&self, prompt_id: u32, answer: Option<String>) {
+        if let Some(sender) = self.lock().remove(&prompt_id) {
+            let _ = sender.send(answer);
+        }
     }
 }
 

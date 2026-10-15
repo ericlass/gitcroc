@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use gitcroc_git::{
@@ -16,14 +16,15 @@ use gitcroc_git::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
+use crate::lock;
 use crate::{
-    JobError, JobId, JobView, Jobs, NothingToDo, OnCancel, RepoId, TargetSet, WorkspaceError,
-    WorkspaceId, Workspaces, WriteJob, target_repos,
+    JobError, JobId, JobView, Jobs, RepoId, TargetSet, WorkspaceError, WorkspaceId, Workspaces,
+    WriteJob, target_repos,
 };
 
 /// A first page slower than this, read without a commit-graph file, earns
 /// the offer to write one: the section 9 budget for the first page.
-pub const COMMIT_GRAPH_THRESHOLD: Duration = Duration::from_millis(200);
+const COMMIT_GRAPH_THRESHOLD: Duration = Duration::from_millis(200);
 
 /// Why a history page could not be produced.
 #[derive(Debug, thiserror::Error)]
@@ -277,12 +278,6 @@ impl Histories {
     fn writing(&self, id: &WorkspaceId, repo: &RepoId) -> bool {
         lock(&self.writes).contains_key(&(id.clone(), repo.clone()))
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    // Every change is a single insert, take or removal, so a panic leaves
-    // no half-changed state.
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn filter_of(text: &str) -> Option<Filter> {
@@ -546,15 +541,11 @@ pub fn commit_graph_write(
             ended: None,
         });
     }
-    let job = WriteJob {
-        workspace_id: id.clone(),
-        repos: vec![repo.clone()],
-        label: format!("Writing the commit-graph file of {name}"),
-        on_cancel: OnCancel::Finish,
-        may_conflict: false,
-        nothing_to_do: NothingToDo::Never,
-        network: false,
-    };
+    let job = WriteJob::single(
+        id.clone(),
+        repo.clone(),
+        format!("Writing the commit-graph file of {name}"),
+    );
     let handle = jobs.start(git, job, move |run| async move {
         ops::commit_graph_write(&run.git, &path, run.write()).await
     })?;

@@ -14,7 +14,7 @@ use gitcroc_git::ops::{PullMode, PushTo};
 use gitcroc_git::{GitError, GitRepo, Output, Write, ops, parse_progress};
 use serde::{Deserialize, Serialize};
 
-use crate::unblocked::{BlockedError, open_unblocked, repo_name};
+use crate::unblocked::{from_blocked, open_unblocked, repo_name};
 use crate::{
     GitRunner, JobError, JobId, JobRun, Jobs, NothingToDo, OnCancel, OpenError, RepoId,
     StatusReadError, Summaries, WorkspaceError, WorkspaceId, Workspaces, WriteJob,
@@ -119,17 +119,7 @@ pub enum SyncError {
     Stopped(#[from] tokio::task::JoinError),
 }
 
-impl From<BlockedError> for SyncError {
-    fn from(error: BlockedError) -> Self {
-        match error {
-            BlockedError::Workspace(error) => Self::Workspace(error),
-            BlockedError::Open(error) => Self::Open(error),
-            BlockedError::Status(error) => Self::Status(error),
-            BlockedError::Stopped(error) => Self::Stopped(error),
-            BlockedError::Blocked(why) => Self::Refused(why),
-        }
-    }
-}
+from_blocked!(SyncError);
 
 fn refused(why: impl Into<String>) -> SyncError {
     SyncError::Refused(why.into())
@@ -320,25 +310,24 @@ pub(crate) fn default_remote(remotes: &[String]) -> Option<String> {
 }
 
 /// `first`'s output, then `then`'s, also when `then` failed.
-fn joined(first: Output, then: Result<Output, GitError>) -> Result<Output, GitError> {
-    let join = |mut head: Vec<u8>, tail: Vec<u8>| {
-        head.extend(tail);
-        head
-    };
+fn joined(mut first: Output, then: Result<Output, GitError>) -> Result<Output, GitError> {
     match then {
-        Ok(then) => Ok(Output {
-            stdout: join(first.stdout, then.stdout),
-            stderr: join(first.stderr, then.stderr),
-        }),
+        Ok(then) => {
+            first.append(then);
+            Ok(first)
+        }
         Err(GitError::Failed {
             code,
             stdout,
             stderr,
-        }) => Err(GitError::Failed {
-            code,
-            stdout: join(first.stdout, stdout),
-            stderr: join(first.stderr, stderr),
-        }),
+        }) => {
+            first.append(Output { stdout, stderr });
+            Err(GitError::Failed {
+                code,
+                stdout: first.stdout,
+                stderr: first.stderr,
+            })
+        }
         Err(error) => Err(error),
     }
 }
@@ -422,18 +411,17 @@ pub async fn op_sync(
         });
     }
     let job = WriteJob {
-        workspace_id: id,
-        repos: vec![repo_id],
-        label: plan.label(),
         on_cancel: plan.on_cancel(),
         may_conflict: matches!(plan, Plan::Pull { .. }),
         nothing_to_do: plan.nothing_to_do(),
         network: true,
+        ..WriteJob::single(id, repo_id, plan.label())
     };
-    let handle = jobs.start(git, job, move |job| async move {
-        let path = job.paths.first().cloned().unwrap_or(path);
-        run(&job, &path, &plan).await
-    })?;
+    let handle = jobs.start(
+        git,
+        job,
+        move |job| async move { run(&job, &path, &plan).await },
+    )?;
     Ok(SyncStart::Started {
         job_id: handle.job_id,
     })

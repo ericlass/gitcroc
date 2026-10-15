@@ -93,19 +93,17 @@ impl GitSetup {
         self.detection.read().await.clone()?.ok()
     }
 
-    /// Detects git in this process's environment. There is no explicit path
-    /// setting yet.
+    /// Detects git in this process's environment and keeps the result.
+    /// Until it finishes, [`git_status`](Self::git_status) reports
+    /// [`GitStatus::Checking`].
     pub async fn detect(&self) -> GitStatus {
-        self.detect_with(None, &SearchEnv::from_process()).await
+        self.detect_with(&SearchEnv::from_process()).await
     }
 
-    /// Detects git, searching `explicit` first and then `env`, and keeps the
-    /// result. Until it finishes, [`git_status`](Self::git_status) reports
-    /// [`GitStatus::Checking`].
-    pub async fn detect_with(&self, explicit: Option<&Path>, env: &SearchEnv) -> GitStatus {
+    async fn detect_with(&self, env: &SearchEnv) -> GitStatus {
         let _one_at_a_time = self.detecting.lock().await;
         *self.detection.write().await = None;
-        let detection = gitcroc_git::detect(explicit, env).await;
+        let detection = gitcroc_git::detect(None, env).await;
         let status = GitStatus::from_detection(&detection);
         *self.detection.write().await = Some(detection);
         status
@@ -133,7 +131,7 @@ mod tests {
             path: Some(OsString::new()),
             ..SearchEnv::default()
         };
-        let missing = setup.detect_with(None, &empty).await;
+        let missing = setup.detect_with(&empty).await;
         assert_eq!(missing, GitStatus::NotFound { searched: vec![] });
         assert_eq!(setup.git_status().await, missing);
         assert_eq!(setup.git().await, None);

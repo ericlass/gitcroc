@@ -13,10 +13,10 @@ use std::sync::Arc;
 use gitcroc_git::{GitError, GitRepo, Output, StashEntry, Write, ops};
 use serde::{Deserialize, Serialize};
 
-use crate::unblocked::{BlockedError, open_unblocked, repo_name};
+use crate::unblocked::{from_blocked, open_unblocked, repo_name};
 use crate::{
-    GitRunner, JobError, JobId, Jobs, NothingToDo, OnCancel, OpenError, RepoId, StatusReadError,
-    Summaries, WorkspaceError, WorkspaceId, Workspaces, WriteJob,
+    GitRunner, JobError, JobId, Jobs, NothingToDo, OpenError, RepoId, StatusReadError, Summaries,
+    WorkspaceError, WorkspaceId, Workspaces, WriteJob,
 };
 
 /// A stash entry as the tree showed it: `stash@{index}` with this commit.
@@ -83,17 +83,7 @@ pub enum StashError {
     Stopped(#[from] tokio::task::JoinError),
 }
 
-impl From<BlockedError> for StashError {
-    fn from(error: BlockedError) -> Self {
-        match error {
-            BlockedError::Workspace(error) => Self::Workspace(error),
-            BlockedError::Open(error) => Self::Open(error),
-            BlockedError::Status(error) => Self::Status(error),
-            BlockedError::Stopped(error) => Self::Stopped(error),
-            BlockedError::Blocked(why) => Self::Refused(why),
-        }
-    }
-}
+from_blocked!(StashError);
 
 fn refused(why: impl Into<String>) -> StashError {
     StashError::Refused(why.into())
@@ -254,16 +244,11 @@ pub async fn op_stash(
         });
     }
     let job = WriteJob {
-        workspace_id: id,
-        repos: vec![repo_id],
-        label: plan.label(),
-        on_cancel: OnCancel::Finish,
         may_conflict: plan.may_conflict(),
         nothing_to_do: plan.nothing_to_do(),
-        network: false,
+        ..WriteJob::single(id, repo_id, plan.label())
     };
     let handle = jobs.start(git, job, move |job| async move {
-        let path = job.paths.first().cloned().unwrap_or(path);
         run(&job.git, &path, &plan, job.write()).await
     })?;
     Ok(StashStart::Started {

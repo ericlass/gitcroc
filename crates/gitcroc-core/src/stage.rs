@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::changes::{Lists, ViewState};
 use crate::{
-    Changes, ChangesError, DiffReadError, FileList, FileRef, GitRunner, JobId, Jobs, NothingToDo,
-    OnCancel, WorkspaceId, Workspaces, WriteJob,
+    Changes, ChangesError, DiffReadError, FileList, FileRef, GitRunner, JobId, Jobs, WorkspaceId,
+    Workspaces, WriteJob,
 };
 
 /// What to do with the files or the hunk.
@@ -123,21 +123,14 @@ async fn discard(
     let (untracked, tracked): (Vec<&ChangedFile>, Vec<&ChangedFile>) = files
         .iter()
         .partition(|file| file.status == FileStatus::Untracked);
-    let mut all = gitcroc_git::Output {
-        stdout: Vec::new(),
-        stderr: Vec::new(),
-    };
+    let mut all = gitcroc_git::Output::default();
     if !tracked.is_empty() {
         let paths: Vec<&[u8]> = tracked.iter().map(|file| file.git_path()).collect();
-        let output = ops::discard_tracked(git, path, &paths, write).await?;
-        all.stdout.extend(output.stdout);
-        all.stderr.extend(output.stderr);
+        all.append(ops::discard_tracked(git, path, &paths, write).await?);
     }
     if !untracked.is_empty() {
         let paths: Vec<PathBuf> = untracked.iter().filter_map(|file| file.os_path()).collect();
-        let output = ops::discard_untracked(git, path, &paths, write).await?;
-        all.stdout.extend(output.stdout);
-        all.stderr.extend(output.stderr);
+        all.append(ops::discard_untracked(git, path, &paths, write).await?);
     }
     Ok(all)
 }
@@ -301,17 +294,9 @@ pub async fn changes_apply(
             files: files.iter().map(|file| file.path.clone()).collect(),
         }));
     }
-    let job = WriteJob {
-        workspace_id: id,
-        repos: vec![view.repo],
-        label: label(action, &target, &files),
-        on_cancel: OnCancel::Finish,
-        may_conflict: false,
-        nothing_to_do: NothingToDo::Never,
-        network: false,
-    };
+    let job = WriteJob::single(id, view.repo, label(action, &target, &files));
     let handle = jobs.start(git, job, move |job| async move {
-        let path = job.paths.first().cloned().unwrap_or(view.path);
+        let path = view.path;
         run(&job.git, &path, action, &plan, job.write()).await
     })?;
     Ok(Some(ChangeStart::Started {

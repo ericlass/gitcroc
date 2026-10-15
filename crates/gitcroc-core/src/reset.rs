@@ -12,10 +12,10 @@ use std::sync::Arc;
 use gitcroc_git::{FileStatus, GitRepo, StatusReader, ops};
 use serde::{Deserialize, Serialize};
 
-use crate::unblocked::{BlockedError, open_unblocked, repo_name};
+use crate::unblocked::{from_blocked, open_unblocked, repo_name};
 use crate::{
-    GitRunner, JobError, JobId, Jobs, NothingToDo, OnCancel, OpenError, RepoId, StatusReadError,
-    Summaries, WorkspaceError, WorkspaceId, Workspaces, WriteJob,
+    GitRunner, JobError, JobId, Jobs, OpenError, RepoId, StatusReadError, Summaries,
+    WorkspaceError, WorkspaceId, Workspaces, WriteJob,
 };
 
 /// What a reset puts at the commit besides the branch.
@@ -68,17 +68,7 @@ pub enum ResetError {
     Stopped(#[from] tokio::task::JoinError),
 }
 
-impl From<BlockedError> for ResetError {
-    fn from(error: BlockedError) -> Self {
-        match error {
-            BlockedError::Workspace(error) => Self::Workspace(error),
-            BlockedError::Open(error) => Self::Open(error),
-            BlockedError::Status(error) => Self::Status(error),
-            BlockedError::Stopped(error) => Self::Stopped(error),
-            BlockedError::Blocked(why) => Self::Refused(why),
-        }
-    }
-}
+from_blocked!(ResetError);
 
 /// What a job runs.
 #[derive(Debug, Clone)]
@@ -199,17 +189,8 @@ pub async fn op_reset(
             actions: plan.destructive(lost),
         });
     }
-    let job = WriteJob {
-        workspace_id: id,
-        repos: vec![repo_id],
-        label: plan.label(),
-        on_cancel: OnCancel::Finish,
-        may_conflict: false,
-        nothing_to_do: NothingToDo::Never,
-        network: false,
-    };
+    let job = WriteJob::single(id, repo_id, plan.label());
     let handle = jobs.start(git, job, move |job| async move {
-        let path = job.paths.first().cloned().unwrap_or(path);
         let mode = match plan.mode {
             ResetMode::Soft => ops::ResetMode::Soft,
             ResetMode::Mixed => ops::ResetMode::Mixed,

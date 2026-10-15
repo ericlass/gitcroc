@@ -3,7 +3,7 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +11,7 @@ use gitcroc_git::Context;
 
 use crate::WorkspaceId;
 use crate::config_file::{self, ConfigWarning, Migration};
+use crate::lock;
 
 /// The schema this build reads and writes.
 pub const SETTINGS_SCHEMA: u32 = 2;
@@ -136,7 +137,7 @@ impl Default for Appearance {
 impl Appearance {
     /// Sizes limited to [`MIN_FONT_SIZE`]..=[`MAX_FONT_SIZE`], font names
     /// trimmed, and a blank name the system font.
-    pub fn normalized(self) -> Self {
+    fn normalized(self) -> Self {
         let font = |name: Option<String>| {
             name.map(|name| name.trim().to_owned())
                 .filter(|name| !name.is_empty())
@@ -301,7 +302,7 @@ impl SettingsStore {
     fn lock(&self) -> MutexGuard<'_, Loaded> {
         // A panic while holding the lock cannot leave `Loaded` half-changed:
         // it is replaced only after a successful save.
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 

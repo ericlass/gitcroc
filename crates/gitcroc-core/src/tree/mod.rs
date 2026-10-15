@@ -20,12 +20,13 @@
 //! summary is read again ([`Trees::invalidate`]).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
-use gitcroc_git::{GitRepo, OpenError, Refs, RefsError, RefsRead};
+use gitcroc_git::{GitRepo, OpenError, Refs, RefsError};
 use serde::{Deserialize, Serialize};
 
 use crate::group::{GroupSummary, group_summaries};
+use crate::lock;
 use crate::{GroupId, RepoId, Summaries, WorkspaceError, WorkspaceId, Workspaces};
 
 /// The id of the **Ungrouped** node.
@@ -333,12 +334,6 @@ impl Trees {
         nodes.push(ungrouped(repos));
         Ok(self.is_latest(id, request).then_some(nodes))
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    // Every change is a single insert or removal, so a panic leaves no
-    // half-changed state.
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// The four ref nodes of `repo` where it appears under group `place`, or

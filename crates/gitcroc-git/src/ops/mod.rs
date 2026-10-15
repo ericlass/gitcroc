@@ -33,6 +33,17 @@ pub use stash::{stash_apply, stash_drop, stash_push};
 pub use sync::{PullMode, PushTo, fetch_all, fetch_remote, pull_fetched, push};
 pub use tag::{remote_tag_delete, tag_create, tag_delete, tag_push};
 
+/// Runs the write `args` in `repo`.
+async fn run_args(
+    git: &GitRunner,
+    repo: &Path,
+    args: &[&str],
+    write: Write<'_>,
+) -> Result<Output, GitError> {
+    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+    git.run_write(&args, repo, write).await
+}
+
 /// Writes the repo's commit-graph file from every ref (PERF-2, M1-08). Only
 /// the cache file in the git directory changes: no ref, object, index,
 /// working file or config.
@@ -67,15 +78,9 @@ pub async fn fsmonitor_enable(
     repo: &Path,
     write: Write<'_>,
 ) -> Result<Output, GitError> {
-    let mut all = Output {
-        stdout: Vec::new(),
-        stderr: Vec::new(),
-    };
+    let mut all = Output::default();
     for key in fsmonitor_keys() {
-        let args = ["config", "--local", key, "true"].map(OsString::from);
-        let output = git.run_write(&args, repo, write).await?;
-        all.stdout.extend(output.stdout);
-        all.stderr.extend(output.stderr);
+        all.append(run_args(git, repo, &["config", "--local", key, "true"], write).await?);
     }
     Ok(all)
 }
@@ -174,10 +179,7 @@ pub async fn discard_untracked(
     paths: &[PathBuf],
     write: Write<'_>,
 ) -> Result<Output, GitError> {
-    let mut all = Output {
-        stdout: Vec::new(),
-        stderr: Vec::new(),
-    };
+    let mut all = Output::default();
     let mut rest = paths;
     while !rest.is_empty() {
         let mut bytes = 0;
@@ -194,9 +196,7 @@ pub async fn discard_untracked(
             .map(OsString::from)
             .to_vec();
         args.extend(now.iter().map(|path| path.as_os_str().to_owned()));
-        let output = git.run_write(&args, repo, write).await?;
-        all.stdout.extend(output.stdout);
-        all.stderr.extend(output.stderr);
+        all.append(git.run_write(&args, repo, write).await?);
         rest = later;
     }
     Ok(all)
@@ -218,12 +218,11 @@ pub async fn apply_patch(
         Apply::Discard => args.push("-R"),
     }
     args.push("-");
-    let args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
     let write = Write {
         stdin: Some(patch),
         ..write
     };
-    git.run_write(&args, repo, write).await
+    run_args(git, repo, &args, write).await
 }
 
 /// How a commit is made (UI-15).
@@ -255,10 +254,9 @@ pub async fn commit(
         args.push("--signoff");
     }
     args.extend(["-F", "-"]);
-    let args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
     let write = Write {
         stdin: Some(message),
         ..write
     };
-    git.run_write(&args, repo, write).await
+    run_args(git, repo, &args, write).await
 }

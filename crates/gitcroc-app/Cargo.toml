@@ -27,7 +27,6 @@ tokio = { workspace = true, features = ["fs", "time", "net", "io-util", "sync", 
 # The askpass socket (D10): its private directory, and the tokens.
 tempfile.workspace = true
 uuid.workspace = true
-gitcroc-git.workspace = true
 gitcroc-core.workspace = true
 gitcroc-ai.workspace = true
 
@@ -35,6 +34,7 @@ gitcroc-ai.workspace = true
 gtk.workspace = true
 
 [dev-dependencies]
+gitcroc-git.workspace = true
 toml.workspace = true
 repo-gen.workspace = true
 

@@ -42,7 +42,7 @@ const FORBIDDEN: [char; 7] = ['~', '^', ':', '?', '*', '[', '\\'];
 /// Checks `name` as a branch name, as `git check-ref-format --branch` does,
 /// except that `@` and `-`, which git reads as `HEAD` and the previous
 /// branch, are refused.
-pub fn check_branch_name(name: &str) -> Result<(), RefNameError> {
+pub(crate) fn check_branch_name(name: &str) -> Result<(), RefNameError> {
     if name.is_empty() {
         return Err(RefNameError::Empty);
     }
@@ -59,13 +59,13 @@ pub fn check_branch_name(name: &str) -> Result<(), RefNameError> {
 
 /// Checks `name` as a tag name: the rules of a branch name, so `HEAD`,
 /// `@` and a leading `-` are refused as well.
-pub fn check_tag_name(name: &str) -> Result<(), RefNameError> {
+pub(crate) fn check_tag_name(name: &str) -> Result<(), RefNameError> {
     check_branch_name(name)
 }
 
 /// Checks `name` as the name of a new remote: a valid ref component, as in
 /// `refs/remotes/<name>/`, so the rules of a branch name without `/`.
-pub fn check_remote_name(name: &str) -> Result<(), RefNameError> {
+pub(crate) fn check_remote_name(name: &str) -> Result<(), RefNameError> {
     check_branch_name(name)?;
     if name.contains('/') {
         return Err(RefNameError::Slash);

@@ -15,10 +15,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::ref_name::{RefNameError, check_tag_name};
 use crate::sync::default_remote;
-use crate::unblocked::{BlockedError, open_unblocked, repo_name};
+use crate::unblocked::{from_blocked, open_unblocked, repo_name};
 use crate::{
-    GitRunner, JobError, JobId, JobRun, Jobs, NothingToDo, OnCancel, OpenError, RepoId,
-    StatusReadError, Summaries, WorkspaceError, WorkspaceId, Workspaces, WriteJob,
+    GitRunner, JobError, JobId, JobRun, Jobs, OpenError, RepoId, StatusReadError, Summaries,
+    WorkspaceError, WorkspaceId, Workspaces, WriteJob,
 };
 
 /// A tag operation (section 6 "Tags"). `remote` picks where a push or a
@@ -94,17 +94,7 @@ pub enum TagError {
     Stopped(#[from] tokio::task::JoinError),
 }
 
-impl From<BlockedError> for TagError {
-    fn from(error: BlockedError) -> Self {
-        match error {
-            BlockedError::Workspace(error) => Self::Workspace(error),
-            BlockedError::Open(error) => Self::Open(error),
-            BlockedError::Status(error) => Self::Status(error),
-            BlockedError::Stopped(error) => Self::Stopped(error),
-            BlockedError::Blocked(why) => Self::Refused(why),
-        }
-    }
-}
+from_blocked!(TagError);
 
 fn refused(why: impl Into<String>) -> TagError {
     TagError::Refused(why.into())
@@ -295,13 +285,6 @@ fn plan(repo: &GitRepo, op: TagOp) -> Result<Planned, TagError> {
     }
 }
 
-/// `first`'s output, then `then`'s.
-fn joined(mut first: Output, then: Output) -> Output {
-    first.stdout.extend(then.stdout);
-    first.stderr.extend(then.stderr);
-    first
-}
-
 /// Runs `plan` in `path`, a push's progress lines reported as the job's
 /// steps. A delete on the remote runs first, so the local tag stays when
 /// it fails.
@@ -324,25 +307,19 @@ async fn run(job: &JobRun, path: &Path, plan: &Plan) -> Result<Output, GitError>
             push,
         } => {
             let message = message.as_deref().map(str::as_bytes);
-            let created = ops::tag_create(git, path, name, commit, message, write).await?;
-            match push {
-                Some(remote) => {
-                    let pushed = ops::tag_push(git, path, remote, name, write).await?;
-                    Ok(joined(created, pushed))
-                }
-                None => Ok(created),
+            let mut all = ops::tag_create(git, path, name, commit, message, write).await?;
+            if let Some(remote) = push {
+                all.append(ops::tag_push(git, path, remote, name, write).await?);
             }
+            Ok(all)
         }
         Plan::Delete { name, remote } => {
-            let deleted_remote = match remote {
-                Some(remote) => Some(ops::remote_tag_delete(git, path, remote, name, write).await?),
-                None => None,
-            };
-            let deleted = ops::tag_delete(git, path, name, write).await?;
-            Ok(match deleted_remote {
-                Some(first) => joined(first, deleted),
-                None => deleted,
-            })
+            let mut all = Output::default();
+            if let Some(remote) = remote {
+                all = ops::remote_tag_delete(git, path, remote, name, write).await?;
+            }
+            all.append(ops::tag_delete(git, path, name, write).await?);
+            Ok(all)
         }
         Plan::Push { name, remote } => ops::tag_push(git, path, remote, name, write).await,
     }
@@ -378,18 +355,14 @@ pub async fn op_tag(
         });
     }
     let job = WriteJob {
-        workspace_id: id,
-        repos: vec![repo_id],
-        label: plan.label(),
-        on_cancel: OnCancel::Finish,
-        may_conflict: false,
-        nothing_to_do: NothingToDo::Never,
         network: plan.network(),
+        ..WriteJob::single(id, repo_id, plan.label())
     };
-    let handle = jobs.start(git, job, move |job| async move {
-        let path = job.paths.first().cloned().unwrap_or(path);
-        run(&job, &path, &plan).await
-    })?;
+    let handle = jobs.start(
+        git,
+        job,
+        move |job| async move { run(&job, &path, &plan).await },
+    )?;
     Ok(TagStart::Started {
         job_id: handle.job_id,
     })
