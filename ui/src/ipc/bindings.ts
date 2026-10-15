@@ -135,6 +135,12 @@ export const commands = {
 	/**  Puts the groups in the order of `group_ids`, which names each once. */
 	groupReorder: (workspaceId: WorkspaceId, groupIds: GroupId[]) => typedError<WorkspaceView, IpcError>(__TAURI_INVOKE("group_reorder", { workspaceId, groupIds })),
 	/**
+	 *  The repos of `target` as the workspace is now (GRP-5): a group's members
+	 *  in group order, or a multi-selection in tree order, each repo once. A
+	 *  group or repo that no longer exists is refused.
+	 */
+	targetRepos: (workspaceId: WorkspaceId, target: TargetSet) => typedError<RepoId[], IpcError>(__TAURI_INVOKE("target_repos", { workspaceId, target })),
+	/**
 	 *  The first page of `target`'s history in a repo (section 8 "History
 	 *  pane"), filtered by `text` when it is not empty (UI-12). It starts a new
 	 *  walk of the workspace; the previous one ends. `null` when a newer
@@ -1889,6 +1895,18 @@ export type TagStart =
  *  `remotes`.
  */
 { kind: "choose_remote"; remotes: string[] };
+
+/**  What the user selected to act on (GRP-5). */
+export type TargetSet = 
+/**  One repo. */
+{ kind: "repo"; repo_id: RepoId } | 
+/**  The members of a group, in group order. */
+{ kind: "group"; group_id: GroupId } | 
+/**
+ *  A multi-selection of repo rows. It resolves in tree order, each repo
+ *  once, however it was given.
+ */
+{ kind: "repos"; repo_ids: RepoId[] };
 
 /**  The diff of a text file. */
 export type TextDiff = {

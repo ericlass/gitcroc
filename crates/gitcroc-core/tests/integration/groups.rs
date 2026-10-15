@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gitcroc_core::{
-    ConfigDir, GitRunner, GroupBranch, GroupId, JobId, RepoId, Summaries, SummaryCache,
+    ConfigDir, GitRunner, GroupBranch, GroupId, JobId, RepoId, Summaries, SummaryCache, TargetSet,
     WorkspaceError, WorkspaceId, Workspaces, add_path, group_summaries, refresh_summaries,
+    target_repos,
 };
 use repo_gen::{Fixture, Repo};
 
@@ -207,6 +208,47 @@ async fn grp_2_members_keep_their_order() {
     assert_eq!(groups[0].id, GroupId("g1".to_owned()));
     assert_eq!(groups[0].repos, run.repos(&["e", "b"]));
     assert_eq!(groups[1].repos, run.repos(&["c", "b", "d"]));
+}
+
+#[tokio::test]
+async fn grp_5_target_set_is_a_repo_a_group_or_a_multi_selection() {
+    let run = Run::with(&["a", "b", "c", "d", "e"]).await;
+    let store = &run.workspaces;
+    let resolve = |target: TargetSet| target_repos(store, &run.id, &target);
+    let first = store
+        .create_group(&run.id, "First", &run.repos(&["d", "b"]))
+        .unwrap();
+    let second = store
+        .create_group(&run.id, "Second", &run.repos(&["b", "c"]))
+        .unwrap();
+
+    let one = resolve(TargetSet::Repo {
+        repo_id: run.repo("e"),
+    });
+    assert_eq!(one.unwrap(), run.repos(&["e"]));
+    // A group gives its members in group order.
+    let group = resolve(TargetSet::Group {
+        group_id: second.clone(),
+    });
+    assert_eq!(group.unwrap(), run.repos(&["b", "c"]));
+    // A multi-selection comes back in tree order: the groups' members, then
+    // Ungrouped in workspace order. A repo in two groups counts once.
+    let repos = resolve(TargetSet::Repos {
+        repo_ids: run.repos(&["e", "c", "b", "a", "b", "d"]),
+    });
+    assert_eq!(repos.unwrap(), run.repos(&["d", "b", "c", "a", "e"]));
+
+    // What no longer exists is an error.
+    store.delete_group(&run.id, &first).unwrap();
+    let gone = resolve(TargetSet::Group { group_id: first });
+    assert!(matches!(gone, Err(WorkspaceError::UnknownGroup(_))));
+    let stranger = RepoId("r99".to_owned());
+    let unknown = resolve(TargetSet::Repos {
+        repo_ids: vec![run.repo("a"), stranger.clone()],
+    });
+    assert!(matches!(unknown, Err(WorkspaceError::UnknownRepo(repo)) if repo == stranger));
+    let unknown = resolve(TargetSet::Repo { repo_id: stranger });
+    assert!(matches!(unknown, Err(WorkspaceError::UnknownRepo(_))));
 }
 
 #[tokio::test]

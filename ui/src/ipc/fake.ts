@@ -1339,6 +1339,28 @@ const fakeGroupCommands: Pick<
     }),
 };
 
+/** Like the core's `target_repos` (GRP-5): a group's members, or repos in tree order, each once. */
+const fakeTargetRepos: Core["commands"]["targetRepos"] = (workspaceId, target) => {
+  const workspace = openWorkspace(workspaceId);
+  if (workspace === undefined) {
+    return notFound(`no open workspace has the id ${workspaceId}`);
+  }
+  const known = new Set(workspace.repos.map((repo) => repo.id));
+  const wanted = target.kind === "repo" ? [target.repo_id] : target.kind === "repos" ? target.repo_ids : [];
+  const unknown = wanted.find((repo) => !known.has(repo));
+  if (unknown !== undefined) {
+    return notFound(`the workspace has no repo with the id ${unknown}`);
+  }
+  if (target.kind === "group") {
+    const group = workspace.groups.find((known) => known.id === target.group_id);
+    return group === undefined
+      ? notFound(`the workspace has no group with the id ${target.group_id}`)
+      : Promise.resolve({ status: "ok" as const, data: group.repos });
+  }
+  const order = [...new Set([...workspace.groups.flatMap((group) => group.repos), ...known])];
+  return Promise.resolve({ status: "ok" as const, data: order.filter((repo) => wanted.includes(repo)) });
+};
+
 /** Like the core's tab changes, for the fake's workspace files (UI-27, UI-28). */
 const fakeTabCommands: Pick<
   Core["commands"],
@@ -1596,6 +1618,7 @@ export const fake: Core = {
     workspaceGet: () => Promise.resolve({ status: "ok", data: fakeTabs() }),
     ...fakeTabCommands,
     ...fakeGroupCommands,
+    targetRepos: fakeTargetRepos,
     workspaceAddPath: (workspaceId, path) => {
       if (workspaceId !== fakeState.workspace.id) {
         return notFound(`no open workspace has the id ${workspaceId}`);

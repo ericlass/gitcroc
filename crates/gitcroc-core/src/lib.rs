@@ -26,6 +26,7 @@ mod summary;
 mod sync;
 mod tabs;
 mod tag;
+mod target;
 mod tree;
 mod unblocked;
 mod watch;
@@ -109,6 +110,7 @@ pub use sync::{
 };
 pub use tabs::TabSwitch;
 pub use tag::{TagError, TagOp, TagRequest, TagStart, op_tag, tag_name_check};
+pub use target::{TargetSet, target_repos};
 pub use tree::{
     TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, group_branches, tree_filter, tree_refs,
 };

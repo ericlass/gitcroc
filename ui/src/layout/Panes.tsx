@@ -1,9 +1,12 @@
 // The three panes of section 8: the tree, then the history with the changes
-// pane docked right of it or below it (UI-19). Sizes and the dock position
+// pane docked right of it or below it (UI-19). For a group or several repos
+// the history pane shows the target set's summary strip (UI-11). Sizes and the dock position
 // come from the layout store under the given workspace id (ARCH-9).
 import ChangesPane from "../changes/ChangesPane";
+import { Show } from "solid-js";
 import HistoryPane from "../history/HistoryPane";
-import type { WorkspaceId } from "../ipc";
+import TargetView from "../history/TargetView";
+import type { RepoId, WorkspaceId } from "../ipc";
 import type { BranchStore } from "../stores/branch";
 import type { StashStore } from "../stores/stash";
 import type { CloneStore } from "../stores/clone";
@@ -70,17 +73,41 @@ export default function Panes(props: {
     />
   );
 
+  /** The target set when it is a group or several repos. */
+  const several = () => {
+    const target = props.tree.target(props.workspace);
+    return target?.kind === "group" || target?.kind === "repos" ? target : null;
+  };
+  const name = (repo: RepoId) =>
+    props.workspaces.state.views?.find((view) => view.id === props.workspace)?.repos.find((known) => known.id === repo)
+      ?.name ?? repo;
+
   const history = () => (
-    <HistoryPane
-      workspace={props.workspace}
-      history={props.history}
-      summaries={props.summaries}
-      layout={props.layout}
-      branch={props.branch}
-      integrate={props.integrate}
-      tag={props.tag}
-      reset={props.reset}
-    />
+    <Show
+      when={several()}
+      fallback={
+        <HistoryPane
+          workspace={props.workspace}
+          history={props.history}
+          summaries={props.summaries}
+          layout={props.layout}
+          branch={props.branch}
+          integrate={props.integrate}
+          tag={props.tag}
+          reset={props.reset}
+        />
+      }
+    >
+      {(target) => (
+        <TargetView
+          workspace={props.workspace}
+          target={target()}
+          tree={props.tree}
+          summaries={props.summaries}
+          name={name}
+        />
+      )}
+    </Show>
   );
 
   const changes = () => (

@@ -21,6 +21,7 @@ import type {
   PerfTrace,
   RemoteRequest,
   RepoId,
+  TargetSet,
   ResetRequest,
   ResolveRequest,
   StashRequest,
@@ -141,6 +142,7 @@ export type {
   TagOp,
   TagRequest,
   TagStart,
+  TargetSet,
   ResetMode,
   ResetRequest,
   ResetStart,
@@ -276,6 +278,10 @@ export const groupMoveRepoBetween = (
 
 export const groupReorder = (workspaceId: WorkspaceId, groupIds: GroupId[]) =>
   unwrap(core.commands.groupReorder(workspaceId, groupIds));
+
+/** The repos of `target` as the workspace is now (GRP-5); refused for a group or repo that no longer exists. */
+export const targetRepos = (workspaceId: WorkspaceId, target: TargetSet) =>
+  unwrap(core.commands.targetRepos(workspaceId, target));
 
 /** `null` when a newer filter of the workspace superseded this one. */
 export const treeFilter = (workspaceId: WorkspaceId, text: string) =>

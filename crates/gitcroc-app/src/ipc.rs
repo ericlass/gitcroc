@@ -21,9 +21,10 @@ use gitcroc_core::{
     RemoteUrlsView, RepoChange, RepoId, ResetError, ResetRequest, ResetStart, ResolveRequest,
     SettingsError, SettingsStore, SettingsView, StashError, StashRequest, StashStart, StatusError,
     StatusReadError, Summaries, SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch,
-    TagError, TagRequest, TagStart, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning,
-    Watchers, WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs, WorkspaceView,
-    Workspaces, add_path, group_summaries, refresh_summaries, refresh_workspace, tree_refs,
+    TagError, TagRequest, TagStart, TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees,
+    WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs,
+    WorkspaceView, Workspaces, add_path, group_summaries, refresh_summaries, refresh_workspace,
+    tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -1812,6 +1813,23 @@ pub async fn group_reorder(
     Ok(view)
 }
 
+/// The repos of `target` as the workspace is now (GRP-5): a group's members
+/// in group order, or a multi-selection in tree order, each repo once. A
+/// group or repo that no longer exists is refused.
+#[tauri::command]
+#[specta::specta]
+pub async fn target_repos(
+    workspaces: State<'_, Arc<Workspaces>>,
+    workspace_id: WorkspaceId,
+    target: TargetSet,
+) -> Result<Vec<RepoId>, IpcError> {
+    Ok(gitcroc_core::target_repos(
+        &workspaces,
+        &workspace_id,
+        &target,
+    )?)
+}
+
 /// Checks an add can start: the workspace takes changes and git is usable.
 async fn prepare_add(app: &AppHandle, workspace_id: &WorkspaceId) -> Result<GitRunner, IpcError> {
     let view = app.state::<Arc<Workspaces>>().view(workspace_id)?;
@@ -2308,6 +2326,7 @@ macro_rules! with_commands {
                 group_move_repos,
                 group_move_repo_between,
                 group_reorder,
+                target_repos,
                 history_get,
                 history_more,
                 commit_graph_write,
@@ -2388,6 +2407,7 @@ macro_rules! with_commands {
                 group_move_repos,
                 group_move_repo_between,
                 group_reorder,
+                target_repos,
                 history_get,
                 history_more,
                 commit_graph_write,
