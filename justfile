@@ -1,18 +1,25 @@
-# Everything CI requires (QA-1, QA-5); must pass before a task is done.
+# CI runs check-rust and check-ui as separate jobs, in parallel.
 # Fails if a requirement of the current milestone has no test (QA-3).
-check:
+# Everything CI requires (QA-1, QA-5); must pass before a task is done.
+check: check-rust check-ui
+
+# The Rust half of `just check`, with the requirement coverage.
+check-rust:
     cargo fmt --check
     cargo clippy --workspace --all-targets -- -D warnings
     cargo test --workspace
     cargo deny check
+    just coverage M0
+    just coverage M1
+    just coverage M2
+
+# The front-end half of `just check`.
+check-ui:
     pnpm --dir ui install --frozen-lockfile
     pnpm --dir ui exec tsc --noEmit
     pnpm --dir ui exec eslint .
     pnpm --dir ui exec vitest run
     pnpm --dir ui exec playwright test
-    just coverage M0
-    just coverage M1
-    just coverage M2
 
 # One-time setup after cloning: front-end packages and Playwright's Chromium.
 setup:

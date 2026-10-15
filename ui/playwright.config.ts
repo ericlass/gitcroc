@@ -6,6 +6,10 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: !!process.env.CI,
+  // Playwright uses half the cores by default, one worker on a three-core
+  // macOS runner. The tests share nothing but the preview server.
+  workers: process.env.CI ? 4 : undefined,
+  fullyParallel: true,
   // Limits that only end a hang: nothing here waits on a timer, and a loaded
   // runner can be many times slower than a desktop.
   timeout: 120_000,

@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, PackageId};
 
@@ -38,11 +39,16 @@ fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn metadata() -> Metadata {
-    MetadataCommand::new()
-        .manifest_path(workspace_root().join("Cargo.toml"))
-        .exec()
-        .expect("cargo metadata runs")
+/// The workspace's metadata, read once: `cargo metadata` takes seconds on
+/// Windows, and the tests that need it run at the same time.
+fn metadata() -> &'static Metadata {
+    static METADATA: OnceLock<Metadata> = OnceLock::new();
+    METADATA.get_or_init(|| {
+        MetadataCommand::new()
+            .manifest_path(workspace_root().join("Cargo.toml"))
+            .exec()
+            .expect("cargo metadata runs")
+    })
 }
 
 fn names_by_id(meta: &Metadata) -> HashMap<&PackageId, &str> {
@@ -87,14 +93,14 @@ fn arch_5_tauri_name_check_matches_tauri_and_wry() {
 #[test]
 fn arch_5_core_crates_do_not_depend_on_tauri() {
     let meta = metadata();
-    let names = names_by_id(&meta);
+    let names = names_by_id(meta);
     for crate_name in CORE_CRATES {
         let pkg = meta
             .workspace_packages()
             .into_iter()
             .find(|p| p.name.as_str() == crate_name)
             .unwrap_or_else(|| panic!("{crate_name} is a workspace member"));
-        let offenders: BTreeSet<&str> = transitive_deps(&meta, &pkg.id)
+        let offenders: BTreeSet<&str> = transitive_deps(meta, &pkg.id)
             .into_iter()
             .map(|id| names[id])
             .filter(|name| is_tauri_crate(name))
@@ -109,7 +115,7 @@ fn arch_5_core_crates_do_not_depend_on_tauri() {
 #[test]
 fn arch_5_internal_dependencies_match_spec() {
     let meta = metadata();
-    let names = names_by_id(&meta);
+    let names = names_by_id(meta);
     let members: HashSet<&PackageId> = meta.workspace_members.iter().collect();
 
     let member_names: BTreeSet<&str> = members.iter().map(|id| names[id]).collect();

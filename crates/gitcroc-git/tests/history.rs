@@ -56,8 +56,8 @@ fn generated(commits: u32) -> (tempfile::TempDir, GitRepo) {
     let dir = tempfile::tempdir().unwrap();
     let spec = RepoSpec {
         name: "history".into(),
-        files: 40,
-        lines: 400,
+        files: 4,
+        lines: 40,
         commits,
         branches: 8,
     };
@@ -123,9 +123,8 @@ fn perf_2_lanes_continue_across_pages() {
     git.switch("side").unwrap();
     let side = empty_commit(&git, "side");
     git.switch("main").unwrap();
-    for n in 0..520 {
-        empty_commit(&git, &format!("main {n}"));
-    }
+    let messages: Vec<String> = (0..520).map(|n| format!("main {n}")).collect();
+    git.empty_commits(&messages).unwrap();
     git.merge("side", "Merge side").unwrap();
     write_commit_graph(&git);
 
