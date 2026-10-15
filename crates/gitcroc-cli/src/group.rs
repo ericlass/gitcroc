@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use gitcroc_core::{
-    GroupId, GroupOp, MissingBranch, PlatformCacheDir, PlatformConfigDir, Prune, PullStrategy,
-    RepoId, StartPoint, Summaries, SummaryCache, Trees, WorkspaceId, Workspaces,
+    GroupId, GroupOp, MergeFastForward, MissingBranch, PlatformCacheDir, PlatformConfigDir, Prune,
+    PullStrategy, RepoId, StartPoint, Summaries, SummaryCache, Trees, WorkspaceId, Workspaces,
 };
 
 use crate::summaries::GivenCacheDir;
@@ -23,7 +23,9 @@ run <group> --test-op|fetch [--prune|--no-prune]|\
 pull [--strategy config|ff-only|merge|rebase]|push [--no-set-upstream] [--force-with-lease]|\
 checkout <branch> [--missing skip|default-branch|create]|\
 create-branch <branch> [--start <ref>|--start-default] [--no-switch]|\
-delete-branch <branch> [--force] [--on-remote] [--confirm]";
+delete-branch <branch> [--force] [--on-remote]|\
+merge <ref> [--ff config|ff-only|no-ff]|rebase <ref>|\
+create-tag <tag> [--message <text>|--lightweight] [--push] [--confirm]";
 
 pub const TREE_USAGE: &str = "tree [--config-dir <dir>] [--cache-dir <dir>]";
 
@@ -128,6 +130,36 @@ fn parse_run(args: &[OsString]) -> Option<(RunOp, bool)> {
                 name: (*name).to_owned(),
                 force: rest.contains(&"--force"),
                 on_remote: rest.contains(&"--on-remote"),
+            })
+        }
+        ("merge", [name, rest @ ..]) => RunOp::Op(GroupOp::Merge {
+            name: (*name).to_owned(),
+            fast_forward: match rest {
+                [] | ["--ff", "config"] => MergeFastForward::Config,
+                ["--ff", "ff-only"] => MergeFastForward::FfOnly,
+                ["--ff", "no-ff"] => MergeFastForward::NoFf,
+                _ => return None,
+            },
+        }),
+        ("rebase", [onto]) => RunOp::Op(GroupOp::Rebase {
+            onto: (*onto).to_owned(),
+        }),
+        ("create-tag", [name, rest @ ..]) => {
+            let (annotated, message, rest) = match rest {
+                ["--message", message, rest @ ..] => (true, (*message).to_owned(), rest),
+                ["--lightweight", rest @ ..] => (false, String::new(), rest),
+                rest => (true, String::new(), rest),
+            };
+            let push = match rest {
+                [] => false,
+                ["--push"] => true,
+                _ => return None,
+            };
+            RunOp::Op(GroupOp::CreateTag {
+                name: (*name).to_owned(),
+                annotated,
+                message,
+                push,
             })
         }
         _ => return None,
@@ -432,6 +464,58 @@ mod tests {
                 true
             )
         );
+        assert_eq!(
+            parsed(&["run", "Backend", "merge", "main", "--ff", "no-ff"]),
+            run(
+                RunOp::Op(GroupOp::Merge {
+                    name: "main".to_owned(),
+                    fast_forward: MergeFastForward::NoFf
+                }),
+                false
+            )
+        );
+        assert_eq!(
+            parsed(&["run", "Backend", "rebase", "main"]),
+            run(
+                RunOp::Op(GroupOp::Rebase {
+                    onto: "main".to_owned()
+                }),
+                false
+            )
+        );
+        assert_eq!(
+            parsed(&[
+                "run",
+                "Backend",
+                "create-tag",
+                "v1",
+                "--message",
+                "One",
+                "--push"
+            ]),
+            run(
+                RunOp::Op(GroupOp::CreateTag {
+                    name: "v1".to_owned(),
+                    annotated: true,
+                    message: "One".to_owned(),
+                    push: true
+                }),
+                false
+            )
+        );
+        assert_eq!(
+            parsed(&["run", "Backend", "create-tag", "v1", "--lightweight"]),
+            run(
+                RunOp::Op(GroupOp::CreateTag {
+                    name: "v1".to_owned(),
+                    annotated: false,
+                    message: String::new(),
+                    push: false
+                }),
+                false
+            )
+        );
+        assert_eq!(parsed(&["run", "Backend", "rebase", "a", "b"]), None);
         assert_eq!(parsed(&["run", "Backend", "checkout"]), None);
         assert_eq!(
             parsed(&["run", "Backend", "delete-branch", "x", "--prune"]),

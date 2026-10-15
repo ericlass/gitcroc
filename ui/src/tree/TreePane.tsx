@@ -28,7 +28,7 @@ import {
 } from "../ipc";
 import type { BranchStore } from "../stores/branch";
 import type { CloneStore } from "../stores/clone";
-import { DEFAULT_GROUP_OPS, type GroupOpStore } from "../stores/groupOps";
+import { DEFAULT_GROUP_OPS, type GroupNameDialog, type GroupOpStore } from "../stores/groupOps";
 import type { StashStore } from "../stores/stash";
 import type { RemoteStore } from "../stores/remote";
 import type { TagStore } from "../stores/tag";
@@ -50,7 +50,7 @@ import {
   moveMember,
   runGroupOp,
 } from "./groups";
-import { type MenuEntry, menuFor } from "./menus";
+import { type MenuAction, type MenuEntry, menuFor } from "./menus";
 import RepoRow, { AheadBehind } from "./RepoRow";
 import { flatten, type Row } from "./rows";
 
@@ -76,6 +76,16 @@ const MENU_NAMES: Partial<Record<TreeItem["kind"], string>> = {
   group: "Group",
   ungrouped: "Ungrouped",
 };
+
+/** The group operation on a name X each menu action opens the dialog of (section 5). */
+const NAME_DIALOGS = {
+  group_checkout: "checkout",
+  group_create: "create",
+  group_delete_branch: "delete",
+  group_merge: "merge",
+  group_rebase: "rebase",
+  group_tag: "tag",
+} as const satisfies Partial<Record<MenuAction, GroupNameDialog["kind"]>>;
 
 const asNode = (row: Row) => (row.kind === "node" ? row : undefined);
 const asMessage = (row: Row) => (row.kind === "message" ? row : undefined);
@@ -635,14 +645,16 @@ export default function TreePane(props: {
       case "group_checkout":
       case "group_create":
       case "group_delete_branch":
+      case "group_merge":
+      case "group_rebase":
+      case "group_tag":
         if (item.kind === "group" || item.kind === "group_branch") {
-          const kind =
-            entry.action === "group_checkout" ? "checkout" : entry.action === "group_create" ? "create" : "delete";
+          const kind = NAME_DIALOGS[entry.action];
           if (kind === "checkout" && item.kind === "group_branch") {
             groupCheckout(item.group_id, item.name);
             return true;
           }
-          props.groupOps.openBranch({
+          props.groupOps.openName({
             workspaceId: props.workspace,
             target: { kind: "group", group_id: item.group_id },
             targetName: named(item.group_id),

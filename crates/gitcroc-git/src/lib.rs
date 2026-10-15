@@ -6,6 +6,7 @@ mod conflict;
 mod detect;
 mod diff;
 mod history;
+mod merge_tree;
 pub mod ops;
 mod probe;
 mod progress;
@@ -31,6 +32,7 @@ pub use history::{
     CommitRow, Cursor, Edge, Filter, GraphRow, HistoryError, HistoryStart, MergedCursor,
     MergedPage, MergedRow, PAGE_SIZE, Page, RefKind, RefLabel, RepoRead, Time, merged_history,
 };
+pub use merge_tree::{MergePrediction, predict_merge};
 pub use probe::{InspectError, Inspected, Layout, inspect, layout};
 pub use progress::{Progress, parse_progress};
 pub use read::{GitRepo, OpenError};

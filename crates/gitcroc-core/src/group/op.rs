@@ -3,7 +3,8 @@
 //! and the single-repo run. Each operation's own rules arrive with its task
 //! (M3-10 to M3-13); until then it is refused as not available yet.
 //! Fetch, pull and push are in `super::sync`; checkout, create and delete
-//! of a branch in `super::branch`.
+//! of a branch in `super::branch`; merge and rebase in `super::integrate`;
+//! create tag in `super::tag`.
 
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -13,9 +14,13 @@ use serde::{Deserialize, Serialize};
 
 use super::GroupError;
 use super::branch::GroupBranches;
+use super::integrate::GroupIntegrate;
 use super::sync::GroupSync;
+use super::tag::GroupTags;
 use crate::branch::GroupBranchOp;
-use crate::ref_name::check_branch_name;
+use crate::integrate::GroupIntegrateOp;
+use crate::ref_name::{check_branch_name, check_tag_name};
+use crate::tag::GroupTag;
 use crate::{
     CommitMessage, JobRun, MergeFastForward, Prune, PullStrategy, StartPoint, SubJobError,
     SubJobSpec, SyncOp,
@@ -146,8 +151,9 @@ impl GroupOp {
     }
 
     /// The code that runs it on a target set; refused until the
-    /// operation's task brings its preflight rule and run. A branch name
-    /// is checked here, once for every repo (SEC-4, GRP-14).
+    /// operation's task brings its preflight rule and run. A branch or tag
+    /// name, the ref to merge or rebase onto and a tag's message are
+    /// checked here, once for every repo (SEC-4, GRP-14).
     pub fn operation(&self) -> Result<std::sync::Arc<dyn GroupOperation>, GroupError> {
         let (name, destructive) = (self.name(), self.destructive());
         let op = match self.clone() {
@@ -192,7 +198,52 @@ impl GroupOp {
                 };
                 return Ok(branches(name, destructive, op));
             }
-            _ => return Err(GroupError::NotAvailable(name)),
+            Self::Merge {
+                name: x,
+                fast_forward,
+            } => {
+                check_revision(&x)?;
+                let op = GroupIntegrateOp::Merge {
+                    name: x,
+                    fast_forward,
+                };
+                return Ok(std::sync::Arc::new(GroupIntegrate { name, op }));
+            }
+            Self::Rebase { onto } => {
+                check_revision(&onto)?;
+                let op = GroupIntegrateOp::Rebase { onto };
+                return Ok(std::sync::Arc::new(GroupIntegrate { name, op }));
+            }
+            Self::CreateTag {
+                name: x,
+                annotated,
+                message,
+                push,
+            } => {
+                check_tag_name(&x)?;
+                let message = if annotated {
+                    if message.trim().is_empty() {
+                        return Err(GroupError::Refused(
+                            "an annotated tag needs a message".to_owned(),
+                        ));
+                    }
+                    if message.contains('\0') {
+                        return Err(GroupError::Refused(
+                            "the message cannot contain a NUL character".to_owned(),
+                        ));
+                    }
+                    Some(message)
+                } else {
+                    None
+                };
+                let tag = GroupTag {
+                    name: x,
+                    message,
+                    push,
+                };
+                return Ok(std::sync::Arc::new(GroupTags { name, tag }));
+            }
+            Self::Commit { .. } => return Err(GroupError::NotAvailable(name)),
         };
         Ok(std::sync::Arc::new(GroupSync {
             name,
@@ -200,6 +251,17 @@ impl GroupOp {
             op,
         }))
     }
+}
+
+/// `revision` can name a ref or commit: git would not read it as an
+/// option.
+fn check_revision(revision: &str) -> Result<(), GroupError> {
+    if revision.trim().is_empty() || revision.starts_with('-') {
+        return Err(GroupError::Refused(format!(
+            "'{revision}' names no branch, tag or commit"
+        )));
+    }
+    Ok(())
 }
 
 fn branches(

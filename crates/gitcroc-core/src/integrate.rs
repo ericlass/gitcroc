@@ -126,7 +126,7 @@ fn refused(why: impl Into<String>) -> IntegrateError {
 
 /// What a job runs.
 #[derive(Debug, Clone)]
-enum Plan {
+pub(crate) enum Plan {
     Merge {
         branch: String,
         revision: String,
@@ -265,15 +265,10 @@ fn plan(repo: &GitRepo, git: &GitRunner, op: IntegrateOp) -> Result<Planned, Int
         } => {
             let branch = current_branch(repo, "merge into it")?;
             resolve(repo, &revision)?;
-            let ff = match fast_forward {
-                MergeFastForward::Config => FastForward::Config,
-                MergeFastForward::FfOnly => FastForward::Only,
-                MergeFastForward::NoFf => FastForward::Never,
-            };
             Ok(Planned::Run(Plan::Merge {
                 branch,
                 revision,
-                ff,
+                ff: fast_forward_of(fast_forward),
             }))
         }
         IntegrateOp::Rebase { onto } => {
@@ -360,8 +355,55 @@ fn plan(repo: &GitRepo, git: &GitRunner, op: IntegrateOp) -> Result<Planned, Int
     }
 }
 
+/// A merge or rebase on a target set (section 5 "Merge X into current"
+/// and "Rebase current onto X").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GroupIntegrateOp {
+    Merge {
+        name: String,
+        fast_forward: MergeFastForward,
+    },
+    Rebase {
+        onto: String,
+    },
+}
+
+/// What `op` runs in `repo` as part of a group operation, with the full
+/// hash X resolves to there (GRP-14); or why the repo is skipped. Reads the
+/// repo: call it from a thread that may block.
+pub(crate) fn group_plan(repo: &GitRepo, op: &GroupIntegrateOp) -> Result<(Plan, String), String> {
+    let branch = repo
+        .current_branch()
+        .ok_or_else(|| "detached HEAD".to_owned())?;
+    let name = match op {
+        GroupIntegrateOp::Merge { name, .. } => name,
+        GroupIntegrateOp::Rebase { onto } => onto,
+    };
+    let hash = resolve(repo, name).map_err(|_| format!("{name} not found"))?;
+    let plan = match *op {
+        GroupIntegrateOp::Merge { fast_forward, .. } => Plan::Merge {
+            branch,
+            revision: name.clone(),
+            ff: fast_forward_of(fast_forward),
+        },
+        GroupIntegrateOp::Rebase { .. } => Plan::Rebase {
+            branch,
+            onto: name.clone(),
+        },
+    };
+    Ok((plan, hash))
+}
+
+fn fast_forward_of(fast_forward: MergeFastForward) -> FastForward {
+    match fast_forward {
+        MergeFastForward::Config => FastForward::Config,
+        MergeFastForward::FfOnly => FastForward::Only,
+        MergeFastForward::NoFf => FastForward::Never,
+    }
+}
+
 /// Runs `plan` in `path`.
-async fn run(
+pub(crate) async fn run_plan(
     git: &GitRunner,
     path: &Path,
     plan: &Plan,
@@ -424,7 +466,7 @@ pub async fn op_integrate(
         ..WriteJob::single(id, repo_id, plan.label())
     };
     let handle = jobs.start(git, job, move |job| async move {
-        run(&job.git, &path, &plan, job.write()).await
+        run_plan(&job.git, &path, &plan, job.write()).await
     })?;
     Ok(IntegrateStart::Started {
         job_id: handle.job_id,

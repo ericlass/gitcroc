@@ -43,7 +43,10 @@ export type MenuAction =
   | "group_push"
   | "group_checkout"
   | "group_create"
-  | "group_delete_branch";
+  | "group_delete_branch"
+  | "group_merge"
+  | "group_rebase"
+  | "group_tag";
 
 export interface MenuEntry {
   action: MenuAction;
@@ -68,6 +71,9 @@ function groupEntries(item: TreeItem, groups: GroupInfo[]): MenuEntry[] {
         entry("group_checkout", "Check out branch…"),
         entry("group_create", "New branch…"),
         entry("group_delete_branch", "Delete branch…"),
+        entry("group_merge", "Merge…"),
+        entry("group_rebase", "Rebase…"),
+        entry("group_tag", "Create tag…"),
         entry("group_rename", "Rename…"),
         entry("group_delete", "Delete…"),
         entry("new_group", "New group…"),

@@ -932,12 +932,12 @@ fn grp_9_group_ops_name_what_cannot_be_undone() {
 
 #[tokio::test]
 async fn group_ops_are_not_available_until_their_task() {
-    let op = GroupOp::Rebase {
-        onto: "main".to_owned(),
+    let op = GroupOp::Commit {
+        message: gitcroc_core::CommitMessage::split("Subject"),
+        stage_all: false,
+        push: false,
     };
-    assert!(
-        matches!(op.operation(), Err(GroupError::NotAvailable(name)) if name == "Rebase onto main")
-    );
+    assert!(matches!(op.operation(), Err(GroupError::NotAvailable(name)) if name == "Commit"));
     let fetch = GroupOp::Fetch {
         prune: Prune::Config,
     };

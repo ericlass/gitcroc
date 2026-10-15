@@ -29,16 +29,17 @@ export const DEFAULT_GROUP_OPS = {
 } as const satisfies Record<SyncKind, GroupOp>;
 
 /**
- * The group checkout, create and delete dialogs (section 5 "Checkout branch
- * X", "Create branch X" and "Delete branch X"): what they run on, how they
- * name it, and the branch name they start with.
+ * The dialogs of the group operations on a name X typed or picked once
+ * (section 5 "Checkout branch X", "Create branch X", "Delete branch X",
+ * "Merge X into current", "Rebase current onto X" and "Create tag X"):
+ * what they run on, how they name it, and the name they start with.
  */
-export interface GroupBranchDialog {
+export interface GroupNameDialog {
   workspaceId: WorkspaceId;
   target: TargetSet;
   /** Such as `Backend` or `3 repositories`. */
   targetName: string;
-  kind: "checkout" | "create" | "delete";
+  kind: "checkout" | "create" | "delete" | "merge" | "rebase" | "tag";
   name: string;
 }
 
@@ -57,9 +58,9 @@ export interface PendingPreflight {
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export function createGroupOpStore() {
-  const [state, setState] = createStore<{ pending: PendingPreflight | null; branchDialog: GroupBranchDialog | null }>({
+  const [state, setState] = createStore<{ pending: PendingPreflight | null; nameDialog: GroupNameDialog | null }>({
     pending: null,
-    branchDialog: null,
+    nameDialog: null,
   });
   /** Results that arrived before their request's answer, by preflight. */
   const early = new Map<PreflightId, PreflightReady>();
@@ -135,8 +136,8 @@ export function createGroupOpStore() {
     run: (workspaceId: WorkspaceId, target: TargetSet, op: GroupOp) =>
       begin(workspaceId, groupPreflight(workspaceId, target, op)),
     /** Opens a group branch dialog; its Run goes through `run`. */
-    openBranch: (dialog: GroupBranchDialog) => setState("branchDialog", dialog),
-    closeBranch: () => setState("branchDialog", null),
+    openName: (dialog: GroupNameDialog) => setState("nameDialog", dialog),
+    closeName: () => setState("nameDialog", null),
     /** Retry failed (GRP-11) of ended group job `jobId`; the core takes its failed repos from the report. */
     retry: (workspaceId: WorkspaceId, jobId: JobId) => begin(workspaceId, groupRetryFailed(jobId)),
     /** The user confirmed the dialog (GRP-9). */

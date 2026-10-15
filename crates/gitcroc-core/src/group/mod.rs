@@ -5,9 +5,11 @@
 //! report (D8).
 
 mod branch;
+mod integrate;
 mod op;
 mod summary;
 mod sync;
+mod tag;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -71,6 +73,10 @@ pub enum GroupError {
     NotAvailable(String),
     #[error(transparent)]
     Name(#[from] crate::RefNameError),
+    /// The operation's options cannot run, as an annotated tag without a
+    /// message.
+    #[error("{0}")]
+    Refused(String),
     #[error("the target set has no repo")]
     NoRepo,
     #[error("no such preflight, or it was used already")]
