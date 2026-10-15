@@ -1,7 +1,8 @@
 //! History pages (PERF-2, ARCH-8), read on a blocking thread so the async
 //! runtime's workers never wait on the disk (ARCH-7), and the history the
-//! pane shows: one walk per workspace (ARCH-9), continued page by page, and
-//! the offer to write a commit-graph file when a walk without one is slow.
+//! pane shows: one walk per workspace (ARCH-9), of one repo or merged from
+//! a target set's repos (PERF-5), continued page by page, and the offer to
+//! write a commit-graph file when a walk without one is slow.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -9,15 +10,15 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use gitcroc_git::{
-    CommitRow, Cursor, Filter, GitRepo, GitRunner, HistoryError, HistoryStart, OpenError, Page,
-    RepoRead, ops,
+    CommitRow, Cursor, Filter, GitRepo, GitRunner, HistoryError, HistoryStart, MergedCursor,
+    MergedRow, OpenError, Page, RepoRead, merged_history, ops,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::{
-    JobError, JobId, JobView, Jobs, NothingToDo, OnCancel, RepoId, WorkspaceError, WorkspaceId,
-    Workspaces, WriteJob,
+    JobError, JobId, JobView, Jobs, NothingToDo, OnCancel, RepoId, TargetSet, WorkspaceError,
+    WorkspaceId, Workspaces, WriteJob, target_repos,
 };
 
 /// A first page slower than this, read without a commit-graph file, earns
@@ -47,8 +48,9 @@ where
     Ok(page)
 }
 
-/// What the history pane shows for a single-repo selection (section 8
-/// "History pane"). Names are short, as the tree shows them.
+/// What the history pane shows (section 8 "History pane"): for a
+/// single-repo selection the repo or one of its refs, by short name as the
+/// tree shows it; for a group or several repos their merged history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum HistoryTarget {
@@ -69,19 +71,34 @@ pub enum HistoryTarget {
     Stash {
         index: u32,
     },
+    /// The commits of every repo of the target set from its `HEAD`, newest
+    /// first by commit date (PERF-5). Its rows have no graph cell.
+    Merged {
+        target: TargetSet,
+    },
 }
 
 impl HistoryTarget {
     /// Full ref names, so a tag and a branch of the same name stay apart.
-    fn start(&self) -> HistoryStart {
-        match self {
+    /// `None` for a merged history, which has a start per repo.
+    fn start(&self) -> Option<HistoryStart> {
+        Some(match self {
             Self::Repo => HistoryStart::All,
             Self::Branch { name } => HistoryStart::Ref(format!("refs/heads/{name}")),
             Self::RemoteBranch { name } => HistoryStart::Ref(format!("refs/remotes/{name}")),
             Self::Tag { name } => HistoryStart::Ref(format!("refs/tags/{name}")),
             Self::Stash { index } => HistoryStart::Stash(*index as usize),
-        }
+            Self::Merged { .. } => return None,
+        })
     }
+}
+
+/// A commit of the history pane and the repo it is in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+pub struct HistoryRow {
+    #[serde(flatten)]
+    pub commit: CommitRow,
+    pub repo_id: RepoId,
 }
 
 /// A page of the history the pane shows.
@@ -89,7 +106,10 @@ impl HistoryTarget {
 pub struct HistoryView {
     /// Names this walk for `history_more`.
     pub handle: u32,
-    pub rows: Vec<CommitRow>,
+    pub rows: Vec<HistoryRow>,
+    /// The repos the history is of: the one repo, or the target set's in
+    /// its order (GRP-5). A change to any of their refs makes it stale.
+    pub repos: Vec<RepoId>,
     /// No page follows.
     pub done: bool,
     /// Offer to write a commit-graph file for the repo (PERF-2). Only a
@@ -108,6 +128,8 @@ pub enum HistoryViewError {
     Page(#[from] HistoryPageError),
     #[error("no further page is waiting: the history ended or a page is still being read")]
     NoPage,
+    #[error("the history of a repo or one of its refs needs the repo")]
+    NoRepo,
 }
 
 impl From<HistoryError> for HistoryViewError {
@@ -123,16 +145,42 @@ impl From<tokio::task::JoinError> for HistoryViewError {
 }
 
 /// A workspace's walk between pages. It keeps where the walk continues,
-/// not the open repo: an open repo keeps the parts of its pack files the
+/// not the open repos: an open repo keeps the parts of its pack files the
 /// walk read mapped into memory for as long as the walk is shown (M1-14).
-/// Each page opens the repo again.
+/// Each page opens the repos again.
 #[derive(Debug)]
 struct Walk {
-    path: PathBuf,
-    start: HistoryStart,
     filter: Option<Filter>,
-    /// `None` at the end of history and while a page is being read.
-    cursor: Option<Cursor>,
+    kind: WalkKind,
+}
+
+#[derive(Debug)]
+enum WalkKind {
+    Single {
+        repo: RepoId,
+        path: PathBuf,
+        start: HistoryStart,
+        /// `None` at the end of history and while a page is being read.
+        cursor: Option<Cursor>,
+    },
+    Merged {
+        repos: Vec<RepoId>,
+        paths: Vec<PathBuf>,
+        /// `None` at the end of history and while a page is being read.
+        cursor: Option<MergedCursor>,
+    },
+}
+
+/// Where a walk continues, as a page returns it.
+enum Next {
+    Single(Option<Cursor>),
+    Merged(Option<MergedCursor>),
+}
+
+impl Next {
+    fn is_end(&self) -> bool {
+        matches!(self, Self::Single(None) | Self::Merged(None))
+    }
 }
 
 /// A workspace's latest walk handle, and its walk unless it was released
@@ -191,25 +239,14 @@ impl Histories {
 
     /// Makes a new walk the latest of workspace `id`; any older one is
     /// dropped.
-    fn begin(
-        &self,
-        id: &WorkspaceId,
-        path: PathBuf,
-        start: HistoryStart,
-        filter: Option<Filter>,
-    ) -> u32 {
+    fn begin(&self, id: &WorkspaceId, walk: Walk) -> u32 {
         let mut walks = lock(&self.walks);
         let handle = walks.get(id).map_or(1, |slot| slot.handle.wrapping_add(1));
         walks.insert(
             id.clone(),
             Slot {
                 handle,
-                walk: Some(Walk {
-                    path,
-                    start,
-                    filter,
-                    cursor: None,
-                }),
+                walk: Some(walk),
             },
         );
         handle
@@ -217,18 +254,24 @@ impl Histories {
 
     /// Keeps where walk `handle` continues, unless a newer walk replaced
     /// it; returns whether it is still the latest.
-    fn keep(&self, id: &WorkspaceId, handle: u32, cursor: Option<Cursor>) -> bool {
+    fn keep(&self, id: &WorkspaceId, handle: u32, next: Next) -> bool {
         let mut walks = lock(&self.walks);
-        match walks.get_mut(id) {
-            Some(Slot {
-                handle: latest,
-                walk: Some(walk),
-            }) if *latest == handle => {
-                walk.cursor = cursor;
-                true
-            }
-            _ => false,
+        let Some(Slot {
+            handle: latest,
+            walk: Some(walk),
+        }) = walks.get_mut(id)
+        else {
+            return false;
+        };
+        if *latest != handle {
+            return false;
         }
+        match (&mut walk.kind, next) {
+            (WalkKind::Single { cursor, .. }, Next::Single(next)) => *cursor = next,
+            (WalkKind::Merged { cursor, .. }, Next::Merged(next)) => *cursor = next,
+            _ => return false,
+        }
+        true
     }
 
     fn writing(&self, id: &WorkspaceId, repo: &RepoId) -> bool {
@@ -246,21 +289,40 @@ fn filter_of(text: &str) -> Option<Filter> {
     (!text.is_empty()).then(|| Filter::new(text))
 }
 
-/// The first page of `target` in `repo`, filtered by `text` when it is not
-/// empty (UI-12), as a new walk that supersedes the workspace's previous
-/// one. `None` when a newer walk superseded this one before it was read.
+/// The first page of `target`, of repo `repo_id` unless it is merged,
+/// filtered by `text` when it is not empty (UI-12), as a new walk that
+/// supersedes the workspace's previous one. `None` when a newer walk
+/// superseded this one before it was read.
 pub async fn history_get(
     histories: Arc<Histories>,
     workspaces: Arc<Workspaces>,
     id: WorkspaceId,
-    repo_id: RepoId,
+    repo_id: Option<RepoId>,
     target: HistoryTarget,
     text: String,
 ) -> Result<Option<HistoryView>, HistoryViewError> {
-    let start = target.start();
     let filter = filter_of(&text);
+    let (Some(start), Some(repo_id)) = (target.start(), repo_id) else {
+        return match target {
+            HistoryTarget::Merged { target } => {
+                merged_get(histories, workspaces, id, &target, filter).await
+            }
+            _ => Err(HistoryViewError::NoRepo),
+        };
+    };
     let path = workspaces.repo_path(&id, &repo_id)?;
-    let handle = histories.begin(&id, path.clone(), start.clone(), filter.clone());
+    let handle = histories.begin(
+        &id,
+        Walk {
+            filter: filter.clone(),
+            kind: WalkKind::Single {
+                repo: repo_id.clone(),
+                path: path.clone(),
+                start: start.clone(),
+                cursor: None,
+            },
+        },
+    );
     let declined = workspaces.commit_graph_declined(&id, &repo_id)?;
     let (page, elapsed) = tokio::task::spawn_blocking(move || {
         let began = Instant::now();
@@ -273,15 +335,92 @@ pub async fn history_get(
         && elapsed > histories.threshold
         && !histories.writing(&id, &repo_id);
     let done = page.next.is_none();
-    if !histories.keep(&id, handle, page.next) {
+    if !histories.keep(&id, handle, Next::Single(page.next)) {
         return Ok(None);
     }
     Ok(Some(HistoryView {
         handle,
-        rows: page.rows,
+        rows: single_rows(&repo_id, page.rows),
+        repos: vec![repo_id],
         done,
         offer_commit_graph: offer,
     }))
+}
+
+/// The first page of the merged history of `target` (PERF-5).
+async fn merged_get(
+    histories: Arc<Histories>,
+    workspaces: Arc<Workspaces>,
+    id: WorkspaceId,
+    target: &TargetSet,
+    filter: Option<Filter>,
+) -> Result<Option<HistoryView>, HistoryViewError> {
+    let repos = target_repos(&workspaces, &id, target)?;
+    let paths = repos
+        .iter()
+        .map(|repo| workspaces.repo_path(&id, repo))
+        .collect::<Result<Vec<_>, _>>()?;
+    let handle = histories.begin(
+        &id,
+        Walk {
+            filter: filter.clone(),
+            kind: WalkKind::Merged {
+                repos: repos.clone(),
+                paths: paths.clone(),
+                cursor: None,
+            },
+        },
+    );
+    let page = tokio::task::spawn_blocking(move || merged_history(&paths, None, filter)).await??;
+    let rows = merged_rows(&repos, page.rows);
+    let done = page.next.is_none();
+    if !histories.keep(&id, handle, Next::Merged(page.next)) {
+        return Ok(None);
+    }
+    Ok(Some(HistoryView {
+        handle,
+        rows,
+        repos,
+        done,
+        offer_commit_graph: false,
+    }))
+}
+
+fn single_rows(repo: &RepoId, rows: Vec<CommitRow>) -> Vec<HistoryRow> {
+    rows.into_iter()
+        .map(|commit| HistoryRow {
+            commit,
+            repo_id: repo.clone(),
+        })
+        .collect()
+}
+
+/// The rows of a merged page with the repo of each; a row names its repo
+/// by its index among `repos`.
+fn merged_rows(repos: &[RepoId], rows: Vec<MergedRow>) -> Vec<HistoryRow> {
+    rows.into_iter()
+        .filter_map(|row| {
+            repos.get(row.repo).map(|repo| HistoryRow {
+                commit: row.row,
+                repo_id: repo.clone(),
+            })
+        })
+        .collect()
+}
+
+/// What `history_more` reads: a walk taken out of its slot.
+enum Taken {
+    Single {
+        repo: RepoId,
+        path: PathBuf,
+        start: HistoryStart,
+        cursor: Cursor,
+    },
+    Merged {
+        repos: Vec<RepoId>,
+        paths: Vec<PathBuf>,
+        cursor: MergedCursor,
+    },
 }
 
 /// The next page of walk `handle`. `None` when a newer walk of the
@@ -291,7 +430,7 @@ pub async fn history_more(
     id: WorkspaceId,
     handle: u32,
 ) -> Result<Option<HistoryView>, HistoryViewError> {
-    let (path, start, filter, cursor) = {
+    let (filter, taken) = {
         let mut walks = lock(&histories.walks);
         let Some(walk) = walks
             .get_mut(&id)
@@ -300,27 +439,63 @@ pub async fn history_more(
         else {
             return Ok(None);
         };
-        let Some(cursor) = walk.cursor.take() else {
+        let taken = match &mut walk.kind {
+            WalkKind::Single {
+                repo,
+                path,
+                start,
+                cursor,
+            } => cursor.take().map(|cursor| Taken::Single {
+                repo: repo.clone(),
+                path: path.clone(),
+                start: start.clone(),
+                cursor,
+            }),
+            WalkKind::Merged {
+                repos,
+                paths,
+                cursor,
+            } => cursor.take().map(|cursor| Taken::Merged {
+                repos: repos.clone(),
+                paths: paths.clone(),
+                cursor,
+            }),
+        };
+        let Some(taken) = taken else {
             return Err(HistoryViewError::NoPage);
         };
-        (
-            walk.path.clone(),
-            walk.start.clone(),
-            walk.filter.clone(),
-            cursor,
-        )
+        (walk.filter.clone(), taken)
     };
-    let page = tokio::task::spawn_blocking(move || {
-        Ok::<_, HistoryViewError>(GitRepo::open(&path)?.history(start, Some(cursor), filter)?)
+    let (rows, repos, next) = tokio::task::spawn_blocking(move || match taken {
+        Taken::Single {
+            repo,
+            path,
+            start,
+            cursor,
+        } => {
+            let page = GitRepo::open(&path)?.history(start, Some(cursor), filter)?;
+            let rows = single_rows(&repo, page.rows);
+            Ok::<_, HistoryViewError>((rows, vec![repo], Next::Single(page.next)))
+        }
+        Taken::Merged {
+            repos,
+            paths,
+            cursor,
+        } => {
+            let page = merged_history(&paths, Some(cursor), filter)?;
+            let rows = merged_rows(&repos, page.rows);
+            Ok((rows, repos, Next::Merged(page.next)))
+        }
     })
     .await??;
-    let done = page.next.is_none();
-    if !histories.keep(&id, handle, page.next) {
+    let done = next.is_end();
+    if !histories.keep(&id, handle, next) {
         return Ok(None);
     }
     Ok(Some(HistoryView {
         handle,
-        rows: page.rows,
+        rows,
+        repos,
         done,
         offer_commit_graph: false,
     }))

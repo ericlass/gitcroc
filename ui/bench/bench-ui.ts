@@ -35,6 +35,8 @@ const BUDGETS: Record<string, { budget: number; unit: "ms" | "MB" }> = {
   "scroll-blank": { budget: 100, unit: "ms" },
   "select-commit": { budget: 150, unit: "ms" },
   "switch-repo": { budget: 100, unit: "ms" },
+  // A group of all 20 repos: the first page of their merged history (PERF-5).
+  "select-group": { budget: 300, unit: "ms" },
   "input-latency": { budget: 50, unit: "ms" },
   // The same row of section 9 with a real job running (M2-15).
   "input-latency-job": { budget: 50, unit: "ms" },
@@ -47,6 +49,8 @@ const BUDGETS: Record<string, { budget: number; unit: "ms" | "MB" }> = {
 /** Scroll speed: 100 px a frame, about 250 rows a second at 60 fps. */
 const SCROLL_PX_PER_FRAME = 100;
 const SWITCHES = 5;
+/** The group of every repo of the set, which `main` creates in its config copy. */
+const ALL_GROUP = "All repos";
 const KEYS = 20;
 /** Changed lines a commit may have for select-commit (section 9). */
 const SELECT_COMMIT_LINES = 5000;
@@ -472,6 +476,17 @@ async function runOnce(
       }
     }
 
+    // Select the group of all repos: the first page of their merged history,
+    // then back to the largest repo, untimed.
+    row = await session.page<Element>(`return p.groupRow(args[0]);`, ALL_GROUP);
+    await timed(session, "select-group", "merged", "", () => session.click(row));
+    row = await repoRow(largest);
+    await session.click(row);
+    await session.page(`
+      while (document.querySelector('[role="listbox"][aria-label="History"] .history-repo') !== null) {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }`);
+
     // Input latency while a status refresh of every repo runs: the refresh
     // the window's focus starts (OPS-7), restarted whenever it ends.
     const filter = await session.find('input[aria-label="Filter repos and branches"]');
@@ -819,6 +834,11 @@ async function main() {
   }
   workspace("close", second);
   workspace("open", main);
+  // target-project has no group of all its repos; select-group needs one.
+  const ids = (JSON.parse(workspace("show")) as { repos: { id: string }[] }).repos.map((repo) => repo.id);
+  execFileSync(options.cli, ["group", "--config-dir", join(config, "gitcroc"), "create", ALL_GROUP, ...ids], {
+    stdio: "pipe",
+  });
   const tabs = { main, second };
   execFileSync(
     options.cli,

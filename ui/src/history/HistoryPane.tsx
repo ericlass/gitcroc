@@ -1,17 +1,19 @@
 // The history pane (UI-9, UI-10, UI-12, UI-13): search box, the conflict
 // banner (OPS-2), column header and the commit list, virtualized and paged
 // (PERF-1, PERF-2), with a context menu on each commit and a
-// multi-selection for cherry-pick. Rows, lanes and search results come from
-// the core through the history store; this component lays them out and
-// forwards input.
+// multi-selection for cherry-pick. The merged history of a group or several
+// repos (PERF-5) shows each row's repo where the graph would be, and a row
+// acts on its own repo. Rows, lanes and search results come from the core
+// through the history store; this component lays them out and forwards
+// input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createMemo, createSignal, For, Index, Match, on, onMount, Show, Switch } from "solid-js";
 import ConflictBanner from "../integrate/ConflictBanner";
 import { IntegrateRefusal } from "../integrate/IntegrateDialogs";
-import type { CommitRow, RefLabel, RepoId, WorkspaceId } from "../ipc";
+import type { HistoryRow, RefLabel, RepoId, WorkspaceId } from "../ipc";
 import Splitter from "../layout/Splitter";
 import type { BranchStore } from "../stores/branch";
-import type { HistoryStore } from "../stores/history";
+import { commitOf, type HistoryStore } from "../stores/history";
 import type { IntegrateStore } from "../stores/integrate";
 import type { ResetStore } from "../stores/reset";
 import type { TagStore } from "../stores/tag";
@@ -19,7 +21,7 @@ import { type HistoryColumn, type LayoutStore, MIN_COLUMN_WIDTH } from "../store
 import { isBlocked, type SummaryStore } from "../stores/summaries";
 import CommitMenu, { type CommitAction, commitMenu } from "./CommitMenu";
 import Graph from "./Graph";
-import { formatDate, formatFullDate, type HistoryRow, historyRows } from "./rows";
+import { formatDate, formatFullDate, historyRows, type ListRow } from "./rows";
 
 /**
  * Height of one row in CSS pixels; every row has it. `.history-row` in
@@ -58,15 +60,27 @@ function RefLabels(props: { refs: RefLabel[] }) {
   );
 }
 
-function CommitCells(props: { commit: CommitRow }) {
+/** A commit's cells; `repo` names its repo in a merged history, which has it in place of the graph (UI-9). */
+function CommitCells(props: { commit: HistoryRow; repo: string | null }) {
   const dateTitle = () =>
     `Authored ${formatFullDate(props.commit.author_time.seconds)}\n` +
     `Committed ${formatFullDate(props.commit.commit_time.seconds)}`;
   return (
     <>
-      <span class="history-cell history-graph">
-        <Graph graph={props.commit.graph} height={ROW_HEIGHT} />
-      </span>
+      <Show
+        when={props.repo}
+        fallback={
+          <span class="history-cell history-graph">
+            <Graph graph={props.commit.graph} height={ROW_HEIGHT} />
+          </span>
+        }
+      >
+        {(repo) => (
+          <span class="history-cell history-graph history-repo" title={repo()}>
+            {repo()}
+          </span>
+        )}
+      </Show>
       <span class="history-cell history-subject">
         <RefLabels refs={props.commit.refs} />
         <span class="history-subject-text">{props.commit.subject}</span>
@@ -83,6 +97,7 @@ function CommitCells(props: { commit: CommitRow }) {
 }
 
 const COLUMNS: { column: HistoryColumn | null; label: string; class: string }[] = [
+  // "Repository" in a merged history, at the graph's width.
   { column: "graph", label: "Graph", class: "history-graph" },
   { column: null, label: "Subject", class: "history-subject" },
   { column: "author", label: "Author", class: "history-author" },
@@ -110,7 +125,7 @@ function CommitGraphOffer(props: { onWrite: () => void; onDecline: () => void })
 }
 
 /** One row's content; it updates in place when the row shows another commit. */
-function RowView(props: { row: HistoryRow }) {
+function RowView(props: { row: ListRow; name: ((repo: RepoId) => string) | null }) {
   return (
     <Switch>
       <Match when={props.row.kind === "uncommitted" && props.row}>
@@ -118,7 +133,9 @@ function RowView(props: { row: HistoryRow }) {
           <span class="history-cell history-uncommitted">Uncommitted changes ({uncommitted().count})</span>
         )}
       </Match>
-      <Match when={props.row.kind === "commit" && props.row}>{(commit) => <CommitCells commit={commit().commit} />}</Match>
+      <Match when={props.row.kind === "commit" && props.row}>
+        {(commit) => <CommitCells commit={commit().commit} repo={props.name?.(commit().commit.repo_id) ?? null} />}
+      </Match>
       <Match when={props.row.kind === "placeholder"}>
         <span class="history-cell history-skeleton" aria-label="Loading" />
       </Match>
@@ -131,6 +148,7 @@ function HistoryList(props: {
   workspace: WorkspaceId;
   history: HistoryStore;
   summaries: SummaryStore;
+  name: (repo: RepoId) => string;
   branch: BranchStore;
   integrate: IntegrateStore;
   tag: TagStore;
@@ -138,12 +156,13 @@ function HistoryList(props: {
 }) {
   let scroller: HTMLDivElement | undefined;
   const history = () => props.history.history(props.workspace);
-  const repo = () => history().source?.repo;
-  const view = () => {
-    const shown = repo();
-    return shown === undefined ? undefined : props.summaries.view(props.workspace, shown);
+  /** A merged history: rows of several repos. */
+  const merged = () => history().source?.repo === null;
+  const viewOf = (repo: RepoId) => props.summaries.view(props.workspace, repo);
+  const changes = () => {
+    const shown = history().source?.repo;
+    return shown ? (viewOf(shown)?.summary?.changes ?? 0) : 0;
   };
-  const changes = () => view()?.summary?.changes ?? 0;
   const rows = createMemo(() => historyRows(history(), changes()));
   const selectedIndex = () => {
     const selected = history().selected;
@@ -282,11 +301,33 @@ function HistoryList(props: {
     setMenu({ x, y, commits, text: `${row.commit.short_hash} ${row.commit.subject}` });
   };
 
-  const act = (action: CommitAction, commits: string[], text: string) => {
+  /** The repo and hashes of rows `rowIds`; the repo is `null` when they are of several repos. */
+  const commitsOf = (rowIds: string[]) => {
+    const source = history().source;
+    const commits = source === null ? [] : rowIds.map((rowId) => commitOf(source, rowId));
+    const repos = new Set(commits.map((commit) => commit.repo));
+    const [repo] = repos;
+    return { repo: repos.size === 1 && repo !== undefined ? repo : null, hashes: commits.map((commit) => commit.hash) };
+  };
+
+  /** The menu of rows `rowIds` (UI-13): a cherry-pick takes commits of one repo only. */
+  const entries = (rowIds: string[]) => {
+    const { repo } = commitsOf(rowIds);
+    const entries = commitMenu(rowIds.length, repo !== null && isBlocked(viewOf(repo)));
+    return repo !== null
+      ? entries
+      : entries.map((entry) =>
+          entry.action === "cherry_pick"
+            ? { ...entry, disabled: true, title: "Cherry-pick takes commits of one repository only" }
+            : entry,
+        );
+  };
+
+  const act = (action: CommitAction, rowIds: string[], text: string) => {
     setMenu(null);
-    const shown = repo();
+    const { repo: shown, hashes: commits } = commitsOf(rowIds);
     const [hash] = commits;
-    if (shown === undefined || hash === undefined) {
+    if (shown === null || hash === undefined) {
       return;
     }
     switch (action) {
@@ -311,7 +352,7 @@ function HistoryList(props: {
         props.tag.open(props.workspace, { kind: "create", repo: shown, commit: hash, at: text });
         return;
       case "reset": {
-        const head = view()?.summary?.head;
+        const head = viewOf(shown)?.summary?.head;
         const branch = head?.kind === "branch" ? head.name : null;
         props.reset.open(props.workspace, { kind: "reset", repo: shown, commit: hash, text, branch });
         return;
@@ -409,7 +450,7 @@ function HistoryList(props: {
                         }
                       }}
                     >
-                      <RowView row={row()} />
+                      <RowView row={row()} name={merged() ? props.name : null} />
                     </div>
                   )}
                 </Show>
@@ -424,7 +465,7 @@ function HistoryList(props: {
         <CommitMenu
           x={open().x}
           y={open().y}
-          entries={commitMenu(open().commits.length, isBlocked(view()))}
+          entries={entries(open().commits)}
           onAction={(action) => act(action, open().commits, open().text)}
           onClose={() => setMenu(null)}
         />
@@ -438,6 +479,8 @@ export default function HistoryPane(props: {
   workspace: WorkspaceId;
   history: HistoryStore;
   summaries: SummaryStore;
+  /** A repo's name, for the repo column of a merged history. */
+  name: (repo: RepoId) => string;
   layout: LayoutStore;
   branch: BranchStore;
   integrate: IntegrateStore;
@@ -445,7 +488,8 @@ export default function HistoryPane(props: {
   reset: ResetStore;
 }) {
   const history = () => props.history.history(props.workspace);
-  const repo = (): RepoId | undefined => history().source?.repo;
+  /** The repo of a single-repo history; a merged one has none. */
+  const repo = (): RepoId | undefined => history().source?.repo ?? undefined;
   const columns = () => props.layout.historyColumns(props.workspace);
   const widths = () => {
     const c = columns();
@@ -508,7 +552,9 @@ export default function HistoryPane(props: {
           <For each={COLUMNS}>
             {(column) => (
               <span class={`history-cell ${column.class}`}>
-                <span class="history-column-label">{column.label}</span>
+                <span class="history-column-label">
+                  {column.column === "graph" && repo() === undefined ? "Repository" : column.label}
+                </span>
                 <Show when={column.column}>
                   {(resizable) => (
                     <Splitter
@@ -534,6 +580,7 @@ export default function HistoryPane(props: {
           workspace={props.workspace}
           history={props.history}
           summaries={props.summaries}
+          name={props.name}
           branch={props.branch}
           integrate={props.integrate}
           tag={props.tag}

@@ -34,7 +34,7 @@ import { createChangesStore } from "./stores/changes";
 import { createCommitStore } from "./stores/commit";
 import { createConflictStore } from "./stores/conflicts";
 import { createGitStore } from "./stores/git";
-import { createHistoryStore, sourceOf } from "./stores/history";
+import { createHistoryStore, mergedSource, sourceOf } from "./stores/history";
 import { createIntegrateStore } from "./stores/integrate";
 import { createJobStore } from "./stores/jobs";
 import { createLayoutStore } from "./stores/layout";
@@ -237,14 +237,19 @@ export default function App() {
     ),
   );
 
-  // The history pane follows the tree's selection (section 8).
+  // The history pane follows the tree's selection (section 8): a group or
+  // several repos show their merged history (PERF-5).
   createEffect(() => {
     const id = workspace()?.id;
     if (id === undefined) {
       return;
     }
+    const target = tree.target(id);
     const shown = tree.single(id);
-    const source = sourceOf(shown?.row ?? null, shown?.item ?? null);
+    const source =
+      target?.kind === "group" || target?.kind === "repos"
+        ? mergedSource(target)
+        : sourceOf(shown?.row ?? null, shown?.item ?? null);
     untrack(() => history.show(id, source));
   });
 

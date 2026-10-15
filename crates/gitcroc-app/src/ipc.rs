@@ -162,13 +162,14 @@ impl From<HistoryViewError> for IpcError {
     fn from(error: HistoryViewError) -> Self {
         match error {
             HistoryViewError::Workspace(error) => error.into(),
-            HistoryViewError::Open(_) | HistoryViewError::Page(_) | HistoryViewError::NoPage => {
-                Self {
-                    code: IpcErrorCode::Internal,
-                    message: error.to_string(),
-                    git_stderr: None,
-                }
-            }
+            HistoryViewError::Open(_)
+            | HistoryViewError::Page(_)
+            | HistoryViewError::NoPage
+            | HistoryViewError::NoRepo => Self {
+                code: IpcErrorCode::Internal,
+                message: error.to_string(),
+                git_stderr: None,
+            },
         }
     }
 }
@@ -929,9 +930,10 @@ pub async fn tree_filter(
     Ok(gitcroc_core::tree_filter(trees, workspaces, summaries, workspace_id, text).await?)
 }
 
-/// The first page of `target`'s history in a repo (section 8 "History
-/// pane"), filtered by `text` when it is not empty (UI-12). It starts a new
-/// walk of the workspace; the previous one ends. `null` when a newer
+/// The first page of `target`'s history (section 8 "History pane"): of
+/// repo `repo_id`, or merged from a target set's repos with `repo_id` null
+/// (PERF-5), filtered by `text` when it is not empty (UI-12). It starts a
+/// new walk of the workspace; the previous one ends. `null` when a newer
 /// `history_get` of the workspace superseded this one.
 #[tauri::command]
 #[specta::specta]
@@ -939,7 +941,7 @@ pub async fn history_get(
     workspaces: State<'_, Arc<Workspaces>>,
     histories: State<'_, Arc<Histories>>,
     workspace_id: WorkspaceId,
-    repo_id: RepoId,
+    repo_id: Option<RepoId>,
     target: HistoryTarget,
     text: String,
 ) -> Result<Option<HistoryView>, IpcError> {

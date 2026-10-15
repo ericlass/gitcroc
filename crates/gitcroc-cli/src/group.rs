@@ -85,7 +85,7 @@ fn print(result: Result<String, String>) -> ExitCode {
     }
 }
 
-fn load(config_dir: Option<&PathBuf>) -> Result<(Workspaces, WorkspaceId), String> {
+pub(crate) fn load(config_dir: Option<&PathBuf>) -> Result<(Workspaces, WorkspaceId), String> {
     let workspaces = match config_dir {
         Some(dir) => Workspaces::load(&GivenConfigDir(dir.clone())),
         None => Workspaces::load(&PlatformConfigDir),
@@ -97,7 +97,11 @@ fn load(config_dir: Option<&PathBuf>) -> Result<(Workspaces, WorkspaceId), Strin
 }
 
 /// The id of the group named `name`, ignoring case.
-fn group(workspaces: &Workspaces, id: &WorkspaceId, name: &str) -> Result<GroupId, String> {
+pub(crate) fn group(
+    workspaces: &Workspaces,
+    id: &WorkspaceId,
+    name: &str,
+) -> Result<GroupId, String> {
     let lower = name.trim().to_lowercase();
     workspaces
         .groups(id)

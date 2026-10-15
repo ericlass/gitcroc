@@ -2,6 +2,7 @@
 //! lanes per row (UI-9) and a core-side filter (UI-12).
 
 mod lanes;
+mod merged;
 mod walk;
 
 use std::collections::HashMap;
@@ -13,6 +14,7 @@ use serde::Serialize;
 
 use lanes::Lanes;
 pub use lanes::{Edge, GraphRow};
+pub use merged::{MergedCursor, MergedPage, MergedRow, merged_history};
 use walk::{INFINITE, Info, Source, Walk};
 
 use crate::GitRepo;

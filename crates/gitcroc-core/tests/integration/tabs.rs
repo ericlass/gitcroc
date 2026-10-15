@@ -361,7 +361,7 @@ async fn ui_31_a_background_workspace_releases_history_and_diffs() {
         switch.histories.clone(),
         switch.workspaces.clone(),
         tabs.b.clone(),
-        b1.clone(),
+        Some(b1.clone()),
         HistoryTarget::Repo,
         String::new(),
     )
@@ -418,7 +418,7 @@ async fn ui_31_a_background_workspace_releases_history_and_diffs() {
         switch.histories.clone(),
         switch.workspaces.clone(),
         tabs.b.clone(),
-        b1,
+        Some(b1),
         HistoryTarget::Repo,
         String::new(),
     )

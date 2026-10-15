@@ -1,10 +1,11 @@
 // What the history pane shows for a group or several repos (section 8
 // "History pane"): the summary strip (UI-11), one line per repo of the
-// target set in the core's order (GRP-5), then the merged history. A line
-// shows the summary the UI already has, stale as in the tree (PERF-3), and
-// a click selects its repo in the tree. Repo text is text only (SEC-3).
+// target set in the core's order (GRP-5), then the merged history, given as
+// children. A line shows the summary the UI already has, stale as in the
+// tree (PERF-3), and a click selects its repo in the tree. Repo text is text
+// only (SEC-3).
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js";
 import { type RepoId, type SummaryView, type TargetSet, targetRepos, type WorkspaceId } from "../ipc";
 import type { SummaryStore } from "../stores/summaries";
 import type { TreeStore } from "../stores/tree";
@@ -125,6 +126,8 @@ export default function TargetView(props: {
   tree: TreeStore;
   summaries: SummaryStore;
   name: (repo: RepoId) => string;
+  /** The merged history. */
+  children: JSX.Element;
 }) {
   const [repos, setRepos] = createSignal<RepoId[] | null>(null);
   const [error, setError] = createSignal<string | null>(null);
@@ -178,7 +181,7 @@ export default function TargetView(props: {
   };
 
   return (
-    <div class="history-pane target-view">
+    <div class="target-view">
       <Show when={error()}>{(text) => <p role="alert">Cannot show the selection: {text()}</p>}</Show>
       <Show when={repos()}>
         {(shown) => (
@@ -193,7 +196,7 @@ export default function TargetView(props: {
           </Show>
         )}
       </Show>
-      <p class="placeholder">Merged history arrives in M3-07</p>
+      {props.children}
     </div>
   );
 }

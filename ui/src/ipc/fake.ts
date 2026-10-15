@@ -27,6 +27,8 @@ import type {
   GroupId,
   GroupSummary,
   GroupView,
+  HistoryRow,
+  HistoryTarget,
   IntegrateRequest,
   IpcError,
   JobId,
@@ -67,8 +69,9 @@ import {
   commitAt,
   defaultHistory,
   type FakeHistory,
-  type FakeWalk,
   historyKey,
+  mergedWalk,
+  nextMergedPage,
   nextPage,
   parentOf,
 } from "./fakeHistory";
@@ -177,8 +180,8 @@ const views = new Map<
 /** The file whose image diff was read last, by workspace. */
 const imageFiles = new Map<string, { handle: number; file: FakeFile; ref: FileRef }>();
 
-/** Each workspace's walk, as the core keeps it. */
-const walks = new Map<string, FakeWalk & { handle: number }>();
+/** Each workspace's walk, as the core keeps it: what reads its next page. */
+const walks = new Map<string, { handle: number; repos: RepoId[]; next: () => { rows: HistoryRow[]; done: boolean } }>();
 let nextHandle = 1;
 
 /**
@@ -1709,22 +1712,49 @@ export const fake: Core = {
       }
       return Promise.resolve({ status: "ok", data: filterTree(workspace, fakeState.refs, text, fakeState.summaries) });
     },
-    historyGet: (workspaceId, repoId, target, text) => {
-      const repo = openWorkspace(workspaceId)?.repos.find((candidate) => candidate.id === repoId);
-      if (!repo) {
-        return notFound(`the workspace has no repo with the id ${repoId}`);
+    historyGet: async (workspaceId, repoId, target, text) => {
+      const workspace = openWorkspace(workspaceId);
+      const named = (id: RepoId) => workspace?.repos.find((candidate) => candidate.id === id);
+      const walkOf = (id: RepoId, shown: HistoryTarget) => ({
+        history: fakeState.histories[historyKey(id, shown)] ?? defaultHistory(named(id)?.name ?? id, shown),
+        text,
+        next: 0,
+      });
+      let walk: { repos: RepoId[]; next: () => { rows: HistoryRow[]; done: boolean } };
+      if (target.kind === "merged") {
+        const resolved = await fakeTargetRepos(workspaceId, target.target);
+        if (resolved.status === "error") {
+          return resolved;
+        }
+        // Each repo's walk from HEAD: its whole fake history.
+        const merged = mergedWalk(resolved.data.map((id) => ({ repo: id, walk: walkOf(id, { kind: "repo" }) })));
+        walk = { repos: resolved.data, next: () => nextMergedPage(merged) };
+      } else {
+        const repo = repoId === null ? undefined : named(repoId);
+        if (repoId === null || repo === undefined) {
+          return notFound(`the workspace has no repo with the id ${repoId}`);
+        }
+        const single = walkOf(repoId, target);
+        walk = {
+          repos: [repoId],
+          next: () => {
+            const page = nextPage(single);
+            return { ...page, rows: page.rows.map((row) => ({ ...row, repo_id: repoId })) };
+          },
+        };
       }
       fakeState.historyCalls.push({ command: "get", text });
       const handle = nextHandle++;
-      const history = fakeState.histories[historyKey(repoId, target)] ?? defaultHistory(repo.name, target);
-      const walk = { handle, history, text, next: 0 };
-      walks.set(workspaceId, walk);
-      const page = nextPage(walk);
-      const offer = !!fakeState.slowRepos[repoId] && !fakeState.declined[repoId];
+      walks.set(workspaceId, { handle, ...walk });
+      const page = walk.next();
+      const offer = repoId !== null && !!fakeState.slowRepos[repoId] && !fakeState.declined[repoId];
       // Like the core: `null` once a newer walk of the workspace began.
       return later({
         status: "ok" as const,
-        data: walks.get(workspaceId)?.handle === handle ? { handle, ...page, offer_commit_graph: offer } : null,
+        data:
+          walks.get(workspaceId)?.handle === handle
+            ? { handle, ...page, repos: walk.repos, offer_commit_graph: offer }
+            : null,
       });
     },
     historyMore: (workspaceId, handle) => {
@@ -1733,10 +1763,13 @@ export const fake: Core = {
       if (walk?.handle !== handle) {
         return Promise.resolve({ status: "ok", data: null });
       }
-      const page = nextPage(walk);
+      const page = walk.next();
       return later({
         status: "ok" as const,
-        data: walks.get(workspaceId)?.handle === handle ? { handle, ...page, offer_commit_graph: false } : null,
+        data:
+          walks.get(workspaceId)?.handle === handle
+            ? { handle, ...page, repos: walk.repos, offer_commit_graph: false }
+            : null,
       });
     },
     commitGraphWrite: (workspaceId, repoId) => {

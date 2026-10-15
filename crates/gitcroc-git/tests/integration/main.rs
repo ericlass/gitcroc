@@ -11,6 +11,7 @@ mod detect;
 mod diff;
 mod fixtures;
 mod history;
+mod merged;
 mod ops_matrix;
 mod refs;
 mod runner;

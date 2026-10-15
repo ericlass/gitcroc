@@ -179,7 +179,8 @@ test("ui_11_summary_strip_lists_each_repo_and_selects_on_click", async () => {
   await setup();
   await click(row("Backend", 1));
   expect(strip()).toEqual(["api", "web"]);
-  expect(screen.getByText("Merged history arrives in M3-07")).toBeTruthy();
+  // The merged history follows the strip (M3-07).
+  expect(screen.getByRole("listbox", { name: "History" })).toBeTruthy();
   const lines = () => within(screen.getByRole("list", { name: "Repositories of the selection" }));
   const line = (name: string) => lines().getByRole("button", { name: new RegExp(`^${name}`) });
   // Branch, ahead and behind, the dirty count.
@@ -199,7 +200,6 @@ test("ui_11_summary_strip_lists_each_repo_and_selects_on_click", async () => {
   await click(line("web"));
   expect(selected()).toEqual(["Frontend/web"]);
   expect(strip()).toBeNull();
-  expect(screen.queryByText("Merged history arrives in M3-07")).toBeNull();
 
   // A group that no longer exists is an error shown in its place.
   await click(row("Backend", 1));

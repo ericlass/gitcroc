@@ -141,15 +141,21 @@ export const commands = {
 	 */
 	targetRepos: (workspaceId: WorkspaceId, target: TargetSet) => typedError<RepoId[], IpcError>(__TAURI_INVOKE("target_repos", { workspaceId, target })),
 	/**
-	 *  The first page of `target`'s history in a repo (section 8 "History
-	 *  pane"), filtered by `text` when it is not empty (UI-12). It starts a new
-	 *  walk of the workspace; the previous one ends. `null` when a newer
+	 *  The first page of `target`'s history (section 8 "History pane"): of
+	 *  repo `repo_id`, or merged from a target set's repos with `repo_id` null
+	 *  (PERF-5), filtered by `text` when it is not empty (UI-12). It starts a
+	 *  new walk of the workspace; the previous one ends. `null` when a newer
 	 *  `history_get` of the workspace superseded this one.
 	 */
-	historyGet: (workspaceId: WorkspaceId, repoId: RepoId, target: HistoryTarget, text: string) => typedError<{
+	historyGet: (workspaceId: WorkspaceId, repoId: string | null, target: HistoryTarget, text: string) => typedError<{
 	/**  Names this walk for `history_more`. */
 	handle: number,
-	rows: CommitRow[],
+	rows: HistoryRow[],
+	/**
+	 *  The repos the history is of: the one repo, or the target set's in
+	 *  its order (GRP-5). A change to any of their refs makes it stale.
+	 */
+	repos: RepoId[],
 	/**  No page follows. */
 	done: boolean,
 	/**
@@ -165,7 +171,12 @@ export const commands = {
 	historyMore: (workspaceId: WorkspaceId, handle: number) => typedError<{
 	/**  Names this walk for `history_more`. */
 	handle: number,
-	rows: CommitRow[],
+	rows: HistoryRow[],
+	/**
+	 *  The repos the history is of: the one repo, or the target set's in
+	 *  its order (GRP-5). A change to any of their refs makes it stale.
+	 */
+	repos: RepoId[],
 	/**  No page follows. */
 	done: boolean,
 	/**
@@ -1181,9 +1192,15 @@ export type Head =
 /**  On a branch; `hash` is `None` while it has no commit yet. */
 { kind: "branch"; name: string; hash: string | null } | { kind: "detached"; hash: string };
 
+/**  A commit of the history pane and the repo it is in. */
+export type HistoryRow = {
+	repo_id: RepoId,
+} & CommitRow;
+
 /**
- *  What the history pane shows for a single-repo selection (section 8
- *  "History pane"). Names are short, as the tree shows them.
+ *  What the history pane shows (section 8 "History pane"): for a
+ *  single-repo selection the repo or one of its refs, by short name as the
+ *  tree shows it; for a group or several repos their merged history.
  */
 export type HistoryTarget = 
 /**  Every local and remote branch. */
@@ -1193,13 +1210,23 @@ export type HistoryTarget =
 /**  A remote branch with its remote, such as `origin/main`. */
 { kind: "remote_branch"; name: string } | { kind: "tag"; name: string } | 
 /**  `stash@{index}`, shown as one row. */
-{ kind: "stash"; index: number };
+{ kind: "stash"; index: number } | 
+/**
+ *  The commits of every repo of the target set from its `HEAD`, newest
+ *  first by commit date (PERF-5). Its rows have no graph cell.
+ */
+{ kind: "merged"; target: TargetSet };
 
 /**  A page of the history the pane shows. */
 export type HistoryView = {
 	/**  Names this walk for `history_more`. */
 	handle: number,
-	rows: CommitRow[],
+	rows: HistoryRow[],
+	/**
+	 *  The repos the history is of: the one repo, or the target set's in
+	 *  its order (GRP-5). A change to any of their refs makes it stale.
+	 */
+	repos: RepoId[],
 	/**  No page follows. */
 	done: boolean,
 	/**

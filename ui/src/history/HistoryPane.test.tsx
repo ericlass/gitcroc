@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { CommitRow } from "../ipc";
+import type { HistoryRow } from "../ipc";
 import { emitRepoSummary, fake, fakeState, reset } from "../ipc/fake";
 import { commitAt } from "../ipc/fakeHistory";
 import { summary } from "../ipc/fakeTree";
@@ -54,6 +54,7 @@ async function setup(options: { changes?: number } = {}) {
       workspace={id()}
       history={history}
       summaries={summaries}
+      name={(repo) => repo}
       layout={layout}
       branch={createBranchStore()}
       integrate={createIntegrateStore()}
@@ -184,14 +185,18 @@ test("UI-12 search filters in the core", async () => {
 
   // Whatever the core answers is shown as it is: none of these rows
   // contains the text, and none is dropped.
-  const answer: CommitRow[] = [0, 1].map((index) => ({
+  const answer: HistoryRow[] = [0, 1].map((index) => ({
     ...commitAt({ length: 2, prefix: "unrelated" }, index),
     graph: null,
+    repo_id: "r1",
   }));
   const spy = vi
     .spyOn(fake.commands, "historyGet")
     .mockImplementation(() =>
-      Promise.resolve({ status: "ok", data: { handle: 99, rows: answer, done: true, offer_commit_graph: false } }),
+      Promise.resolve({
+        status: "ok",
+        data: { handle: 99, rows: answer, repos: ["r1"], done: true, offer_commit_graph: false },
+      }),
     );
   fireEvent.input(screen.getByRole("searchbox", { name: "Search history" }), { target: { value: "fix" } });
   await settle();
