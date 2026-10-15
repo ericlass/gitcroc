@@ -47,7 +47,7 @@ import { createTagStore } from "./stores/tag";
 import { createResetStore } from "./stores/reset";
 import { createSummaryStore, isBlocked } from "./stores/summaries";
 import { canFetch, canPullOrPush, createSyncStore, DEFAULT_OPS } from "./stores/sync";
-import { createTreeStore } from "./stores/tree";
+import { createTreeStore, repoOfItem } from "./stores/tree";
 import { createWatchStore } from "./stores/watch";
 import { createWorkspaceStore } from "./stores/workspaces";
 import { followAppearance, followDesktopFonts, followTheme } from "./theme/theme";
@@ -96,7 +96,7 @@ export default function App() {
   const selectedRepo = () => {
     const id = workspace()?.id;
     const item = id === undefined ? null : tree.tree(id).selectedItem;
-    const repo = item === null || item.kind === "ungrouped" ? null : item.repo_id;
+    const repo = item === null ? null : repoOfItem(item);
     return id === undefined || repo === null ? null : { id, repo, view: summaries.view(id, repo) };
   };
 

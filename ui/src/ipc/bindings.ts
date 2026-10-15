@@ -87,21 +87,53 @@ export const commands = {
 	 */
 	repoSelect: (workspaceId: WorkspaceId, repoId: string | null) => typedError<null, IpcError>(__TAURI_INVOKE("repo_select", { workspaceId, repoId })),
 	/**
-	 *  The workspace's tree (UI-1): Ungrouped with every repo, each with its
+	 *  The workspace's tree (UI-1): each group with its Branches node and its
+	 *  members, then Ungrouped with the repos in no group. Each repo has its
 	 *  Local, Remotes, Tags and Stashes nodes not loaded; `refs_get` loads
-	 *  them (ARCH-8).
+	 *  them, and `group_branches` a group's Branches node (ARCH-8).
 	 */
 	treeGet: (workspaceId: WorkspaceId) => typedError<TreeNode[], IpcError>(__TAURI_INVOKE("tree_get", { workspaceId })),
 	/**
-	 *  One repo's Local, Remotes, Tags and Stashes nodes, loaded, with ahead
-	 *  and behind for each local branch.
+	 *  One repo's Local, Remotes, Tags and Stashes nodes where it appears under
+	 *  group `group_id`, or under Ungrouped for `null`, loaded, with ahead and
+	 *  behind for each local branch.
 	 */
-	refsGet: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<TreeNode[], IpcError>(__TAURI_INVOKE("refs_get", { workspaceId, repoId })),
+	refsGet: (workspaceId: WorkspaceId, repoId: RepoId, groupId: string | null) => typedError<TreeNode[], IpcError>(__TAURI_INVOKE("refs_get", { workspaceId, repoId, groupId })),
 	/**
 	 *  The tree filtered by `text` (UI-8); empty text gives the whole tree.
 	 *  `null` when a newer `tree_filter` of the workspace superseded this one.
 	 */
 	treeFilter: (workspaceId: WorkspaceId, text: string) => typedError<TreeNode[] | null, IpcError>(__TAURI_INVOKE("tree_filter", { workspaceId, text })),
+	/**
+	 *  The children of a group's Branches node (UI-5): every local branch name
+	 *  of at least one member, with how many members have it.
+	 */
+	groupBranches: (workspaceId: WorkspaceId, groupId: GroupId) => typedError<TreeNode[], IpcError>(__TAURI_INVOKE("group_branches", { workspaceId, groupId })),
+	/**
+	 *  Creates a group as the last one, with `repo_ids` as its members in
+	 *  that order (GRP-2), and returns its id.
+	 */
+	groupCreate: (workspaceId: WorkspaceId, name: string, repoIds: RepoId[]) => typedError<GroupId, IpcError>(__TAURI_INVOKE("group_create", { workspaceId, name, repoIds })),
+	/**  Renames a group (GRP-2); its id stays. */
+	groupRename: (workspaceId: WorkspaceId, groupId: GroupId, name: string) => typedError<WorkspaceView, IpcError>(__TAURI_INVOKE("group_rename", { workspaceId, groupId, name })),
+	/**  Deletes a group; its repos stay in the workspace (GRP-3). */
+	groupDelete: (workspaceId: WorkspaceId, groupId: GroupId) => typedError<WorkspaceView, IpcError>(__TAURI_INVOKE("group_delete", { workspaceId, groupId })),
+	/**
+	 *  Adds repos to a group at position `at`, or at the end; a member moves
+	 *  there.
+	 */
+	groupAddRepos: (workspaceId: WorkspaceId, groupId: GroupId, repoIds: RepoId[], at: number | null) => typedError<WorkspaceView, IpcError>(__TAURI_INVOKE("group_add_repos", { workspaceId, groupId, repoIds, at })),
+	/**  Removes repos from a group; they stay in the workspace (GRP-3). */
+	groupRemoveRepos: (workspaceId: WorkspaceId, groupId: GroupId, repoIds: RepoId[]) => typedError<WorkspaceView, IpcError>(__TAURI_INVOKE("group_remove_repos", { workspaceId, groupId, repoIds })),
+	/**  Moves members of a group to position `at` among the others. */
+	groupMoveRepos: (workspaceId: WorkspaceId, groupId: GroupId, repoIds: RepoId[], at: number) => typedError<WorkspaceView, IpcError>(__TAURI_INVOKE("group_move_repos", { workspaceId, groupId, repoIds, at })),
+	/**
+	 *  Moves a repo from one group to another at position `at`, or at the
+	 *  end, in one save.
+	 */
+	groupMoveRepoBetween: (workspaceId: WorkspaceId, repoId: RepoId, from: GroupId, to: GroupId, at: number | null) => typedError<WorkspaceView, IpcError>(__TAURI_INVOKE("group_move_repo_between", { workspaceId, repoId, from, to, at })),
+	/**  Puts the groups in the order of `group_ids`, which names each once. */
+	groupReorder: (workspaceId: WorkspaceId, groupIds: GroupId[]) => typedError<WorkspaceView, IpcError>(__TAURI_INVOKE("group_reorder", { workspaceId, groupIds })),
 	/**
 	 *  The first page of `target`'s history in a repo (section 8 "History
 	 *  pane"), filtered by `text` when it is not empty (UI-12). It starts a new
@@ -451,6 +483,7 @@ export const events = {
 	cloneReport: makeEvent<CloneReportEvent>("clone_report"),
 	commitGraphWritten: makeEvent<CommitGraphWrittenEvent>("commit_graph_written"),
 	gitStatus: makeEvent<GitStatusEvent>("git_status"),
+	groupSummary: makeEvent<GroupSummaryEvent>("group_summary"),
 	jobEnded: makeEvent<JobEndedEvent>("job_ended"),
 	jobProgress: makeEvent<JobProgressEvent>("job_progress"),
 	repoRefsChanged: makeEvent<RepoRefsChangedEvent>("repo_refs_changed"),
@@ -1085,6 +1118,56 @@ export type GraphRow = {
 	 *  (`to`): lines leaving the commit for its parents, and lines passing it.
 	 */
 	down: Edge[],
+};
+
+/**  A group's branch as the tree shows it (GRP-4). */
+export type GroupBranch = 
+/**  No member counts yet: none has a summary, or all are missing. */
+{ kind: "none" } | 
+/**  Every counted member is on this branch. */
+{ kind: "branch"; name: string } | 
+/**  Every counted member has a detached `HEAD`. */
+{ kind: "detached" } | 
+/**
+ *  The counted members are on `count` different branches; a detached
+ *  `HEAD` counts as one value, however many members have one.
+ */
+{ kind: "mixed"; count: number };
+
+/**
+ *  Identifies a group inside its workspace for the session: `g1`, `g2` and
+ *  so on, given in file order when the workspace loads. Not kept in the
+ *  file, so a rename keeps it.
+ */
+export type GroupId = string;
+
+/**
+ *  What a group's row shows (UI-4), sent with its tree node and as event
+ *  `group_summary` when a member's summary changes.
+ */
+export type GroupSummary = {
+	workspace_id: WorkspaceId,
+	group_id: GroupId,
+	branch: GroupBranch,
+	members: number,
+	/**  Members whose working copy is dirty. */
+	dirty: number,
+	/**  Members in conflict state. */
+	conflicts: number,
+};
+
+/**
+ *  A group's row after a member's summary changed, sent as event
+ *  `group_summary` (GRP-4, UI-4).
+ */
+export type GroupSummaryEvent = GroupSummary;
+
+/**  A group as the UI sees it. */
+export type GroupView = {
+	id: GroupId,
+	name: string,
+	/**  In the user's order (GRP-2). */
+	repos: RepoId[],
 };
 
 /**  Where `HEAD` is. */
@@ -1841,7 +1924,27 @@ export type Time = {
 };
 
 /**  What a node stands for. */
-export type TreeItem = { kind: "ungrouped" } | { kind: "repo"; repo_id: RepoId } | { kind: "local"; repo_id: RepoId } | { kind: "remotes"; repo_id: RepoId } | { kind: "tags"; repo_id: RepoId } | { kind: "stashes"; repo_id: RepoId } | { kind: "remote"; repo_id: RepoId; remote: string } | 
+export type TreeItem = 
+/**  A group (UI-4), with what its row shows (GRP-4). */
+{ kind: "group"; group_id: GroupId; summary: GroupSummary } | 
+/**  A group's **Branches** node (UI-5); `group_branches` loads it. */
+{ kind: "group_branches"; group_id: GroupId } | 
+/**
+ *  One `/`-separated part of the branch names of a group's
+ *  **Branches** node.
+ */
+{ kind: "group_folder"; group_id: GroupId } | 
+/**
+ *  A local branch name that exists in `present` of the group's
+ *  `members` (UI-5).
+ */
+{ kind: "group_branch"; group_id: GroupId; 
+/**  The full short name, for example `feature/x`. */
+name: string; present: number; members: number } | { kind: "ungrouped" } | 
+/**  A repo, under the group `group_id` or under **Ungrouped**. */
+{ kind: "repo"; repo_id: RepoId; group_id: GroupId | null } | 
+/**  A repo's ref nodes carry the repo's place, for `refs_get`. */
+{ kind: "local"; repo_id: RepoId; group_id: GroupId | null } | { kind: "remotes"; repo_id: RepoId; group_id: GroupId | null } | { kind: "tags"; repo_id: RepoId; group_id: GroupId | null } | { kind: "stashes"; repo_id: RepoId; group_id: GroupId | null } | { kind: "remote"; repo_id: RepoId; remote: string } | 
 /**  One `/`-separated part of branch names. */
 { kind: "folder"; repo_id: RepoId } | { kind: "branch"; repo_id: RepoId; 
 /**  The full short name, for example `feature/x`. */
@@ -1975,6 +2078,8 @@ export type WorkspaceView = {
 	name: string,
 	/**  In the order they were added. */
 	repos: RepoView[],
+	/**  In the user's order (GRP-2). */
+	groups: GroupView[],
 	layout: PaneLayout,
 	/**  Changes are refused; `warning` says why. */
 	read_only: boolean,

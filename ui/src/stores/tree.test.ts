@@ -115,7 +115,7 @@ test("ARCH-9 tree state is kept per workspace", async () => {
   await store.subscribe(id());
   store.select(id(), node(store, "web"));
   expect(fakeState.selected[id()]).toBe("r2");
-  expect(store.tree(id()).selectedItem).toEqual({ kind: "repo", repo_id: "r2" });
+  expect(store.tree(id()).selectedItem).toEqual({ kind: "repo", repo_id: "r2", group_id: null });
   store.setExpanded(id(), node(store, "api"), true);
 
   await store.subscribe("elsewhere");
@@ -123,4 +123,66 @@ test("ARCH-9 tree state is kept per workspace", async () => {
   expect(store.tree("elsewhere").selected).toBeNull();
   expect(store.tree("elsewhere").expanded).toEqual({});
   expect(store.tree(id()).selected).toBe("repo:r2");
+});
+
+test("UI-2 a repo in two groups loads its refs and its groups' branches in each place", async () => {
+  withRepos();
+  fakeState.workspace = {
+    ...fakeState.workspace,
+    groups: [
+      { id: "g1", name: "Backend", repos: ["r1"] },
+      { id: "g2", name: "All", repos: ["r2", "r1"] },
+    ],
+  };
+  const store = createTreeStore();
+  const stop = await store.subscribe(id());
+  // Groups in order, open, with their Branches node and members; then Ungrouped.
+  expect(outline(store)).toEqual([
+    "Backend",
+    "  Branches",
+    "  api",
+    "All",
+    "  Branches",
+    "  web",
+    "  api",
+    "Ungrouped",
+  ]);
+  const rows = flatten(store.tree(id())).filter((row) => row.kind === "node" && row.node.label === "api");
+  const [first, second] = rows.map((row) => (row.kind === "node" ? row.node : null));
+  if (!first || !second) {
+    throw new Error("api is not in both groups");
+  }
+  expect(first.id).not.toBe(second.id);
+
+  // Expanding Local under one group loads that place only.
+  store.setExpanded(id(), first, true);
+  const local = flatten(store.tree(id())).find((row) => row.kind === "node" && row.node.id === `${first.id}:local`);
+  if (local?.kind !== "node") {
+    throw new Error("no Local row");
+  }
+  store.setExpanded(id(), local.node, true);
+  await settle();
+  expect(outline(store).slice(2, 9)).toEqual([
+    "  api",
+    "    Local",
+    "      feature",
+    "      main",
+    "    Remotes",
+    "    Tags",
+    "    Stashes",
+  ]);
+  expect(outline(store)).toContain("All");
+  expect(outline(store).filter((line) => line === "      main")).toHaveLength(1);
+
+  // The group's Branches node counts the members with each name (UI-5).
+  store.setExpanded(id(), node(store, "Branches"), true);
+  await settle();
+  expect(outline(store).slice(1, 4)).toEqual(["  Branches", "    feature/a/b", "    main"]);
+
+  // A change of the repo's refs reads every loaded place of it again.
+  const calls = fakeState.refsCalls.r1;
+  emitRepoRefsChanged({ workspace_id: id(), repo_id: "r1" });
+  await settle();
+  expect(fakeState.refsCalls.r1).toBe((calls ?? 0) + 1);
+  stop();
 });

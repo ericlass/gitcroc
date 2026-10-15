@@ -8,6 +8,7 @@
 //! the workspace by id (ARCH-9).
 
 mod add;
+mod group;
 
 use std::fs;
 use std::io;
@@ -22,6 +23,7 @@ use crate::settings::{Session, SettingsStore};
 use crate::{ConfigDir, WorkspaceId};
 
 pub use add::{AddReport, Refusal, SCAN_DEPTH, add_path};
+pub use group::{GroupId, GroupView, MAX_GROUP_NAME, UNGROUPED_NAME};
 
 /// The schema this build reads and writes.
 pub const WORKSPACE_SCHEMA: u32 = 1;
@@ -98,6 +100,8 @@ pub struct WorkspaceView {
     pub name: String,
     /// In the order they were added.
     pub repos: Vec<RepoView>,
+    /// In the user's order (GRP-2).
+    pub groups: Vec<GroupView>,
     pub layout: PaneLayout,
     /// Changes are refused; `warning` says why.
     pub read_only: bool,
@@ -154,6 +158,18 @@ pub enum WorkspaceError {
     Delete { path: PathBuf, source: io::Error },
     #[error("the workspace has no repo with the id {0}")]
     UnknownRepo(RepoId),
+    #[error("the workspace has no group with the id {0}")]
+    UnknownGroup(GroupId),
+    #[error("a group name cannot be blank")]
+    BlankGroupName,
+    #[error("a group name has at most {MAX_GROUP_NAME} characters")]
+    GroupNameTooLong,
+    #[error("a group named \"{0}\" exists already")]
+    GroupNameTaken(String),
+    #[error("\"{UNGROUPED_NAME}\" is the name of the repos in no group")]
+    GroupNameReserved,
+    #[error("the group order must name each group once")]
+    BadGroupOrder,
     #[error("cannot write {}: {source}", path.display())]
     Write { path: PathBuf, source: io::Error },
     #[error("cannot encode the workspace: {0}")]
@@ -200,8 +216,8 @@ impl RepoEntry {
     }
 }
 
-/// One `[[group]]` of the file. Groups arrive in M3; until then they are
-/// read and written back as they are, less removed repos.
+/// One `[[group]]` of the file: a name and its members in the user's
+/// order (GRP-2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Group {
     name: String,
@@ -257,14 +273,42 @@ struct Workspace {
     file: WorkspaceFile,
     /// Set when the file must not be written.
     warning: Option<ConfigWarning>,
+    /// The id of each group of `file.groups`, in the same order. Given in
+    /// file order on load and kept in memory only, so a rename keeps the
+    /// id for the session.
+    group_ids: Vec<GroupId>,
+    /// The number of the next group id.
+    next_group: u64,
 }
 
 impl Workspace {
+    fn new(
+        id: WorkspaceId,
+        path: Option<PathBuf>,
+        file: WorkspaceFile,
+        warning: Option<ConfigWarning>,
+    ) -> Self {
+        let mut workspace = Self {
+            id,
+            path,
+            file,
+            warning,
+            group_ids: Vec::new(),
+            next_group: 1,
+        };
+        for _ in 0..workspace.file.groups.len() {
+            let id = workspace.new_group_id();
+            workspace.group_ids.push(id);
+        }
+        workspace
+    }
+
     fn view(&self) -> WorkspaceView {
         WorkspaceView {
             id: self.id.clone(),
             name: self.file.name.clone(),
             repos: self.file.repos.iter().map(RepoEntry::view).collect(),
+            groups: self.group_views(),
             layout: self.file.layout.clone().unwrap_or_default(),
             read_only: self.warning.is_some() || self.path.is_none(),
             warning: self.warning.clone(),
@@ -344,12 +388,12 @@ impl Workspaces {
     /// workspaces and warnings.
     pub fn load_with(dirs: &dyn ConfigDir, settings: Arc<SettingsStore>) -> Self {
         let Some(dir) = dirs.config_dir().map(|dir| dir.join(WORKSPACES_DIR)) else {
-            let workspace = Workspace {
-                id: new_id(),
-                path: None,
-                file: WorkspaceFile::default(),
-                warning: Some(ConfigWarning::NoConfigDir),
-            };
+            let workspace = Workspace::new(
+                new_id(),
+                None,
+                WorkspaceFile::default(),
+                Some(ConfigWarning::NoConfigDir),
+            );
             return Self {
                 dir: None,
                 settings,
@@ -420,12 +464,8 @@ impl Workspaces {
             ..WorkspaceFile::default()
         };
         save(&path, &file)?;
-        tabs.open.push(Workspace {
-            id: id.clone(),
-            path: Some(path),
-            file,
-            warning: None,
-        });
+        tabs.open
+            .push(Workspace::new(id.clone(), Some(path), file, None));
         tabs.active = Some(id.clone());
         self.save_session(&tabs);
         Ok(id)
@@ -823,12 +863,7 @@ fn restore(dir: &Path, session: &Session) -> Tabs {
 /// be used (DATA-1).
 fn load_file(id: WorkspaceId, path: PathBuf) -> Workspace {
     let loaded = config_file::load(&path, MIGRATIONS, decode);
-    Workspace {
-        id,
-        path: Some(path),
-        file: loaded.value,
-        warning: loaded.warning,
-    }
+    Workspace::new(id, Some(path), loaded.value, loaded.warning)
 }
 
 /// The last component of `path`, for display.
@@ -847,15 +882,15 @@ fn open_latest(dir: &Path) -> Workspace {
         Ok(None) => create(dir),
         // Not knowing which workspace is the user's, creating another one
         // would hide theirs; open none for writing instead.
-        Err(error) => Workspace {
-            id: new_id(),
-            path: None,
-            file: WorkspaceFile::default(),
-            warning: Some(ConfigWarning::Unreadable {
+        Err(error) => Workspace::new(
+            new_id(),
+            None,
+            WorkspaceFile::default(),
+            Some(ConfigWarning::Unreadable {
                 path: dir.display().to_string(),
                 reason: error.to_string(),
             }),
-        },
+        ),
     }
 }
 
@@ -914,12 +949,7 @@ fn create(dir: &Path) -> Workspace {
             path: path.display().to_string(),
             reason: error.to_string(),
         });
-    Workspace {
-        id,
-        path: Some(path),
-        file,
-        warning,
-    }
+    Workspace::new(id, Some(path), file, warning)
 }
 
 fn decode(table: toml::Table) -> Result<WorkspaceFile, toml::de::Error> {

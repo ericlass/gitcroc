@@ -25,8 +25,8 @@ function setup() {
   return { history: createHistoryStore(selection), selection };
 }
 
-const api = sourceOf("repo:r1", { kind: "repo", repo_id: "r1" }) as HistorySource;
-const web = sourceOf("repo:r2", { kind: "repo", repo_id: "r2" }) as HistorySource;
+const api = sourceOf("repo:r1", { kind: "repo", repo_id: "r1", group_id: null }) as HistorySource;
+const web = sourceOf("repo:r2", { kind: "repo", repo_id: "r2", group_id: null }) as HistorySource;
 
 test("PERF-2 pages load on demand, never ahead", async () => {
   const { history } = setup();
@@ -64,7 +64,7 @@ test("section 8 tree selections map to what the history shows", () => {
   expect(sourceOf("ungrouped", { kind: "ungrouped" })).toBeNull();
   expect(sourceOf(null, null)).toBeNull();
   // Nodes that only group a repo's refs show the repo, under its key.
-  expect(sourceOf("repo:r1:local", { kind: "local", repo_id: "r1" })).toEqual(api);
+  expect(sourceOf("repo:r1:local", { kind: "local", repo_id: "r1", group_id: null })).toEqual(api);
   const branch = { repo_id: "r1", name: "main", upstream: null, gone: false, ahead: null, behind: null };
   expect(sourceOf("b", { kind: "branch", current: true, ...branch })).toEqual({
     key: "b",

@@ -24,6 +24,9 @@ import type {
   DiffRequest,
   FileRef,
   GitStatus,
+  GroupId,
+  GroupSummary,
+  GroupView,
   IntegrateRequest,
   IpcError,
   JobId,
@@ -77,7 +80,17 @@ import { fakeRemoteNameCheck, planRemote } from "./fakeRemotes";
 import { planReset, planTag, type TagPlan } from "./fakeTags";
 import { fakeJob, jobsScenario } from "./fakeJobs";
 import { applySync, planSync, pushChoicesOf } from "./fakeSync";
-import { type FakeRefs, filterTree, refNodes, scenario, skeleton, stashHash } from "./fakeTree";
+import {
+  type FakeRefs,
+  filterTree,
+  groupBranchNodes,
+  groupSummary,
+  inPlace,
+  refNodes,
+  scenario,
+  skeleton,
+  stashHash,
+} from "./fakeTree";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch", ui_font: null, code_font: null };
 const defaultGitStatus: GitStatus = { kind: "usable", path: "/fake/bin/git", version: "2.47.0" };
@@ -106,6 +119,7 @@ const defaultWorkspace: WorkspaceView = {
   id: "fake-workspace",
   name: "My workspace",
   repos: [],
+  groups: [],
   layout: emptyLayout,
   read_only: false,
   warning: null,
@@ -135,6 +149,7 @@ let nextJobId = 1;
 const jobProgressListeners: Listeners<JobView> = new Set();
 const gitStatusListeners: Listeners<GitStatus> = new Set();
 const workspaceChangedListeners: Listeners<WorkspaceView> = new Set();
+const groupSummaryListeners: Listeners<GroupSummary> = new Set();
 const workspacesChangedListeners: Listeners<WorkspaceTabs> = new Set();
 const workspaceAddReportListeners: Listeners<AddReport> = new Set();
 const repoSummaryListeners: Listeners<SummaryView> = new Set();
@@ -1025,6 +1040,13 @@ export function emitWorkspacesChanged(): void {
 /** Delivers a `repo_summary` event to every listener, as the core would. */
 export function emitRepoSummary(payload: SummaryView): void {
   emit(repoSummaryListeners, "repo_summary", payload);
+  // Like the app: the rows of the groups the repo is in follow it (GRP-4).
+  const workspace = fakeWorkspaces().find((known) => known.id === payload.workspace_id);
+  for (const group of workspace?.groups ?? []) {
+    if (group.repos.includes(payload.repo_id)) {
+      emit(groupSummaryListeners, "group_summary", groupSummary(payload.workspace_id, group, fakeState.summaries));
+    }
+  }
 }
 
 /** Delivers a `repo_refs_changed` event to every listener, as the core would. */
@@ -1103,6 +1125,7 @@ export function reset(): void {
   jobProgressListeners.clear();
   gitStatusListeners.clear();
   workspaceChangedListeners.clear();
+  groupSummaryListeners.clear();
   workspacesChangedListeners.clear();
   workspaceAddReportListeners.clear();
   repoSummaryListeners.clear();
@@ -1186,6 +1209,135 @@ function checkName(name: string, own: WorkspaceId | null) {
   }
   return { name: trimmed };
 }
+
+/** Like the core's group name rules (GRP-2): the trimmed name, or why it is refused. */
+function checkGroupName(
+  groups: GroupView[],
+  name: string,
+  own: GroupId | null,
+): { name: string } | { refused: string } {
+  const trimmed = name.trim();
+  if (trimmed === "") {
+    return { refused: "a group name cannot be blank" };
+  }
+  if ([...trimmed].length > 64) {
+    return { refused: "a group name has at most 64 characters" };
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === "ungrouped") {
+    return { refused: '"Ungrouped" is the name of the repos in no group' };
+  }
+  const taken = groups.find((group) => group.id !== own && group.name.toLowerCase() === lower);
+  return taken === undefined ? { name: trimmed } : { refused: `a group named "${taken.name}" exists already` };
+}
+
+/** `repos` inserted into `members` at `at`, or at the end; members among them move there. */
+function placeRepos(members: RepoId[], repos: RepoId[], at: number | null): RepoId[] {
+  const moved = [...new Set(repos)];
+  const others = members.filter((member) => !moved.includes(member));
+  const index = at === null ? others.length : Math.min(at, others.length);
+  return [...others.slice(0, index), ...moved, ...others.slice(index)];
+}
+
+/**
+ * Applies `change` to the groups of open workspace `workspaceId`, keeps the
+ * result, sends `workspace_changed` and answers with `data`, like the core.
+ */
+function changeGroups<T>(
+  workspaceId: WorkspaceId,
+  change: (groups: GroupView[], workspace: WorkspaceView) => { groups: GroupView[]; data: T } | { refused: string },
+) {
+  const workspace = openWorkspace(workspaceId);
+  if (workspace === undefined) {
+    return notFound(`no open workspace has the id ${workspaceId}`);
+  }
+  const result = change(workspace.groups, workspace);
+  if ("refused" in result) {
+    return nameRefused(result.refused);
+  }
+  const changed = { ...workspace, groups: result.groups };
+  setFakeWorkspace(changed);
+  emitWorkspaceChanged(changed);
+  return Promise.resolve({ status: "ok" as const, data: result.data });
+}
+
+/** Like the core's group changes (GRP-2, GRP-3): only the workspace changes. */
+const fakeGroupCommands: Pick<
+  Core["commands"],
+  | "groupCreate"
+  | "groupRename"
+  | "groupDelete"
+  | "groupAddRepos"
+  | "groupRemoveRepos"
+  | "groupMoveRepos"
+  | "groupMoveRepoBetween"
+  | "groupReorder"
+> = {
+  groupCreate: (workspaceId, name, repoIds) =>
+    changeGroups(workspaceId, (groups) => {
+      const checked = checkGroupName(groups, name, null);
+      if ("refused" in checked) {
+        return checked;
+      }
+      const used = groups.map((group) => Number(group.id.slice(1))).filter(Number.isFinite);
+      const id = `g${Math.max(0, ...used) + 1}`;
+      return { groups: [...groups, { id, name: checked.name, repos: [...new Set(repoIds)] }], data: id };
+    }),
+  groupRename: (workspaceId, groupId, name) =>
+    changeGroups(workspaceId, (groups, workspace) => {
+      const checked = checkGroupName(groups, name, groupId);
+      if ("refused" in checked) {
+        return checked;
+      }
+      const newName = checked.name;
+      const renamed = groups.map((group) => (group.id === groupId ? { ...group, name: newName } : group));
+      return { groups: renamed, data: { ...workspace, groups: renamed } };
+    }),
+  groupDelete: (workspaceId, groupId) =>
+    changeGroups(workspaceId, (groups, workspace) => {
+      const kept = groups.filter((group) => group.id !== groupId);
+      return { groups: kept, data: { ...workspace, groups: kept } };
+    }),
+  groupAddRepos: (workspaceId, groupId, repoIds, at) =>
+    changeGroups(workspaceId, (groups, workspace) => {
+      const changed = groups.map((group) =>
+        group.id === groupId ? { ...group, repos: placeRepos(group.repos, repoIds, at) } : group,
+      );
+      return { groups: changed, data: { ...workspace, groups: changed } };
+    }),
+  groupRemoveRepos: (workspaceId, groupId, repoIds) =>
+    changeGroups(workspaceId, (groups, workspace) => {
+      const changed = groups.map((group) =>
+        group.id === groupId ? { ...group, repos: group.repos.filter((repo) => !repoIds.includes(repo)) } : group,
+      );
+      return { groups: changed, data: { ...workspace, groups: changed } };
+    }),
+  groupMoveRepos: (workspaceId, groupId, repoIds, at) =>
+    changeGroups(workspaceId, (groups, workspace) => {
+      const changed = groups.map((group) =>
+        group.id === groupId ? { ...group, repos: placeRepos(group.repos, repoIds, at) } : group,
+      );
+      return { groups: changed, data: { ...workspace, groups: changed } };
+    }),
+  groupMoveRepoBetween: (workspaceId, repoId, from, to, at) =>
+    changeGroups(workspaceId, (groups, workspace) => {
+      const changed = groups.map((group) => {
+        if (group.id === from) {
+          return { ...group, repos: group.repos.filter((repo) => repo !== repoId) };
+        }
+        return group.id === to ? { ...group, repos: placeRepos(group.repos, [repoId], at) } : group;
+      });
+      return { groups: changed, data: { ...workspace, groups: changed } };
+    }),
+  groupReorder: (workspaceId, groupIds) =>
+    changeGroups<WorkspaceView>(workspaceId, (groups, workspace) => {
+      const ordered = groupIds.flatMap((id) => groups.filter((group) => group.id === id));
+      if (ordered.length !== groups.length || new Set(groupIds).size !== groupIds.length) {
+        return { refused: "the group order must name each group once" };
+      }
+      return { groups: ordered, data: { ...workspace, groups: ordered } };
+    }),
+};
 
 /** Like the core's tab changes, for the fake's workspace files (UI-27, UI-28). */
 const fakeTabCommands: Pick<
@@ -1443,6 +1595,7 @@ export const fake: Core = {
     },
     workspaceGet: () => Promise.resolve({ status: "ok", data: fakeTabs() }),
     ...fakeTabCommands,
+    ...fakeGroupCommands,
     workspaceAddPath: (workspaceId, path) => {
       if (workspaceId !== fakeState.workspace.id) {
         return notFound(`no open workspace has the id ${workspaceId}`);
@@ -1503,9 +1656,9 @@ export const fake: Core = {
       if (workspace === undefined) {
         return notFound(`no open workspace has the id ${workspaceId}`);
       }
-      return Promise.resolve({ status: "ok", data: skeleton(workspace) });
+      return Promise.resolve({ status: "ok", data: skeleton(workspace, fakeState.summaries) });
     },
-    refsGet: (workspaceId, repoId) => {
+    refsGet: (workspaceId, repoId, groupId) => {
       if (!openWorkspace(workspaceId)?.repos.some((repo) => repo.id === repoId)) {
         return notFound(`the workspace has no repo with the id ${repoId}`);
       }
@@ -1517,14 +1670,21 @@ export const fake: Core = {
           error: { code: "internal", message: `cannot read the refs of ${repoId}`, git_stderr: null },
         });
       }
-      return Promise.resolve({ status: "ok", data: refs });
+      return Promise.resolve({ status: "ok", data: inPlace(refs, groupId) });
+    },
+    groupBranches: (workspaceId, groupId) => {
+      const group = openWorkspace(workspaceId)?.groups.find((known) => known.id === groupId);
+      if (group === undefined) {
+        return notFound(`the workspace has no group with the id ${groupId}`);
+      }
+      return Promise.resolve({ status: "ok", data: groupBranchNodes(group, fakeState.refs) });
     },
     treeFilter: (workspaceId, text) => {
       const workspace = openWorkspace(workspaceId);
       if (workspace === undefined) {
         return notFound(`no open workspace has the id ${workspaceId}`);
       }
-      return Promise.resolve({ status: "ok", data: filterTree(workspace, fakeState.refs, text) });
+      return Promise.resolve({ status: "ok", data: filterTree(workspace, fakeState.refs, text, fakeState.summaries) });
     },
     historyGet: (workspaceId, repoId, target, text) => {
       const repo = openWorkspace(workspaceId)?.repos.find((candidate) => candidate.id === repoId);
@@ -1964,5 +2124,6 @@ export const fake: Core = {
     workspaceAddReport: fakeEvent(workspaceAddReportListeners),
     workspaceChanged: fakeEvent(workspaceChangedListeners),
     workspacesChanged: fakeEvent(workspacesChangedListeners),
+    groupSummary: fakeEvent(groupSummaryListeners),
   },
 };

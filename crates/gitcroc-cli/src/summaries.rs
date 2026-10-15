@@ -44,7 +44,7 @@ pub fn parse_args(args: &[OsString]) -> Option<Options> {
 }
 
 /// The cache dir given on the command line.
-struct GivenCacheDir(PathBuf);
+pub(crate) struct GivenCacheDir(pub PathBuf);
 
 impl CacheDir for GivenCacheDir {
     fn cache_dir(&self) -> Option<PathBuf> {
