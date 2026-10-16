@@ -247,8 +247,15 @@ export function createChangesStore(settings: () => ChangesSettings) {
         selection.kind === "merged_uncommitted"
           ? await changesGetMerged(id, selection.target)
           : await changesGet(id, selection.repo_id, target);
-      if (view === null || viewRequests.get(id) !== request) {
+      if (viewRequests.get(id) !== request) {
         return;
+      }
+      if (view === null) {
+        // A read the core began later took over, yet this is the newest one
+        // sent: the core runs commands concurrently, so an older read can
+        // begin last, and its answer is dropped above. Ask again, or the
+        // list stays as it was (OPS-7).
+        return load(id, keep);
       }
       keeping.delete(id);
       // The same file in the same list, else in the other list, as after

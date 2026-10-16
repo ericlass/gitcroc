@@ -265,6 +265,13 @@ export const fakeState: {
   )[];
   /** How long each `changes_get` and `diff_get` takes, in ms. */
   changesDelay: number;
+  /**
+   * `changes_get` calls wait in `heldChanges` instead of starting, so a test can start them in another order than
+   * they were sent, as the real core's concurrent commands may.
+   */
+  holdChanges: boolean;
+  /** The held `changes_get` calls, oldest first; calling one starts it. */
+  heldChanges: (() => void)[];
   /** Every `workspace_set_layout`, oldest first. */
   layouts: PaneLayout[];
   /** Every `workspace_refresh`, oldest first. */
@@ -365,6 +372,8 @@ export const fakeState: {
   workingCopies: {},
   changesCalls: [],
   changesDelay: 0,
+  holdChanges: false,
+  heldChanges: [],
   layouts: [],
   refreshes: [],
   watchWarning: null,
@@ -1163,6 +1172,8 @@ export function reset(): void {
   fakeState.fsmonitorOffers = {};
   fakeState.fsmonitorAnswers = [];
   fakeState.changesDelay = 0;
+  fakeState.holdChanges = false;
+  fakeState.heldChanges = [];
   fakeState.layouts = [];
   fakeState.refreshes = [];
   fakeState.watchWarning = null;
@@ -1219,6 +1230,12 @@ const later = <T>(value: T): Promise<T> =>
 /** Resolves after the fake's changes delay. */
 const slowly = <T>(value: () => T): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value()), fakeState.changesDelay));
+
+/** Runs `start` now, or when the test starts it while `holdChanges` is on. */
+const held = <T>(start: () => Promise<T>): Promise<T> =>
+  fakeState.holdChanges
+    ? new Promise((resolve) => fakeState.heldChanges.push(() => resolve(start())))
+    : start();
 
 /** The commit view of `hash` against parent `parent`, from the fake state or the defaults. */
 function commitContent(hash: string, parent: number): { content: ChangesContent; files: FakeFile[] } {
@@ -2019,43 +2036,44 @@ export const fake: Core = {
       setFakeWorkspace({ ...workspace, layout });
       return Promise.resolve({ status: "ok", data: null });
     },
-    changesGet: (workspaceId, repoId, target) => {
-      if (!openWorkspace(workspaceId)?.repos.some((repo) => repo.id === repoId)) {
-        return notFound(`the workspace has no repo with the id ${repoId}`);
-      }
-      fakeState.changesCalls.push({ command: "changes", repo: repoId, target });
-      const handle = nextHandle++;
-      let content: ChangesContent;
-      let lists: Partial<Record<FileRef["list"], FakeFile[]>>;
-      let unmerged: string[] = [];
-      if (target.kind === "commit") {
-        const commit = commitContent(target.hash, target.parent);
-        content = commit.content;
-        lists = { commit: commit.files };
-      } else {
-        const working = fakeState.workingCopies[repoId] ?? { staged: [], unstaged: [], unmerged: [] };
-        const staged = numbered(working.staged);
-        const unstaged = numbered(working.unstaged);
-        content = {
-          kind: "uncommitted",
-          staged: staged.map((file, id) => ({ id, ...file.file })),
-          unstaged: unstaged.map((file, id) => ({ id, ...file.file })),
-          unmerged: working.unmerged.map((file, id) => ({ id, ...file })),
-          last_message: working.lastMessage === undefined ? LAST_MESSAGE : working.lastMessage,
-          in_conflict: working.inConflict ?? false,
-          offer_fsmonitor: fakeState.fsmonitorOffers[repoId] ?? null,
-        };
-        lists = { staged, unstaged };
-        unmerged = working.unmerged.map((file) => file.path);
-      }
-      views.set(workspaceId, [{ handle, lists, unmerged, repo: repoId }]);
-      imageFiles.delete(workspaceId);
-      // Like the core: `null` once a newer view of the workspace began.
-      return slowly(() => ({
-        status: "ok" as const,
-        data: viewPart(workspaceId, handle) !== undefined ? { handle, content } : null,
-      }));
-    },
+    changesGet: (workspaceId, repoId, target) =>
+      held<Awaited<ReturnType<Core["commands"]["changesGet"]>>>(() => {
+        if (!openWorkspace(workspaceId)?.repos.some((repo) => repo.id === repoId)) {
+          return notFound(`the workspace has no repo with the id ${repoId}`);
+        }
+        fakeState.changesCalls.push({ command: "changes", repo: repoId, target });
+        const handle = nextHandle++;
+        let content: ChangesContent;
+        let lists: Partial<Record<FileRef["list"], FakeFile[]>>;
+        let unmerged: string[] = [];
+        if (target.kind === "commit") {
+          const commit = commitContent(target.hash, target.parent);
+          content = commit.content;
+          lists = { commit: commit.files };
+        } else {
+          const working = fakeState.workingCopies[repoId] ?? { staged: [], unstaged: [], unmerged: [] };
+          const staged = numbered(working.staged);
+          const unstaged = numbered(working.unstaged);
+          content = {
+            kind: "uncommitted",
+            staged: staged.map((file, id) => ({ id, ...file.file })),
+            unstaged: unstaged.map((file, id) => ({ id, ...file.file })),
+            unmerged: working.unmerged.map((file, id) => ({ id, ...file })),
+            last_message: working.lastMessage === undefined ? LAST_MESSAGE : working.lastMessage,
+            in_conflict: working.inConflict ?? false,
+            offer_fsmonitor: fakeState.fsmonitorOffers[repoId] ?? null,
+          };
+          lists = { staged, unstaged };
+          unmerged = working.unmerged.map((file) => file.path);
+        }
+        views.set(workspaceId, [{ handle, lists, unmerged, repo: repoId }]);
+        imageFiles.delete(workspaceId);
+        // Like the core: `null` once a newer view of the workspace began.
+        return slowly(() => ({
+          status: "ok" as const,
+          data: viewPart(workspaceId, handle) !== undefined ? { handle, content } : null,
+        }));
+      }),
     // Like the core: one part per dirty repo of the target set, each with its own handle (UI-34).
     changesGetMerged: async (workspaceId, target) => {
       const workspace = openWorkspace(workspaceId);
