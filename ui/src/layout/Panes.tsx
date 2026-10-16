@@ -11,6 +11,7 @@ import type { RepoId, WorkspaceId } from "../ipc";
 import type { BranchStore } from "../stores/branch";
 import type { StashStore } from "../stores/stash";
 import type { CloneStore } from "../stores/clone";
+import type { ShareStore } from "../stores/share";
 import type { RemoteStore } from "../stores/remote";
 import type { TagStore } from "../stores/tag";
 import type { ResetStore } from "../stores/reset";
@@ -43,6 +44,7 @@ export default function Panes(props: {
   tag: TagStore;
   remote: RemoteStore;
   clone: CloneStore;
+  share: ShareStore;
   groupOps: GroupOpStore;
   reset: ResetStore;
   integrate: IntegrateStore;
@@ -141,6 +143,7 @@ export default function Panes(props: {
           tag={props.tag}
           remote={props.remote}
           clone={props.clone}
+          share={props.share}
           groupOps={props.groupOps}
         />
       </section>

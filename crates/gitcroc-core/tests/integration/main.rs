@@ -19,6 +19,7 @@ mod jobs;
 mod remote;
 mod reset;
 mod settings;
+mod share;
 mod stage;
 mod stash;
 mod summaries;

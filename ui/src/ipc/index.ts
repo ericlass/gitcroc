@@ -50,6 +50,8 @@ export type {
   ChangeAction,
   ChoiceKind,
   ChooseRequest,
+  CloneGroup,
+  CloneParentPickedEvent,
   CloneReport,
   CloneRequest,
   Conflict,
@@ -178,6 +180,9 @@ export type {
   WorkspaceListItem,
   WorkspaceTabs,
   WorkspaceView,
+  ExportReport,
+  ImportReport,
+  MissingRepo,
 } from "./bindings";
 
 // A build-time constant, so production builds drop the fake.
@@ -220,6 +225,16 @@ export const workspaceCreate = (name: string) => unwrap(core.commands.workspaceC
 export const workspaceOpen = (workspaceId: WorkspaceId) => unwrap(core.commands.workspaceOpen(workspaceId));
 
 export const workspaceClose = (workspaceId: WorkspaceId) => unwrap(core.commands.workspaceClose(workspaceId));
+
+/** Opens the save dialog; how the export went arrives as `workspace_exported` (DATA-2, SEC-2). */
+export const workspaceExport = (workspaceId: WorkspaceId) => unwrap(core.commands.workspaceExport(workspaceId));
+
+/** Opens the open dialog; how the import went arrives as `workspace_imported` (DATA-2, SEC-2). */
+export const workspaceImport = () => unwrap(core.commands.workspaceImport());
+
+/** The repos whose folder is missing or is no repo, with their remote and default target (DATA-2). */
+export const workspaceMissingRepos = (workspaceId: WorkspaceId) =>
+  unwrap(core.commands.workspaceMissingRepos(workspaceId));
 
 export const workspaceRename = (workspaceId: WorkspaceId, name: string) =>
   unwrap(core.commands.workspaceRename(workspaceId, name));
@@ -423,14 +438,19 @@ export const fsmonitorEnable = (workspaceId: WorkspaceId, repoId: RepoId) =>
 export const fsmonitorDecline = (workspaceId: WorkspaceId, repoId: RepoId) =>
   unwrap(core.commands.fsmonitorDecline(workspaceId, repoId));
 
-/** Opens the folder dialog for a clone's parent folder; the pick arrives as `clone_parent_picked` (SEC-2). */
-export const clonePickParent = (workspaceId: WorkspaceId) => unwrap(core.commands.clonePickParent(workspaceId));
+/**
+ * Opens the folder dialog for a clone's parent folder; the pick arrives as `clone_parent_picked` with `key`, which
+ * names a target of the missing repos dialog, or is `null` for the clone dialog (SEC-2).
+ */
+export const clonePickParent = (workspaceId: WorkspaceId, key: string | null = null) =>
+  unwrap(core.commands.clonePickParent(workspaceId, key));
 
 /** The folder a clone of `url` gets by default, or `null`. */
 export const cloneDefaultName = (url: string) => unwrap(core.commands.cloneDefaultName(url));
 
-/** Why a clone into folder `name` of `parent` would be refused, or `null`. */
-export const cloneTargetCheck = (parent: string, name: string) => unwrap(core.commands.cloneTargetCheck(parent, name));
+/** Why a clone into folder `name` of `parent` would be refused, or `null`; `createsParent` for a missing repo's. */
+export const cloneTargetCheck = (parent: string, name: string, createsParent = false) =>
+  unwrap(core.commands.cloneTargetCheck(parent, name, createsParent));
 
 export const cloneStart = (workspaceId: WorkspaceId, request: CloneRequest) =>
   unwrap(core.commands.cloneStart(workspaceId, request));

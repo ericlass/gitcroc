@@ -97,7 +97,7 @@ test("UI-27 with every tab closed the window shows that no workspace is open", a
   const start = screen.getByRole("group", { name: "Workspaces" });
   expect(await within(start).findByRole("button", { name: /^My workspace/ })).toBeDefined();
   expect(within(start).getByRole("button", { name: "New workspace…" })).toBeDefined();
-  expect((within(start).getByRole("button", { name: "Import workspace…" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(start).getByRole("button", { name: "Import workspace…" }) as HTMLButtonElement).disabled).toBe(false);
   fireEvent.click(within(start).getByRole("button", { name: /^My workspace/ }));
   expect(await screen.findByRole("region", { name: "Tree" })).toBeDefined();
 });

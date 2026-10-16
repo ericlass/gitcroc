@@ -1,7 +1,6 @@
 // What the tab bar's "+" offers (UI-28): every workspace file, open ones
-// marked, to open or switch to (UI-27); New workspace; Import workspace,
-// disabled until import exists (M3-14); and Delete for a workspace that is
-// not open. The same entries show as a menu below "+" and as buttons when no
+// marked, to open or switch to (UI-27); New workspace; Import workspace
+// (DATA-2); and Delete for a workspace that is not open. The same entries show as a menu below "+" and as buttons when no
 // tab is open. The core lists, sorts and opens; this shows what it says.
 import { createEffect, createResource, For, type JSX, on, onCleanup, Show } from "solid-js";
 import type { ConfigWarning, WorkspaceListItem } from "../ipc";
@@ -28,6 +27,7 @@ function Entries(props: {
   onOpen: (item: WorkspaceListItem) => void;
   onDelete: (item: WorkspaceListItem) => void;
   onNew: () => void;
+  onImport: () => void;
 }) {
   return (
     <>
@@ -68,7 +68,7 @@ function Entries(props: {
       <button type="button" role={props.role} onClick={() => props.onNew()}>
         New workspace…
       </button>
-      <button type="button" role={props.role} disabled title="Arrives with import and export of workspaces">
+      <button type="button" role={props.role} onClick={() => props.onImport()}>
         Import workspace…
       </button>
     </>
@@ -80,6 +80,8 @@ interface MenuProps {
   dialogs: WorkspaceDialogs;
   /** Says why a workspace did not open. */
   onError: (message: string) => void;
+  /** Asks the core to import a workspace file. */
+  onImport: () => void;
   /** Called once an entry was chosen. */
   onClose?: () => void;
 }
@@ -104,13 +106,17 @@ function createEntries(props: MenuProps) {
     done();
     props.dialogs.open({ kind: "new" });
   };
+  const importFile = () => {
+    done();
+    props.onImport();
+  };
 
   const entries = (role: "menuitem" | undefined): JSX.Element => (
     <>
       <Show when={items.error as unknown}>
         <p role="alert">Cannot list the workspaces: {message(items.error)}</p>
       </Show>
-      <Entries role={role} items={items.latest ?? []} onOpen={open} onDelete={remove} onNew={create} />
+      <Entries role={role} items={items.latest ?? []} onOpen={open} onDelete={remove} onNew={create} onImport={importFile} />
     </>
   );
   return { items, done, entries };

@@ -4,6 +4,7 @@ import { fakeState, reset } from "../ipc/fake";
 import { type FakeRefs, refNodes, summary } from "../ipc/fakeTree";
 import { createBranchStore } from "../stores/branch";
 import { createCloneStore } from "../stores/clone";
+import { createShareStore } from "../stores/share";
 import { createGroupOpStore } from "../stores/groupOps";
 import { createRemoteStore } from "../stores/remote";
 import { createStashStore } from "../stores/stash";
@@ -70,6 +71,7 @@ async function setup(change: { busy?: boolean } = {}) {
         tag={createTagStore()}
         remote={createRemoteStore()}
         clone={createCloneStore(() => {})}
+        share={createShareStore()}
         groupOps={createGroupOpStore()}
       />
       <BranchDialogs workspace={id()} branch={branch} repoName={() => "api"} />

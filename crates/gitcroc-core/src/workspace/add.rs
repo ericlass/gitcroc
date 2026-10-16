@@ -230,13 +230,13 @@ fn find<F: FnMut(JobProgress)>(
 }
 
 /// A repo that can be added: its canonical working tree and its remote.
-struct Candidate {
-    path: PathBuf,
-    remote: Option<String>,
+pub(super) struct Candidate {
+    pub(super) path: PathBuf,
+    pub(super) remote: Option<String>,
 }
 
 /// Opens the folder at `path` and checks it can be added.
-fn check(path: &Path, git: &GitRunner) -> Result<Candidate, Refusal> {
+pub(super) fn check(path: &Path, git: &GitRunner) -> Result<Candidate, Refusal> {
     let inspected = inspect(path, git).map_err(|error| Refusal::new(path, error.to_string()))?;
     let work_dir = dunce::canonicalize(&inspected.work_dir)
         .map_err(|error| Refusal::new(path, format!("cannot open it: {error}")))?;
@@ -300,20 +300,20 @@ fn insert(
 }
 
 /// A repo's path and folder identity, when the folder exists.
-struct Known {
+pub(super) struct Known {
     path: PathBuf,
     identity: Option<Identity>,
 }
 
 impl Known {
-    fn new(path: &Path) -> Self {
+    pub(super) fn new(path: &Path) -> Self {
         Self {
             path: path.to_owned(),
             identity: identity(path),
         }
     }
 
-    fn matches(&self, other: &Self) -> bool {
+    pub(super) fn matches(&self, other: &Self) -> bool {
         self.path == other.path || (self.identity.is_some() && self.identity == other.identity)
     }
 }

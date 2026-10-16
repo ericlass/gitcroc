@@ -26,6 +26,7 @@ import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
 import StashDialogs, { StashOffer } from "./stash/StashDialogs";
 import CloneDialog from "./clone/CloneDialog";
+import MissingReposDialog from "./clone/MissingReposDialog";
 import RemoteDialogs from "./remote/RemoteDialogs";
 import TagDialogs from "./tag/TagDialogs";
 import ResetDialogs from "./reset/ResetDialogs";
@@ -47,6 +48,7 @@ import { createSelectionStore } from "./stores/selection";
 import { createSettingsStore } from "./stores/settings";
 import { createStashStore } from "./stores/stash";
 import { createCloneStore } from "./stores/clone";
+import { createShareStore } from "./stores/share";
 import { createRemoteStore } from "./stores/remote";
 import { createTagStore } from "./stores/tag";
 import { createResetStore } from "./stores/reset";
@@ -94,6 +96,7 @@ export default function App() {
   const remote = createRemoteStore();
   // A clone added to the workspace is selected (section 6 "Repos").
   const clone = createCloneStore((id, repo) => tree.selectRepo(id, repo));
+  const share = createShareStore();
   const reset = createResetStore();
   // An aborted stash apply leaves nothing to offer dropping.
   const integrate = createIntegrateStore((id, repo) => stash.forget(id, repo));
@@ -387,6 +390,7 @@ export default function App() {
       commit.subscribe(),
       stash.subscribe(),
       clone.subscribe(),
+      share.subscribe(),
     ];
     onCleanup(() => {
       for (const pending of unlisten) {
@@ -415,7 +419,17 @@ export default function App() {
       </Match>
       <Match when={true}>
         <div class="app">
-          <TabBar workspaces={workspaces} jobs={jobs} dialogs={workspaceDialogs} onClose={closeTab} />
+          <TabBar workspaces={workspaces} jobs={jobs} dialogs={workspaceDialogs} share={share} onClose={closeTab} />
+          <Show when={share.state.notice}>
+            {(notice) => (
+              <div role={notice().error ? "alert" : "status"} class="banner banner-dismissible">
+                <span>{notice().text}</span>
+                <button type="button" onClick={() => share.dismiss()}>
+                  Dismiss
+                </button>
+              </div>
+            )}
+          </Show>
           <Show when={!missingDismissed() && workspaces.state.missing.length > 0}>
             <div role="alert" class="banner banner-dismissible">
               <span>
@@ -481,7 +495,12 @@ export default function App() {
                     <div class="empty-state">
                       <p class="placeholder">No workspace is open. Open one or create a new one.</p>
                       <Show when={startError()}>{(text) => <p role="alert">{text()}</p>}</Show>
-                      <WorkspaceStart workspaces={workspaces} dialogs={workspaceDialogs} onError={setStartError} />
+                      <WorkspaceStart
+                        workspaces={workspaces}
+                        dialogs={workspaceDialogs}
+                        onError={setStartError}
+                        onImport={() => share.importWorkspace()}
+                      />
                     </div>
                   }
                 >
@@ -513,6 +532,7 @@ export default function App() {
                     tag={tag}
                     remote={remote}
                     clone={clone}
+                    share={share}
                     groupOps={groupOps}
                     reset={reset}
                     integrate={integrate}
@@ -525,7 +545,10 @@ export default function App() {
                 <TagDialogs workspace={id} tag={tag} repoName={repoName} />
                 <RemoteDialogs workspace={id} remote={remote} repoName={repoName} />
                 <Show when={clone.isOpen(id)}>
-                  <CloneDialog workspace={id} clone={clone} />
+                  <CloneDialog workspace={id} clone={clone} groups={workspace()?.groups ?? []} />
+                </Show>
+                <Show when={share.missingOpen(id)}>
+                  <MissingReposDialog workspace={id} share={share} />
                 </Show>
                 <ResetDialogs workspace={id} reset={reset} repoName={repoName} />
                 <IntegrateDialogs workspace={id} integrate={integrate} repoName={repoName} branchOf={branchOf} />

@@ -3,6 +3,12 @@
 //! kills (GRP-10), then added to the workspace as a folder is (GRP-1). The
 //! URL, the folder name and the target are checked before git runs; a
 //! clone that fails or is cancelled leaves nothing behind it created.
+//!
+//! A clone can instead fill in a workspace repo whose folder is missing,
+//! as after an import (DATA-2): the repo keeps its id and groups, and the
+//! folders above the target that do not exist yet are created first. A
+//! clone can also add its repo to a group, an existing one or a new one
+//! named as GRP-2 says (section 6 "Repos").
 
 use std::fs;
 use std::io;
@@ -17,7 +23,8 @@ use tokio::sync::oneshot;
 use crate::job::git_ending;
 use crate::remote::check_url;
 use crate::{
-    JobError, JobId, Jobs, Outcome, RepoView, WorkspaceError, WorkspaceId, Workspaces, add_path,
+    GroupId, JobError, JobId, Jobs, Outcome, RepoId, RepoView, WorkspaceError, WorkspaceId,
+    Workspaces, add_path,
 };
 
 /// How often a folder that cannot be removed yet, as on Windows while a
@@ -32,6 +39,22 @@ pub struct CloneRequest {
     pub url: String,
     pub parent: PathBuf,
     pub name: String,
+    /// The missing repo the clone fills in, keeping its id and groups,
+    /// instead of adding a new one (DATA-2). `parent` and the folders
+    /// above it are created when they do not exist.
+    pub repo: Option<RepoId>,
+    /// The group the cloned repo joins.
+    pub group: Option<CloneGroup>,
+}
+
+/// The group a cloned repo joins (section 6 "Repos").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CloneGroup {
+    /// A group of the workspace, at its end.
+    Existing { group_id: GroupId },
+    /// A new last group with the repo alone, named as GRP-2 says.
+    New { name: String },
 }
 
 /// How a clone ended.
@@ -42,6 +65,9 @@ pub struct CloneReport {
     /// The cloned repo, now in the workspace, to select; `None` when the
     /// clone failed, was cancelled or could not be added.
     pub repo: Option<RepoView>,
+    /// Why the clone failed or what went wrong after it, as the job's
+    /// message says, with git's message when git failed.
+    pub message: Option<String>,
 }
 
 /// A started clone: its job, and its report once it ended.
@@ -94,27 +120,68 @@ fn folder_name_error(name: &str) -> Option<&'static str> {
     }
 }
 
-/// The folder `name` of `parent` a clone goes to, and whether it exists
-/// already, empty; or why it cannot.
-fn check_target(parent: &Path, name: &str) -> Result<(PathBuf, bool), String> {
+/// Where a clone goes.
+#[derive(Debug)]
+struct Target {
+    path: PathBuf,
+    /// The folder exists already, empty.
+    existed: bool,
+    /// The topmost of the folders above `path` that do not exist yet, which
+    /// the clone creates first.
+    create: Option<PathBuf>,
+}
+
+/// The topmost folder of `path` and its parents that does not exist, below
+/// one that does; or why there is none.
+fn first_missing(path: &Path) -> Result<PathBuf, String> {
+    let mut top = path.to_owned();
+    for folder in path.ancestors().skip(1) {
+        if folder.as_os_str().is_empty() {
+            break;
+        }
+        match fs::metadata(folder) {
+            Ok(metadata) if metadata.is_dir() => return Ok(top),
+            Ok(_) => return Err(format!("{} is not a folder", folder.display())),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => top = folder.to_owned(),
+            Err(error) => return Err(format!("cannot open {}: {error}", folder.display())),
+        }
+    }
+    Err(format!("no folder of {} exists", path.display()))
+}
+
+/// The folder `name` of `parent` a clone goes to, or why it cannot. A
+/// `parent` that does not exist is refused, unless `creates_parent`.
+fn check_target(parent: &Path, name: &str, creates_parent: bool) -> Result<Target, String> {
     if let Some(why) = folder_name_error(name) {
         return Err(why.to_owned());
     }
+    let target = parent.join(name);
     match fs::metadata(parent) {
         Ok(metadata) if metadata.is_dir() => {}
         Ok(_) => return Err(format!("{} is not a folder", parent.display())),
+        Err(error) if creates_parent && error.kind() == io::ErrorKind::NotFound => {
+            return Ok(Target {
+                path: target,
+                existed: false,
+                create: Some(first_missing(parent)?),
+            });
+        }
         Err(error) => return Err(format!("cannot open {}: {error}", parent.display())),
     }
-    let target = parent.join(name);
+    let found = |existed| Target {
+        path: target.clone(),
+        existed,
+        create: None,
+    };
     // The entry itself: a symlink is never cloned into.
     match fs::symlink_metadata(&target) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok((target, false)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(found(false)),
         Err(error) => Err(format!("cannot open {}: {error}", target.display())),
         Ok(metadata) if !metadata.is_dir() => {
             Err(format!("{} exists and is not a folder", target.display()))
         }
         Ok(_) => match fs::read_dir(&target).map(|mut entries| entries.next().is_none()) {
-            Ok(true) => Ok((target, true)),
+            Ok(true) => Ok(found(true)),
             Ok(false) => Err(format!(
                 "the folder {} exists and is not empty",
                 target.display()
@@ -125,9 +192,15 @@ fn check_target(parent: &Path, name: &str) -> Result<(PathBuf, bool), String> {
 }
 
 /// Why a clone into folder `name` of `parent` would be refused, or `None`,
-/// for the dialog to show as the user types. Reads the disk.
-pub async fn clone_target_check(parent: PathBuf, name: String) -> Option<String> {
-    tokio::task::spawn_blocking(move || check_target(&parent, &name).err())
+/// for the dialog to show as the user types; with `creates_parent`, as for
+/// a missing repo, a `parent` that does not exist is not refused. Reads
+/// the disk.
+pub async fn clone_target_check(
+    parent: PathBuf,
+    name: String,
+    creates_parent: bool,
+) -> Option<String> {
+    tokio::task::spawn_blocking(move || check_target(&parent, &name, creates_parent).err())
         .await
         .unwrap_or_else(|error| Some(format!("the check did not finish: {error}")))
 }
@@ -168,10 +241,12 @@ fn remove_clone_retrying(target: &Path, existed: bool) -> io::Result<()> {
 
 /// Clones `request` for workspace `id` as a job and returns at once. The
 /// URL, folder name and target are checked first: a folder that exists and
-/// is not empty is refused before git runs. Cancel kills git (GRP-10). On
-/// success the repo is added to the workspace (GRP-1); a failed or
-/// cancelled clone removes the folder it created, and only that folder, or
-/// empties the one that was empty.
+/// is not empty is refused before git runs, as are a repo to fill in that
+/// is not missing and a group the clone cannot join. Cancel kills git
+/// (GRP-10). On success the repo is added to the workspace (GRP-1), or
+/// fills in the missing one, then joins the group; a failed or cancelled
+/// clone removes the folder it created, and only that folder and those it
+/// created above it, or empties the one that was empty.
 pub async fn clone_start(
     workspaces: Arc<Workspaces>,
     jobs: Arc<Jobs>,
@@ -183,16 +258,58 @@ pub async fn clone_start(
         return Err(WorkspaceError::ReadOnly.into());
     }
     let url = check_url(&request.url).map_err(|why| CloneError::Refused(why.to_owned()))?;
-    let CloneRequest { parent, name, .. } = request;
+    let CloneRequest {
+        parent,
+        name,
+        repo: fill,
+        group,
+        ..
+    } = request;
+    if let Some(group) = &group {
+        workspaces.check_clone_group(&id, group)?;
+    }
     let checked = {
         let (parent, name) = (parent.clone(), name.clone());
-        tokio::task::spawn_blocking(move || check_target(&parent, &name)).await?
+        let (workspaces, id, fill) = (workspaces.clone(), id.clone(), fill.clone());
+        tokio::task::spawn_blocking(move || {
+            if let Some(repo) = &fill
+                && !workspaces.is_missing(&id, repo)?
+            {
+                return Ok(Err(format!(
+                    "the folder of {repo} is a repo already, so it is not cloned"
+                )));
+            }
+            Ok::<_, WorkspaceError>(check_target(&parent, &name, fill.is_some()))
+        })
+        .await??
     };
-    let (target, existed) = checked.map_err(CloneError::Refused)?;
+    let target = checked.map_err(CloneError::Refused)?;
     let tracked = jobs.track_network(&id, &format!("Clone {name}"))?;
     let job_id = tracked.job_id();
     let (sender, ended) = oneshot::channel();
     tokio::spawn(async move {
+        if let Some(top) = target.create.clone() {
+            let folder = parent.clone();
+            let created = tokio::task::spawn_blocking(move || {
+                // What was made before a failure goes again.
+                fs::create_dir_all(&folder).inspect_err(|_| {
+                    let _ = remove_clone(&top, false);
+                })
+            })
+            .await
+            .unwrap_or_else(|error| Err(io::Error::other(error)));
+            if let Err(error) = created {
+                let why = format!("cannot create {}: {error}", parent.display());
+                tracked.end(Outcome::Failed, String::new(), Some(why.clone()));
+                let _ = sender.send(CloneReport {
+                    workspace_id: id,
+                    job_id,
+                    repo: None,
+                    message: Some(why),
+                });
+                return;
+            }
+        }
         let result = {
             let report = |line: &str| {
                 if let Some(progress) = parse_progress(line) {
@@ -203,32 +320,62 @@ pub async fn clone_start(
                 on_line: Some(&report),
                 ..tracked.write()
             };
-            ops::clone(&git, &parent, &url, &target, write).await
+            ops::clone(&git, &parent, &url, &target.path, write).await
         };
         let (outcome, output, mut message) = git_ending(&result);
         let mut repo = None;
         if result.is_ok() {
-            let added = add_path(workspaces, id.clone(), target, git, job_id, |_| {}).await;
-            match added {
-                Ok(report) => {
-                    repo = report
-                        .added
-                        .into_iter()
-                        .chain(report.already_present)
-                        .next();
-                    if repo.is_none() {
-                        message = Some(report.refused.first().map_or_else(
-                            || "the clone was not added to the workspace".to_owned(),
-                            |refusal| format!("the clone was not added: {}", refusal.reason),
-                        ));
-                    }
+            let added = match fill {
+                Some(fill) => {
+                    let (workspaces, id, path, git) = (
+                        workspaces.clone(),
+                        id.clone(),
+                        target.path.clone(),
+                        git.clone(),
+                    );
+                    tokio::task::spawn_blocking(move || {
+                        workspaces.fill_repo(&id, &fill, &path, &git)
+                    })
+                    .await
+                    .unwrap_or_else(|error| Err(error.to_string()))
                 }
-                Err(error) => message = Some(format!("the clone was not added: {error}")),
+                None => {
+                    add(
+                        workspaces.clone(),
+                        id.clone(),
+                        target.path.clone(),
+                        git,
+                        job_id,
+                    )
+                    .await
+                }
+            };
+            match added {
+                Ok(view) => {
+                    if let Some(group) = group {
+                        let (workspaces, id, repo) = (workspaces, id.clone(), view.id.clone());
+                        let joined = tokio::task::spawn_blocking(move || {
+                            workspaces.join_group(&id, &repo, &group)
+                        })
+                        .await
+                        .unwrap_or_else(|error| Err(error.to_string()));
+                        if let Err(why) = joined {
+                            message = Some(format!("the clone was not added to the group: {why}"));
+                        }
+                    }
+                    repo = Some(view);
+                }
+                Err(why) => message = Some(format!("the clone was not added: {why}")),
             }
         } else {
-            let shown = target.display().to_string();
+            let (removed_path, existed) = match &target.create {
+                Some(top) => (top.clone(), false),
+                None => (target.path.clone(), target.existed),
+            };
+            let shown = removed_path.display().to_string();
             let removed =
-                tokio::task::spawn_blocking(move || remove_clone_retrying(&target, existed)).await;
+                tokio::task::spawn_blocking(move || remove_clone_retrying(&removed_path, existed))
+                    .await;
             let failure = match removed {
                 Ok(Ok(())) => None,
                 Ok(Err(error)) => Some(error.to_string()),
@@ -246,15 +393,36 @@ pub async fn clone_start(
         } else {
             outcome
         };
-        tracked.end(outcome, output, message);
+        tracked.end(outcome, output, message.clone());
         // The caller may not wait for the end.
         let _ = sender.send(CloneReport {
             workspace_id: id,
             job_id,
             repo,
+            message,
         });
     });
     Ok(CloneHandle { job_id, ended })
+}
+
+/// Adds the clone at `target` to workspace `id` as a folder is (GRP-1).
+async fn add(
+    workspaces: Arc<Workspaces>,
+    id: WorkspaceId,
+    target: PathBuf,
+    git: GitRunner,
+    job_id: JobId,
+) -> Result<RepoView, String> {
+    let report = add_path(workspaces, id, target, git, job_id, |_| {})
+        .await
+        .map_err(|error| error.to_string())?;
+    let first = report.refused.first().map(|refusal| refusal.reason.clone());
+    report
+        .added
+        .into_iter()
+        .chain(report.already_present)
+        .next()
+        .ok_or_else(|| first.unwrap_or_else(|| "it was not found in the folder".to_owned()))
 }
 
 #[cfg(test)]

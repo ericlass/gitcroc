@@ -19,6 +19,10 @@ import type {
   CloneParentPickedEvent,
   CloneReport,
   CloneRequest,
+  ExportReport,
+  MissingRepo,
+  WorkspaceExportedEvent,
+  WorkspaceImportedEvent,
   CommitGraphWrittenEvent,
   CommitRequest,
   Conflict,
@@ -170,6 +174,8 @@ const askpassPromptListeners: Listeners<AskpassPrompt> = new Set();
 const askpassClosedListeners: Listeners<AskpassClosedEvent> = new Set();
 const cloneParentPickedListeners: Listeners<CloneParentPickedEvent> = new Set();
 const cloneReportListeners: Listeners<CloneReport> = new Set();
+const workspaceExportedListeners: Listeners<WorkspaceExportedEvent> = new Set();
+const workspaceImportedListeners: Listeners<WorkspaceImportedEvent> = new Set();
 const preflightReadyListeners: Listeners<PreflightReady> = new Set();
 
 /** A repo's part of a changes view: all of a single repo's view, one repo of a merged one. */
@@ -323,6 +329,14 @@ export const fakeState: {
   cloneRequests: CloneRequest[];
   /** What git printed when a clone failed; `null` lets clones succeed. */
   cloneFailure: string | null;
+  /** What `workspace_missing_repos` lists, for every workspace; a clone that fills one in takes it off. */
+  missingRepos: MissingRepo[];
+  /** What the export's save dialog leads to: a report, an error, or `null` for a cancel. */
+  exportAnswer: ExportReport | { error: string } | null;
+  /** Every workspace `workspace_export` was asked for, oldest first. */
+  exports: WorkspaceId[];
+  /** What the import's open dialog leads to: a workspace with its missing repos, an error, or `null` for a cancel. */
+  importAnswer: { workspace: WorkspaceView; missing: RepoId[] } | { error: string } | null;
   /** Every repo opened in the file manager or a terminal, oldest first. */
   opened: { how: "file_manager" | "terminal"; repo: RepoId }[];
   /** Why opening fails; `null` lets it succeed. */
@@ -383,6 +397,10 @@ export const fakeState: {
   folders: {},
   cloneRequests: [],
   cloneFailure: null,
+  missingRepos: [],
+  exportAnswer: null,
+  exports: [],
+  importAnswer: null,
   opened: [],
   openFailure: null,
 };
@@ -1092,6 +1110,10 @@ export function reset(): void {
   fakeState.folders = {};
   fakeState.cloneRequests = [];
   fakeState.cloneFailure = null;
+  fakeState.missingRepos = [];
+  fakeState.exportAnswer = null;
+  fakeState.exports = [];
+  fakeState.importAnswer = null;
   fakeState.opened = [];
   fakeState.openFailure = null;
   fakeState.fileConflicts = {};
@@ -1557,14 +1579,19 @@ function fakeAdd(workspaceId: string, path: string): number {
 }
 
 /**
- * Like the core's clone: refused before anything runs for a bad URL or
- * target; else a job with a transfer step that ends, when it succeeds,
- * with the repo in the workspace, then `clone_report` naming it.
+ * Like the core's clone: refused before anything runs for a bad URL, target
+ * or group; else a job with a transfer step that ends, when it succeeds,
+ * with the repo in the workspace, or filling in the missing one, and in its
+ * group, then `clone_report` naming it.
  */
 function fakeClone(workspaceId: WorkspaceId, request: CloneRequest) {
+  const owner = fakeWorkspaces().find((workspace) => workspace.id === workspaceId) ?? fakeState.workspace;
+  const group = request.group;
+  const named = group?.kind === "new" ? checkGroupName(owner.groups, group.name, null) : null;
   const why =
     (request.url.trim() === "" ? "the URL is empty" : null) ??
-    fakeTargetRefusal(fakeState.folders, request.parent, request.name);
+    fakeTargetRefusal(fakeState.folders, request.parent, request.name) ??
+    (named !== null && "refused" in named ? named.refused : null);
   if (why !== null) {
     return refused(why);
   }
@@ -1585,27 +1612,89 @@ function fakeClone(workspaceId: WorkspaceId, request: CloneRequest) {
     sendJob({ ...job, step: "Receiving objects", done: 1, total: 2 });
     const failure = fakeState.cloneFailure;
     const path = `${request.parent}/${request.name}`;
-    const repo =
-      failure === null
-        ? { id: `r${fakeState.workspace.repos.length + 1}`, name: request.name, path, remote: request.url.trim() }
-        : null;
+    const known = fakeWorkspaces().find((workspace) => workspace.id === workspaceId) ?? fakeState.workspace;
+    const id = request.repo ?? `r${known.repos.length + 1}`;
+    const repo = failure === null ? { id, name: request.name, path, remote: request.url.trim() } : null;
     if (repo !== null) {
-      fakeState.workspace = { ...fakeState.workspace, repos: [...fakeState.workspace.repos, repo] };
+      const repos =
+        request.repo === null
+          ? [...known.repos, repo]
+          : known.repos.map((other) => (other.id === request.repo ? { ...other, path, name: request.name } : other));
+      let groups = known.groups;
+      if (group?.kind === "existing") {
+        groups = groups.map((other) =>
+          other.id === group.group_id ? { ...other, repos: [...other.repos.filter((r) => r !== id), id] } : other,
+        );
+      } else if (group?.kind === "new") {
+        groups = [...groups, { id: `g${groups.length + 1}`, name: group.name.trim(), repos: [id] }];
+      }
+      const changed = { ...known, repos, groups };
+      setFakeWorkspace(changed);
+      fakeState.missingRepos = fakeState.missingRepos.filter((missing) => missing.repo_id !== request.repo);
       fakeState.folders[path] = "full";
-      emitWorkspaceChanged(fakeState.workspace);
+      emitWorkspaceChanged(changed);
     }
+    const message = failure === null ? null : `git exited with code 128: ${failure.trim()}`;
     sendJob({
       ...job,
       state: "ended",
       outcome: repo === null ? { kind: "failed" } : { kind: "succeeded" },
       output: failure ?? `Cloning into '${path}'...\n`,
-      message: failure === null ? null : "git exited with code 128",
+      message,
       duration_ms: 10,
     });
-    emit(cloneReportListeners, "clone_report", { workspace_id: workspaceId, job_id: jobId, repo });
+    emit(cloneReportListeners, "clone_report", { workspace_id: workspaceId, job_id: jobId, repo, message });
   }, 10);
   return Promise.resolve({ status: "ok" as const, data: jobId });
 }
+
+/** Like the core's export, import and missing repos, with the dialogs' answers from `fakeState` (DATA-2). */
+const fakeShareCommands: Pick<Core["commands"], "workspaceExport" | "workspaceImport" | "workspaceMissingRepos"> = {
+  workspaceExport: (workspaceId) => {
+    if (openWorkspace(workspaceId) === undefined) {
+      return notFound(`no open workspace has the id ${workspaceId}`);
+    }
+    fakeState.exports.push(workspaceId);
+    const answer = fakeState.exportAnswer;
+    if (answer !== null) {
+      const payload =
+        "error" in answer
+          ? { workspace_id: workspaceId, report: null, error: answer.error }
+          : { workspace_id: workspaceId, report: answer, error: null };
+      setTimeout(() => emit(workspaceExportedListeners, "workspace_exported", payload), 0);
+    }
+    return Promise.resolve({ status: "ok", data: null });
+  },
+  workspaceImport: () => {
+    const answer = fakeState.importAnswer;
+    if (answer !== null) {
+      setTimeout(() => {
+        if ("error" in answer) {
+          emit(workspaceImportedListeners, "workspace_imported", { report: null, error: answer.error });
+          return;
+        }
+        // Like the core: " (2)" and so on when the name is taken.
+        const taken = new Set(fakeWorkspaces().map((workspace) => workspace.name.toLowerCase()));
+        let name = answer.workspace.name;
+        for (let number = 2; taken.has(name.toLowerCase()); number++) {
+          name = `${answer.workspace.name} (${number})`;
+        }
+        const workspace = { ...answer.workspace, name };
+        fakeState.others = [...fakeState.others, workspace];
+        fakeState.tabs = [...fakeState.tabs, workspace.id];
+        fakeState.active = workspace.id;
+        emitWorkspacesChanged();
+        const report = { workspace_id: workspace.id, missing: answer.missing };
+        emit(workspaceImportedListeners, "workspace_imported", { report, error: null });
+      }, 0);
+    }
+    return Promise.resolve({ status: "ok", data: null });
+  },
+  workspaceMissingRepos: (workspaceId) =>
+    openWorkspace(workspaceId) === undefined
+      ? notFound(`no open workspace has the id ${workspaceId}`)
+      : Promise.resolve({ status: "ok", data: fakeState.missingRepos }),
+};
 
 /** Like the core's file manager and terminal commands: recorded, or failing with `openFailure`. */
 function fakeOpen(how: "file_manager" | "terminal", repoId: RepoId) {
@@ -1648,6 +1737,7 @@ export const fake: Core = {
     workspaceGet: () => Promise.resolve({ status: "ok", data: fakeTabs() }),
     ...fakeTabCommands,
     ...fakeGroupCommands,
+    ...fakeShareCommands,
     targetRepos: fakeTargetRepos,
     // Unlike the core until the group operations arrive (M3-10 to M3-13):
     // every operation runs, as fakeGroups.ts sets it (M3-09).
@@ -2186,13 +2276,13 @@ export const fake: Core = {
       const jobId = nextJobId++;
       return Promise.resolve({ status: "ok", data: jobId });
     },
-    clonePickParent: (workspaceId) => {
-      if (workspaceId !== fakeState.workspace.id) {
+    clonePickParent: (workspaceId, key) => {
+      if (openWorkspace(workspaceId) === undefined) {
         return notFound(`no open workspace has the id ${workspaceId}`);
       }
       const path = fakeState.cloneParent;
       if (path !== null) {
-        const picked = { workspace_id: workspaceId, path };
+        const picked = { workspace_id: workspaceId, path, key };
         setTimeout(() => emit(cloneParentPickedListeners, "clone_parent_picked", picked), 0);
       }
       return Promise.resolve({ status: "ok", data: null });
@@ -2284,6 +2374,8 @@ export const fake: Core = {
     askpassPrompt: fakeEvent(askpassPromptListeners),
     cloneParentPicked: fakeEvent(cloneParentPickedListeners),
     cloneReport: fakeEvent(cloneReportListeners),
+    workspaceExported: fakeEvent(workspaceExportedListeners),
+    workspaceImported: fakeEvent(workspaceImportedListeners),
     commitGraphWritten: fakeEvent(commitGraphWrittenListeners),
     gitStatus: fakeEvent(gitStatusListeners),
     jobEnded: fakeEvent(jobEndedListeners),

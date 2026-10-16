@@ -85,7 +85,7 @@ test("GRP-1 the clone dialog's folder name follows the URL until edited; the clo
   fireEvent.click(cloneButton(dialog));
   await settleAll();
   expect(fakeState.cloneRequests).toEqual([
-    { url: "https://example.com/team/other.git", parent: "/work", name: "my-lib" },
+    { url: "https://example.com/team/other.git", parent: "/work", name: "my-lib", repo: null, group: null },
   ]);
   expect(screen.queryByRole("dialog", { name: "Clone a repository" })).toBeNull();
 

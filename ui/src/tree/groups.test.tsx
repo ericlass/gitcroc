@@ -6,6 +6,7 @@ import { fakeGroups } from "../ipc/fakeGroups";
 import { refNodes, summary } from "../ipc/fakeTree";
 import { createBranchStore } from "../stores/branch";
 import { createCloneStore } from "../stores/clone";
+import { createShareStore } from "../stores/share";
 import { createGroupOpStore } from "../stores/groupOps";
 import { sourceOf } from "../stores/history";
 import { createRemoteStore } from "../stores/remote";
@@ -104,6 +105,7 @@ async function setup() {
       tag={createTagStore()}
       remote={createRemoteStore()}
       clone={createCloneStore(() => {})}
+      share={createShareStore()}
       groupOps={createGroupOpStore()}
     />
   ));

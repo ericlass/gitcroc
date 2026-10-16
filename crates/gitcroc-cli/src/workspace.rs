@@ -1,6 +1,7 @@
 //! `gitcroc-cli workspace`: show the active workspace, add repos to it and
 //! remove them (GRP-1, GRP-3); list, create, open, close, rename and delete
-//! workspaces (UI-27, UI-33). Prints JSON. Progress goes to stderr.
+//! workspaces (UI-27, UI-33); export one to a file and import one from a
+//! file (DATA-2). Prints JSON. Progress goes to stderr.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ use gitcroc_core::{
 };
 
 pub const USAGE: &str = "workspace [--config-dir <dir>] show|add <path>|remove <repo-id>|list|\
-create <name>|open <id>|close <id>|rename <id> <name>|delete <id>";
+create <name>|open <id>|close <id>|rename <id> <name>|delete <id>|export <id> <file>|import <file>";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -27,6 +28,8 @@ pub enum Action {
     Rename(WorkspaceId, String),
     /// The command line is the confirmation.
     Delete(WorkspaceId),
+    Export(WorkspaceId, PathBuf),
+    Import(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,6 +57,10 @@ pub fn parse_args(args: &[OsString]) -> Option<Options> {
         [action, id] if action == "close" => Action::Close(workspace(id)?),
         [action, id, name] if action == "rename" => Action::Rename(workspace(id)?, text(name)?),
         [action, id] if action == "delete" => Action::Delete(workspace(id)?),
+        [action, id, file] if action == "export" => {
+            Action::Export(workspace(id)?, PathBuf::from(file))
+        }
+        [action, file] if action == "import" => Action::Import(PathBuf::from(file)),
         _ => return None,
     };
     Some(Options { config_dir, action })
@@ -103,6 +110,19 @@ fn act(options: Options) -> Result<String, String> {
         Action::Open(id) => tabs(workspaces.open(&id).map(drop))?,
         Action::Close(id) => tabs(workspaces.close(&id))?,
         Action::Rename(id, name) => tabs(workspaces.rename(&id, &name))?,
+        Action::Export(id, file) => serde_json::to_value(
+            workspaces
+                .export(&id, &file)
+                .map_err(|error| error.to_string())?,
+        ),
+        Action::Import(file) => {
+            let (_, git) = runtime_and_git()?;
+            serde_json::to_value(
+                workspaces
+                    .import(&file, &git)
+                    .map_err(|error| error.to_string())?,
+            )
+        }
         Action::Delete(id) => {
             workspaces
                 .delete(&id, true)
@@ -132,22 +152,14 @@ fn on_active(workspaces: &Arc<Workspaces>, action: Action) -> Result<String, Str
             serde_json::to_value(view)
         }
         Action::Add(path) => {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|error| format!("cannot start the async runtime: {error}"))?;
-            let setup = GitSetup::new();
-            let status = runtime.block_on(setup.detect());
-            let git = runtime
-                .block_on(setup.git())
-                .ok_or_else(|| format!("no usable git: {status:?}"))?;
+            let (runtime, git) = runtime_and_git()?;
             let job = JobIds::default().next();
             let report = runtime
                 .block_on(add_path(
                     workspaces.clone(),
                     workspace.id.clone(),
                     path,
-                    GitRunner::new(git.path),
+                    git,
                     job,
                     |progress| eprintln!("{} {}/{}", progress.label, progress.done, progress.total),
                 ))
@@ -157,6 +169,20 @@ fn on_active(workspaces: &Arc<Workspaces>, action: Action) -> Result<String, Str
         _ => return Err("not an action on the active workspace".to_owned()),
     };
     to_json(value)
+}
+
+/// An async runtime and a runner for the detected git.
+fn runtime_and_git() -> Result<(tokio::runtime::Runtime, GitRunner), String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("cannot start the async runtime: {error}"))?;
+    let setup = GitSetup::new();
+    let status = runtime.block_on(setup.detect());
+    let git = runtime
+        .block_on(setup.git())
+        .ok_or_else(|| format!("no usable git: {status:?}"))?;
+    Ok((runtime, GitRunner::new(git.path)))
 }
 
 fn to_json(value: serde_json::Result<serde_json::Value>) -> Result<String, String> {
@@ -208,6 +234,18 @@ mod tests {
             parse_args(&args(&["delete", "w1"])).map(|options| options.action),
             Some(Action::Delete(WorkspaceId("w1".to_owned())))
         );
+        assert_eq!(
+            parse_args(&args(&["export", "w1", "team.toml"])).map(|options| options.action),
+            Some(Action::Export(
+                WorkspaceId("w1".to_owned()),
+                PathBuf::from("team.toml")
+            ))
+        );
+        assert_eq!(
+            parse_args(&args(&["import", "team.toml"])).map(|options| options.action),
+            Some(Action::Import(PathBuf::from("team.toml")))
+        );
+        assert_eq!(parse_args(&args(&["export", "w1"])), None);
         assert_eq!(parse_args(&args(&["create"])), None);
         assert_eq!(parse_args(&args(&[])), None);
         assert_eq!(parse_args(&args(&["add"])), None);

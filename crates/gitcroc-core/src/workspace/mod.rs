@@ -9,6 +9,7 @@
 
 mod add;
 mod group;
+mod share;
 
 use std::fs;
 use std::io;
@@ -25,6 +26,7 @@ use crate::{ConfigDir, WorkspaceId};
 
 pub use add::{AddReport, Refusal, SCAN_DEPTH, add_path};
 pub use group::{GroupId, GroupView, MAX_GROUP_NAME, UNGROUPED_NAME};
+pub use share::{ExportReport, ImportReport, MissingRepo};
 
 /// The schema this build reads and writes.
 pub const WORKSPACE_SCHEMA: u32 = 1;
@@ -177,6 +179,10 @@ pub enum WorkspaceError {
     Encode(#[from] toml::ser::Error),
     #[error("the add job did not finish: {0}")]
     Stopped(#[from] tokio::task::JoinError),
+    #[error("cannot import {}: {reason}", path.display())]
+    NotImported { path: PathBuf, reason: String },
+    #[error("the folder is in the workspace already, as {0}")]
+    AlreadyPresent(RepoId),
 }
 
 /// One `[[repo]]` of the file.

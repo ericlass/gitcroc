@@ -42,8 +42,8 @@ pub use changes::{
     FileRef, ImageSide, RepoChanges, changes_get, changes_get_merged, diff_get, diff_image,
 };
 pub use clone::{
-    CloneError, CloneHandle, CloneReport, CloneRequest, clone_default_name, clone_start,
-    clone_target_check,
+    CloneError, CloneGroup, CloneHandle, CloneReport, CloneRequest, clone_default_name,
+    clone_start, clone_target_check,
 };
 pub use commit::{CommitMessage, CommitRequest, changes_commit};
 pub use config_file::ConfigWarning;
@@ -116,10 +116,10 @@ pub use tree::{
 };
 pub use watch::{DEBOUNCE, MAX_DELAY, RepoChange, WatchWarning, WatchedPath, Watchers};
 pub use workspace::{
-    AddReport, DEFAULT_WORKSPACE_NAME, Dock, GroupId, GroupView, MAX_GROUP_NAME,
-    MAX_WORKSPACE_NAME, PaneLayout, Refusal, RepoId, RepoView, SCAN_DEPTH, UNGROUPED_NAME,
-    WORKSPACE_SCHEMA, WORKSPACES_DIR, WorkspaceError, WorkspaceListItem, WorkspaceTabs,
-    WorkspaceView, Workspaces, add_path,
+    AddReport, DEFAULT_WORKSPACE_NAME, Dock, ExportReport, GroupId, GroupView, ImportReport,
+    MAX_GROUP_NAME, MAX_WORKSPACE_NAME, MissingRepo, PaneLayout, Refusal, RepoId, RepoView,
+    SCAN_DEPTH, UNGROUPED_NAME, WORKSPACE_SCHEMA, WORKSPACES_DIR, WorkspaceError,
+    WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces, add_path,
 };
 
 /// Locks `mutex`, also when a thread panicked while holding it. Every
