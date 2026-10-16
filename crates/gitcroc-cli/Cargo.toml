@@ -10,7 +10,7 @@ publish.workspace = true
 gitcroc-core.workspace = true
 gitcroc-ai.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 # The bench's throwaway config and cache dirs.
 tempfile.workspace = true
 

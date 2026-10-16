@@ -12,6 +12,7 @@ check-rust:
     just coverage M0
     just coverage M1
     just coverage M2
+    just coverage M3
 
 # The front-end half of `just check`.
 check-ui:
