@@ -84,6 +84,12 @@ thread-priority = "3.1.1"
 # have no generated TypeScript type.
 base64 = "0.23.1"
 
+# HTTP for the API providers (section 4 "Stack", M4-03): rustls, so no
+# system TLS library is needed. No HTTP/2, no charset decoding: the providers
+# answer UTF-8 JSON. Streams are read chunk by chunk, so the `stream` feature
+# is not needed.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "system-proxy"] }
+
 # Test-only, except serde_json, which gitcroc-cli uses for its output
 cargo_metadata = "0.23.1"
 serde_json = "1.0.154"
