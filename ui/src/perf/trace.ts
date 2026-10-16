@@ -1,11 +1,12 @@
 // The UI-side measurements of `just bench-ui` (PERF-8, M1-12), in
 // `vite build --mode perf` only. bench/bench-ui.ts drives the app through
 // WebDriver and calls `window.__gitcrocPerf`. This records the time from a
-// user action to the frame after its result is rendered, and the frame times
-// while scrolling, and writes them through `perf_trace_write`. It measures;
-// it changes nothing the app does.
+// user action to the frame after its result is rendered, the frame times
+// while scrolling, and when the refresh after the start ends, and writes
+// them through `perf_trace_write`. It measures; it changes nothing the app
+// does.
 import { type PerfSample, perfTraceWrite } from "../ipc";
-import { startMarks } from "./marks";
+import { startMarks, takeCalls } from "./marks";
 
 /** Must match ROW_HEIGHT in src/history/HistoryPane.tsx. */
 const ROW_HEIGHT = 24;
@@ -46,6 +47,12 @@ function blankVisible(list: HTMLElement): boolean {
   });
 }
 
+/** The history list when the current action was armed, which a tab switch replaces. */
+let armedList: HTMLElement | null = null;
+
+/** The repo rows the tree renders. */
+const treeRepos = () => [...document.querySelectorAll<HTMLElement>('[role="tree"] .tree-repo')];
+
 /** What a measured action waits for, checked once a frame. */
 const conditions = {
   /** The tree shows repos with their cached summaries. */
@@ -54,6 +61,15 @@ const conditions = {
   history: (before: string) => {
     const first = firstRow();
     return first !== null && first !== before;
+  },
+  /**
+   * The history of another tab shows its top row: the tab's panes are built
+   * anew (UI-29), so the list is not the one there was when the action was
+   * armed.
+   */
+  tab: () => {
+    const list = historyList();
+    return list !== null && list !== armedList && firstRow() !== null;
   },
   /** The history shows a merged list (PERF-5): its top row names its repo. */
   merged: () => historyRows()[0]?.querySelector(".history-repo") != null,
@@ -102,6 +118,7 @@ function snapshot(): string {
 const samples: PerfSample[] = [];
 let treeVisibleUnixMs: number | null = null;
 let treeVisible: Promise<void> | null = null;
+let reposFresh: Promise<void> | null = null;
 const pending = new Map<string, Promise<Result>>();
 
 /** Resolves on the frame after `check` first holds, with that time. */
@@ -125,6 +142,7 @@ async function until(check: () => boolean, since: number): Promise<number> {
 function arm(scenario: string, condition: Condition, argument: string, busy: Busy = "refresh") {
   const events = ["pointerdown", "mousedown", "keydown"] as const;
   const check = () => conditions[condition](argument);
+  armedList = historyList();
   const result = new Promise<Result>((resolve, reject) => {
     const armed = performance.now();
     const timer = setTimeout(() => {
@@ -272,6 +290,11 @@ async function idle(quietMs: number) {
   }
 }
 
+/** The names of the repos the tree renders, each once. */
+function repoNames(): string[] {
+  return [...new Set(treeRepos().map((repo) => repo.querySelector(".tree-label")?.textContent ?? ""))];
+}
+
 /** Writes everything measured so far through `perf_trace_write`. */
 function flush() {
   return perfTraceWrite({ tree_visible_unix_ms: treeVisibleUnixMs, samples, marks: startMarks() });
@@ -279,6 +302,8 @@ function flush() {
 
 const recorder = {
   ready: () => treeVisible,
+  fresh: () => reposFresh,
+  repoNames,
   arm,
   result,
   scroll,
@@ -288,6 +313,7 @@ const recorder = {
   firstRow,
   idle,
   flush,
+  takeCalls,
 };
 
 declare global {
@@ -305,6 +331,16 @@ export function install() {
     // trace and ends the app. Later flushes write it again.
     void flush().catch(() => {});
   });
+  // The full status refresh after the start (section 9) ends on the frame
+  // after no repo row is marked stale any more (PERF-3).
+  reposFresh = until(() => {
+    const repos = treeRepos();
+    return repos.length > 0 && repos.every((repo) => repo.dataset.stale === "false");
+  }, performance.now()).then((end) => {
+    performance.mark("all repos fresh", { startTime: end });
+  });
+  // Rejections surface through `fresh`.
+  reposFresh.catch(() => {});
   // The app replaces "Looking for git…" once the core reports git (M1-15).
   void until(() => document.querySelector("main.message-screen") === null, performance.now()).then((end) =>
     performance.mark("past the git check", { startTime: end }),

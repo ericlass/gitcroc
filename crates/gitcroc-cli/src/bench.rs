@@ -6,17 +6,26 @@
 //! set: median and 95th percentile in milliseconds, the budget, and whether
 //! the median is within it.
 
-use std::ffi::OsString;
+use std::cell::RefCell;
+use std::ffi::{OsStr, OsString};
 use std::hint::black_box;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use gitcroc_core::{
-    ChangedFile, DiffOptions, DiffRead, DiffSource, GitRepo, GitRunner, GitSetup, HistoryStart,
-    RepoRead, StatusRead, StatusReader, merged_history,
+    ChangedFile, DiffOptions, DiffRead, DiffSource, GitRepo, GitRunner, GitSetup, GroupOp,
+    GroupOps, HistoryStart, JobEvents, JobView, Jobs, Outcome, Prune, RepoId, RepoRead,
+    SettingsStore, StatusRead, StatusReader, Summaries, SummaryCache, SummaryView, TargetSet,
+    WorkspaceId, Workspaces, merged_history, refresh_summaries,
 };
 use serde_json::{Value, json};
+use tokio::sync::mpsc;
+
+use crate::summaries::GivenCacheDir;
+use crate::workspace::GivenConfigDir;
 
 /// The set every budget is measured on (section 9).
 pub const GATING_SET: &str = "target-project";
@@ -31,8 +40,23 @@ const DEFAULT_RUNS: usize = 10;
 
 pub const USAGE: &str = "bench [--data <dir>] [--runs <n>] [--stretch]";
 
-/// One timed operation, called repeatedly.
-type Measured = Box<dyn FnMut() -> Result<(), String>>;
+/// One step of a scenario, called repeatedly.
+type Step = Box<dyn FnMut() -> Result<(), String>>;
+
+/// What a scenario times: `timed`, each time after the untimed `before`,
+/// when there is one.
+struct Measured {
+    before: Option<Step>,
+    timed: Step,
+}
+
+/// A scenario that times all it does.
+fn timed(step: impl FnMut() -> Result<(), String> + 'static) -> Measured {
+    Measured {
+        before: None,
+        timed: Box::new(step),
+    }
+}
 
 /// A named scenario. `prepare` does the untimed setup and returns the
 /// operation to time, or `None` when the set is too small for it.
@@ -54,6 +78,17 @@ const SCENARIOS: &[Scenario] = &[
             ("many-repos", Some(1500.0)),
         ],
         prepare: cold_start,
+    },
+    // Full status refresh of every repo after start, the core part: a core
+    // started on a warm cache reads every repo again (PERF-3, PERF-4);
+    // `bench-ui` measures until the tree shows them.
+    Scenario {
+        name: "refresh-all",
+        sets: &[
+            ("target-project", Some(2000.0)),
+            ("many-repos", Some(5000.0)),
+        ],
+        prepare: refresh_all,
     },
     Scenario {
         name: "open-repo",
@@ -82,6 +117,13 @@ const SCENARIOS: &[Scenario] = &[
         name: "group-history-first-page",
         sets: &[("target-project", Some(300.0)), ("many-repos", None)],
         prepare: group_history_first_page,
+    },
+    // A group fetch of every repo from local bare remotes, at the default
+    // parallelism, reported only (section 9 stretch).
+    Scenario {
+        name: "group-fetch",
+        sets: &[("many-repos", None)],
+        prepare: group_fetch,
     },
     // Later pages cost no more than the first: page 100 needs 50,000 commits,
     // so target-project shows its last page, the 10th.
@@ -153,7 +195,7 @@ fn status(set: &DataSet, caches: bool) -> Result<Option<Measured>, String> {
     if let Some(fallback) = reader.fallback().map_err(|error| error.to_string())? {
         eprintln!("status on {} runs git: {fallback:?}", set.name);
     }
-    Ok(Some(Box::new(move || {
+    Ok(Some(timed(move || {
         let working_copy = reader.status().map_err(|error| error.to_string())?;
         black_box(working_copy);
         Ok(())
@@ -169,27 +211,10 @@ fn cold_start(set: &DataSet) -> Result<Option<Measured>, String> {
     let dirs = tempfile::tempdir().map_err(|error| format!("cannot make a temp dir: {error}"))?;
     let config = dirs.path().join("config");
     let cache = dirs.path().join("cache");
-    for repo in &set.repos {
-        let add = [
-            "workspace".into(),
-            "--config-dir".into(),
-            config.clone().into_os_string(),
-            "add".into(),
-            repo.path.clone().into_os_string(),
-        ];
-        run_self(&exe, &add)?;
-    }
-    let mut summaries: Vec<OsString> = vec![
-        "summaries".into(),
-        "--config-dir".into(),
-        config.into_os_string(),
-        "--cache-dir".into(),
-        cache.into_os_string(),
-    ];
-    run_self(&exe, &summaries)?;
+    let mut summaries = cached_workspace(&exe, &config, &cache, set)?;
     summaries.push("--cached-only".into());
     let expected = set.repos.len();
-    Ok(Some(Box::new(move || {
+    Ok(Some(timed(move || {
         // The dirs live as long as the operation.
         let _dirs = &dirs;
         let stdout = run_self(&exe, &summaries)?;
@@ -207,6 +232,309 @@ fn cold_start(set: &DataSet) -> Result<Option<Measured>, String> {
             Err(format!("{cached} of {expected} summaries were cached"))
         }
     })))
+}
+
+/// Makes a workspace of every repo of the set in config dir `config` and
+/// fills summary cache `cache` with one refresh. Returns the arguments of
+/// that `summaries` run.
+fn cached_workspace(
+    exe: &Path,
+    config: &Path,
+    cache: &Path,
+    set: &DataSet,
+) -> Result<Vec<OsString>, String> {
+    for repo in &set.repos {
+        let add = [
+            "workspace".into(),
+            "--config-dir".into(),
+            config.as_os_str().to_owned(),
+            "add".into(),
+            repo.path.clone().into_os_string(),
+        ];
+        run_self(exe, &add)?;
+    }
+    let summaries: Vec<OsString> = vec![
+        "summaries".into(),
+        "--config-dir".into(),
+        config.as_os_str().to_owned(),
+        "--cache-dir".into(),
+        cache.as_os_str().to_owned(),
+    ];
+    run_self(exe, &summaries)?;
+    Ok(summaries)
+}
+
+/// A core as the app has it after start: the workspaces and the summaries
+/// from the cache.
+struct Core {
+    workspaces: Arc<Workspaces>,
+    summaries: Arc<Summaries>,
+    workspace: WorkspaceId,
+    repos: Vec<RepoId>,
+}
+
+impl Core {
+    fn load(config: &Path, cache: &Path) -> Result<Self, String> {
+        let workspaces = Arc::new(Workspaces::load(&GivenConfigDir(config.to_owned())));
+        let cache = SummaryCache::open(&GivenCacheDir(cache.to_owned()));
+        let summaries = Arc::new(Summaries::load(cache, &workspaces));
+        let view = workspaces
+            .active()
+            .and_then(|id| workspaces.view(&id).ok())
+            .ok_or("no workspace is open")?;
+        Ok(Self {
+            workspaces,
+            summaries,
+            workspace: view.id,
+            repos: view.repos.into_iter().map(|repo| repo.id).collect(),
+        })
+    }
+}
+
+/// A runtime with worker threads, as the app has.
+fn runtime() -> Result<tokio::runtime::Runtime, String> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("cannot start the async runtime: {error}"))
+}
+
+/// A workspace of every repo of the set, its summary cache filled by one
+/// refresh. Each run starts a new core on that cache, untimed, and times a
+/// refresh of every repo, as after the app's start, until each repo's
+/// summary is read; one that is not read fails the run.
+fn refresh_all(set: &DataSet) -> Result<Option<Measured>, String> {
+    let exe =
+        std::env::current_exe().map_err(|error| format!("cannot find this program: {error}"))?;
+    let dirs = tempfile::tempdir().map_err(|error| format!("cannot make a temp dir: {error}"))?;
+    let config = dirs.path().join("config");
+    let cache = dirs.path().join("cache");
+    cached_workspace(&exe, &config, &cache, set)?;
+    let git = git_runner()?;
+    let runtime = runtime()?;
+    let core: Rc<RefCell<Option<Core>>> = Rc::default();
+    let loaded = core.clone();
+    let before = move || {
+        loaded.replace(Some(Core::load(&config, &cache)?));
+        Ok(())
+    };
+    let timed = move || {
+        // The dirs live as long as the operation.
+        let _dirs = &dirs;
+        let core = core.take().ok_or("no core was started")?;
+        runtime.block_on(refresh_summaries(
+            core.workspaces.clone(),
+            core.summaries.clone(),
+            core.workspace.clone(),
+            core.repos.clone(),
+            git.clone(),
+            |_| {},
+        ));
+        let views = core
+            .summaries
+            .views(&core.workspaces, &core.workspace)
+            .map_err(|error| error.to_string())?;
+        let read = views
+            .iter()
+            .filter(|view| view.summary.is_some() && !view.stale && view.error.is_none())
+            .count();
+        if read == core.repos.len() {
+            Ok(())
+        } else {
+            Err(format!("{read} of {} repos were read", core.repos.len()))
+        }
+    };
+    Ok(Some(Measured {
+        before: Some(Box::new(before)),
+        timed: Box::new(timed),
+    }))
+}
+
+/// Sends each ended job on.
+struct Ended(mpsc::UnboundedSender<JobView>);
+
+impl JobEvents for Ended {
+    fn progress(&self, _job: &JobView) {}
+
+    fn ended(&self, job: &JobView) {
+        let _ = self.0.send(job.clone());
+    }
+
+    fn summary(&self, _view: SummaryView, _read: bool) {}
+}
+
+/// The group of every repo in `group-fetch`.
+const ALL_GROUP: &str = "All repos";
+
+/// A group fetch of every repo of the set, timed from the preflight to the
+/// job's end, which comes after every repo was read again, with the default
+/// parallelism. Each repo gets a bare remote and a working copy in a
+/// throwaway dir, both borrowing the set's objects (`--shared`), so the set
+/// is never written. Before each run, untimed, every remote gets a new
+/// commit, so that each fetch brings one; a repo that does not end
+/// *succeeded* fails the run.
+fn group_fetch(set: &DataSet) -> Result<Option<Measured>, String> {
+    let exe =
+        std::env::current_exe().map_err(|error| format!("cannot find this program: {error}"))?;
+    let dirs = tempfile::tempdir().map_err(|error| format!("cannot make a temp dir: {error}"))?;
+    let git = git_runner()?;
+    let fetch_git = git.clone();
+    let run = move |args: &[&OsStr], cwd: Option<&Path>| -> Result<String, String> {
+        let args: Vec<OsString> = args.iter().map(|&arg| arg.to_owned()).collect();
+        let output = git
+            .run_blocking(&args, cwd)
+            .map_err(|error| error.to_string())?;
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    };
+    let work = dirs.path().join("work");
+    let mut remotes = Vec::with_capacity(set.repos.len());
+    eprintln!(
+        "group-fetch on {}: a bare remote and a working copy of {} repos",
+        set.name,
+        set.repos.len()
+    );
+    for (index, repo) in set.repos.iter().enumerate() {
+        let remote = dirs.path().join("remotes").join(format!("{index}.git"));
+        let copy = work.join(index.to_string());
+        let quiet = OsStr::new("--quiet");
+        let shared = OsStr::new("--shared");
+        run(
+            &[
+                OsStr::new("clone"),
+                quiet,
+                OsStr::new("--bare"),
+                shared,
+                repo.path.as_os_str(),
+                remote.as_os_str(),
+            ],
+            None,
+        )?;
+        run(
+            &[
+                OsStr::new("clone"),
+                quiet,
+                shared,
+                remote.as_os_str(),
+                copy.as_os_str(),
+            ],
+            None,
+        )?;
+        remotes.push(remote);
+    }
+    let config = dirs.path().join("config");
+    let add = [
+        "workspace".into(),
+        "--config-dir".into(),
+        config.clone().into_os_string(),
+        "add".into(),
+        work.into_os_string(),
+    ];
+    run_self(&exe, &add)?;
+
+    let settings = Arc::new(SettingsStore::load(&GivenConfigDir(config.clone())));
+    let workspaces = Arc::new(Workspaces::load_with(
+        &GivenConfigDir(config),
+        settings.clone(),
+    ));
+    let view = workspaces
+        .active()
+        .and_then(|id| workspaces.view(&id).ok())
+        .ok_or("no workspace is open")?;
+    if view.repos.len() != set.repos.len() {
+        return Err(format!(
+            "the workspace has {} of {} repos",
+            view.repos.len(),
+            set.repos.len()
+        ));
+    }
+    let repos: Vec<RepoId> = view.repos.iter().map(|repo| repo.id.clone()).collect();
+    let group = workspaces
+        .create_group(&view.id, ALL_GROUP, &repos)
+        .map_err(|error| error.to_string())?;
+    let runtime = runtime()?;
+    let summaries = Arc::new(Summaries::load(SummaryCache::none(), &workspaces));
+    let (end, mut ended) = mpsc::unbounded_channel();
+    let jobs = Jobs::new(workspaces.clone(), summaries.clone(), Arc::new(Ended(end)));
+    let (ready, mut readies) = mpsc::unbounded_channel();
+    let groups = GroupOps::new(workspaces, summaries, settings, jobs, move |result| {
+        let _ = ready.send(result.clone());
+    });
+
+    let mut wave = 0;
+    let before = move || {
+        wave += 1;
+        let message = format!("Wave {wave}");
+        for remote in &remotes {
+            let commit = run(
+                &[
+                    OsStr::new("-c"),
+                    OsStr::new("user.name=Bench"),
+                    OsStr::new("-c"),
+                    OsStr::new("user.email=bench@example.com"),
+                    OsStr::new("commit-tree"),
+                    OsStr::new("HEAD^{tree}"),
+                    OsStr::new("-p"),
+                    OsStr::new("HEAD"),
+                    OsStr::new("-m"),
+                    OsStr::new(&message),
+                ],
+                Some(remote),
+            )?;
+            run(
+                &[
+                    OsStr::new("update-ref"),
+                    OsStr::new("HEAD"),
+                    OsStr::new(&commit),
+                ],
+                Some(remote),
+            )?;
+        }
+        Ok(())
+    };
+    let workspace = view.id;
+    let timed = move || {
+        // The dirs live as long as the operation.
+        let _dirs = &dirs;
+        let job = runtime.block_on(async {
+            let target = TargetSet::Group {
+                group_id: group.clone(),
+            };
+            let op = GroupOp::Fetch {
+                prune: Prune::Config,
+            }
+            .operation()
+            .map_err(|error| error.to_string())?;
+            groups
+                .preflight(fetch_git.clone(), &workspace, &target, op)
+                .map_err(|error| error.to_string())?;
+            let preflight = readies.recv().await.ok_or("the preflight never finished")?;
+            if preflight.needs_confirmation {
+                return Err("the group fetch needs confirmation".to_owned());
+            }
+            groups
+                .start(fetch_git.clone(), preflight.preflight_id, false)
+                .map_err(|error| error.to_string())?;
+            ended.recv().await.ok_or("the job never ended".to_owned())
+        })?;
+        let report = job.report.ok_or("the group job has no report")?;
+        let failed: Vec<_> = report
+            .iter()
+            .filter(|repo| repo.outcome != Outcome::Succeeded)
+            .collect();
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "{} repos did not fetch, such as {:?}",
+                failed.len(),
+                failed[0]
+            ))
+        }
+    };
+    Ok(Some(Measured {
+        before: Some(Box::new(before)),
+        timed: Box::new(timed),
+    }))
 }
 
 /// Runs this program with `args` and returns its output.
@@ -239,7 +567,7 @@ fn git_runner() -> Result<GitRunner, String> {
 /// Opens the set's largest repo with `gix`; proves the plumbing.
 fn open_repo(set: &DataSet) -> Result<Option<Measured>, String> {
     let path = set.largest()?.path.clone();
-    Ok(Some(Box::new(move || {
+    Ok(Some(timed(move || {
         let repo = GitRepo::open(&path).map_err(|error| error.to_string())?;
         black_box(repo);
         Ok(())
@@ -249,7 +577,7 @@ fn open_repo(set: &DataSet) -> Result<Option<Measured>, String> {
 /// Opens the largest repo and reads its first page of history.
 fn history_first_page(set: &DataSet) -> Result<Option<Measured>, String> {
     let path = set.largest()?.path.clone();
-    Ok(Some(Box::new(move || {
+    Ok(Some(timed(move || {
         let repo = GitRepo::open(&path).map_err(|error| error.to_string())?;
         let page = repo
             .history(HistoryStart::All, None, None)
@@ -263,7 +591,7 @@ fn history_first_page(set: &DataSet) -> Result<Option<Measured>, String> {
 /// opening each repo as a page does.
 fn group_history_first_page(set: &DataSet) -> Result<Option<Measured>, String> {
     let paths: Vec<PathBuf> = set.repos.iter().map(|repo| repo.path.clone()).collect();
-    Ok(Some(Box::new(move || {
+    Ok(Some(timed(move || {
         let page = merged_history(&paths, None, None).map_err(|error| error.to_string())?;
         black_box(page);
         Ok(())
@@ -285,7 +613,7 @@ fn history_later_page(set: &DataSet, number: usize) -> Result<Option<Measured>, 
             return Ok(None);
         }
     }
-    Ok(Some(Box::new(move || {
+    Ok(Some(timed(move || {
         let page = repo
             .history(HistoryStart::All, cursor.clone(), None)
             .map_err(|error| error.to_string())?;
@@ -358,7 +686,7 @@ fn select_root_commit(set: &DataSet) -> Result<Option<Measured>, String> {
 
 /// Reads a commit's header, its changed files and the first file's diff.
 fn select(repo: GitRepo, hash: String) -> Measured {
-    Box::new(move || {
+    timed(move || {
         let text = |error: gitcroc_core::DiffError| error.to_string();
         let commit = repo.commit(&hash).map_err(text)?;
         let files = repo.changed_files(&hash, 0).map_err(text)?;
@@ -486,12 +814,18 @@ fn measure(
     let Some(mut operation) = (scenario.prepare)(set)? else {
         return Ok(None);
     };
-    operation()?; // warm-up
+    let mut once = || {
+        if let Some(before) = operation.before.as_mut() {
+            before()?;
+        }
+        let started = Instant::now();
+        (operation.timed)()?;
+        Ok::<_, String>(started.elapsed().as_secs_f64() * 1000.0)
+    };
+    once()?; // warm-up
     let mut samples = Vec::with_capacity(runs);
     for _ in 0..runs {
-        let started = Instant::now();
-        operation()?;
-        samples.push(started.elapsed().as_secs_f64() * 1000.0);
+        samples.push(once()?);
     }
     let (median, p95) = summarize(&samples).ok_or("no samples")?;
     let round = |ms: f64| (ms * 1000.0).round() / 1000.0;

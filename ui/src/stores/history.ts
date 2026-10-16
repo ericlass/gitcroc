@@ -551,6 +551,30 @@ export function createHistoryStore(selection: SelectionStore) {
     update(id, (h) => (h.offerErrors[repo] = undefined));
   };
 
+  /** Workspaces whose history is being read again after a refs change, and whether another change came meanwhile. */
+  const rereading = new Map<WorkspaceId, boolean>();
+
+  /**
+   * Reads the shown history of `id` again after a refs change. Changes that
+   * come while it is read make one more read after it, not one each: a
+   * group job changes its repos one after another, and each read of a
+   * merged history reads them all (M3-15).
+   */
+  const reread = (id: WorkspaceId) => {
+    if (rereading.has(id)) {
+      rereading.set(id, true);
+      return;
+    }
+    rereading.set(id, false);
+    void reload(id).finally(() => {
+      const again = rereading.get(id) === true;
+      rereading.delete(id);
+      if (again) {
+        reread(id);
+      }
+    });
+  };
+
   /**
    * Reports failed commit-graph writes of workspace `id`, and reads the
    * shown history again when the core says its repo's refs changed (OPS-7).
@@ -576,7 +600,7 @@ export function createHistoryStore(selection: SelectionStore) {
       versions.set(repo_id, refs_version);
       const shown = untrack(() => history(id));
       if (shown.source?.repo === repo_id || (shown.source?.repo === null && shown.repos.includes(repo_id))) {
-        void reload(id);
+        reread(id);
       }
     });
     return () => {

@@ -6,15 +6,18 @@ use repo_gen::{RepoSpec, SetSpec};
 
 const BIN: &str = env!("CARGO_BIN_EXE_gitcroc-cli");
 
-/// A `target-project` far smaller than the real one, so the test is quick.
-fn small_target_project() -> SetSpec {
-    let repo = |name: &str, files| RepoSpec {
+fn repo(name: &str, files: u32) -> RepoSpec {
+    RepoSpec {
         name: name.into(),
         files,
         lines: u64::from(files) * 5,
         commits: 40,
         branches: 3,
-    };
+    }
+}
+
+/// A `target-project` far smaller than the real one, so the test is quick.
+fn small_target_project() -> SetSpec {
     SetSpec {
         name: "target-project".into(),
         repos: vec![repo("small", 50), repo("largest", 200)],
@@ -73,6 +76,61 @@ fn perf_8_harness_prints_json_with_the_open_repo_history_diff_and_status_scenari
     assert_eq!(budget("select-commit"), 150.0);
     assert!(budget("select-commit-large").is_null());
     assert_eq!(budget("status-60k"), 500.0);
+    assert_eq!(budget("refresh-all"), 2000.0);
+    // A stretch scenario, without --stretch.
+    assert!(!results.iter().any(|r| r["scenario"] == "group-fetch"));
+}
+
+/// The stretch run on a small `many-repos`: the refresh of every repo and a
+/// group fetch of all of them, which fails the run unless every repo
+/// fetched; the set itself is never written.
+#[test]
+fn perf_8_stretch_measures_a_refresh_and_a_group_fetch_of_many_repos() {
+    let data = tempfile::tempdir().unwrap();
+    repo_gen::generate_set(&small_target_project(), data.path(), &|_| {}).unwrap();
+    let many = SetSpec {
+        name: "many-repos".into(),
+        repos: vec![repo("a", 20), repo("b", 20), repo("c", 20)],
+        groups: Vec::new(),
+    };
+    repo_gen::generate_set(&many, data.path(), &|_| {}).unwrap();
+    let head = |name: &str| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(data.path().join("many-repos").join(name))
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let before = head("a");
+
+    let out = Command::new(BIN)
+        .args(["bench", "--runs", "2", "--stretch", "--data"])
+        .arg(data.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let results: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let on_many = |scenario: &str| {
+        results
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["scenario"] == scenario && r["data_set"] == "many-repos")
+            .unwrap_or_else(|| panic!("no {scenario} on many-repos in {results}"))
+            .clone()
+    };
+    assert_eq!(on_many("refresh-all")["budget_ms"], 5000.0);
+    let fetch = on_many("group-fetch");
+    assert_eq!(fetch["runs"], 2);
+    assert!(fetch["budget_ms"].is_null());
+    assert_eq!(head("a"), before);
 }
 
 #[test]

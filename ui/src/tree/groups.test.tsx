@@ -338,6 +338,44 @@ test("ui_7_group_and_repo_context_menus_offer_the_group_operations", async () =>
   expect(fakeState.workspace.repos).toHaveLength(4);
 });
 
+test("UI-6 UI-7 the menu of a repo in a multi-selection adds every selected repo to a group or a new one", async () => {
+  const { tree } = await setup();
+  const addTo = async (target: HTMLElement, group: string) => {
+    fireEvent.contextMenu(target, { clientX: 10, clientY: 10 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Add to group ▸" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "Add to group" })).getByRole("menuitem", { name: group }));
+    await settleAll();
+  };
+  fireEvent.click(row("api", 2));
+  fireEvent.click(row("docs", 2), { ctrlKey: true });
+  expect(tree.target(id())).toEqual({ kind: "repos", repo_ids: ["r1", "r4"] });
+
+  // The menu keeps the selection; Frontend gets both, as members keep their place.
+  fireEvent.contextMenu(row("docs", 2), { clientX: 10, clientY: 10 });
+  expect(tree.target(id())).toEqual({ kind: "repos", repo_ids: ["r1", "r4"] });
+  fireEvent.keyDown(document, { key: "Escape" });
+  await addTo(row("docs", 2), "Frontend");
+  expect(groups()).toEqual(["Backend: r1 r2", "Frontend: r2 r3 r1 r4"]);
+
+  // Backend has api already: only docs is added, and api keeps its place.
+  fireEvent.click(row("api", 2));
+  fireEvent.click(row("docs", 2), { ctrlKey: true });
+  await addTo(row("docs", 2), "Backend");
+  expect(groups()).toEqual(["Backend: r1 r2 r4", "Frontend: r2 r3 r1 r4"]);
+
+  // New group… starts with the selected repos.
+  await addTo(row("api", 2), "New group…");
+  fireEvent.input(screen.getByLabelText("Name"), { target: { value: "Pair" } });
+  fireEvent.submit(screen.getByLabelText("Name").closest("form") as HTMLFormElement);
+  await settleAll();
+  expect(groups()).toEqual(["Backend: r1 r2 r4", "Frontend: r2 r3 r1 r4", "Pair: r1 r4"]);
+
+  // A repo outside the selection: the menu selects it alone and acts on it only.
+  await addTo(row("cli", 2), "Pair");
+  expect(tree.target(id())).toEqual({ kind: "repo", repo_id: "r3" });
+  expect(groups()).toEqual(["Backend: r1 r2 r4", "Frontend: r2 r3 r1 r4", "Pair: r1 r4 r3"]);
+});
+
 test("ui_2_selecting_one_place_of_a_repo_in_two_groups", async () => {
   const { tree } = await setup();
   fireEvent.click(row("web", 2, 1));

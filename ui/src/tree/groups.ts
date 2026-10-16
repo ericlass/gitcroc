@@ -38,7 +38,7 @@ export function groupsOf(roots: TreeNode[]): GroupInfo[] {
 }
 
 export type GroupOp =
-  | { kind: "add"; group: GroupId; repo: RepoId; at: number | null }
+  | { kind: "add"; group: GroupId; repos: RepoId[]; at: number | null }
   | { kind: "remove"; group: GroupId; repo: RepoId }
   | { kind: "move_in"; group: GroupId; repo: RepoId; at: number }
   | { kind: "move_between"; repo: RepoId; from: GroupId; to: GroupId; at: number | null }
@@ -48,7 +48,7 @@ export type GroupOp =
 export function runGroupOp(workspace: WorkspaceId, op: GroupOp): Promise<unknown> {
   switch (op.kind) {
     case "add":
-      return groupAddRepos(workspace, op.group, [op.repo], op.at);
+      return groupAddRepos(workspace, op.group, op.repos, op.at);
     case "remove":
       return groupRemoveRepos(workspace, op.group, [op.repo]);
     case "move_in":
@@ -171,7 +171,7 @@ export function dropOp(
     return members.indexOf(repo) === at ? null : { kind: "move_in", group: to, repo, at };
   }
   if (from === null || copy) {
-    return { kind: "add", group: to, repo, at };
+    return { kind: "add", group: to, repos: [repo], at };
   }
   return { kind: "move_between", repo, from, to, at };
 }

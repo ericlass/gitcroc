@@ -164,3 +164,20 @@ test("UI-7 repos are dragged between groups and groups reordered", async ({ page
     "Ungrouped",
   ]);
 });
+
+test("UI-6 UI-7 a group of a multi-selection, from a menu drawn over the history", async ({ page }) => {
+  await page.goto("/?fake=groups");
+  // The merged history of a selection draws its rows under the menu's place.
+  await item(page, /^api/).click();
+  await item(page, /^login-service/).click({ modifiers: ["Control"] });
+  await expect(page.locator(".history-repo").first()).toBeVisible();
+
+  // Playwright clicks only what is on top: the menu must not be behind the panes.
+  await item(page, /^login-service/).click({ button: "right" });
+  await page.getByRole("menu", { name: "Repository" }).getByRole("menuitem", { name: "Add to group ▸" }).click();
+  await page.getByRole("menu", { name: "Add to group" }).getByRole("menuitem", { name: "New group…" }).click();
+  const dialog = page.getByRole("dialog", { name: "New group" });
+  await dialog.getByRole("textbox", { name: /^Name/ }).fill("Pair");
+  await dialog.getByRole("button", { name: "Create" }).click();
+  await expect(item(page, /^Pair/).locator(".tree-count")).toHaveText("2");
+});

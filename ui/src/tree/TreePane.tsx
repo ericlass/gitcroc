@@ -7,7 +7,9 @@
 // edits or removes it. Group rows (UI-4) and their menus create, rename,
 // delete and reorder groups, and repos are dragged between them (UI-7); every
 // drag is also in a menu, and the context menu key opens a row's menu
-// (UI-22). Repo rows are multi-selected with Ctrl/Cmd and Shift (UI-6).
+// (UI-22). Repo rows are multi-selected with Ctrl/Cmd and Shift (UI-6); the
+// menu of a repo row in a multi-selection keeps it, and its Add to group
+// entries act on every selected repo.
 // A name in a group's Branches node is checked out on the group by
 // double-click (UI-5), and group rows' menus run the group operations.
 // Everything shown comes from the stores, which take it from the
@@ -447,7 +449,10 @@ function TreeList(props: {
                       const target = node()?.node.item;
                       if (target !== undefined && menuFor(target, false, props.groups).length > 0) {
                         event.preventDefault();
-                        select(item.index);
+                        // A repo row of a multi-selection keeps it: its group entries act on every selected repo.
+                        if (!(tree().multi !== null && props.tree.isSelected(props.workspace, row().id))) {
+                          select(item.index);
+                        }
                         props.onMenu(target, event.clientX, event.clientY);
                       }
                     }}
@@ -629,13 +634,19 @@ export default function TreePane(props: {
     void props.groupOps.run(props.workspace, target, { kind: "checkout", name, missing: "skip" });
   };
 
+  /** The repos a group entry of repo `repo`'s menu acts on: the multi-selection it is in, else `repo` alone. */
+  const chosen = (repo: RepoId): RepoId[] => {
+    const target = props.tree.target(props.workspace);
+    return target?.kind === "repos" && target.repo_ids.includes(repo) ? target.repo_ids : [repo];
+  };
+
   /** Does what a group `entry` of the menu of `item` says; `false` for other entries. */
   const actOnGroups = (entry: MenuEntry, item: TreeItem): boolean => {
     const step = entry.action === "move_up" ? -1 : 1;
     const named = (group: string) => groups().find((known) => known.id === group)?.name ?? "";
     switch (entry.action) {
       case "new_group":
-        setGroupDialog({ kind: "new", repos: item.kind === "repo" ? [item.repo_id] : [] });
+        setGroupDialog({ kind: "new", repos: item.kind === "repo" ? chosen(item.repo_id) : [] });
         return true;
       case "group_fetch":
       case "group_pull":
@@ -676,7 +687,10 @@ export default function TreePane(props: {
         return true;
       case "add_to_group":
         if (item.kind === "repo" && entry.group !== undefined) {
-          sendGroupOp({ kind: "add", group: entry.group, repo: item.repo_id, at: null });
+          // Members stay where they are; only the others are added.
+          const members = groups().find((known) => known.id === entry.group)?.repos ?? [];
+          const repos = chosen(item.repo_id).filter((repo) => !members.includes(repo));
+          sendGroupOp({ kind: "add", group: entry.group, repos, at: null });
         }
         return true;
       case "remove_from_group":

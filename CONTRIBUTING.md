@@ -24,7 +24,7 @@ Run `just check` before you call a change done. It runs everything CI requires:
 - `cargo test --workspace`
 - `cargo deny check`
 - in `ui/`: `pnpm install --frozen-lockfile`, `tsc --noEmit`, ESLint, Vitest, and Playwright (Chromium, against `vite build --mode fake` and `vite preview`)
-- `just coverage M0`, `M1` and `M2` (the requirement coverage report; it fails if a requirement of that milestone has no test)
+- `just coverage M0` to `M3` (the requirement coverage report; it fails if a requirement of that milestone has no test)
 
 Run `just fmt` to format the workspace.
 
@@ -54,11 +54,24 @@ Cancel (GRP-10) removes a queued job, and kills a running fetch or clone (`OnCan
 
 **The askpass helper (D10, `crates/gitcroc-app/src/askpass.rs`).** A network write (`WriteJob::network`) gets `GIT_ASKPASS` and `SSH_ASKPASS` pointing at the gitcroc executable itself, with an address and a token for that job. Started by git in that mode, the executable opens no window: it sends git's prompt to the running app over a local socket, prints the answer and exits. The app asks the user in a dialog of its window. The answer goes to git and nowhere else (never stored, logged or cached), and the token is revoked when the job ends.
 
+## Groups and group operations (M3)
+
+**Groups and target sets.** A workspace's groups live in its `workspace.toml` (section 10) and change only through `Workspaces` (`crates/gitcroc-core/src/workspace/group.rs`): names are unique per workspace ignoring case (GRP-2), and removing a repo from a group never touches the disk (GRP-3). Anything that acts on several repos takes a `TargetSet` (`crates/gitcroc-core/src/target.rs`, GRP-5): one repo, a group's members in group order, or a multi-selection of repos in tree order. `target_repos` resolves it against the workspace as it is now, so a group deleted meanwhile is an error, never a stale list. The UI sends the target set it shows (`TreeStore::target`) and never builds a list of repos itself.
+
+**The engine (section 5, `crates/gitcroc-core/src/group/`).** `GroupOps::preflight` reads every repo of the target set in parallel on the shared pool, read-only, and classes it *will run*, *will skip*, *needs attention* or *blocked*. GRP-8 blocks a missing repo, one in conflict state and one busy with another write before the operation is asked. The result goes out as `preflight_ready`, with whether the user must confirm. `GroupOps::start` then runs one job with one sub-job per repo that runs, at most the group parallelism at once. It ends with a result report: one line per repo of the target set, each with one outcome of GRP-7. Nothing is ever stashed (GRP-12), and the repos that ran are read again.
+
+**Adding a group operation.**
+
+1. Add a variant to `GroupOp` (`group/op.rs`) with the options the user picks, and map it in `GroupOp::operation`. Check names there (SEC-4), so that a bad one is refused before any preflight runs.
+2. Implement `GroupOperation` for it. `classify` decides one repo's class with the read API or git's reads, never a write: say *will skip* or *needs attention* with a reason the user can act on. `spec` says how a sub-job runs: whether cancel kills it, whether it may end in conflict, how *nothing to do* is decided, whether it needs the network (and so askpass), and whether it may run in conflict state. `destructive` lists what cannot be undone; when it is not empty the preflight always asks (GRP-9). `run` does the write through `gitcroc-git::ops` with `JobRun::write` (ARCH-1), like the single-repo operation it mirrors.
+3. Test it with real git on fixture repos, through `gitcroc-cli group run <group> <op>` (`crates/gitcroc-cli/tests/integration/group_*.rs`): one repo of each class, and the report's outcome and reason for each. Section 12's group scenarios, such as `grp_mixed_branch_scenario`, are asserted on that report.
+4. Run `just ipc`, then wire the UI: an entry in the group row's menu (`ui/src/tree/menus.ts`) or a dialog that calls `GroupOpStore::run` with the target set. The preflight dialog and the report come with it.
+
 ## End-to-end smoke test
 
-`just smoke` runs section 12's end-to-end smoke test on the real app, on Linux only (`ui/webdriver/smoke.ts`). It builds the app with the `e2e` Cargo feature into `target/e2e` and drives it through `tauri-driver` and WebKitWebDriver on a throwaway fixture workspace. The test adds a repo, stages a file and commits. It then merges a branch that conflicts, resolves the file in the conflict editor with **Take theirs** and a typed edit, then **Mark resolved** and **Continue**. It checks the history shows the merge commit and the repo is clean. Every step waits in the page for its result in the DOM; none waits for a time. On a failure it saves the window as `target/e2e/failure.png` and keeps the fixture folder it names.
+`just smoke` runs section 12's end-to-end smoke test on the real app, on Linux only (`ui/webdriver/smoke.ts`). It builds the app with the `e2e` Cargo feature into `target/e2e` and drives it through `tauri-driver` and WebKitWebDriver on a throwaway fixture workspace. The test adds a repo, stages a file and commits. It then merges a branch that conflicts, resolves the file in the conflict editor with **Take theirs** and a typed edit, then **Mark resolved** and **Continue**. It checks the history shows the merge commit and the repo is clean. Then comes the group flow (M3-15). It creates a second workspace tab and adds both fixture repos, then Ctrl-clicks them and makes a group of the multi-selection from the menu. A group checkout of `feature`, which only one repo has, with **Create the branch from HEAD**, must show the other repo as *needs attention* in the preflight. After **Run**, the job's report must have an outcome for each repo, and the group row must show `feature`. Every step waits in the page for its result in the DOM; none waits for a time. On a failure it saves the window as `target/e2e/failure.png` and keeps the fixture folder it names.
 
-WebDriver cannot drive the native folder dialog, so in an `e2e` build the **Add folder…** dialog is answered by `GITCROC_E2E_PICK_FOLDER`. The feature is never in a release bundle.
+WebDriver cannot drive the native folder dialog, so in an `e2e` build the **Add folder…** dialog is answered by `GITCROC_E2E_PICK_FOLDER`. The smoke test points it at the folder of both fixture repos. The feature is never in a release bundle.
 
 It needs the same drivers as `just bench-ui` (below). Run it under `xvfb-run -a just smoke` to keep its window off your desktop; CI's Linux job runs it that way after `just check`.
 
@@ -117,7 +130,13 @@ The helpers are in `tools/repo-gen` (`repo_gen::Fixture` and `repo_gen::Repo`): 
 
 `just bench` runs the harness in `gitcroc-cli` on `target-project` and prints a JSON array: one object per scenario with the median and 95th percentile in milliseconds, the section 9 budget and whether the median is within it. It exits 1 when a scenario misses its budget. `just bench --stretch` adds the stretch sets that exist locally; `--runs <n>` changes the number of timed runs (10 by default, after one warm-up). Always build in release mode, as `just bench` does.
 
-To add a scenario, add an entry to `SCENARIOS` in `crates/gitcroc-cli/src/bench.rs`: a name, its section 9 budget if it has one, the sets it runs on, and a function that does the untimed setup and returns the operation to time.
+To add a scenario, add an entry to `SCENARIOS` in `crates/gitcroc-cli/src/bench.rs`. It needs a name, its section 9 budget if it has one, the sets it runs on, and a function that does the untimed setup and returns what to time. `timed(...)` times all the operation does. A `Measured` with a `before` step also runs that step untimed before each run, as `refresh-all` does to start a new core and `group-fetch` to give every remote a new commit.
+
+The multi-repo scenarios of M3:
+
+- `refresh-all`: a core started on a warm summary cache reads every repo again, as after the app's start. Its budget is 2 s on `target-project` and 5 s on `many-repos`.
+- `group-history-first-page`: the first page of the merged history of every repo of the set (300 ms on `target-project`).
+- `group-fetch` (`many-repos` only, reported): a group fetch of all 200 repos at the default parallelism. It runs on bare remotes and working copies made with `git clone --shared`, so the data set is never written.
 
 Measure on 8 cores, as section 9's reference machine has: on a bigger machine run `taskset -c 0-7 just bench`, and note the RAM.
 
@@ -133,14 +152,14 @@ The baseline is the CI runner's own speed, not the reference machine's. To make 
 
 ### UI-side budgets: `just bench-ui`
 
-Some section 9 budgets need the real app: cold start until the tree shows, selecting a repo or a commit until it is drawn, frame times while scrolling, switching repos, input latency while a refresh runs, and memory including the webview. `just bench-ui` measures them on `target-project`, on Linux only:
+Some section 9 budgets need the real app: cold start until the tree shows, the refresh after the start until no repo row is stale (`refresh-all-ui`), selecting a repo, a commit or a group until it is drawn, frame times while scrolling, switching repos and tabs (`switch-tab`), input latency while a refresh or a job runs, and memory including the webview, with one tab and with a second in the background. `just bench-ui` measures them on `target-project`, on Linux only:
 
 1. It builds the app with the `perf-trace` Cargo feature and `vite build --mode perf` into `target/bench-ui` and `ui/dist-perf`, so a measuring build never ends up in a bundle. The feature adds a recorder to the UI (`ui/src/perf/trace.ts`). The recorder times each action from its first input event to the frame after the result is drawn, records frame times, and writes them through the debug-only `perf_trace_write` command.
 2. `ui/bench/bench-ui.ts` sets up a throwaway workspace of the 20 repos with a filled summary cache. It then starts the app through `tauri-driver` and WebKitWebDriver, once to warm up and five times to measure (`--runs <n>`), and prints JSON like `just bench` does. Memory is the proportional set size of the app and its WebKit processes once the workspace is idle.
 
 It needs `tauri-driver` (`cargo install tauri-driver --locked`) and WebKitWebDriver (`sudo apt install webkit2gtk-driver` on Debian and Ubuntu). Run it pinned to 8 cores, with nothing else busy, before a release and for a milestone sign-off: `taskset -c 0-7 just bench-ui`. It does not run in CI.
 
-`--verbose` also prints where memory goes and a timeline of the start: each step the core and the page mark (window created, page started, first script, each command's first call and answer, tree in the DOM, tree visible) and every stall of the app's main loop or the page's main thread, as the median over the runs. `--job-only` measures `input-latency-job` alone: the filter key while real jobs run, a fetch of every repo from a local bare remote and then a pull of the largest, on working copies made for the run so the data set is never written. `--start-only` measures the cold start alone and ends each run once the tree shows. `--direct` does the same but starts the app itself, without WebDriver.
+`--verbose` also prints where memory goes and a timeline of the start: each step the core and the page mark (window created, page started, first script, each command's first call and answer, tree in the DOM, tree visible) and every stall of the app's main loop or the page's main thread, as the median over the runs. `--verbose` also prints, for the job scenarios, the latency of each key with the job that ran, the commands the UI called, and the event handlers that held the main thread over 10 ms. `--job-only` measures the job scenarios alone, on working copies made for the run so the data set is never written. `input-latency-job` types the filter key while a fetch of every repo from a local bare remote runs, then a pull of the largest. `input-latency-group-job` types it while a group fetch of all of them runs, then a group pull, both started from the group's menu. `--start-only` measures the cold start alone and ends each run once the tree shows. `--direct` does the same but starts the app itself, without WebDriver.
 
 ## Integration tests and unwrap (QA-4)
 

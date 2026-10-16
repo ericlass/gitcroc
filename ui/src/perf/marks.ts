@@ -3,10 +3,20 @@
 
 import { core } from "../ipc";
 
+/** How often each command was called since {@link takeCalls} last ran. */
+const calls = new Map<string, number>();
+
+/** The calls of each command since the last time, most first; starts counting again. */
+export function takeCalls(): [string, number][] {
+  const counted = [...calls].sort((a, b) => b[1] - a[1]);
+  calls.clear();
+  return counted;
+}
+
 /**
- * Marks the first script, and the first call and answer of each command, as
- * `performance.mark` entries. Runs before the app renders, so it sees the
- * start's calls.
+ * Marks the first script, the first call and answer of each command, and
+ * event handlers that take long, as `performance.mark` entries. Runs before
+ * the app renders, so it sees the start's calls.
  */
 export function markStart() {
   performance.mark("first script");
@@ -57,10 +67,27 @@ export function markStart() {
     }
   });
   observer.observe(document, { childList: true, subtree: true });
+  // Event handlers that hold the main thread for over 10 ms, with the work
+  // they set off in the stores and the DOM (M3-15).
+  type Listen = (callback: (event: unknown) => void) => Promise<() => void>;
+  const events = core.events as unknown as Record<string, { listen: Listen }>;
+  for (const [name, event] of Object.entries(events)) {
+    const listen = event.listen;
+    event.listen = (callback) =>
+      listen((payload) => {
+        const start = performance.now();
+        callback(payload);
+        const ms = performance.now() - start;
+        if (ms > 10) {
+          performance.mark(`handler ${name} took ${Math.round(ms)} ms`, { startTime: start });
+        }
+      });
+  }
   const commands = core.commands as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
   for (const [name, command] of Object.entries(commands)) {
     let first = true;
     commands[name] = (...args) => {
+      calls.set(name, (calls.get(name) ?? 0) + 1);
       const answer = command(...args);
       if (first) {
         first = false;

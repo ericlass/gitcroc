@@ -3,7 +3,10 @@
 // WebKitWebDriver, Linux only. It adds a repo, stages a file, commits,
 // merges a branch that conflicts, resolves the file in the conflict editor
 // with Take theirs and an edit, marks it resolved and continues; the
-// history then shows the merge commit and the repo is clean.
+// history then shows the merge commit and the repo is clean. Then the group
+// flow (M3-15): a second workspace tab gets both fixture repos, a group of
+// them made from a multi-selection, and a group checkout of a branch only
+// one of them has, which creates it in the other.
 //
 // No step waits for a time: each waits in the page for its result in the
 // DOM, up to a deadline that only ends a hung run.
@@ -71,11 +74,13 @@ function fixture(dir: string, env: NodeJS.ProcessEnv) {
 const FIND = `
   const ROLES = {
     button: 'button,[role="button"]',
+    combobox: 'input[list],select,[role="combobox"]',
     dialog: '[role="dialog"],dialog',
     listbox: '[role="listbox"]',
     menu: '[role="menu"]',
     menuitem: '[role="menuitem"]',
     option: '[role="option"]',
+    radio: 'input[type="radio"],[role="radio"]',
     region: 'section[aria-label],[role="region"]',
     textbox: 'input:not([type]),input[type="text"],textarea,[role="textbox"]',
     toolbar: '[role="toolbar"]',
@@ -219,6 +224,55 @@ class Session {
       `return find(args[0]) === null;`,
       path,
     );
+  }
+
+  /** Clicks the element matching `css`, once it is shown and enabled. */
+  async clickCss(css: string) {
+    const element = await this.until<Element>(
+      css,
+      `const el = [...document.querySelectorAll(args[0])].find((el) => el.getClientRects().length > 0);
+       return el !== undefined && enabled(el) ? el : null;`,
+      css,
+    );
+    await wd("POST", `/session/${this.id}/element/${element[ELEMENT]}/click`, {});
+  }
+
+  /**
+   * Clicks the element at `path` with the mouse: with `key` held down, or
+   * with the right button for its context menu.
+   */
+  async pointer(path: Path, how: { key?: string; button?: 0 | 2 }) {
+    const element = await this.element(path);
+    const button = how.button ?? 0;
+    const mouse = {
+      type: "pointer",
+      id: "mouse",
+      parameters: { pointerType: "mouse" },
+      actions: [
+        { type: "pause" },
+        { type: "pointerMove", origin: { [ELEMENT]: element[ELEMENT] }, x: 0, y: 0 },
+        { type: "pointerDown", button },
+        { type: "pointerUp", button },
+        { type: "pause" },
+      ],
+    };
+    const keyboard = {
+      type: "key",
+      id: "keyboard",
+      // Down before the pointer moves, up after it is released.
+      actions:
+        how.key === undefined
+          ? []
+          : [
+              { type: "keyDown", value: how.key },
+              { type: "pause" },
+              { type: "pause" },
+              { type: "pause" },
+              { type: "keyUp", value: how.key },
+            ],
+    };
+    await wd("POST", `/session/${this.id}/actions`, { actions: [mouse, keyboard] });
+    await wd("DELETE", `/session/${this.id}/actions`);
   }
 
   /** Presses each chord of keys in turn, as a user types: all down, then all up. */
@@ -375,6 +429,141 @@ async function smoke(session: Session, app: string, env: NodeJS.ProcessEnv) {
   }
 }
 
+/**
+ * The group flow: a second workspace tab with both fixture repos, a group of
+ * them from a multi-selection, and a group checkout of `feature`, which
+ * only `app` has, with the policy "create it from HEAD": the preflight
+ * shows `lib` as needing attention, and the report has an outcome for each.
+ */
+async function groupFlow(session: Session, env: NodeJS.ProcessEnv, repos: { lib: string; app: string }) {
+  log("create a second workspace tab");
+  await session.click([["button", "Open workspace"]]);
+  await session.click([
+    ["menu", "Open workspace"],
+    ["menuitem", "New workspace…"],
+  ]);
+  await session.type(
+    [
+      ["dialog", "New workspace"],
+      ["textbox", "/^Name/"],
+    ],
+    "Second",
+  );
+  await session.click([
+    ["dialog", "New workspace"],
+    ["button", "Create"],
+  ]);
+  await session.until(
+    "the tab Second, active",
+    `return [...document.querySelectorAll('[role="tab"]')].some(
+       (tab) => tab.textContent.startsWith("Second") && tab.getAttribute("aria-selected") === "true",
+     );`,
+  );
+
+  log("add both fixture repos");
+  await session.click([["button", "Add repository"]]);
+  await session.click([
+    ["menu", "Add repository"],
+    ["menuitem", "Add folder…"],
+  ]);
+  const lib: Path = [...TREE, ["treeitem", "/^lib/"]];
+  const app: Path = [...TREE, ["treeitem", "/^app/"]];
+  await session.element(lib);
+  await session.element(app);
+
+  log("make a group of both from a multi-selection");
+  await session.click(lib);
+  await session.pointer(app, { key: KEY.control });
+  await session.until(
+    "both repos selected",
+    `return [...document.querySelectorAll('[role="tree"] [role="treeitem"][aria-selected="true"]')].length === 2;`,
+  );
+  await session.pointer(app, { button: 2 });
+  await session.click([
+    ["menu", "Repository"],
+    ["menuitem", "Add to group ▸"],
+  ]);
+  await session.click([
+    ["menu", "Add to group"],
+    ["menuitem", "New group…"],
+  ]);
+  await session.type(
+    [
+      ["dialog", "New group"],
+      ["textbox", "/^Name/"],
+    ],
+    // Lower case: after the Ctrl-click's key actions, WebKitWebDriver typed
+    // "Pair" as "pair".
+    "both",
+  );
+  await session.click([
+    ["dialog", "New group"],
+    ["button", "Create"],
+  ]);
+  const group: Path = [...TREE, ["treeitem", "/^both/"]];
+  await session.until(
+    "the group both with 2 members",
+    `const row = find(args[0]);
+     return row !== null && row.querySelector(".tree-group .tree-count")?.textContent === "2";`,
+    group,
+  );
+
+  log("group checkout of feature, which only app has; lib creates it from HEAD");
+  await session.pointer(group, { button: 2 });
+  await session.click([
+    ["menu", "Group"],
+    ["menuitem", "Check out branch…"],
+  ]);
+  const checkout: Path = [["dialog", "Check out a branch in both"]];
+  await session.type([...checkout, ["combobox", "Branch"]], "feature");
+  await session.click([...checkout, ["radio", "Create the branch from HEAD"]]);
+  await session.click([...checkout, ["button", "Check out"]]);
+
+  log("the preflight shows lib as needing attention; Run");
+  const preflight: Path = [["dialog", "/both/"]];
+  await session.until(
+    "lib needs attention and app will run",
+    `const dialog = find(args[0]);
+     if (dialog === null) return null;
+     const rows = [...dialog.querySelectorAll(".preflight-repo")].map(
+       (row) =>
+         row.querySelector(".preflight-name").textContent + ": " + row.querySelector(".preflight-class").textContent,
+     );
+     return JSON.stringify(rows) === JSON.stringify(["lib: Needs attention", "app: Will run"]);`,
+    preflight,
+  );
+  await session.click([...preflight, ["button", "Run on 2 repos"]]);
+  await session.gone(preflight);
+
+  log("the report has two outcomes, and the group row shows the branch");
+  await session.until(
+    "the group row on feature",
+    `return find(args[0])?.querySelector(".tree-group .tree-head")?.textContent === "feature";`,
+    group,
+  );
+  await session.clickCss(".status-bar .status-jobs");
+  await session.click([
+    ["dialog", "Jobs"],
+    ["option", "/^Checkout feature/"],
+  ]);
+  await session.until(
+    "a report line for each repo",
+    `const lines = [...document.querySelectorAll('[aria-label="Result report"] .report-line')];
+     const texts = lines.map((line) => line.querySelector(".report-name").textContent + ": " + line.textContent);
+     return lines.length === 2 && texts.every((text) => text.includes("Succeeded")) ? texts : null;`,
+  );
+  await session.click([
+    ["dialog", "Jobs"],
+    ["button", "Close"],
+  ]);
+  for (const [name, repo] of Object.entries(repos)) {
+    const branch = git(env, repo, ["branch", "--show-current"]).trim();
+    if (branch !== "feature") {
+      throw new Error(`${name} is on ${branch}, not feature`);
+    }
+  }
+}
+
 async function main() {
   checkDrivers();
   for (const binary of [APP, CLI]) {
@@ -401,12 +590,15 @@ async function main() {
   execFileSync(CLI, ["workspace", "--config-dir", join(config, "gitcroc"), "add", lib], { env, stdio: "pipe" });
   log(`fixture in ${dir}`);
 
-  const driver = await startDriver({ ...env, GITCROC_E2E_PICK_FOLDER: app });
+  // Add folder… picks the folder of both repos: the first workspace has lib
+  // and gets app, the second gets both.
+  const driver = await startDriver({ ...env, GITCROC_E2E_PICK_FOLDER: repos });
   let failed = false;
   try {
     const session = await Session.start(APP);
     try {
       await smoke(session, app, env);
+      await groupFlow(session, env, { lib, app });
       log("smoke test passed");
     } catch (error) {
       failed = true;

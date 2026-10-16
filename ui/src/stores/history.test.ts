@@ -182,6 +182,29 @@ test("OPS-7 the history reads again when its refs change, keeping the position a
   unsubscribe();
 });
 
+test("OPS-7 refs changes during a read make one more read, not one each", async () => {
+  const { history } = setup();
+  const unsubscribe = await history.subscribe(id());
+  history.show(id(), api);
+  await settleAll();
+  fakeState.historyCalls = [];
+
+  // A group job changes the repo again and again while the first read runs.
+  fakeState.histories = { r1: { length: 1204, prefix: "api" } };
+  for (const version of [1, 2, 3, 4]) {
+    emitRepoSummary(summary(id(), "r1", "main", { refs_version: version }));
+  }
+  await settleAll();
+  expect(fakeState.historyCalls.map((call) => call.command)).toEqual(["get", "get"]);
+  expect(history.history(id()).rows.list[0]?.subject).toBe("api: change 1204");
+
+  // A change after the reads ended reads again.
+  emitRepoSummary(summary(id(), "r1", "main", { refs_version: 5 }));
+  await settleAll();
+  expect(fakeState.historyCalls.map((call) => call.command)).toEqual(["get", "get", "get"]);
+  unsubscribe();
+});
+
 test("OPS-7 a selected commit that no longer exists is deselected", async () => {
   const { history, selection } = setup();
   const unsubscribe = await history.subscribe(id());

@@ -37,9 +37,15 @@ const BUDGETS: Record<string, { budget: number; unit: "ms" | "MB" }> = {
   "switch-repo": { budget: 100, unit: "ms" },
   // A group of all 20 repos: the first page of their merged history (PERF-5).
   "select-group": { budget: 300, unit: "ms" },
+  // From the process start to the frame after no repo row is stale (M3-15).
+  "refresh-all-ui": { budget: 2000, unit: "ms" },
+  // The "switch selection" row of section 9 for tabs (UI-33).
+  "switch-tab": { budget: 100, unit: "ms" },
   "input-latency": { budget: 50, unit: "ms" },
   // The same row of section 9 with a real job running (M2-15).
   "input-latency-job": { budget: 50, unit: "ms" },
+  // The same row with a group fetch, then a group pull, of every repo running (M3-15).
+  "input-latency-group-job": { budget: 50, unit: "ms" },
   "memory-idle": { budget: 400, unit: "MB" },
   // The same budget with a second tab of the same repos in the background,
   // after it was scrolled (UI-31).
@@ -65,7 +71,7 @@ interface Options {
   startOnly: boolean;
   /** With `startOnly`: starts the app itself, without WebDriver. */
   direct: boolean;
-  /** Measures `input-latency-job` only. */
+  /** Measures `input-latency-job` and `input-latency-group-job` only. */
   jobOnly: boolean;
   data: string;
   app: string;
@@ -612,6 +618,103 @@ async function memoryTwoTabs(
   return processes.reduce((sum, process) => sum + process.mb, 0);
 }
 
+// --- Refresh after the start and tab switches (M3-15) ------------------------
+
+/** Waits in the page until the history shows a top row. */
+const historyShown = (session: Session, what: string) =>
+  session.page(
+    `const asked = performance.now();
+     while (p.firstRow() === null) {
+       if (performance.now() - asked > 30000) throw new Error(args[0] + " shows no history");
+       await new Promise((resolve) => requestAnimationFrame(resolve));
+     }`,
+    what,
+  );
+
+/**
+ * `refresh-all-ui` and `switch-tab`, in an app session of their own, so
+ * that nothing else is asked of the app while the refresh after its start
+ * runs. The refresh is timed from the process start to the frame after no
+ * repo row is marked stale; every repo must be in the tree for that.
+ * Then the second workspace opens as a tab, and each tab gets its largest
+ * repo selected; each switch is timed from the click on the tab to the
+ * frame after the other tab's history shows its top row. Closes the second
+ * tab, so the next run starts as this one did.
+ */
+async function tabsOnce(
+  options: Options,
+  repos: Repo[],
+  tabs: Tabs,
+  tracePath: string,
+): Promise<{ refresh: number; switches: number[] }> {
+  const largest = repos[0];
+  if (largest === undefined) {
+    throw new Error(`${SET} has no repos`);
+  }
+  const session = await Session.start(options.app);
+  try {
+    await session.page(`await p.ready();`);
+    await session.page(`await p.fresh();`);
+    const shown = await session.page<string[]>(`return p.repoNames();`);
+    if (shown.length < repos.length) {
+      throw new Error(`the tree shows ${shown.length} of ${repos.length} repos, so refresh-all-ui cannot see them all`);
+    }
+    log("  refresh-all-ui");
+
+    const selectLargest = async (tab: string) => {
+      await session.page(
+        `const asked = performance.now();
+         while (p.repoRow(args[0]) === null) {
+           if (performance.now() - asked > 30000) throw new Error("the tab shows no " + args[0]);
+           await new Promise((resolve) => requestAnimationFrame(resolve));
+         }`,
+        largest.name,
+      );
+      await session.click(await session.page<Element>(`return p.repoRow(args[0]);`, largest.name));
+      await historyShown(session, tab);
+    };
+    await selectLargest("the first tab");
+    const invoke = (command: string) =>
+      session.page(`await window.__TAURI_INTERNALS__.invoke(args[0], { workspaceId: args[1] });`, command, tabs.second);
+    await invoke("workspace_open");
+    await selectLargest("the second tab");
+    await session.page(`await p.idle(1000);`);
+
+    const tab = (id: string) =>
+      session.page<Element>(`return document.querySelector('[role="tab"][data-id="' + args[0] + '"]');`, id);
+    for (let i = 0; i < SWITCHES; i++) {
+      for (const id of [tabs.main, tabs.second]) {
+        const element = await tab(id);
+        await timed(session, "switch-tab", "tab", "", () => session.click(element));
+        // The tab's refresh (UI-30) ends before the next switch.
+        await session.page(`await p.idle(300);`);
+      }
+    }
+
+    rmSync(tracePath, { force: true });
+    await session.page(`await p.flush();`);
+    const trace = JSON.parse(readFileSync(tracePath, "utf8")) as Trace;
+    const fresh = trace.page_marks.find((mark) => mark.name === "all repos fresh");
+    if (fresh === undefined || trace.process_start_unix_ms === null) {
+      throw new Error("the trace has no end of the refresh after the start");
+    }
+    await invoke("workspace_close");
+    return {
+      refresh: fresh.unix_ms - trace.process_start_unix_ms,
+      switches: trace.samples.filter((sample) => sample.scenario === "switch-tab").map((sample) => sample.ms),
+    };
+  } catch (error) {
+    const path = join(ROOT, "target/bench-ui/failure.png");
+    await session.screenshot(path).then(
+      () => log(`the window at the failure: ${path}`),
+      () => {},
+    );
+    throw error;
+  } finally {
+    await session.end().catch(() => {});
+  }
+}
+
 // --- Input latency while a job runs (M2-15) ----------------------------------
 
 /** git for the job scenario's own repos, with an identity for the commits it makes. */
@@ -656,11 +759,18 @@ function advance(remote: string, wave: number) {
 /**
  * `input-latency-job`: the filter key of `input-latency`, while a job
  * runs: a fetch of every repo from its local bare remote, then a pull of the
- * largest, again and again; each wave's remotes have a new commit. Keys
- * that land while no job runs count as `input-latency-job-idle`. Its own
- * app session, on a workspace of the working copies.
+ * largest, again and again; each wave's remotes have a new commit. Then
+ * `input-latency-group-job` (M3-15): the same key while a group fetch of
+ * every repo runs, then a group pull, started from the group's menu. Keys
+ * that land while no job runs count as `<scenario>-idle`. Its own app
+ * session, on a workspace of the working copies with a group of them all.
  */
-async function jobLatency(options: Options, repos: Repo[], home: string, tracePath: string): Promise<number[]> {
+async function jobLatency(
+  options: Options,
+  repos: Repo[],
+  home: string,
+  tracePath: string,
+): Promise<{ scenario: string; ms: number }[]> {
   const dir = join(home, "job");
   log(`setting up a bare remote and a working copy of ${repos.length} repos in ${dir}`);
   const copies = jobRepos(repos, dir);
@@ -678,6 +788,9 @@ async function jobLatency(options: Options, repos: Repo[], home: string, tracePa
   if (largest === undefined) {
     throw new Error("the job scenario's workspace has no largest repo");
   }
+  execFileSync(options.cli, ["group", "--config-dir", join(config, "gitcroc"), "create", ALL_GROUP, ...ids], {
+    stdio: "pipe",
+  });
 
   const env = {
     ...process.env,
@@ -691,7 +804,6 @@ async function jobLatency(options: Options, repos: Repo[], home: string, tracePa
     try {
       await session.page(`await p.ready();`);
       await session.page(`await p.idle(1000);`);
-      log("input-latency-job");
       const sync = (repo: string, op: unknown) =>
         `window.__TAURI_INTERNALS__.invoke("op_sync", {
            workspaceId: args[0],
@@ -700,50 +812,74 @@ async function jobLatency(options: Options, repos: Repo[], home: string, tracePa
       const filter = await session.find('input[aria-label="Filter repos and branches"]');
       await session.click(filter);
       const target = KEYS * options.runs;
-      let busy = 0;
       let value = "";
       let wave = 0;
-      let pullNext = false;
-      for (let attempt = 0; busy < target && attempt < target * 6; attempt++) {
-        const running = await session.page<boolean>(`return document.querySelector(".status-bar .job-running") !== null;`);
-        if (!running) {
-          if (pullNext) {
-            await session.page(`await ${sync("args[1]", { kind: "pull", strategy: "config" })};`, shown.id, largest);
-          } else {
-            wave++;
-            for (const copy of copies) {
-              advance(copy.remote, wave);
+
+      /**
+       * Types the filter key until `target` keys landed while a job ran,
+       * starting the next job of `jobs` whenever none runs; each first job
+       * of the list gets a new wave on every remote first.
+       */
+      const typeWhile = async (scenario: string, jobs: (() => Promise<unknown>)[]) => {
+        log(scenario);
+        await session.page(`p.takeCalls();`);
+        let busy = 0;
+        let next = 0;
+        const waves = wave;
+        for (let attempt = 0; busy < target && attempt < target * 6; attempt++) {
+          const running = await session.page<boolean>(
+            `return document.querySelector(".status-bar .job-running") !== null;`,
+          );
+          if (!running) {
+            if (next === 0) {
+              wave++;
+              for (const copy of copies) {
+                advance(copy.remote, wave);
+              }
             }
-            await session.page(
-              `for (const repo of args[1]) await ${sync("repo", { kind: "fetch", prune: "config" })};`,
-              shown.id,
-              ids,
-            );
+            await jobs[next]?.();
+            next = (next + 1) % jobs.length;
+            // Until the status bar shows the job, so the next key lands while it runs.
+            await session.page(`
+              const asked = performance.now();
+              while (document.querySelector(".status-bar .job-running") === null && performance.now() - asked < 2000) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+              }`);
           }
-          pullNext = !pullNext;
-          // Until the status bar shows the job, so the next key lands while it runs.
-          await session.page(`
-            const asked = performance.now();
-            while (document.querySelector(".status-bar .job-running") === null && performance.now() - asked < 2000) {
-              await new Promise((resolve) => requestAnimationFrame(resolve));
-            }`);
+          const typed = value === "" ? "r" : "";
+          const key = value === "" ? "r" : "\uE003";
+          const result = await timed(session, scenario, "input", typed, () => session.type(filter, key), "job");
+          if (options.verbose) {
+            const job = await session.page<string>(
+              `return document.querySelector(".status-bar .status-jobs")?.textContent;`,
+            );
+            log(`    ${result.ms.toFixed(0)} ms ${result.busy ? "during" : "after"} ${job}`);
+          }
+          value = typed;
+          if (result.busy) {
+            busy++;
+          }
         }
-        const next = value === "" ? "r" : "";
-        const key = value === "" ? "r" : "\uE003";
-        const result = await timed(
-          session,
-          "input-latency-job",
-          "input",
-          next,
-          () => session.type(filter, key),
-          "job",
-        );
-        value = next;
-        if (result.busy) {
-          busy++;
+        log(`  ${busy} keys landed while a job ran, over ${wave - waves} waves`);
+        if (options.verbose) {
+          const calls = await session.page<[string, number][]>(`return p.takeCalls();`);
+          log(`  commands called: ${calls.map(([name, n]) => `${name} ${n}`).join(", ")}`);
         }
-      }
-      log(`  ${busy} keys landed while a job ran, over ${wave} waves`);
+        if (busy < target) {
+          log(`  only ${busy} of ${target} keys landed while a job ran`);
+        }
+      };
+
+      // A fetch of every repo, one job each, then a pull of the largest.
+      await typeWhile("input-latency-job", [
+        () =>
+          session.page(
+            `for (const repo of args[1]) await ${sync("repo", { kind: "fetch", prune: "config" })};`,
+            shown.id,
+            ids,
+          ),
+        () => session.page(`await ${sync("args[1]", { kind: "pull", strategy: "config" })};`, shown.id, largest),
+      ]);
       // The jobs did their work: the largest repo was pulled, and the others fetched.
       const pulled = git(["-C", copies[0]?.work ?? "", "log", "-1", "--format=%s"]);
       const fetched = git(["-C", copies[1]?.work ?? "", "log", "-1", "--format=%s", "origin/HEAD"]);
@@ -751,9 +887,41 @@ async function jobLatency(options: Options, repos: Repo[], home: string, tracePa
         throw new Error(`the jobs did not bring the waves: pulled ${pulled}, fetched ${fetched}`);
       }
       log(`  ${repos[0]?.name} is at ${pulled}; ${repos[1]?.name} fetched ${fetched}`);
-      if (busy < target) {
-        log(`  only ${busy} of ${target} keys landed while a job ran`);
+
+      // A group fetch of every repo, then a group pull, from the group's menu as a user runs them.
+      const groupOp = (entry: string) =>
+        session.page(
+          `const row = p.groupRow(args[0]);
+           if (row === null) throw new Error("no group " + args[0]);
+           const at = { bubbles: true, cancelable: true, clientX: 10, clientY: 10 };
+           row.dispatchEvent(new MouseEvent("contextmenu", at));
+           await new Promise((resolve) => requestAnimationFrame(resolve));
+           const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')];
+           const item = items.find((el) => el.textContent === args[1]);
+           if (item === undefined) throw new Error("the group menu has no " + args[1]);
+           item.click();
+           // The preflight dialog, when the core asks for it: Run.
+           const asked = performance.now();
+           while (document.querySelector(".status-bar .job-running") === null && performance.now() - asked < 10000) {
+             const buttons = [...document.querySelectorAll('[role="dialog"] button')];
+             const run = buttons.find((el) => /^Run on /.test(el.textContent));
+             if (run !== undefined && !run.disabled) {
+               run.click();
+               break;
+             }
+             await new Promise((resolve) => requestAnimationFrame(resolve));
+           }`,
+          ALL_GROUP,
+          entry,
+        );
+      await typeWhile("input-latency-group-job", [() => groupOp("Fetch"), () => groupOp("Pull")]);
+      // Every repo was pulled to a wave of the group jobs.
+      const heads = copies.map((copy) => git(["-C", copy.work, "log", "-1", "--format=%s"]));
+      const behind = heads.filter((head) => !head.startsWith("Wave ")).length;
+      if (behind > 0) {
+        throw new Error(`the group pull left ${behind} repos without a wave: ${heads.join(", ")}`);
       }
+      log(`  every repo is at a wave: ${[...new Set(heads)].join(", ")}`);
       if (value !== "") {
         await session.type(filter, "\uE003");
       }
@@ -761,7 +929,22 @@ async function jobLatency(options: Options, repos: Repo[], home: string, tracePa
       await session.page(`await p.idle(1000);`);
       await session.page(`await p.flush();`);
       const trace = JSON.parse(readFileSync(tracePath, "utf8")) as Trace;
-      return trace.samples.filter((sample) => sample.scenario === "input-latency-job").map((sample) => sample.ms);
+      if (options.verbose) {
+        const slow = new Map<string, number[]>();
+        for (const mark of trace.page_marks) {
+          const handler = /^handler (\S+) took (\d+) ms$/.exec(mark.name);
+          if (handler !== null) {
+            slow.set(handler[1] ?? "", [...(slow.get(handler[1] ?? "") ?? []), Number(handler[2])]);
+          }
+        }
+        log("  event handlers over 10 ms:");
+        for (const [name, times] of slow) {
+          const total = times.reduce((a, b) => a + b, 0);
+          log(`    ${name}: ${times.length} times, longest ${Math.max(...times)} ms, ${total} ms in all`);
+        }
+      }
+      const measured = ["input-latency-job", "input-latency-group-job"];
+      return trace.samples.filter((sample) => measured.includes(sample.scenario));
     } finally {
       await session.end().catch(() => {});
     }
@@ -865,8 +1048,15 @@ async function main() {
       const trace = options.direct
         ? { ...(await startDirect(options, env, tracePath)), memory: 0, twoTabs: 0 }
         : await runOnce(options, repos, commits, tabs, tracePath);
+      const tabbed = options.startOnly ? null : await tabsOnce(options, repos, tabs, tracePath);
       if (run === 0) {
         continue;
+      }
+      if (tabbed !== null) {
+        add("refresh-all-ui", tabbed.refresh);
+        for (const ms of tabbed.switches) {
+          add("switch-tab", ms);
+        }
       }
       if (trace.cold_start_ms === null) {
         throw new Error("the tree never showed the cached repos");
@@ -901,8 +1091,8 @@ async function main() {
     if (!options.startOnly) {
       // Its own session and workspace, so it ends this driver first.
       driver.kill();
-      for (const ms of await jobLatency(options, repos, home, tracePath)) {
-        add("input-latency-job", ms);
+      for (const sample of await jobLatency(options, repos, home, tracePath)) {
+        add(sample.scenario, sample.ms);
       }
     }
     const report = results(options.runs, samples);
