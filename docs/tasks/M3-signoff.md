@@ -94,7 +94,7 @@ From `taskset -c 0-7 just bench --runs 3 --stretch`, core side only. `just bench
 5. The preflight shows `lib` as *needs attention* and `app` as *will run*; **Run on 2 repos**.
 6. The group row shows `feature`; the job list's report has a *succeeded* line for each repo, and git says both repos are on `feature`.
 
-Every step waits for its result in the DOM; none waits for a time. Result: passed, 4 of 4 runs, about 6 s each.
+Every step waits for its result in the DOM; none waits for a time. Result: passed, 4 of 4 runs.
 
 - Date and commit: 2026-10-16, branch `m3-15-signoff` (the commit of this file)
 - CI: the Linux job runs `xvfb-run -a just smoke` after `just check`.
