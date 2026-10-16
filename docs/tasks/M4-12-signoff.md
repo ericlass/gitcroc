@@ -18,9 +18,10 @@ Respects: QA-1, QA-3, QA-5, AI-15, D9, D12, SEC-1, section 12 "AI" and "End to e
 - End-to-end smoke (`just smoke`, Linux) gains an AI flow after the M3 steps, on the merge conflict M2's flow makes:
   - The `e2e` build has a mock provider kind, set by `GITCROC_E2E_AI`, that answers from a scripted reply. The in-memory keychain is used.
   1. Settings, AI: add the mock provider and make it the default.
-  2. **Resolve with AI** on the conflicted file; the consent dialog appears; **Allow**.
-  3. The proposal shows; **Accept all high-confidence**.
-  4. **Mark resolved**, then **Continue**; git says the merge is done, and the file holds the proposed text.
+  2. Turn **AI features** off: the conflict editor has no **Resolve with AI**. Turn it on again (AI-16).
+  3. **Resolve with AI** on the conflicted file; the consent dialog appears; **Allow**.
+  4. The proposal shows; **Accept all high-confidence**.
+  5. **Mark resolved**, then **Continue**; git says the merge is done, and the file holds the proposed text.
   - Each step waits for its result in the DOM, never for a time.
 - `docs/tasks/M4-signoff.md`, filled in by the person verifying:
   - the coverage result;

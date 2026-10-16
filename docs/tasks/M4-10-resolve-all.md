@@ -8,12 +8,13 @@ M4-09
 
 ## Spec
 Implements: AI-3, AI-13
-Respects: AI-4, AI-6, AI-7, AI-9, AI-11, AI-12, D9, OPS-2, OPS-9, ARCH-7, UI-21, UI-22, UI-30
+Respects: AI-4, AI-6, AI-16, AI-7, AI-9, AI-11, AI-12, D9, OPS-2, OPS-9, ARCH-7, UI-21, UI-22, UI-30
 
 ## In scope
 - The banner of OPS-2 gets **Resolve all with AI** next to Abort and Continue:
   - With no provider configured it opens the provider settings (AI-3).
   - With the workspace switch off it is disabled with the reason.
+  - With AI features off it is hidden, and so is the progress view (AI-16).
   - Consent is asked once, before the run, as in M4-09.
 - `ai_resolve_all(workspace, repo, files)`:
   - `files` lists, for each unmerged file the UI has an editor buffer for, its untouched hunks (OPS-9). Every other file is sent with all its hunks.
@@ -31,10 +32,12 @@ Respects: AI-4, AI-6, AI-7, AI-9, AI-11, AI-12, D9, OPS-2, OPS-9, ARCH-7, UI-21,
     - `ai_13_cancel_keeps_finished_proposals_and_leaves_the_rest_untouched`.
     - Per-file progress events in order. Ineligible files are reported and never sent.
     - The untouched hunks of a file with a buffer are the only ones sent.
+    - `ai_16_resolve_all_refused_when_off`, and a running Resolve all cancelled when AI is turned off, keeping no proposal.
   - Vitest:
     - `ai_3_banner_resolve_all_opens_settings_without_a_provider`.
     - The progress list, and opening a file from it.
     - Cancel shows cancelled files.
+    - `ai_16_off_hides_resolve_all`.
   - Playwright on the fake core: Resolve all on three fake files, one ineligible.
 
 ## Out of scope
