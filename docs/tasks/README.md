@@ -121,6 +121,33 @@ Two tracks can run side by side after M3-01: tabs (M3-02, M3-03) and groups
 beside M3-10 and M3-11. M3-14 needs only M3-02 and M3-04. M3-08 is the core of
 the milestone: every group operation is built on its classify and run parts.
 
+## M4 AI conflict resolution
+
+Milestone goal (docs/spec/13-milestones.md): providers, settings, consent,
+proposals in the conflict editor, Resolve all, CLI providers. Done when all AI
+requirements have tests against the mock provider, and the fixture set (AI-15)
+runs against one API provider and one CLI provider.
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| [M4-01](M4-01-response-validation.md) | Response model, validation, one retry, "AI failed"; provider trait and mock provider | M3 |
+| [M4-02](M4-02-prompt-building.md) | Versioned prompt files, data delimiting, temperature 0, splitting over the context budget | M4-01 |
+| [M4-03](M4-03-api-providers.md) | Anthropic and OpenAI-compatible providers, model lists, token usage | M4-01 |
+| [M4-04](M4-04-cli-providers.md) | Claude Code and Codex CLI providers in an empty temp folder with tools off; self-test | M4-01 |
+| [M4-05](M4-05-provider-settings-and-keys.md) | Provider list and AI settings in `settings.toml`, keys in the OS keychain, provider IPC | M4-03, M4-04 |
+| [M4-06](M4-06-provider-settings-ui-and-consent.md) | AI section in Settings, consent dialog, workspace AI switch | M4-05 |
+| [M4-07](M4-07-ai-eligibility-and-context.md) | Eligibility and exclude list; the data sent, read from the repo (core) | M3 |
+| [M4-08](M4-08-proposal-jobs.md) | Proposal jobs, proposals in memory, the core and AI seam, AI debug logging | M4-02, M4-05, M4-07 |
+| [M4-09](M4-09-proposals-in-the-conflict-editor.md) | Resolve with AI per file; Accept, Reject, Edit; Accept all high-confidence; token usage | M4-06, M4-08 |
+| [M4-10](M4-10-resolve-all.md) | Resolve all with AI from the banner: 4 files at a time, progress, cancel | M4-09 |
+| [M4-11](M4-11-prompt-fixture-set.md) | At least 30 reviewed fixture conflicts and `just ai-eval` | M4-02, M4-03, M4-04, M4-07 |
+| [M4-12](M4-12-signoff.md) | Fixture runs against an API and a CLI provider, AI smoke test, M4 sign-off | M4-01 to M4-11 |
+
+M4-07 needs nothing from the other M4 tasks and can run beside M4-01 to M4-04.
+M4-03 and M4-04 can run in parallel after M4-01, and M4-11 beside M4-08 to
+M4-10. M4-08 is the core of the milestone: it joins the core and `gitcroc-ai`
+and carries D9.
+
 ## Choices made in these tasks that the spec does not cover
 
 Each is a default so the tasks have no gaps. Veto any of them before the first
@@ -273,3 +300,27 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Export content | Name, repos and groups with paths relative to the exported file and `/` separators. No layout and no offer answers. A path on another Windows drive stays absolute | M3-14 |
 | Import | Makes a new workspace (name gets " (2)" when taken) with the file's ids and groups. Missing repos stay with the missing-path warning, and the clone dialog fills in their path, keeping their id | M3-14 |
 | Tab-switch timing | From the click to the frame after the history's top row changes, between two workspaces with their largest repo selected | M3-15 |
+| What M4 completes | AI-1 to AI-15, D9, D11, SEC-1 and SEC-5, and D4 in full. SEC-3 holds for proposals as for any repo text; SEC-7 and D12's update check wait for M5 | M4-01 to M4-12 |
+| Core and AI seam | `gitcroc-core` may not depend on `gitcroc-ai` (section 4 "Crates"), so the core defines its own context and proposal types and an async `Proposer` trait. `gitcroc-app` and `gitcroc-cli` each implement it with a newtype over `gitcroc-ai` that maps fields only | M4-07, M4-08 |
+| Reply parsing | One JSON object after trimming and at most one Markdown code fence; unknown keys refused. Transport and process errors fail the file at once; only invalid replies are retried (AI-9) | M4-01 |
+| Data delimiters | Repo text between `<<<DATA token …>>>` and `<<<END token>>>` lines, with a random token per request that the repo text cannot contain (SEC-5) | M4-02 |
+| Split failure | When one part of a split file fails, the whole file is *AI failed* and no partial proposal is kept | M4-02 |
+| Request timeout | 5 minutes per request, not a setting | M4-03 |
+| Temperature refused | An OpenAI-compatible endpoint that refuses `temperature` gets the request again without it, remembered for the session | M4-03 |
+| CLI prompt | System prompt and user message as one text on stdin; no temperature, since neither CLI takes one. Flags recorded in the code with the CLI version they were checked on | M4-04 |
+| AI settings | An optional `[ai]` table in `settings.toml`, schema unchanged: `default`, `exclude`, `debug_log`, and `[[ai.provider]]` entries with `id` (`p1`, …), `name`, `kind`, `model`, `base_url`, `path`, `context_budget` and `consent` | M4-05 |
+| Keychain entries | Service `gitcroc`, account `ai-provider-<id>`. An unreachable keychain is reported, never replaced by a file. Tests and the `e2e` build use an in-memory keychain | M4-05 |
+| Keys in the CLI | `gitcroc-cli` reads a key only from an environment variable named by `--key-env`, never from an argument or the keychain | M4-05, M4-11 |
+| Consent record | Stored per provider as the host (API) or program path (CLI) consented to; asked again when that changes | M4-06 |
+| Workspace AI switch | An optional `ai = false` in the workspace file, schema unchanged, set from the tab menu; not exported | M4-06 |
+| Exclude patterns | Globs matched against the file name and the path from the repo top; case-insensitive on Windows and macOS | M4-07 |
+| Hunk ids | Numbered from 1 in file order over the core's chunks; only hunks still untouched in the editor are sent | M4-07, M4-09 |
+| Context lines | The 40 lines before and after a hunk come from the merged text around it: resolved text and the ours side of neighbouring hunks | M4-07 |
+| Side commits | `HEAD` and `MERGE_HEAD`, `CHERRY_PICK_HEAD` or `REVERT_HEAD`; for a rebase the commit being applied; for a stash apply the stash commit. Messages are those of commits touching the file, reachable from the side and not from the two sides' merge base | M4-07 |
+| AI jobs | In the job list as "Resolve with AI · <file>" with outcome and token usage, never the prompt. They do not take git pool workers; at most 4 AI requests run at once | M4-08, M4-10 |
+| Proposal lifetime | In core memory per workspace, keyed by repo, path and stage ids; dropped on Abort, Continue, Mark resolved, a side chosen, or changed stages | M4-08 |
+| Edit | Opens the proposed text in a small inline editor; its Accept puts the edited text in the buffer | M4-09 |
+| Stale proposal | A hunk edited after its proposal arrived shows "hunk changed" with Accept disabled, the take buttons' rule | M4-09 |
+| Fixture format | One folder per fixture with `meta.toml`, `base`, `ours`, `theirs` and `accept/*.txt` (whole-file resolutions, or `UNRESOLVED`); written for this repo and reviewed by Eric | M4-11 |
+| Eval score | *Match* when the resolved file equals an accepted resolution after normalizing line endings and trimming trailing whitespace | M4-11 |
+| AI in the smoke test | A mock provider kind in the `e2e` build, chosen by `GITCROC_E2E_AI` | M4-12 |
