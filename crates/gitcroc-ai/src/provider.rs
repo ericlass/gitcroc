@@ -44,8 +44,15 @@ pub struct ProviderReply {
 pub enum ProviderError {
     #[error("could not reach the provider: {0}")]
     Transport(String),
+    #[error("the provider did not answer within 5 minutes")]
+    Timeout,
     #[error("the provider answered with HTTP {status}: {message}")]
     Status { status: u16, message: String },
+    /// An error the provider reported after it started answering.
+    #[error("the provider stopped with an error: {0}")]
+    Failed(String),
+    #[error("the provider's reply could not be read: {0}")]
+    Malformed(String),
     #[error("{program} exited with {}: {stderr}", code.map_or_else(|| "a signal".to_owned(), |code| format!("code {code}")))]
     Exit {
         program: String,

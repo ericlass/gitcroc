@@ -40,6 +40,14 @@ unused-allowed-license = "allow"
 crate = "notify"
 allow = ["CC0-1.0"]
 
+# webpki-root-certs, the Mozilla root certificates that rustls-platform-verifier
+# falls back to under reqwest (section 4 "Stack", M4-03), is
+# CDLA-Permissive-2.0: a permissive data license with no copyleft, compatible
+# with MIT. Allowed for this crate only.
+[[licenses.exceptions]]
+crate = "webpki-root-certs"
+allow = ["CDLA-Permissive-2.0"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

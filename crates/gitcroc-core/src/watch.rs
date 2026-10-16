@@ -138,7 +138,7 @@ struct Shared {
     /// The warning given, at most one per workspace.
     warning: Mutex<Option<WatchWarning>>,
     /// Repos a write job holds, with how many hold them, and those whose
-    /// events pending since must be dropped.
+    /// pending events must be dropped.
     held: Mutex<Held>,
     on_change: Arc<ChangeFn>,
     on_warning: Arc<WarningFn>,
@@ -148,7 +148,7 @@ struct Shared {
 #[derive(Debug, Default)]
 struct Held {
     holds: HashMap<RepoId, u32>,
-    released: HashSet<RepoId>,
+    drop_pending: HashSet<RepoId>,
 }
 
 impl Shared {
@@ -499,8 +499,9 @@ impl Watchers {
     }
 
     /// Drops the events of `repo` of workspace `id` while a write job runs
-    /// on it (`held`). When the last job lets go, the events still pending
-    /// are dropped too: the job has read the repo again (OPS-7).
+    /// on it (`held`). The events pending when the first job takes hold, and
+    /// those still pending when the last lets go, are dropped too: the job
+    /// reads the repo again when it ends (OPS-7).
     pub fn hold(&self, id: &WorkspaceId, repo: &RepoId, held: bool) {
         let Some(shared) = self.lock().get(id).map(|watch| watch.shared.clone()) else {
             return;
@@ -508,13 +509,14 @@ impl Watchers {
         let mut state = shared.held();
         if held {
             *state.holds.entry(repo.clone()).or_default() += 1;
+            state.drop_pending.insert(repo.clone());
             return;
         }
         if let Some(holds) = state.holds.get_mut(repo) {
             *holds = holds.saturating_sub(1);
             if *holds == 0 {
                 state.holds.remove(repo);
-                state.released.insert(repo.clone());
+                state.drop_pending.insert(repo.clone());
             }
         }
     }
@@ -645,7 +647,7 @@ fn debounce(shared: &Shared, watch: &Weak<Mutex<Watch>>, events: &Receiver<notif
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
         }
-        for repo in std::mem::take(&mut shared.held().released) {
+        for repo in std::mem::take(&mut shared.held().drop_pending) {
             debouncer.pending.remove(&repo);
         }
         for (repo, refs) in debouncer.take_due(Instant::now()) {

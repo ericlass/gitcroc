@@ -1,18 +1,24 @@
 //! AI providers, prompt building and response validation.
 
 mod answer;
+mod anthropic;
 mod ask;
+mod http;
 #[cfg(feature = "mock")]
 mod mock;
+mod openai;
 mod prompt;
 mod provider;
 mod resolve;
 mod validate;
 
 pub use answer::{Confidence, FileAnswer, HunkAnswer, HunkStatus, Usage};
+pub use anthropic::{ANTHROPIC_MAX_TOKENS, AnthropicProvider};
 pub use ask::{FileOutcome, FileResult, ask};
+pub use http::{ApiKey, ModelList, REQUEST_TIMEOUT};
 #[cfg(feature = "mock")]
 pub use mock::{MockGate, MockProvider};
+pub use openai::OpenAiProvider;
 pub use prompt::{FileRequest, HunkRequest, Operation, PROMPT_VERSION, estimate_tokens, prompt};
 pub use provider::{
     Message, Provider, ProviderError, ProviderFuture, ProviderReply, ProviderRequest, Role,

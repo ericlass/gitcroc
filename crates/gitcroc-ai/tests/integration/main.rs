@@ -6,6 +6,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod ask;
+mod fake_server;
 mod mock;
+mod providers;
 mod responses;
 mod split;
