@@ -11,6 +11,8 @@ thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 specta.workspace = true
+# Random delimiter tokens of the prompt (SEC-5).
+uuid.workspace = true
 # The mock provider's gate (M4-01).
 tokio = { workspace = true, features = ["sync"], optional = true }
 

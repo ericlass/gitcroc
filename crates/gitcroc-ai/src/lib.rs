@@ -4,16 +4,20 @@ mod answer;
 mod ask;
 #[cfg(feature = "mock")]
 mod mock;
+mod prompt;
 mod provider;
+mod resolve;
 mod validate;
 
 pub use answer::{Confidence, FileAnswer, HunkAnswer, HunkStatus, Usage};
 pub use ask::{FileOutcome, FileResult, ask};
 #[cfg(feature = "mock")]
 pub use mock::{MockGate, MockProvider};
+pub use prompt::{FileRequest, HunkRequest, Operation, PROMPT_VERSION, estimate_tokens, prompt};
 pub use provider::{
     Message, Provider, ProviderError, ProviderFuture, ProviderReply, ProviderRequest, Role,
 };
+pub use resolve::resolve_file;
 pub use validate::{Invalid, Problem, first_marker_line, validate};
 
 /// Errors returned by `gitcroc-ai`.
