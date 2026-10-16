@@ -42,6 +42,8 @@ import { real } from "./core";
 
 export type {
   AddReport,
+  AiEligibility,
+  AiEligibilityRead,
   AiOptions,
   AiRequestId,
   AiView,
@@ -516,6 +518,8 @@ export const conflictDetails = (workspaceId: WorkspaceId, repoId: RepoId) =>
 /** Unmerged file `file` of changes view `handle` as the conflict editor shows it (OPS-8). */
 export const conflictGet = (workspaceId: WorkspaceId, handle: number, file: number) =>
   unwrap(core.commands.conflictGet(workspaceId, handle, file));
+export const aiEligibility = (workspaceId: WorkspaceId, handle: number, file: number) =>
+  unwrap(core.commands.aiEligibility(workspaceId, handle, file));
 
 /** Mark resolved with the editor's text, as a job (OPS-5). */
 export const conflictResolve = (workspaceId: WorkspaceId, request: ResolveRequest) =>

@@ -512,6 +512,15 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
  */
 { kind: "markers_remain"; line: number } | null, IpcError>(__TAURI_INVOKE("conflict_choose", { workspaceId, request })),
 	/**
+	 *  Whether unmerged file `file` of view `handle` may go to AI, and why not
+	 *  (AI-4), so the editor can show the reason. `already_resolved` when it is
+	 *  no longer in conflict. `null` when a newer view of the workspace
+	 *  replaced it.
+	 */
+	aiEligibility: (workspaceId: WorkspaceId, handle: number, file: number) => typedError<{ kind: "read"; eligibility: AiEligibility } | 
+/**  The file is no longer in conflict; read the lists again. */
+{ kind: "already_resolved" } | null, IpcError>(__TAURI_INVOKE("ai_eligibility", { workspaceId, handle, file })),
+	/**
 	 *  Changes the code themes and fonts (UI-24, UI-26) and saves the settings.
 	 *  Font sizes outside 8 to 32 are moved to the nearest limit.
 	 */
@@ -643,6 +652,16 @@ export type AddReport = {
  *  finished, sent as event `ai_changed`. Never carries a key (SEC-1).
  */
 export type AiChangedEvent = AiView;
+
+/**  Whether a file may go to AI (AI-4). */
+export type AiEligibility = { kind: "eligible" } | { kind: "ineligible"; reason: Ineligible; 
+/**  [`Ineligible::message`]. */
+message: string };
+
+/**  What `ai_eligibility_get` found. */
+export type AiEligibilityRead = { kind: "read"; eligibility: AiEligibility } | 
+/**  The file is no longer in conflict; read the lists again. */
+{ kind: "already_resolved" };
 
 /**  The models `ai_models_get` asked for, sent as event `ai_models` (AI-1). */
 export type AiModelsEvent = AiModelsReply;
@@ -1575,6 +1594,15 @@ export type ImportReport = {
 	/**  The repos whose folder is missing or is no repo, in file order. */
 	missing: RepoId[],
 };
+
+/**  Why a file may not go to AI (AI-4). */
+export type Ineligible = 
+/**  A conflict the editor shows as a choice (OPS-6). */
+{ kind: "not_text"; choice: ChoiceKind } | 
+/**  A side has over [`AI_MAX_FILE`] bytes. */
+{ kind: "over_one_mb" } | 
+/**  The path matches `pattern` of the exclude list. */
+{ kind: "excluded"; pattern: string };
 
 /**
  *  An integrate operation (section 6 "Integrate"), or what to do with one

@@ -85,7 +85,7 @@ pub struct RepoSummary {
     pub state: RepoState,
 }
 
-pub(super) fn repo_state(repo: &gix::Repository) -> Result<RepoState, StatusError> {
+pub(crate) fn repo_state(repo: &gix::Repository) -> Result<RepoState, StatusError> {
     let git_dir = repo.git_dir();
     let operation = if git_dir.join("rebase-merge").is_dir() {
         Some(Operation::Rebase)

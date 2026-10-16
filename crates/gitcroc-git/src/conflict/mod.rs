@@ -5,6 +5,7 @@
 //! the two versions. Nothing here writes; resolving is in
 //! [`crate::ops::conflict`].
 
+mod sides;
 mod text;
 
 use std::path::Path;
@@ -14,6 +15,7 @@ use gix::index::entry::{Mode, Stage};
 use gix::merge::blob::builtin_driver::text::ConflictStyle;
 use serde::Serialize;
 
+pub use sides::{SideMessages, SidesRead, SidesReader};
 pub use text::{ConflictChunk, MARKER_SIZE, first_marker_line};
 
 use crate::status::conflict::conflict_labels;
@@ -155,6 +157,15 @@ impl ConflictError {
     fn read(error: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self::Read(Box::new(error))
     }
+}
+
+/// `ours` and `theirs` merged against `base` in diff3 style, as resolved
+/// text and hunks: the merge [`GitRepo::conflict`] uses on the index stages
+/// (OPS-8), for texts from elsewhere, such as the prompt fixtures (AI-15).
+/// `None` when a line starts with a run of marker characters too long to
+/// tell conflict markers from text.
+pub fn chunks_from_texts(base: &str, ours: &str, theirs: &str) -> Option<Vec<ConflictChunk>> {
+    text::chunks(ours.as_bytes(), base.as_bytes(), theirs.as_bytes())
 }
 
 /// A conflict stage of the path: its blob and mode.

@@ -9,7 +9,7 @@
 
 pub(crate) mod conflict;
 mod porcelain;
-mod state;
+pub(crate) mod state;
 mod worktree;
 
 use std::ffi::OsString;

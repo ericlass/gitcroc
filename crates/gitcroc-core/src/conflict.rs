@@ -70,7 +70,7 @@ pub struct ChooseRequest {
 
 /// The view `handle` of workspace `id` and its unmerged file `file`, as git
 /// stores the path. `None` when a newer view replaced it.
-fn unmerged_of(
+pub(crate) fn unmerged_of(
     changes: &Changes,
     id: &WorkspaceId,
     handle: u32,
@@ -89,7 +89,10 @@ fn unmerged_of(
 }
 
 /// The conflict of `git_path` in the view's repo, read again now.
-async fn read(view: &ViewState, git_path: Vec<u8>) -> Result<Option<Conflict>, ChangesError> {
+pub(crate) async fn read(
+    view: &ViewState,
+    git_path: Vec<u8>,
+) -> Result<Option<Conflict>, ChangesError> {
     let path = view.path.clone();
     tokio::task::spawn_blocking(move || {
         let repo = GitRepo::open(&path)?;

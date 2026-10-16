@@ -3,7 +3,12 @@
 //! the app told apart. Conflicts are made with `git` as a terminal user
 //! would.
 
-use gitcroc_git::{Conflict, ConflictChunk, ConflictContent, GitRepo};
+use std::path::PathBuf;
+
+use gitcroc_git::{
+    Conflict, ConflictChunk, ConflictContent, Engine, GitRepo, GitRunner, Operation, SideMessages,
+    SidesRead, SidesReader, chunks_from_texts,
+};
 use repo_gen::{Fixture, Repo};
 
 const BASE: &str = "one\ntwo\nthree\nfour\nfive\nsix\nseven\n";
@@ -239,4 +244,80 @@ fn ops_4_labels_name_the_real_sides() {
     stash.commit_file("a.txt", "committed\n", "Commit").unwrap();
     stops(&stash, &["stash", "apply"]);
     assert_eq!(labels(&stash), pair("main", "stash"));
+}
+
+/// The side messages of `path` read by `engine`, at most `limit` per side.
+fn side_messages(repo: &Repo, path: &str, engine: Engine, limit: usize) -> SideMessages {
+    SidesReader::new(
+        GitRepo::open(repo.path()).unwrap(),
+        GitRunner::new(PathBuf::from("git")),
+    )
+    .with_engine(engine)
+    .side_messages(path.as_bytes(), limit)
+    .unwrap()
+}
+
+#[test]
+fn arch_2_side_messages_are_the_same_from_gix_and_git() {
+    let fixture = Fixture::new().unwrap();
+    let repo = fixture.repo("app").unwrap();
+    // A path git would read as a glob without --literal-pathspecs.
+    let path = "dir/[a] b.txt";
+    repo.commit_file(path, "base\n", "Base").unwrap();
+    repo.commit_file("dir/a b.txt", "base\n", "Base of the look-alike")
+        .unwrap();
+    repo.branch("feature").unwrap();
+    repo.branch("side").unwrap();
+    for index in 1..=4 {
+        repo.commit_file(path, format!("main {index}\n"), &format!("Main {index}"))
+            .unwrap();
+    }
+    repo.commit_file("dir/a b.txt", "main\n", "Only the look-alike")
+        .unwrap();
+    // A merge that takes the file from its other side: left out by both.
+    repo.switch("side").unwrap();
+    repo.commit_file("side.txt", "side\n", "Side").unwrap();
+    repo.switch("main").unwrap();
+    repo.merge("side", "Merge side").unwrap();
+    repo.switch("feature").unwrap();
+    repo.commit_file(path, "feature\n", "Feature\n\nWith a body.\n")
+        .unwrap();
+    repo.switch("main").unwrap();
+    repo.merge_with_conflicts("feature").unwrap();
+
+    for limit in [0, 3, 10] {
+        let by_gix = side_messages(&repo, path, Engine::Gix, limit);
+        assert_eq!(
+            by_gix,
+            side_messages(&repo, path, Engine::Git, limit),
+            "limit {limit}"
+        );
+        assert_eq!(
+            by_gix,
+            side_messages(&repo, path, Engine::Auto, limit),
+            "limit {limit}"
+        );
+    }
+    assert_eq!(
+        side_messages(&repo, path, Engine::Gix, 10),
+        SideMessages {
+            operation: Some(Operation::Merge),
+            ours: ["Main 4", "Main 3", "Main 2", "Main 1"]
+                .map(str::to_owned)
+                .to_vec(),
+            theirs: vec!["Feature\n\nWith a body.".to_owned()],
+        }
+    );
+}
+
+#[test]
+fn ai_15_chunks_from_texts_is_the_editor_merge() {
+    let fixture = Fixture::new().unwrap();
+    let repo = diverged(&fixture, "app");
+    stops(&repo, &["merge", "--no-edit", "feature"]);
+    let read = conflict(&repo, "a.txt");
+    assert_eq!(
+        chunks_from_texts(BASE, MAIN, FEATURE).as_deref(),
+        Some(chunks(&read))
+    );
 }
