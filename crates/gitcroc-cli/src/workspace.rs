@@ -172,7 +172,7 @@ fn on_active(workspaces: &Arc<Workspaces>, action: Action) -> Result<String, Str
 }
 
 /// An async runtime and a runner for the detected git.
-fn runtime_and_git() -> Result<(tokio::runtime::Runtime, GitRunner), String> {
+pub(crate) fn runtime_and_git() -> Result<(tokio::runtime::Runtime, GitRunner), String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

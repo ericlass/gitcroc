@@ -8,11 +8,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gitcroc_core::{
-    Changes, ChangesContent, ChangesTarget, ChoiceKind, ChooseRequest, ConfigDir, Conflict,
-    ConflictChoice, ConflictContent, ConflictRead, ConflictStart, GitRunner, JobEvents, JobId,
-    JobView, Jobs, Outcome, RepoId, ResolveRequest, SideHolds, Summaries, SummaryCache,
-    SummaryView, WorkspaceId, Workspaces, add_path, changes_get, conflict_choose, conflict_get,
-    conflict_resolve,
+    AiEligibility, AiEligibilityRead, Changes, ChangesContent, ChangesTarget, ChoiceKind,
+    ChooseRequest, ConfigDir, Conflict, ConflictChoice, ConflictContent, ConflictRead,
+    ConflictStart, GitRunner, Ineligible, JobEvents, JobId, JobView, Jobs, Outcome, RepoId,
+    ResolveRequest, SideHolds, Summaries, SummaryCache, SummaryView, WorkspaceId, Workspaces,
+    add_path, ai_eligibility_get, changes_get, conflict_choose, conflict_get, conflict_resolve,
 };
 use repo_gen::{Fixture, Repo};
 use tokio::sync::mpsc;
@@ -690,4 +690,50 @@ async fn ops_9_nothing_is_written_before_mark_resolved() {
         "both a\n"
     );
     assert_eq!(stages(&repo, "b.txt"), index.1);
+}
+
+#[tokio::test]
+async fn ai_4_eligibility_of_an_editor_file_with_the_reason() {
+    let fixture = Fixture::new().unwrap();
+    let repo = merging(&fixture);
+    let run = Run::new(&repo).await;
+    let (handle, file) = run.file("a.txt").await;
+    let eligibility = |exclude: &[&str]| {
+        ai_eligibility_get(
+            run.changes.clone(),
+            run.id.clone(),
+            handle,
+            file,
+            exclude
+                .iter()
+                .map(|pattern| (*pattern).to_owned())
+                .collect(),
+        )
+    };
+    assert_eq!(
+        eligibility(&[".env*"]).await.unwrap(),
+        Some(AiEligibilityRead::Read {
+            eligibility: AiEligibility::Eligible
+        })
+    );
+    assert_eq!(
+        eligibility(&["*.txt"]).await.unwrap(),
+        Some(AiEligibilityRead::Read {
+            eligibility: AiEligibility::Ineligible {
+                reason: Ineligible::Excluded {
+                    pattern: "*.txt".to_owned()
+                },
+                message: "matches the exclude list (*.txt)".to_owned(),
+            }
+        })
+    );
+
+    repo.git(["add", "a.txt"]).unwrap();
+    assert_eq!(
+        eligibility(&[]).await.unwrap(),
+        Some(AiEligibilityRead::AlreadyResolved)
+    );
+    // A newer view replaced this one.
+    run.view().await;
+    assert_eq!(eligibility(&[]).await.unwrap(), None);
 }

@@ -4,6 +4,7 @@
 import type { Event, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AddReport,
+  AiEligibility,
   AiModelsReply,
   AiSelfTestReply,
   AiView,
@@ -341,6 +342,8 @@ export const fakeState: {
   fsmonitorAnswers: { repo: RepoId; answer: "enable" | "decline" }[];
   /** What `conflict_get` answers by path; others get `textConflict`. */
   fileConflicts: Record<string, Conflict>;
+  /** What `ai_eligibility` answers by path; others are eligible. */
+  aiEligibility: Record<string, AiEligibility>;
   /** Every `conflict_resolve` and `conflict_choose`, oldest first. */
   conflictRequests: (ResolveRequest | ChooseRequest)[];
   /** What the clone's folder dialog returns; `null` is a cancel. */
@@ -416,6 +419,7 @@ export const fakeState: {
   fsmonitorOffers: {},
   fsmonitorAnswers: [],
   fileConflicts: {},
+  aiEligibility: {},
   conflictRequests: [],
   cloneParent: null,
   folders: {},
@@ -1141,6 +1145,7 @@ export function reset(): void {
   fakeState.opened = [];
   fakeState.openFailure = null;
   fakeState.fileConflicts = {};
+  fakeState.aiEligibility = {};
   fakeState.conflictRequests = [];
   fakeState.appInfo = defaultAppInfo;
   fakeState.gitStatus = defaultGitStatus;
@@ -2370,6 +2375,25 @@ export const fake: Core = {
               kind: "conflict",
               conflict: fakeState.fileConflicts[path] ?? textConflict(path, labelsOf(fakeState.conflicts[view.repo])),
             }
+          : { kind: "already_resolved" },
+      });
+    },
+    aiEligibility: (workspaceId, handle, file) => {
+      const view = viewPart(workspaceId, handle);
+      if (view === undefined) {
+        return Promise.resolve({ status: "ok", data: null });
+      }
+      const path = view.unmerged[file];
+      if (path === undefined) {
+        return Promise.resolve({
+          status: "error",
+          error: { code: "internal", message: `the list has no file ${file}`, git_stderr: null },
+        });
+      }
+      return Promise.resolve({
+        status: "ok",
+        data: unmergedPaths(view.repo).includes(path)
+          ? { kind: "read", eligibility: fakeState.aiEligibility[path] ?? { kind: "eligible" } }
           : { kind: "already_resolved" },
       });
     },

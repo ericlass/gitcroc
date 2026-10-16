@@ -123,7 +123,7 @@ fn rebased(repo: &gix::Repository, dir: &Path) -> Option<String> {
 }
 
 /// The commit a `*_HEAD` file names.
-fn head_file(repo: &gix::Repository, name: &str) -> Option<ObjectId> {
+pub(crate) fn head_file(repo: &gix::Repository, name: &str) -> Option<ObjectId> {
     object_id(&first_line(repo.git_dir(), name)?)
 }
 
@@ -192,7 +192,7 @@ pub struct ConflictLabels {
 
 /// The commit a rebase is replaying: `REBASE_HEAD`, else what the backend
 /// recorded of it.
-fn replayed(repo: &gix::Repository) -> Option<ObjectId> {
+pub(crate) fn replayed(repo: &gix::Repository) -> Option<ObjectId> {
     let git_dir = repo.git_dir();
     head_file(repo, "REBASE_HEAD")
         .or_else(|| {

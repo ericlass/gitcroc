@@ -1,5 +1,6 @@
 //! Workspace, group and repo model, job engine, preflight, result reports, config and cache.
 
+mod ai;
 mod app_info;
 mod branch;
 mod changes;
@@ -32,6 +33,11 @@ mod unblocked;
 mod watch;
 mod workspace;
 
+pub use ai::{
+    AI_CONTEXT_LINES, AI_MAX_FILE, AI_MAX_MESSAGE_CHARS, AI_MAX_MESSAGES, AiContextError,
+    AiContextRead, AiEligibility, AiEligibilityRead, AiFileContext, AiHunk, AiOperation,
+    Ineligible, ai_eligibility, ai_eligibility_get, ai_file_context,
+};
 pub use app_info::AppInfo;
 pub use branch::{
     BranchChoices, BranchError, BranchOp, BranchRequest, BranchStart, RemoteBranchRef, StartPoint,
@@ -55,16 +61,18 @@ pub use diff::{DiffReadError, changed_files, commit_details, file_diff};
 pub use fsmonitor::{FSMONITOR_THRESHOLD, FsmonitorError, fsmonitor_enable};
 pub use git::{GitSetup, GitStatus};
 pub use gitcroc_git::{
-    Askpass, CommandRecord, Exit, Kill, Output, RefSnapshot, log_commands_to, ops,
+    Askpass, CommandRecord, Exit, Kill, Output, RefSnapshot, chunks_from_texts, log_commands_to,
+    ops,
 };
 pub use gitcroc_git::{
-    ChangedFile, ChoiceKind, CommitDetails, CommitRow, Conflict, ConflictContent, ConflictDetails,
-    ConflictError, ContentKey, Context, Cursor, DiffError, DiffOptions, DiffRead, DiffSource,
-    Engine, Fallback, FileDiff, FileStatus, Filter, GitError, GitRepo, GitRunner, Head,
+    ChangedFile, ChoiceKind, CommitDetails, CommitRow, Conflict, ConflictChunk, ConflictContent,
+    ConflictDetails, ConflictError, ContentKey, Context, Cursor, DiffError, DiffOptions, DiffRead,
+    DiffSource, Engine, Fallback, FileDiff, FileStatus, Filter, GitError, GitRepo, GitRunner, Head,
     HistoryError, HistoryStart, Hunk, HunkPatch, Image, Line, LocalBranch, MergedCursor, MergedRow,
     OpenError, Operation, PAGE_SIZE, Page, Refs, RefsError, RemoteBranches, RepoRead, RepoState,
-    RepoSummary, SearchEnv, SideHolds, StashEntry, StatusError, StatusRead, StatusReader, Step,
-    Tag, TextDiff, UnmergedFile, WorkingCopy, merged_history,
+    RepoSummary, SearchEnv, SideHolds, SideMessages, SidesRead, SidesReader, StashEntry,
+    StatusError, StatusRead, StatusReader, Step, Tag, TextDiff, UnmergedFile, WorkingCopy,
+    merged_history,
 };
 pub use group::{
     Class, GroupBranch, GroupError, GroupOp, GroupOperation, GroupOps, GroupSummary, MissingBranch,
