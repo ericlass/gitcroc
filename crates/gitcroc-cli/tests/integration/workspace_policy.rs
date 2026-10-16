@@ -130,7 +130,10 @@ fn arch_5_internal_dependencies_match_spec() {
                 .iter()
                 .all(|kind| kind.kind == DependencyKind::Development);
             let tool_for_tests = TOOLS.contains(&edge.1) && !TOOLS.contains(&edge.0) && dev_only;
-            if !allowed.contains(&edge) && !tool_for_tests {
+            // A crate's tests may turn on its own features, such as
+            // gitcroc-ai's `mock`; that is no edge between crates.
+            let own_features_for_tests = edge.0 == edge.1 && dev_only;
+            if !allowed.contains(&edge) && !tool_for_tests && !own_features_for_tests {
                 forbidden.insert(edge);
             }
         }

@@ -8,6 +8,21 @@ publish.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+specta.workspace = true
+# The mock provider's gate (M4-01).
+tokio = { workspace = true, features = ["sync"], optional = true }
+
+[dev-dependencies]
+# The integration tests drive the ask loop through the mock provider.
+gitcroc-ai = { path = ".", features = ["mock"] }
+tokio = { workspace = true, features = ["rt", "macros", "sync"] }
+
+[features]
+# The scripted provider of the tests and the `e2e` build (M4-01). Never in a
+# release bundle.
+mock = ["dep:tokio"]
 
 [lints]
 workspace = true

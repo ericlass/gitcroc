@@ -1,0 +1,18 @@
+{
+  "hunks": [
+    {
+      "id": 1,
+      "status": "resolved",
+      "resolution": "fn timeout() -> Duration {\n    Duration::from_secs(config::TIMEOUT_SECS)\n}\n",
+      "explanation": "Ours moved the value into config; the constant already holds the new 30 seconds of theirs.",
+      "confidence": "high"
+    },
+    {
+      "id": 2,
+      "status": "resolved",
+      "resolution": "<<<<<<< ours\nfor attempt in 0..3 {\n=======\nfor attempt in 0..retries {\n>>>>>>> theirs\n",
+      "explanation": "Both loops are kept so the user can choose.",
+      "confidence": "low"
+    }
+  ]
+}

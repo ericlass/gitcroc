@@ -44,8 +44,9 @@ repo-gen.workspace = true
 perf-trace = []
 # M2-15: the end-to-end smoke test of `just smoke`, whose folder dialog is
 # answered by GITCROC_E2E_PICK_FOLDER. Never in a release bundle; `just
-# smoke` builds with it into its own target dir.
-e2e = []
+# smoke` builds with it into its own target dir. It also turns on the mock AI
+# provider (M4-01).
+e2e = ["gitcroc-ai/mock"]
 
 [lints]
 workspace = true
