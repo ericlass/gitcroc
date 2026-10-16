@@ -15,19 +15,35 @@ specta.workspace = true
 uuid.workspace = true
 # The API providers (M4-03).
 reqwest.workspace = true
-# The mock provider's gate (M4-01).
-tokio = { workspace = true, features = ["sync"], optional = true }
+# The CLI providers (M4-04): their processes, the empty folder they run in,
+# and the time limit. The mock provider's gate (M4-01).
+process-wrap.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["sync", "process", "io-util", "time", "rt"] }
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
 
 [dev-dependencies]
 # The integration tests drive the ask loop through the mock provider.
 gitcroc-ai = { path = ".", features = ["mock"] }
-# The fake HTTP server of the provider tests (M4-03).
+# The fake HTTP server of the provider tests (M4-03), and the connections
+# that hold the fake CLI (M4-04).
 tokio = { workspace = true, features = ["rt", "macros", "sync", "net", "io-util"] }
 
 [features]
 # The scripted provider of the tests and the `e2e` build (M4-01). Never in a
 # release bundle.
-mock = ["dep:tokio"]
+mock = []
+
+# The fake Claude Code and Codex CLI of the provider tests (M4-04). Built only
+# with `mock`, which the tests turn on.
+[[bin]]
+name = "fake-cli"
+path = "tests/support/fake_cli.rs"
+required-features = ["mock"]
+test = false
+doc = false
 
 [lints]
 workspace = true

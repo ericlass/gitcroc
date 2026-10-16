@@ -3,6 +3,9 @@
 mod answer;
 mod anthropic;
 mod ask;
+mod claude_code;
+mod cli;
+mod codex;
 mod http;
 #[cfg(feature = "mock")]
 mod mock;
@@ -15,6 +18,9 @@ mod validate;
 pub use answer::{Confidence, FileAnswer, HunkAnswer, HunkStatus, Usage};
 pub use anthropic::{ANTHROPIC_MAX_TOKENS, AnthropicProvider};
 pub use ask::{FileOutcome, FileResult, ask};
+pub use claude_code::ClaudeCodeProvider;
+pub use cli::SelfTestError;
+pub use codex::CodexProvider;
 pub use http::{ApiKey, ModelList, REQUEST_TIMEOUT};
 #[cfg(feature = "mock")]
 pub use mock::{MockGate, MockProvider};

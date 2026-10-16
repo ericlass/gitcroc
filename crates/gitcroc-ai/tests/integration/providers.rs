@@ -13,9 +13,9 @@ use crate::fake_server::{FakeServer, Held, Reply, closed_url};
 
 const KEY: &str = "sk-test-0123456789";
 // Model names appear in the fake server's tests only (AI-1).
-const MODEL: &str = "fake-model-1";
+pub(crate) const MODEL: &str = "fake-model-1";
 
-fn request() -> ProviderRequest {
+pub(crate) fn request() -> ProviderRequest {
     ProviderRequest {
         system: "You resolve conflicts.".to_owned(),
         user: "Resolve hunk 1.".to_owned(),
@@ -25,7 +25,7 @@ fn request() -> ProviderRequest {
 }
 
 /// A request with a retry's earlier reply and validation error (AI-9).
-fn retry_request() -> ProviderRequest {
+pub(crate) fn retry_request() -> ProviderRequest {
     ProviderRequest {
         follow_up: vec![
             Message {
@@ -41,19 +41,19 @@ fn retry_request() -> ProviderRequest {
     }
 }
 
-fn anthropic(server: &FakeServer) -> AnthropicProvider {
+pub(crate) fn anthropic(server: &FakeServer) -> AnthropicProvider {
     AnthropicProvider::new(ApiKey::new(KEY), MODEL)
         .unwrap()
         .with_base_url(&server.url)
 }
 
-fn openai(server: &FakeServer, key: Option<&str>) -> OpenAiProvider {
+pub(crate) fn openai(server: &FakeServer, key: Option<&str>) -> OpenAiProvider {
     OpenAiProvider::new(format!("{}/v1", server.url), key.map(ApiKey::new), MODEL).unwrap()
 }
 
 /// Server-sent events as the Messages API streams them, the text split
 /// over `parts` deltas.
-fn stream(parts: &[&str]) -> String {
+pub(crate) fn stream(parts: &[&str]) -> String {
     let mut events = vec![
         r#"{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"usage":{"input_tokens":120,"output_tokens":1}}}"#.to_owned(),
         r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#.to_owned(),
@@ -85,7 +85,7 @@ fn stream(parts: &[&str]) -> String {
         .collect()
 }
 
-fn completion(content: &str, usage: Option<(u32, u32)>) -> String {
+pub(crate) fn completion(content: &str, usage: Option<(u32, u32)>) -> String {
     let mut body = serde_json::json!({
         "id": "chatcmpl-1",
         "object": "chat.completion",

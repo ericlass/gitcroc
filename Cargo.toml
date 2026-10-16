@@ -90,6 +90,14 @@ base64 = "0.23.1"
 # is not needed.
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "system-proxy"] }
 
+# The CLI providers' processes (M4-04): a process group on Unix and a job
+# object on Windows, so cancelling kills the CLI with every process it
+# started, without unsafe code of our own (QA-4). `windows` names the creation
+# flag that keeps the CLI from opening a console window; it is the version
+# process-wrap uses.
+process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1", "process-group", "job-object", "kill-on-drop", "creation-flags"] }
+windows = { version = "0.62.2", default-features = false, features = ["Win32_System_Threading"] }
+
 # Test-only, except serde_json, which gitcroc-cli uses for its output
 cargo_metadata = "0.23.1"
 serde_json = "1.0.154"

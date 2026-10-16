@@ -11,7 +11,7 @@ use crate::provider::ProviderError;
 /// reply. Not a setting.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
-/// The longest provider message an error keeps, in characters.
+/// The longest provider or program message an error keeps, in characters.
 const MESSAGE_LIMIT: usize = 500;
 
 /// An API key. It is sent only in a header; `Debug` prints `***` and
@@ -108,12 +108,17 @@ pub(crate) fn error_message(status: u16, body: &str, key: Option<&ApiKey>) -> St
     } else {
         message
     };
-    let mut message = mask(message, key);
-    if let Some((at, _)) = message.char_indices().nth(MESSAGE_LIMIT) {
-        message.truncate(at);
-        message.push('…');
+    cut(&mask(message, key))
+}
+
+/// `text` cut after `MESSAGE_LIMIT` characters, for an error to carry.
+pub(crate) fn cut(text: &str) -> String {
+    let mut text = text.to_owned();
+    if let Some((at, _)) = text.char_indices().nth(MESSAGE_LIMIT) {
+        text.truncate(at);
+        text.push('…');
     }
-    message
+    text
 }
 
 /// The error of a reply whose status is not a success.

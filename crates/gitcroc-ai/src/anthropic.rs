@@ -176,6 +176,20 @@ impl Events {
     }
 }
 
+/// The input tokens of a Messages API `usage`, which Claude Code reports
+/// too: those read from or written to a prompt cache count as input.
+pub(crate) fn input_tokens(usage: &serde_json::Value) -> Option<u32> {
+    usage.get("input_tokens")?;
+    [
+        "input_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    ]
+    .iter()
+    .filter_map(|name| tokens(usage.get(*name)))
+    .reduce(u32::saturating_add)
+}
+
 /// The reply as its events arrive.
 #[derive(Debug, Default)]
 struct Reply {
@@ -217,22 +231,13 @@ impl Reply {
         Ok(false)
     }
 
-    /// Takes the counts an event's `usage` gives. Input tokens include
-    /// those read from or written to a prompt cache.
+    /// Takes the counts an event's `usage` gives.
     fn count(&mut self, usage: Option<&serde_json::Value>) {
         let Some(usage) = usage else {
             return;
         };
-        let input = [
-            "input_tokens",
-            "cache_creation_input_tokens",
-            "cache_read_input_tokens",
-        ]
-        .iter()
-        .filter_map(|name| tokens(usage.get(*name)))
-        .reduce(u32::saturating_add);
-        if usage.get("input_tokens").is_some() {
-            self.input = input;
+        if let Some(input) = input_tokens(usage) {
+            self.input = Some(input);
         }
         if let Some(output) = tokens(usage.get("output_tokens")) {
             self.output = Some(output);
