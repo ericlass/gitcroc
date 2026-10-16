@@ -2,12 +2,14 @@
 // core's order. A click activates a tab; tabs reorder by dragging and with
 // Ctrl/Cmd+Shift+PageUp/PageDown (UI-22), and the arrow keys move between
 // them. Each tab has a close button and a context menu with Rename,
-// Export workspace (DATA-2) and Close. "+" lists the workspace files and offers New and Import. A tab
+// Export workspace (DATA-2), AI for this workspace (AI-6), shown only
+// while AI features are on (AI-16), and Close. "+" lists the workspace files and offers New and Import. A tab
 // shows how many of its jobs run or wait, and a marker for a failed or
 // conflicted job the user has not seen (UI-32). The core keeps the tabs;
 // this sends what the user did.
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { WorkspaceId } from "../ipc";
+import type { AiStore } from "../stores/ai";
 import type { JobStore } from "../stores/jobs";
 import type { ShareStore } from "../stores/share";
 import type { WorkspaceStore } from "../stores/workspaces";
@@ -21,6 +23,7 @@ export default function TabBar(props: {
   jobs: JobStore;
   dialogs: WorkspaceDialogs;
   share: ShareStore;
+  ai: AiStore;
   /** Closes a tab; the caller asks first when it holds unsaved conflict edits (OPS-9). */
   onClose: (id: WorkspaceId) => void;
 }) {
@@ -270,6 +273,23 @@ export default function TabBar(props: {
               >
                 Export workspace…
               </button>
+              <Show when={props.ai.enabled() && views().find((view) => view.id === open().id)}>
+                {(view) => (
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={view().ai}
+                    disabled={view().read_only}
+                    onClick={() => {
+                      const { id, ai } = view();
+                      setTabMenu(null);
+                      send(props.workspaces.setAi(id, !ai));
+                    }}
+                  >
+                    AI for this workspace
+                  </button>
+                )}
+              </Show>
               <button
                 type="button"
                 role="menuitem"

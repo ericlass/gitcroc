@@ -3,7 +3,8 @@
 //! a file into a new workspace, resolving the paths against its folder. A
 //! repo whose folder is missing is kept, with its id and groups, so it can
 //! be cloned from `remote` into place later (`crate::clone`). The pane
-//! layout and the offer answers are the user's own and are not exported.
+//! layout, the AI switch (AI-6) and the offer answers are the user's own
+//! and are not exported.
 //! Everything in an imported file is untrusted (SEC-3): it is checked as
 //! the workspace's own rules check a change, and refused as a whole when
 //! it breaks one.
@@ -106,6 +107,7 @@ impl Workspaces {
             .collect();
         let shared = WorkspaceFile {
             name: file.name,
+            ai: None,
             repos,
             groups: file.groups,
             layout: None,
@@ -229,6 +231,7 @@ impl Workspaces {
         let path = file_path(&dir, &id);
         let file = WorkspaceFile {
             name,
+            ai: None,
             repos,
             groups,
             layout: None,

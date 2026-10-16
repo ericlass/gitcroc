@@ -1,8 +1,12 @@
 //! The AI providers behind the IPC (M4-05): the entries in `settings.toml`
 //! through the core, their keys in the OS keychain (SEC-1, D11), their
 //! models (AI-1), and the CLI providers' detection and self-test (AI-2),
-//! all of which stop while AI features are off (AI-16). No key ever leaves
-//! this module toward the UI: views say only whether a key is stored.
+//! all of which stop while AI features are off (AI-16). Before a provider
+//! is used on a workspace, the checks of [`AiProviders::choose`] and
+//! [`AiProviders::ready`] refuse it while AI is off for the app or the
+//! workspace, and until the user consented to where it sends (AI-6). No key
+//! ever leaves this module toward the UI: views say only whether a key is
+//! stored.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -16,7 +20,8 @@ use gitcroc_ai::{
 };
 use gitcroc_core::{
     AiOptions, AiSettingsError, AppLog, DEFAULT_CONTEXT_BUDGET, ProviderDraft, ProviderEntry,
-    ProviderId, ProviderKind, SettingsError, SettingsStore,
+    ProviderId, ProviderKind, SettingsError, SettingsStore, WorkspaceError, WorkspaceId,
+    Workspaces, url_host,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -101,6 +106,78 @@ pub struct AiSelfTestReply {
     pub result: SelfTest,
 }
 
+/// Where a provider sends what AI-5 allows: an API's host, or the program a
+/// CLI provider runs (AI-6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ConsentTarget {
+    /// With its port when the URL names one, such as `localhost:11434`.
+    Host {
+        host: String,
+    },
+    Program {
+        path: String,
+    },
+}
+
+impl ConsentTarget {
+    /// What the consent keeps: the host or the program's path.
+    pub fn value(&self) -> &str {
+        match self {
+            Self::Host { host } => host,
+            Self::Program { path } => path,
+        }
+    }
+}
+
+/// What is sent for each file (AI-5), in plain words for the consent
+/// dialog.
+const SENT: [&str; 5] = [
+    "The file's path in the repository",
+    "The operation, such as merge, rebase, cherry-pick, revert or stash apply",
+    "The labels of the two sides, such as the branch names",
+    "Each conflicting part: its base, ours and theirs text, with the 40 lines around it",
+    "The messages of up to 10 commits per side that changed the file, each cut at 2,000 characters",
+];
+
+/// The text of the consent dialog, shown before a provider's first use and
+/// again when its host or program changed (AI-6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ConsentRequest {
+    pub provider_id: ProviderId,
+    pub provider_name: String,
+    /// Where it is sent; `ai_provider_consent` takes its value back.
+    pub to: ConsentTarget,
+    /// What is sent for each file, one item per line.
+    pub sent: Vec<String>,
+}
+
+/// Where `entry` sends: its API's host or its program.
+fn consent_target(entry: &ProviderEntry) -> Option<ConsentTarget> {
+    let host = |url: &str| url_host(url).map(|host| ConsentTarget::Host { host });
+    match entry.kind {
+        ProviderKind::Anthropic => host(AnthropicProvider::DEFAULT_BASE_URL),
+        ProviderKind::Openai => entry.base_url.as_deref().and_then(host),
+        ProviderKind::ClaudeCode | ProviderKind::Codex => {
+            entry.path.as_ref().map(|path| ConsentTarget::Program {
+                path: path.display().to_string(),
+            })
+        }
+    }
+}
+
+/// The consent `entry` still needs: none when the user consented to where
+/// it sends now.
+fn consent_request(entry: &ProviderEntry) -> Option<ConsentRequest> {
+    let to = consent_target(entry)?;
+    (entry.consent.as_deref() != Some(to.value())).then(|| ConsentRequest {
+        provider_id: entry.id.clone(),
+        provider_name: entry.name.clone(),
+        to,
+        sent: SENT.map(str::to_owned).to_vec(),
+    })
+}
+
 /// A configured provider as the UI sees it: its entry, without the file's
 /// defaults, and never its key (SEC-1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -117,6 +194,9 @@ pub struct ProviderView {
     pub has_key: bool,
     /// A CLI provider's self-test while AI is on; `None` otherwise.
     pub check: Option<SelfTest>,
+    /// The consent the provider needs before its next use (AI-6); `None`
+    /// when the user consented to where it sends now.
+    pub consent_needed: Option<ConsentRequest>,
 }
 
 /// The AI settings and providers.
@@ -175,6 +255,42 @@ pub enum AiError {
     NeedsKey,
     #[error("{0} providers use their own login and take no API key")]
     TakesNoKey(ProviderKind),
+    #[error("the provider no longer sends to {target}; look at what it sends again")]
+    ConsentChanged { target: String },
+}
+
+/// Why a provider is not used on a workspace, in the order the checks run.
+/// M4-08 adds its eligibility check before the consent.
+#[derive(Debug, thiserror::Error)]
+pub enum AiRefusal {
+    #[error("AI features are off")]
+    Off,
+    #[error("AI is off for this workspace")]
+    Disabled,
+    #[error("no AI provider is set as the default")]
+    NoProvider,
+    #[error("the AI provider cannot be used: {reason}")]
+    Unusable { reason: String },
+    #[error("the AI provider {} needs consent before its first use", .0.provider_name)]
+    ConsentNeeded(ConsentRequest),
+    #[error("{0}")]
+    Workspace(#[from] WorkspaceError),
+}
+
+/// The default provider, past the checks of [`AiProviders::choose`].
+#[derive(Debug, Clone)]
+pub struct ChosenProvider(ProviderEntry);
+
+impl ChosenProvider {
+    pub fn entry(&self) -> &ProviderEntry {
+        &self.0
+    }
+}
+
+/// A provider that may be used: consented to, with its key.
+pub struct ReadyProvider {
+    pub entry: ProviderEntry,
+    pub key: Option<ApiKey>,
 }
 
 /// What a save does with the key: `None` keeps it, an empty one removes it.
@@ -307,6 +423,7 @@ impl AiProviders {
                 .zip(has_key)
                 .map(|(entry, has_key)| ProviderView {
                     check: state.checks.get(&entry.id).map(|check| check.state.clone()),
+                    consent_needed: consent_request(&entry),
                     id: entry.id,
                     name: entry.name,
                     kind: entry.kind,
@@ -389,6 +506,83 @@ impl AiProviders {
             state.checks.clear();
         }
         Ok(self.changed())
+    }
+
+    /// Keeps the user's consent to sending to `target`, the host or program
+    /// the consent dialog showed (AI-6). Refused when the provider sends
+    /// elsewhere now, so the user agrees only to what they saw, and while AI
+    /// is off, when no dialog opens (AI-16).
+    pub fn consent(&self, id: &ProviderId, target: &str) -> Result<AiView, AiError> {
+        let ai = self.settings.ai();
+        if !ai.enabled {
+            return Err(AiError::Off);
+        }
+        let entry = ai
+            .provider(id)
+            .ok_or_else(|| AiSettingsError::UnknownProvider(id.clone()))?;
+        if consent_target(entry).as_ref().map(ConsentTarget::value) != Some(target) {
+            return Err(AiError::ConsentChanged {
+                target: target.to_owned(),
+            });
+        }
+        self.settings.set_consent(id, target.to_owned())?;
+        Ok(self.changed())
+    }
+
+    /// The default provider for a request on `workspace`, unless AI is off
+    /// (AI-16), off for the workspace (AI-6), no provider is the default
+    /// (AI-3), or its self-test failed (AI-2). Reads the workspace and the
+    /// settings in memory only.
+    pub fn choose(
+        &self,
+        workspaces: &Workspaces,
+        workspace: &WorkspaceId,
+    ) -> Result<ChosenProvider, AiRefusal> {
+        let ai = self.settings.ai();
+        if !ai.enabled {
+            return Err(AiRefusal::Off);
+        }
+        if !workspaces.ai_enabled(workspace)? {
+            return Err(AiRefusal::Disabled);
+        }
+        let entry = ai
+            .default
+            .as_ref()
+            .and_then(|id| ai.provider(id))
+            .cloned()
+            .ok_or(AiRefusal::NoProvider)?;
+        let problem = lock(&self.state)
+            .checks
+            .get(&entry.id)
+            .and_then(|check| check.state.problem());
+        match problem {
+            Some(reason) => Err(AiRefusal::Unusable { reason }),
+            None => Ok(ChosenProvider(entry)),
+        }
+    }
+
+    /// `chosen` with its key, once the user consented to where it sends
+    /// (AI-6). Blocks on the keychain.
+    pub fn ready(&self, chosen: ChosenProvider) -> Result<ReadyProvider, AiRefusal> {
+        let entry = chosen.0;
+        if let Some(request) = consent_request(&entry) {
+            return Err(AiRefusal::ConsentNeeded(request));
+        }
+        if entry.kind.is_cli() {
+            return Ok(ReadyProvider { entry, key: None });
+        }
+        let key = self
+            .keychain_call(|keychain| keychain.read(&account(&entry.id)))
+            .map_err(|error| AiRefusal::Unusable {
+                reason: error.to_string(),
+            })?
+            .map(ApiKey::new);
+        if key.is_none() && entry.kind == ProviderKind::Anthropic {
+            return Err(AiRefusal::Unusable {
+                reason: AiError::NeedsKey.to_string(),
+            });
+        }
+        Ok(ReadyProvider { entry, key })
     }
 
     /// Lists the models of `draft`, saved or not, in the background; the

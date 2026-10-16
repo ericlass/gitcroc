@@ -570,6 +570,12 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 */
 	aiSettingsSet: (options: AiOptions) => typedError<AiView, IpcError>(__TAURI_INVOKE("ai_settings_set", { options })),
 	/**
+	 *  Keeps the user's consent to sending to `target`, the host or program the
+	 *  consent dialog showed (AI-6). Refused when the provider sends elsewhere
+	 *  now, and with `ai_off` while AI is off (AI-16).
+	 */
+	aiProviderConsent: (id: ProviderId, target: string) => typedError<AiView, IpcError>(__TAURI_INVOKE("ai_provider_consent", { id, target })),
+	/**
 	 *  Starts listing a provider's models, saved or not, and returns at once;
 	 *  the list arrives as an `ai_models` event (AI-1, ARCH-7). `key` as in
 	 *  `ai_provider_save`. Refused with `ai_off` while AI is off (AI-16).
@@ -581,6 +587,11 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 *  while AI is off (AI-16).
 	 */
 	aiSelfTest: (draft: ProviderDraft, key: string | null) => typedError<AiRequestId, IpcError>(__TAURI_INVOKE("ai_self_test", { draft, key })),
+	/**
+	 *  Turns AI on or off for the workspace (AI-6) and saves its file; the
+	 *  view also arrives as `workspace_changed`.
+	 */
+	workspaceSetAi: (workspaceId: WorkspaceId, enabled: boolean) => typedError<WorkspaceView, IpcError>(__TAURI_INVOKE("workspace_set_ai", { workspaceId, enabled })),
 	/**
 	 *  Writes the UI's measurements to the JSON file `$GITCROC_PERF_TRACE`
 	 *  names, with the cold start (process start to tree visible) worked
@@ -1226,6 +1237,27 @@ export type ConflictStart =
  *  file legitimately has such lines.
  */
 { kind: "markers_remain"; line: number };
+
+/**
+ *  The text of the consent dialog, shown before a provider's first use and
+ *  again when its host or program changed (AI-6).
+ */
+export type ConsentRequest = {
+	provider_id: ProviderId,
+	provider_name: string,
+	/**  Where it is sent; `ai_provider_consent` takes its value back. */
+	to: ConsentTarget,
+	/**  What is sent for each file, one item per line. */
+	sent: string[],
+};
+
+/**
+ *  Where a provider sends what AI-5 allows: an API's host, or the program a
+ *  CLI provider runs (AI-6).
+ */
+export type ConsentTarget = 
+/**  With its port when the URL names one, such as `localhost:11434`. */
+{ kind: "host"; host: string } | { kind: "program"; path: string };
 
 /**  How much unchanged text surrounds each change (UI-17). */
 export type Context = "three" | "ten" | 
@@ -1912,6 +1944,11 @@ export type ProviderView = {
 	has_key: boolean,
 	/**  A CLI provider's self-test while AI is on; `None` otherwise. */
 	check: SelfTest | null,
+	/**
+	 *  The consent the provider needs before its next use (AI-6); `None`
+	 *  when the user consented to where it sends now.
+	 */
+	consent_needed: ConsentRequest | null,
 };
 
 /**
@@ -2620,6 +2657,11 @@ export type WorkspaceView = {
 	/**  In the user's order (GRP-2). */
 	groups: GroupView[],
 	layout: PaneLayout,
+	/**
+	 *  AI for this workspace (AI-6). Off, the core refuses every AI
+	 *  request for it.
+	 */
+	ai: boolean,
 	/**  Changes are refused; `warning` says why. */
 	read_only: boolean,
 	warning: ConfigWarning | null,

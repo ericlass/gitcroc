@@ -1,6 +1,7 @@
 // The only way into the core. Components import from here, never from
 // `@tauri-apps/api` or `./bindings` directly (enforced by eslint.config.js).
 import type {
+  AiOptions,
   Appearance,
   BranchRequest,
   ChangeRequest,
@@ -22,6 +23,8 @@ import type {
   PaneLayout,
   PerfTrace,
   PreflightId,
+  ProviderDraft,
+  ProviderId,
   RemoteRequest,
   RepoId,
   TargetSet,
@@ -39,6 +42,9 @@ import { real } from "./core";
 
 export type {
   AddReport,
+  AiOptions,
+  AiRequestId,
+  AiView,
   AppInfo,
   Appearance,
   AskpassPrompt,
@@ -59,6 +65,8 @@ export type {
   ConflictChunk,
   ConflictContent,
   ConflictLabels,
+  ConsentRequest,
+  ConsentTarget,
   ConflictRead,
   ConflictStart,
   ChangeRequest,
@@ -82,6 +90,7 @@ export type {
   Context,
   DiffMode,
   DiffRequest,
+  DetectedCli,
   Dock,
   Edge,
   FileDiff,
@@ -117,6 +126,7 @@ export type {
   MergeFastForward,
   MissingBranch,
   ModeChange,
+  ModelsResult,
   Outcome,
   PaneLayout,
   PerfSample,
@@ -126,6 +136,10 @@ export type {
   PreflightId,
   PreflightReady,
   PromptKind,
+  ProviderDraft,
+  ProviderId,
+  ProviderKind,
+  ProviderView,
   Prune,
   PullStrategy,
   PushChoices,
@@ -163,6 +177,7 @@ export type {
   ResetMode,
   ResetRequest,
   ResetStart,
+  SelfTest,
   Step,
   SummaryView,
   SyncOp,
@@ -369,6 +384,35 @@ export const settingsSetGroups = (groups: GroupSettings) => unwrap(core.commands
 
 export const workspaceSetLayout = (workspaceId: WorkspaceId, layout: PaneLayout) =>
   unwrap(core.commands.workspaceSetLayout(workspaceId, layout));
+
+/** Turns AI on or off for the workspace (AI-6); the core refuses every AI request for it while off. */
+export const workspaceSetAi = (workspaceId: WorkspaceId, enabled: boolean) =>
+  unwrap(core.commands.workspaceSetAi(workspaceId, enabled));
+
+/** The AI settings and providers, each with whether it has a key, never the key (SEC-1). */
+export const aiProvidersGet = () => unwrap(core.commands.aiProvidersGet());
+
+/** Saves a provider, new without an id. `key`: `null` keeps the stored one, `""` removes it (SEC-1, D11). */
+export const aiProviderSave = (draft: ProviderDraft, key: string | null) =>
+  unwrap(core.commands.aiProviderSave(draft, key));
+
+/** Removes a provider and its key (D11). */
+export const aiProviderDelete = (id: ProviderId) => unwrap(core.commands.aiProviderDelete(id));
+
+export const aiProviderSetDefault = (id: ProviderId) => unwrap(core.commands.aiProviderSetDefault(id));
+
+/** AI features (AI-16), the exclude list (AI-4) and AI debug logging (AI-7). */
+export const aiSettingsSet = (options: AiOptions) => unwrap(core.commands.aiSettingsSet(options));
+
+/** Keeps the user's consent to sending to `target`, the host or program the dialog showed (AI-6). */
+export const aiProviderConsent = (id: ProviderId, target: string) =>
+  unwrap(core.commands.aiProviderConsent(id, target));
+
+/** Starts listing a provider's models; they arrive as `ai_models` with the returned id (AI-1). */
+export const aiModelsGet = (draft: ProviderDraft, key: string | null) => unwrap(core.commands.aiModelsGet(draft, key));
+
+/** Starts testing a provider; the result arrives as `ai_self_test` with the returned id (AI-2). */
+export const aiSelfTest = (draft: ProviderDraft, key: string | null) => unwrap(core.commands.aiSelfTest(draft, key));
 
 /** `null` when a newer view of the workspace superseded this one. */
 export const changesGet = (workspaceId: WorkspaceId, repoId: RepoId, target: ChangesTarget) =>

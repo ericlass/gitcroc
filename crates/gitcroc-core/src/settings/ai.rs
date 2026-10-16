@@ -289,15 +289,21 @@ impl ProviderEntry {
 
 /// An http or https URL with a host and no spaces.
 fn is_http_url(url: &str) -> bool {
-    let lower = url.to_ascii_lowercase();
-    let Some(rest) = lower
+    url_host(url).is_some() && !url.chars().any(char::is_whitespace)
+}
+
+/// The host of an http or https URL, in lower case, with its port when it
+/// names one and without any user name: the place a consent names (AI-6).
+pub fn url_host(url: &str) -> Option<String> {
+    let lower = url.trim().to_ascii_lowercase();
+    let rest = lower
         .strip_prefix("https://")
-        .or_else(|| lower.strip_prefix("http://"))
-    else {
-        return false;
-    };
-    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    !host.is_empty() && !url.chars().any(char::is_whitespace)
+        .or_else(|| lower.strip_prefix("http://"))?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    (!host.is_empty()).then(|| host.to_owned())
 }
 
 impl AiSettings {

@@ -10,15 +10,15 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-use gitcroc_ai::ApiKey;
+use gitcroc_ai::{ApiKey, MockProvider, Provider, ProviderRequest};
 use gitcroc_app::ai::{
-    AiBackend, AiError, AiModelsReply, AiProviders, AiSelfTestReply, AiSink, AiView, DetectedCli,
-    ModelsResult, ProviderView, SelfTest,
+    AiBackend, AiError, AiModelsReply, AiProviders, AiRefusal, AiSelfTestReply, AiSink, AiView,
+    ConsentRequest, ConsentTarget, DetectedCli, ModelsResult, ProviderView, SelfTest,
 };
 use gitcroc_app::platform::{Keychain, MemoryKeychain, keychain_account};
 use gitcroc_core::{
     AiOptions, AppLog, ConfigDir, LogDir, ProviderDraft, ProviderEntry, ProviderId, ProviderKind,
-    SETTINGS_FILE, SettingsStore,
+    SETTINGS_FILE, SettingsStore, WorkspaceId, Workspaces,
 };
 
 const KEY: &str = "sk-test-0123456789-SECRET";
@@ -139,6 +139,7 @@ impl LogDir for Dirs {
 
 struct Fixture {
     root: tempfile::TempDir,
+    settings: Arc<SettingsStore>,
     keychain: Arc<MemoryKeychain>,
     calls: Arc<FakeCalls>,
     sink: Arc<Sink>,
@@ -165,7 +166,7 @@ impl Fixture {
         });
         let sink = Arc::new(Sink::default());
         let ai = AiProviders::new(
-            settings,
+            settings.clone(),
             keychain.clone(),
             calls.clone(),
             sink.clone(),
@@ -174,11 +175,17 @@ impl Fixture {
         );
         Self {
             root,
+            settings,
             keychain,
             calls,
             sink,
             ai,
         }
+    }
+
+    /// The workspaces, sharing the settings store as in the app.
+    fn workspaces(&self) -> Workspaces {
+        Workspaces::load_with(&Dirs(self.root.path().to_owned()), self.settings.clone())
     }
 
     fn settings_text(&self) -> String {
@@ -858,4 +865,243 @@ fn ai_1_no_model_name_is_hardcoded() {
         found.is_empty(),
         "AI-1: model names in the code: {found:#?}"
     );
+}
+
+/// What M4-08's job does with a provider: the checks, then the request.
+async fn ask(
+    fixture: &Fixture,
+    workspaces: &Workspaces,
+    workspace: &WorkspaceId,
+    mock: &MockProvider,
+) -> Result<(), AiRefusal> {
+    let chosen = fixture.ai.choose(workspaces, workspace)?;
+    fixture.ai.ready(chosen)?;
+    let request = ProviderRequest {
+        system: String::new(),
+        user: "a conflict".to_owned(),
+        follow_up: Vec::new(),
+        temperature: Some(0.0),
+    };
+    mock.complete(&request).await.unwrap();
+    Ok(())
+}
+
+/// The consent the provider still needs, from its refusal.
+fn consent_needed(result: Result<(), AiRefusal>) -> ConsentRequest {
+    match result {
+        Err(AiRefusal::ConsentNeeded(request)) => request,
+        other => panic!("expected consent_needed, got {other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ai_6_no_request_without_consent() {
+    let fixture = Fixture::new(None, Script::default());
+    let workspaces = fixture.workspaces();
+    let workspace = workspaces.active().unwrap();
+    let mock = MockProvider::texts(["{\"hunks\": []}"]);
+    fixture
+        .ai
+        .save(draft("Local", ProviderKind::Openai), None)
+        .unwrap();
+    fixture.ai.set_default(&id("p1")).unwrap();
+
+    // The core asks first and says what is sent and where.
+    let request = consent_needed(ask(&fixture, &workspaces, &workspace, &mock).await);
+    assert!(mock.requests().is_empty());
+    assert_eq!(request.provider_id, id("p1"));
+    assert_eq!(request.provider_name, "Local");
+    assert_eq!(
+        request.to,
+        ConsentTarget::Host {
+            host: "localhost:11434".to_owned()
+        }
+    );
+    let sent = request.sent.join("\n");
+    for part in [
+        "path",
+        "operation",
+        "labels",
+        "40 lines",
+        "10 commits",
+        "2,000 characters",
+    ] {
+        assert!(sent.contains(part), "{part} missing from {sent}");
+    }
+    // The view offers the same request, for the dialog (AI-6).
+    let view = fixture.ai.view();
+    assert_eq!(view.providers[0].consent_needed.as_ref(), Some(&request));
+
+    // Consent to another host than the one shown is refused.
+    assert!(matches!(
+        fixture.ai.consent(&id("p1"), "api.example.com"),
+        Err(AiError::ConsentChanged { .. })
+    ));
+    assert!(mock.requests().is_empty());
+
+    let view = fixture.ai.consent(&id("p1"), "localhost:11434").unwrap();
+    assert_eq!(
+        view.providers[0].consent.as_deref(),
+        Some("localhost:11434")
+    );
+    assert_eq!(view.providers[0].consent_needed, None);
+    assert!(
+        fixture
+            .settings_text()
+            .contains("consent = \"localhost:11434\"")
+    );
+    ask(&fixture, &workspaces, &workspace, &mock).await.unwrap();
+    assert_eq!(mock.requests().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ai_6_consent_asked_again_when_the_host_or_program_changes() {
+    let fixture = Fixture::new(None, Script::default());
+    let workspaces = fixture.workspaces();
+    let workspace = workspaces.active().unwrap();
+    let mock = MockProvider::texts(["{}", "{}", "{}"]);
+    fixture
+        .ai
+        .save(draft("Local", ProviderKind::Openai), None)
+        .unwrap();
+    fixture.ai.set_default(&id("p1")).unwrap();
+    fixture.ai.consent(&id("p1"), "localhost:11434").unwrap();
+    ask(&fixture, &workspaces, &workspace, &mock).await.unwrap();
+
+    // Another path on the same host is the same place.
+    let mut same_host = draft("Local", ProviderKind::Openai);
+    same_host.id = Some(id("p1"));
+    same_host.base_url = Some("http://LOCALHOST:11434/api/v1/".to_owned());
+    fixture.ai.save(same_host.clone(), None).unwrap();
+    ask(&fixture, &workspaces, &workspace, &mock).await.unwrap();
+
+    let mut moved = same_host;
+    moved.base_url = Some("https://user@openrouter.example.com/api/v1".to_owned());
+    fixture.ai.save(moved, None).unwrap();
+    let request = consent_needed(ask(&fixture, &workspaces, &workspace, &mock).await);
+    assert_eq!(
+        request.to,
+        ConsentTarget::Host {
+            host: "openrouter.example.com".to_owned()
+        }
+    );
+    assert_eq!(mock.requests().len(), 2);
+
+    // A CLI provider names its program, and a new program asks again.
+    let mut cli = draft("Codex", ProviderKind::Codex);
+    fixture.ai.save(cli.clone(), None).unwrap();
+    fixture.ai.set_default(&id("p2")).unwrap();
+    let request = consent_needed(ask(&fixture, &workspaces, &workspace, &mock).await);
+    let program = PathBuf::from("/opt/cli/bin/tool").display().to_string();
+    assert_eq!(
+        request.to,
+        ConsentTarget::Program {
+            path: program.clone()
+        }
+    );
+    fixture.ai.consent(&id("p2"), &program).unwrap();
+    ask(&fixture, &workspaces, &workspace, &mock).await.unwrap();
+    cli.id = Some(id("p2"));
+    cli.path = Some(PathBuf::from("/usr/local/bin/codex"));
+    fixture.ai.save(cli, None).unwrap();
+    consent_needed(ask(&fixture, &workspaces, &workspace, &mock).await);
+    assert_eq!(mock.requests().len(), 3);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ai_6_workspace_switch_disables_ai() {
+    let fixture = Fixture::new(None, Script::default());
+    let workspaces = fixture.workspaces();
+    let off = workspaces.active().unwrap();
+    let on = workspaces.create("Other").unwrap();
+    let mock = MockProvider::texts(["{}", "{}"]);
+    fixture
+        .ai
+        .save(draft("Local", ProviderKind::Openai), None)
+        .unwrap();
+    fixture.ai.set_default(&id("p1")).unwrap();
+    fixture.ai.consent(&id("p1"), "localhost:11434").unwrap();
+
+    assert!(!workspaces.set_ai(&off, false).unwrap().ai);
+    assert!(matches!(
+        ask(&fixture, &workspaces, &off, &mock).await,
+        Err(AiRefusal::Disabled)
+    ));
+    assert!(mock.requests().is_empty());
+    // Only that workspace.
+    ask(&fixture, &workspaces, &on, &mock).await.unwrap();
+    assert_eq!(mock.requests().len(), 1);
+
+    // AI features off is refused first (AI-16).
+    let options = |enabled| AiOptions {
+        enabled,
+        exclude: Vec::new(),
+        debug_log: false,
+    };
+    fixture.ai.set_options(options(false)).unwrap();
+    assert!(matches!(
+        ask(&fixture, &workspaces, &off, &mock).await,
+        Err(AiRefusal::Off)
+    ));
+    fixture.ai.set_options(options(true)).unwrap();
+
+    workspaces.set_ai(&off, true).unwrap();
+    ask(&fixture, &workspaces, &off, &mock).await.unwrap();
+    assert_eq!(mock.requests().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ai_6_refusals_before_consent() {
+    let fixture = Fixture::new(
+        None,
+        Script {
+            self_test: SelfTest::Failed {
+                reason: "not found".to_owned(),
+            },
+            ..Script::default()
+        },
+    );
+    let workspaces = fixture.workspaces();
+    let workspace = workspaces.active().unwrap();
+    let mock = MockProvider::default();
+
+    // No provider: M4-09 opens the provider settings (AI-3).
+    fixture
+        .ai
+        .save(draft("Codex", ProviderKind::Codex), None)
+        .unwrap();
+    assert!(matches!(
+        ask(&fixture, &workspaces, &workspace, &mock).await,
+        Err(AiRefusal::NoProvider)
+    ));
+    // A CLI provider whose self-test failed says why.
+    fixture.ai.set_default(&id("p1")).unwrap();
+    fixture.ai.settle().await;
+    match ask(&fixture, &workspaces, &workspace, &mock).await {
+        Err(AiRefusal::Unusable { reason }) => assert_eq!(reason, "not found"),
+        other => panic!("expected unusable, got {other:?}"),
+    }
+    assert!(mock.requests().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ai_16_off_refuses_consent() {
+    let fixture = Fixture::new(None, Script::default());
+    fixture
+        .ai
+        .save(draft("Local", ProviderKind::Openai), None)
+        .unwrap();
+    fixture
+        .ai
+        .set_options(AiOptions {
+            enabled: false,
+            exclude: Vec::new(),
+            debug_log: false,
+        })
+        .unwrap();
+    assert!(matches!(
+        fixture.ai.consent(&id("p1"), "localhost:11434"),
+        Err(AiError::Off)
+    ));
+    assert_eq!(fixture.ai.view().providers[0].consent, None);
 }

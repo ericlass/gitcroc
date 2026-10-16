@@ -1,8 +1,10 @@
 // The Settings dialog: the theme (UI-23), code themes (UI-24), fonts
-// (UI-26), group operations (section 5), and which gitcroc and git are
-// running.
+// (UI-26), group operations (section 5), AI (section 7), and which gitcroc
+// and git are running.
 import { For, onMount, Show } from "solid-js";
+import AiSection from "./ai/AiSection";
 import type { Appearance, AppInfo, CodeTheme, GitStatus, Theme } from "./ipc";
+import type { AiStore } from "./stores/ai";
 import { FONT_SIZE_LIMITS, PARALLELISM_LIMITS, type SettingsStore } from "./stores/settings";
 import { CODE_THEME_NAMES, CODE_THEMES } from "./theme/codeThemes";
 import CodeThemePreview from "./theme/CodeThemePreview";
@@ -29,6 +31,7 @@ const FONTS: { font: FontKey; size: FontSizeKey; label: string; placeholder: str
 
 export default function SettingsDialog(props: {
   settings: SettingsStore;
+  ai: AiStore;
   info: AppInfo | undefined;
   git: GitStatus | null;
   onClose: () => void;
@@ -168,6 +171,7 @@ export default function SettingsDialog(props: {
             Always show the preflight dialog
           </label>
         </fieldset>
+        <AiSection ai={props.ai} readOnly={readOnly()} />
         <Show when={props.settings.state.error}>{(error) => <p role="alert">{error()}</p>}</Show>
         <Show when={props.info}>
           {(info) => (

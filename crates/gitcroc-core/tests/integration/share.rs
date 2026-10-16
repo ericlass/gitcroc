@@ -173,6 +173,8 @@ async fn platform(world: &World) -> (Arc<Workspaces>, WorkspaceId) {
     workspaces
         .decline_fsmonitor(&id, &RepoId("r1".to_owned()))
         .unwrap();
+    // The user's own AI switch (AI-6), which an export leaves out.
+    workspaces.set_ai(&id, false).unwrap();
     (workspaces, id)
 }
 
@@ -306,8 +308,10 @@ async fn data_2_export_then_import_round_trips_repos_groups_and_ids() {
         view.repos[0].remote.as_deref(),
         Some("https://example.com/api.git")
     );
-    // The layout and offer answers stay with the user who exported.
+    // The layout, the AI switch and the offer answers stay with the user
+    // who exported.
     assert_eq!(view.layout, gitcroc_core::PaneLayout::default());
+    assert!(view.ai);
     assert!(
         !imported
             .fsmonitor_declined(&view.id, &RepoId("r1".to_owned()))
