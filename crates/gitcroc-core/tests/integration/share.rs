@@ -255,7 +255,7 @@ async fn data_2_export_keeps_another_drive_absolute() {
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     let report = workspaces.export(&imported.workspace_id, &target).unwrap();
     let absolute = format!(r"{drive}\nowhere\api");
-    assert_eq!(report.absolute, [absolute.clone()]);
+    assert_eq!(report.absolute, std::slice::from_ref(&absolute));
     let written: toml::Table = fs::read_to_string(&target).unwrap().parse().unwrap();
     assert_eq!(written["repo"][0]["path"].as_str(), Some(absolute.as_str()));
 }
