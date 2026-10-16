@@ -169,7 +169,7 @@ test("UI-6 UI-7 a group of a multi-selection, from a menu drawn over the history
   await page.goto("/?fake=groups");
   // The merged history of a selection draws its rows under the menu's place.
   await item(page, /^api/).click();
-  await item(page, /^login-service/).click({ modifiers: ["Control"] });
+  await item(page, /^login-service/).click({ modifiers: ["ControlOrMeta"] });
   await expect(page.locator(".history-repo").first()).toBeVisible();
 
   // Playwright clicks only what is on top: the menu must not be behind the panes.
