@@ -203,8 +203,7 @@ impl From<GroupError> for IpcError {
                 error.into()
             }
             GroupError::Job(JobError::NoRepo) => Self::internal(error.to_string()),
-            GroupError::NotAvailable(_)
-            | GroupError::Name(_)
+            GroupError::Name(_)
             | GroupError::Refused(_)
             | GroupError::NoRepo
             | GroupError::UnknownPreflight
@@ -1031,6 +1030,23 @@ pub async fn changes_get(
     let changes = app.state::<Arc<Changes>>().inner().clone();
     let git = usable_git(&app).await?;
     Ok(gitcroc_core::changes_get(changes, workspaces, git, workspace_id, repo_id, target).await?)
+}
+
+/// What the changes pane shows for "Uncommitted changes" of a group or
+/// several repos (UI-34): the lists of every dirty repo of `target`, each
+/// with its own handle, as a new view of the workspace; the previous one
+/// ends. `null` when a newer view of the workspace superseded this one.
+#[tauri::command]
+#[specta::specta]
+pub async fn changes_get_merged(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    target: TargetSet,
+) -> Result<Option<ChangesView>, IpcError> {
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let changes = app.state::<Arc<Changes>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::changes_get_merged(changes, workspaces, git, workspace_id, target).await?)
 }
 
 /// The diff of one file of view `handle` (ARCH-8, UI-17, UI-18). `null`
@@ -2292,6 +2308,7 @@ macro_rules! with_commands {
                 settings_set_changes,
                 workspace_set_layout,
                 changes_get,
+                changes_get_merged,
                 diff_get,
                 diff_image,
                 changes_apply,
@@ -2378,6 +2395,7 @@ macro_rules! with_commands {
                 settings_set_changes,
                 workspace_set_layout,
                 changes_get,
+                changes_get_merged,
                 diff_get,
                 diff_image,
                 changes_apply,

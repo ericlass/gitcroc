@@ -238,11 +238,27 @@ export const commands = {
 	changesGet: (workspaceId: WorkspaceId, repoId: RepoId, target: ChangesTarget) => typedError<{
 	/**
 	 *  Names this view for `diff_get`, `diff_image` and the conflict
-	 *  editor's calls.
+	 *  editor's calls; 0 for a merged view, whose repos each have their
+	 *  own.
 	 */
 	handle: number,
 	content: ChangesContent,
 } | null, IpcError>(__TAURI_INVOKE("changes_get", { workspaceId, repoId, target })),
+	/**
+	 *  What the changes pane shows for "Uncommitted changes" of a group or
+	 *  several repos (UI-34): the lists of every dirty repo of `target`, each
+	 *  with its own handle, as a new view of the workspace; the previous one
+	 *  ends. `null` when a newer view of the workspace superseded this one.
+	 */
+	changesGetMerged: (workspaceId: WorkspaceId, target: TargetSet) => typedError<{
+	/**
+	 *  Names this view for `diff_get`, `diff_image` and the conflict
+	 *  editor's calls; 0 for a merged view, whose repos each have their
+	 *  own.
+	 */
+	handle: number,
+	content: ChangesContent,
+} | null, IpcError>(__TAURI_INVOKE("changes_get_merged", { workspaceId, target })),
 	/**
 	 *  The diff of one file of view `handle` (ARCH-8, UI-17, UI-18). `null`
 	 *  when a newer view of the workspace replaced it.
@@ -775,7 +791,16 @@ in_conflict: boolean;
  *  The config keys the offer to speed up status would turn on
  *  (PERF-7); `None` when there is no offer.
  */
-offer_fsmonitor: string[] | null };
+offer_fsmonitor: string[] | null } | 
+/**  The working copies of a group or multi-selection (UI-34). */
+{ kind: "merged"; 
+/**  The repos with uncommitted changes, in target-set order. */
+repos: RepoChanges[]; 
+/**
+ *  Every repo of the target set, dirty or not: a change in any of
+ *  them may change the view.
+ */
+members: RepoId[] };
 
 /**
  *  The changes pane's view, remembered for every workspace (UI-14,
@@ -800,7 +825,8 @@ export type ChangesTarget =
 export type ChangesView = {
 	/**
 	 *  Names this view for `diff_get`, `diff_image` and the conflict
-	 *  editor's calls.
+	 *  editor's calls; 0 for a merged view, whose repos each have their
+	 *  own.
 	 */
 	handle: number,
 	content: ChangesContent,
@@ -1642,8 +1668,8 @@ export type PreflightReady = {
 	repos: RepoClass[],
 	/**
 	 *  The user must confirm before it runs: a repo is not *will run*, the
-	 *  operation is destructive, or the settings always show the dialog
-	 *  (section 5, step 2).
+	 *  operation is destructive or a group commit (GRP-15), or the settings
+	 *  always show the dialog (section 5, step 2).
 	 */
 	needs_confirmation: boolean,
 };
@@ -1777,11 +1803,37 @@ export type RemoteUrlsView = {
 	push_url: string | null,
 };
 
+/**  One repo's uncommitted changes in a merged view (UI-34). */
+export type RepoChanges = {
+	repo_id: RepoId,
+	repo_name: string,
+	/**
+	 *  Names the repo's lists for `diff_get`, `diff_image` and
+	 *  `changes_apply`, as a single repo's view handle does.
+	 */
+	handle: number,
+	staged: ChangedFile[],
+	/**  Untracked files included. */
+	unstaged: ChangedFile[],
+	unmerged: UnmergedFile[],
+	/**
+	 *  Why nothing can be changed here (GRP-8): the repo is in conflict
+	 *  state, or could not be read; `None` otherwise.
+	 */
+	blocked: string | null,
+};
+
 /**  A repo of a preflight and its class. */
 export type RepoClass = {
 	repo_id: RepoId,
 	repo_name: string,
 	class: Class,
+	/**
+	 *  The number of files a group commit commits in the repo, which its
+	 *  confirmation lists (GRP-15); `None` for the other operations and
+	 *  for a repo the commit leaves out.
+	 */
+	staged_files: number | null,
 };
 
 /**  Identifies a repo inside its workspace: `r1`, `r2` and so on. */

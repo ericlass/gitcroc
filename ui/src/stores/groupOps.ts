@@ -67,13 +67,17 @@ export function createGroupOpStore() {
   /** Counts requests, so an answer to one the user left is dropped. */
   let request = 0;
 
+  /** What wants to know the job the current request started, as a group commit's box does. */
+  let started: ((job: JobId) => void) | undefined;
+
   const start = async (id: PreflightId, confirmed: boolean) => {
     const mine = request;
     setState("pending", { starting: true, error: null });
     try {
-      await groupStart(id, confirmed);
+      const job = await groupStart(id, confirmed);
       if (mine === request) {
         setState("pending", null);
+        started?.(job);
       }
     } catch (error) {
       if (mine === request) {
@@ -102,8 +106,9 @@ export function createGroupOpStore() {
     }
   };
 
-  const begin = async (workspaceId: WorkspaceId, asked: Promise<PreflightId>) => {
+  const begin = async (workspaceId: WorkspaceId, asked: Promise<PreflightId>, onStarted?: (job: JobId) => void) => {
     const mine = ++request;
+    started = onStarted;
     early.clear();
     setState("pending", { workspaceId, preflightId: null, ready: null, starting: false, error: null });
     try {
@@ -132,9 +137,12 @@ export function createGroupOpStore() {
   return {
     state,
     subscribe,
-    /** Runs `op` on `target`, after the preflight dialog when the core asks for it. */
-    run: (workspaceId: WorkspaceId, target: TargetSet, op: GroupOp) =>
-      begin(workspaceId, groupPreflight(workspaceId, target, op)),
+    /**
+     * Runs `op` on `target`, after the preflight dialog when the core asks
+     * for it; `onStarted` gets the job's id once it started.
+     */
+    run: (workspaceId: WorkspaceId, target: TargetSet, op: GroupOp, onStarted?: (job: JobId) => void) =>
+      begin(workspaceId, groupPreflight(workspaceId, target, op), onStarted),
     /** Opens a group branch dialog; its Run goes through `run`. */
     openName: (dialog: GroupNameDialog) => setState("nameDialog", dialog),
     closeName: () => setState("nameDialog", null),

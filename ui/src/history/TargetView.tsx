@@ -1,7 +1,7 @@
 // What the history pane shows for a group or several repos (section 8
 // "History pane"): the summary strip (UI-11), one line per repo of the
 // target set in the core's order (GRP-5), then the merged history, given as
-// children. A line shows the summary the UI already has, stale as in the
+// children, which get the resolved repos. A line shows the summary the UI already has, stale as in the
 // tree (PERF-3), and a click selects its repo in the tree. Repo text is text
 // only (SEC-3).
 import { createVirtualizer } from "@tanstack/solid-virtual";
@@ -126,8 +126,8 @@ export default function TargetView(props: {
   tree: TreeStore;
   summaries: SummaryStore;
   name: (repo: RepoId) => string;
-  /** The merged history. */
-  children: JSX.Element;
+  /** The merged history, given the target set's repos once resolved. */
+  children: (repos: () => RepoId[] | null) => JSX.Element;
 }) {
   const [repos, setRepos] = createSignal<RepoId[] | null>(null);
   const [error, setError] = createSignal<string | null>(null);
@@ -196,7 +196,7 @@ export default function TargetView(props: {
           </Show>
         )}
       </Show>
-      {props.children}
+      {props.children(repos)}
     </div>
   );
 }

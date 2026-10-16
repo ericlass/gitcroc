@@ -1,8 +1,11 @@
-//! What the changes pane shows (UI-14, UI-15, UI-16): a commit's header and
-//! changed files, or a repo's uncommitted lists, then one file's diff at a
-//! time (ARCH-8). One view per workspace (ARCH-9): the core keeps its lists,
-//! so the UI names a file by list and id, never by path (PLAT-2). A newer
-//! view supersedes the older one, whose calls then return `None`.
+//! What the changes pane shows (UI-14, UI-15, UI-16, UI-34): a commit's
+//! header and changed files, a repo's uncommitted lists, or those of every
+//! dirty repo of a group or multi-selection, then one file's diff at a time
+//! (ARCH-8). One view per workspace (ARCH-9): the core keeps its lists, so
+//! the UI names a file by handle, list and id, never by path (PLAT-2). A
+//! merged view has one handle per repo, so each repo's files are staged and
+//! diffed as one repo's. A newer view supersedes the older one, whose calls
+//! then return `None`.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -15,7 +18,9 @@ use gitcroc_git::{
 use serde::{Deserialize, Serialize};
 
 use crate::lock;
-use crate::{DiffReadError, RepoId, StatusReadError, WorkspaceError, WorkspaceId, Workspaces};
+use crate::{
+    DiffReadError, RepoId, StatusReadError, TargetSet, WorkspaceError, WorkspaceId, Workspaces,
+};
 
 /// What to show.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -53,13 +58,39 @@ pub enum ChangesContent {
         /// (PERF-7); `None` when there is no offer.
         offer_fsmonitor: Option<Vec<String>>,
     },
+    /// The working copies of a group or multi-selection (UI-34).
+    Merged {
+        /// The repos with uncommitted changes, in target-set order.
+        repos: Vec<RepoChanges>,
+        /// Every repo of the target set, dirty or not: a change in any of
+        /// them may change the view.
+        members: Vec<RepoId>,
+    },
+}
+
+/// One repo's uncommitted changes in a merged view (UI-34).
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct RepoChanges {
+    pub repo_id: RepoId,
+    pub repo_name: String,
+    /// Names the repo's lists for `diff_get`, `diff_image` and
+    /// `changes_apply`, as a single repo's view handle does.
+    pub handle: u32,
+    pub staged: Vec<ChangedFile>,
+    /// Untracked files included.
+    pub unstaged: Vec<ChangedFile>,
+    pub unmerged: Vec<UnmergedFile>,
+    /// Why nothing can be changed here (GRP-8): the repo is in conflict
+    /// state, or could not be read; `None` otherwise.
+    pub blocked: Option<String>,
 }
 
 /// A view of the changes pane.
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ChangesView {
     /// Names this view for `diff_get`, `diff_image` and the conflict
-    /// editor's calls.
+    /// editor's calls; 0 for a merged view, whose repos each have their
+    /// own.
     pub handle: u32,
     pub content: ChangesContent,
 }
@@ -203,7 +234,8 @@ pub(crate) struct ShownDiff {
     pub content: ContentKey,
 }
 
-/// A workspace's view. `lists` is `None` while it is read. It keeps the
+/// A repo's part of a workspace's view: all of a single repo's view, one
+/// repo of a merged one. `lists` is `None` while it is read. It keeps the
 /// repo's path, not the open repo: an open repo keeps the parts of its pack
 /// files the reads used mapped into memory for as long as the view is shown
 /// (M1-14). Each diff opens the repo again.
@@ -226,11 +258,25 @@ pub(crate) struct ViewState {
     pub diff: Option<ShownDiff>,
 }
 
+/// A workspace's view: its parts, and the last handle given, so that a
+/// handle names one part only while the app runs.
+#[derive(Debug, Default)]
+struct Views {
+    last: u32,
+    parts: Vec<Shown>,
+}
+
+impl Views {
+    fn part(&self, handle: u32) -> Option<&Shown> {
+        self.parts.iter().find(|part| part.handle == handle)
+    }
+}
+
 /// The view of every open workspace, and the repos whose status settings
 /// are being turned on (PERF-7).
 #[derive(Debug)]
 pub struct Changes {
-    shown: Mutex<HashMap<WorkspaceId, Shown>>,
+    shown: Mutex<HashMap<WorkspaceId, Views>>,
     pub(crate) enabling: Mutex<HashSet<(WorkspaceId, RepoId)>>,
     fsmonitor_threshold: usize,
 }
@@ -262,54 +308,58 @@ impl Changes {
     }
 
     /// Ends the view of workspace `id`, whose tab went to the background
-    /// (UI-31): its lists, diff and images go, and its handle then gives
-    /// `None`, as a superseded view's does.
+    /// (UI-31): its lists, diffs and images go, and its handles then give
+    /// `None`, as a superseded view's do.
     pub fn release(&self, id: &WorkspaceId) {
-        if let Some(view) = lock(&self.shown).get_mut(id) {
-            view.handle = view.handle.wrapping_add(1);
-            view.lists = None;
-            view.images = None;
-            view.diff = None;
+        if let Some(views) = lock(&self.shown).get_mut(id) {
+            views.parts.clear();
         }
     }
 
     /// Whether the core holds lists or images of a view of workspace `id`.
     pub fn holds_view(&self, id: &WorkspaceId) -> bool {
-        lock(&self.shown)
-            .get(id)
-            .is_some_and(|view| view.lists.is_some() || view.images.is_some())
+        lock(&self.shown).get(id).is_some_and(|views| {
+            views
+                .parts
+                .iter()
+                .any(|part| part.lists.is_some() || part.images.is_some())
+        })
     }
 
-    /// Makes a new view the latest of workspace `id`.
-    fn begin(&self, id: &WorkspaceId, repo: RepoId, path: PathBuf) -> u32 {
+    /// Makes a new view of `repos`, each with its repo's path, the latest
+    /// of workspace `id`, and returns the handle of each.
+    fn begin(&self, id: &WorkspaceId, repos: Vec<(RepoId, PathBuf)>) -> Vec<u32> {
         let mut shown = lock(&self.shown);
-        let handle = shown.get(id).map_or(1, |view| view.handle.wrapping_add(1));
-        shown.insert(
-            id.clone(),
-            Shown {
-                handle,
-                repo,
-                path,
-                lists: None,
-                images: None,
-                diff: None,
-            },
-        );
-        handle
+        let views = shown.entry(id.clone()).or_default();
+        views.parts = repos
+            .into_iter()
+            .map(|(repo, path)| {
+                views.last = views.last.wrapping_add(1).max(1);
+                Shown {
+                    handle: views.last,
+                    repo,
+                    path,
+                    lists: None,
+                    images: None,
+                    diff: None,
+                }
+            })
+            .collect();
+        views.parts.iter().map(|part| part.handle).collect()
     }
 
     /// The repo's path and the lists of view `handle`, if it is the latest
     /// and read.
     fn lists(&self, id: &WorkspaceId, handle: u32) -> Option<(PathBuf, Arc<Lists>)> {
         let shown = lock(&self.shown);
-        let view = shown.get(id).filter(|view| view.handle == handle)?;
+        let view = shown.get(id)?.part(handle)?;
         Some((view.path.clone(), view.lists.clone()?))
     }
 
     /// What view `handle` shows, if it is the latest and read.
     pub(crate) fn state(&self, id: &WorkspaceId, handle: u32) -> Option<ViewState> {
         let shown = lock(&self.shown);
-        let view = shown.get(id).filter(|view| view.handle == handle)?;
+        let view = shown.get(id)?.part(handle)?;
         Some(ViewState {
             repo: view.repo.clone(),
             path: view.path.clone(),
@@ -321,12 +371,42 @@ impl Changes {
     /// Runs `change` on view `handle` if it is still the latest.
     fn update(&self, id: &WorkspaceId, handle: u32, change: impl FnOnce(&mut Shown)) -> bool {
         let mut shown = lock(&self.shown);
-        match shown.get_mut(id) {
-            Some(view) if view.handle == handle => {
+        let part = shown
+            .get_mut(id)
+            .and_then(|views| views.parts.iter_mut().find(|part| part.handle == handle));
+        match part {
+            Some(view) => {
                 change(view);
                 true
             }
-            _ => false,
+            None => false,
+        }
+    }
+}
+
+/// A working copy as the changes pane lists it.
+struct Uncommitted {
+    working: gitcroc_git::WorkingCopy,
+    in_conflict: bool,
+}
+
+/// Reads the working copy and conflict state of `repo`.
+async fn uncommitted(repo: GitRepo, git: GitRunner) -> Result<Uncommitted, ChangesError> {
+    let reader = StatusReader::new(repo, git);
+    let working = crate::working_copy(reader.clone()).await?;
+    let in_conflict = crate::repo_state(reader).await?.in_conflict();
+    Ok(Uncommitted {
+        working,
+        in_conflict,
+    })
+}
+
+impl Uncommitted {
+    fn lists(&self) -> Lists {
+        Lists::Uncommitted {
+            staged: self.working.staged.clone(),
+            unstaged: self.working.unstaged.clone(),
+            unmerged: self.working.unmerged.clone(),
         }
     }
 }
@@ -344,7 +424,8 @@ pub async fn changes_get(
     target: ChangesTarget,
 ) -> Result<Option<ChangesView>, ChangesError> {
     let path = workspaces.repo_path(&id, &repo_id)?;
-    let handle = changes.begin(&id, repo_id.clone(), path.clone());
+    let begun = changes.begin(&id, vec![(repo_id.clone(), path.clone())]);
+    let handle = begun.first().copied().unwrap_or_default();
     let repo = tokio::task::spawn_blocking(move || GitRepo::open(&path)).await??;
     let (content, lists) = match target {
         ChangesTarget::Commit { hash, parent } => {
@@ -364,22 +445,21 @@ pub async fn changes_get(
             (content, lists)
         }
         ChangesTarget::Uncommitted => {
-            let reader = StatusReader::new(repo.clone(), git);
-            let working = crate::working_copy(reader.clone()).await?;
-            let in_conflict = crate::repo_state(reader.clone()).await?.in_conflict();
+            let read = uncommitted(repo.clone(), git.clone()).await?;
+            let lists = read.lists();
+            let Uncommitted {
+                working,
+                in_conflict,
+            } = read;
             let offer_fsmonitor = if in_conflict {
                 None
             } else {
                 let threshold = changes.fsmonitor_threshold;
+                let reader = StatusReader::new(repo.clone(), git);
                 crate::fsmonitor::offer(&changes, &workspaces, &id, &repo_id, reader, threshold)
                     .await?
             };
             let last_message = crate::commit::last_message(repo.clone()).await?;
-            let lists = Lists::Uncommitted {
-                staged: working.staged.clone(),
-                unstaged: working.unstaged.clone(),
-                unmerged: working.unmerged.clone(),
-            };
             let content = ChangesContent::Uncommitted {
                 staged: working.staged,
                 unstaged: working.unstaged,
@@ -393,6 +473,93 @@ pub async fn changes_get(
     };
     let kept = changes.update(&id, handle, |view| view.lists = Some(Arc::new(lists)));
     Ok(kept.then_some(ChangesView { handle, content }))
+}
+
+/// Reads the uncommitted changes of every repo of `target` in workspace
+/// `id` as a new view, which supersedes the previous one (UI-34): one part
+/// per dirty repo, in target-set order, each read as a single repo's. A
+/// repo in conflict state is listed but blocked (GRP-8); a missing one is
+/// left out. `None` when a newer view superseded this one before it was
+/// read.
+pub async fn changes_get_merged(
+    changes: Arc<Changes>,
+    workspaces: Arc<Workspaces>,
+    git: GitRunner,
+    id: WorkspaceId,
+    target: TargetSet,
+) -> Result<Option<ChangesView>, ChangesError> {
+    let members = crate::target_repos(&workspaces, &id, &target)?;
+    let known = workspaces.view(&id)?.repos;
+    let mut repos = Vec::with_capacity(members.len());
+    for repo in &members {
+        let path = workspaces.repo_path(&id, repo)?;
+        if path.exists() {
+            repos.push((repo.clone(), path));
+        }
+    }
+    let handles = changes.begin(&id, repos.clone());
+    let reads: Vec<_> = repos
+        .into_iter()
+        .zip(handles)
+        .map(|((repo, path), handle)| {
+            let git = git.clone();
+            let read = tokio::spawn(async move {
+                let open = tokio::task::spawn_blocking(move || GitRepo::open(&path)).await??;
+                uncommitted(open, git).await
+            });
+            (repo, handle, read)
+        })
+        .collect();
+    let mut shown = Vec::new();
+    for (repo, handle, read) in reads {
+        let name = known
+            .iter()
+            .find(|entry| entry.id == repo)
+            .map_or_else(|| repo.0.clone(), |entry| entry.name.clone());
+        let read = match read.await {
+            Ok(read) => read,
+            Err(error) => Err(ChangesError::Stopped(error)),
+        };
+        let part = match read {
+            Ok(read) => {
+                let lists = read.lists();
+                if !changes.update(&id, handle, |view| view.lists = Some(Arc::new(lists))) {
+                    return Ok(None);
+                }
+                if read.working.is_clean() {
+                    continue;
+                }
+                let Uncommitted {
+                    working,
+                    in_conflict,
+                } = read;
+                RepoChanges {
+                    repo_id: repo,
+                    repo_name: name,
+                    handle,
+                    staged: working.staged,
+                    unstaged: working.unstaged,
+                    unmerged: working.unmerged,
+                    blocked: in_conflict.then(|| crate::unblocked::IN_CONFLICT.to_owned()),
+                }
+            }
+            Err(error) => RepoChanges {
+                repo_id: repo,
+                repo_name: name,
+                handle,
+                staged: Vec::new(),
+                unstaged: Vec::new(),
+                unmerged: Vec::new(),
+                blocked: Some(format!("cannot read the repo: {error}")),
+            },
+        };
+        shown.push(part);
+    }
+    let content = ChangesContent::Merged {
+        repos: shown,
+        members,
+    };
+    Ok(Some(ChangesView { handle: 0, content }))
 }
 
 /// The diff of one file of view `handle` (ARCH-8). `None` when a newer view
@@ -446,8 +613,8 @@ pub fn diff_image(
 ) -> Option<Vec<u8>> {
     let shown = lock(&changes.shown);
     let images = shown
-        .get(id)
-        .filter(|view| view.handle == handle)?
+        .get(id)?
+        .part(handle)?
         .images
         .as_ref()
         .filter(|images| images.file == file)?;

@@ -1,11 +1,13 @@
-// The changes pane (UI-14 to UI-19): a header with the diff mode, options
-// and dock button, then the commit header or the uncommitted lists, the
-// changed files and the selected file's diff, and for a large repo the
-// offer to speed up its status (PERF-7). The core reads and diffs; this
+// The changes pane (UI-14 to UI-19, UI-34): a header with the diff mode,
+// options and dock button, then the commit header or the uncommitted lists,
+// the changed files and the selected file's diff, and for a large repo the
+// offer to speed up its status (PERF-7). For a group or several repos the
+// lists are sectioned by repo, each repo's files staged as that repo's, and
+// one message box runs the group Commit. The core reads and diffs; this
 // component lays out its answers and forwards input (ARCH-6).
 import { createEffect, createMemo, For, Match, Show, Switch } from "solid-js";
-import type { ChangeAction, Context, FileDiff, WorkspaceId } from "../ipc";
-import { ACTION_LIST, type ChangesStore } from "../stores/changes";
+import type { ChangeAction, ChangesContent, Context, FileDiff, RepoChanges, RepoId, WorkspaceId } from "../ipc";
+import { ACTION_LIST, type ChangesStore, handleOf } from "../stores/changes";
 import type { CommitStore } from "../stores/commit";
 import type { ConflictStore } from "../stores/conflicts";
 import ConflictView from "../conflict/ConflictView";
@@ -16,7 +18,7 @@ import CommitHeader from "./CommitHeader";
 import DiffView, { type HunkControls } from "./DiffView";
 import DiscardDialog from "./DiscardDialog";
 import FileList from "./FileList";
-import { entryOf } from "./fileRows";
+import { entryOf, type FileKey } from "./fileRows";
 import SpecialDiff from "./SpecialDiff";
 
 /** The controls of a hunk of the staged or unstaged diff (UI-15). */
@@ -33,6 +35,29 @@ const CONTEXTS: { value: Context; label: string }[] = [
   { value: "ten", label: "10 lines" },
   { value: "whole_file", label: "Whole file" },
 ];
+
+/**
+ * Whether a group Commit takes something from `repo` (UI-34): it is not
+ * blocked, and has staged changes or, with "Stage all tracked changes
+ * first", changed tracked files.
+ */
+const commits = (repo: RepoChanges, stageAll: boolean) =>
+  repo.blocked === null &&
+  (repo.staged.length > 0 || (stageAll && repo.unstaged.some((file) => file.status !== "untracked")));
+
+/** The number of files `content` lists. */
+function fileCount(content: ChangesContent): number {
+  const lists = (shown: Pick<RepoChanges, "staged" | "unstaged" | "unmerged">) =>
+    shown.staged.length + shown.unstaged.length + shown.unmerged.length;
+  switch (content.kind) {
+    case "commit":
+      return content.files.length;
+    case "uncommitted":
+      return lists(content);
+    case "merged":
+      return content.repos.reduce((sum, repo) => sum + lists(repo), 0);
+  }
+}
 
 function Toolbar(props: { workspace: WorkspaceId; settings: SettingsStore; layout: LayoutStore }) {
   const view = () => props.settings.changes();
@@ -144,21 +169,30 @@ export default function ChangesPane(props: {
     const file = changes().file;
     return file === null || file.list === "unmerged" ? null : { list: file.list, id: file.id };
   };
-  /** The unmerged file shown in the conflict editor, as the core's conflict calls name it (OPS-3). */
+  /** The repo of a single repo's view; a merged one has none. */
+  const repo = (): RepoId | null => {
+    const selection = changes().selection;
+    return selection === null || selection.kind === "merged_uncommitted" ? null : selection.repo_id;
+  };
+  /**
+   * The unmerged file shown in the conflict editor, as the core's conflict
+   * calls name it (OPS-3); none in a merged view, whose repos in conflict are
+   * blocked (GRP-8).
+   */
   const conflictTarget = createMemo(() => {
     const shown = changes().view;
     const file = changes().file;
-    const selection = changes().selection;
+    const selected = repo();
     const path = entry()?.path;
-    return shown === null || file?.list !== "unmerged" || selection === null || path === undefined
+    return shown === null || file?.list !== "unmerged" || selected === null || path === undefined
       ? null
-      : { repo: selection.repo_id, handle: shown.handle, id: file.id, path };
+      : { repo: selected, handle: shown.handle, id: file.id, path };
   });
   // Once the lists are read, the editor's state of files no longer unmerged is dropped.
   createEffect(() => {
     const content = changes().view?.content;
     const selection = changes().selection;
-    if (content?.kind === "uncommitted" && selection !== null) {
+    if (content?.kind === "uncommitted" && selection?.kind === "uncommitted") {
       props.conflicts.prune(
         props.workspace,
         selection.repo_id,
@@ -166,19 +200,37 @@ export default function ChangesPane(props: {
       );
     }
   });
-  /** Uncommitted changes: their files and hunks can be staged, unstaged and discarded. */
-  const uncommitted = () => changes().view?.content.kind === "uncommitted";
-  const onFiles = (action: ChangeAction, files: { list: string; id: number }[]) => {
+  /** Uncommitted changes, of one repo or several: their files and hunks can be staged, unstaged and discarded. */
+  const uncommitted = () => {
+    const kind = changes().view?.content.kind;
+    return kind === "uncommitted" || kind === "merged";
+  };
+  /** Stages, unstages or discards `files`; in a merged view, one job per repo (UI-34). */
+  const onFiles = (action: ChangeAction, files: FileKey[]) => {
     const list = ACTION_LIST[action];
-    const refs = files.flatMap((file) => (file.list === list ? [{ list, id: file.id }] : []));
-    if (refs.length > 0) {
-      void props.changes.apply(props.workspace, action, { kind: "files", files: refs });
+    const byRepo = new Map<RepoId | undefined, { list: typeof list; id: number }[]>();
+    for (const file of files) {
+      if (file.list === list) {
+        byRepo.set(file.repo, [...(byRepo.get(file.repo) ?? []), { list, id: file.id }]);
+      }
     }
+    for (const [owner, refs] of byRepo) {
+      void props.changes.apply(props.workspace, action, { kind: "files", files: refs }, owner);
+    }
+  };
+  /** Why the selected file's repo cannot be changed in a merged view (GRP-8), or `null`. */
+  const blocked = () => {
+    const content = changes().view?.content;
+    const owner = changes().file?.repo;
+    if (content?.kind !== "merged") {
+      return null;
+    }
+    return content.repos.find((shown) => shown.repo_id === owner)?.blocked ?? null;
   };
   /** The hunk controls of the shown diff; a new object only when the file or the options change. */
   const controls = createMemo((): HunkControls | null => {
     const ref = fileRef();
-    if (!uncommitted() || ref === null || ref.list === "commit" || view().ignore_whitespace) {
+    if (!uncommitted() || ref === null || ref.list === "commit" || view().ignore_whitespace || blocked() !== null) {
       return null;
     }
     return {
@@ -187,7 +239,7 @@ export default function ChangesPane(props: {
       onAction: (action, hunk) => {
         const file = fileRef();
         if (file !== null && file.list !== "commit") {
-          void props.changes.apply(props.workspace, action, { kind: "hunk", file, hunk });
+          void props.changes.apply(props.workspace, action, { kind: "hunk", file, hunk }, changes().file?.repo);
         }
       },
     };
@@ -195,30 +247,31 @@ export default function ChangesPane(props: {
   /** The keys the fsmonitor offer turns on, while it is shown (PERF-7), with its repo. */
   const offer = () => {
     const content = changes().view?.content;
-    const repo = changes().selection?.repo_id;
+    const shown = repo();
     return content?.kind === "uncommitted" &&
       content.offer_fsmonitor !== null &&
-      repo !== undefined &&
-      !changes().offerAnswered[repo]
-      ? { keys: content.offer_fsmonitor, repo }
+      shown !== null &&
+      !changes().offerAnswered[shown]
+      ? { keys: content.offer_fsmonitor, repo: shown }
       : null;
   };
   /** The uncommitted lists, while the repo can take a commit: not in conflict state (M2-08 continues those). */
   const committable = () => {
     const content = changes().view?.content;
-    const selection = changes().selection;
-    return content?.kind === "uncommitted" && !content.in_conflict && selection !== null
-      ? { content, repo: selection.repo_id }
+    const shown = repo();
+    return content?.kind === "uncommitted" && !content.in_conflict && shown !== null
+      ? { content, repo: shown }
       : null;
+  };
+  /** A merged view, with the target set its one message box commits (UI-34). */
+  const merged = () => {
+    const content = changes().view?.content;
+    const selection = changes().selection;
+    return content?.kind === "merged" && selection?.kind === "merged_uncommitted" ? { content, selection } : null;
   };
   const count = () => {
     const content = changes().view?.content;
-    if (!content) {
-      return 0;
-    }
-    return content.kind === "commit"
-      ? content.files.length
-      : content.staged.length + content.unstaged.length + content.unmerged.length;
+    return content ? fileCount(content) : 0;
   };
 
   return (
@@ -293,8 +346,8 @@ export default function ChangesPane(props: {
                   onToggleFolder={(key) => props.changes.toggleFolder(props.workspace, key)}
                   onAction={uncommitted() ? onFiles : undefined}
                   unsaved={(path) => {
-                    const repo = changes().selection?.repo_id;
-                    return repo !== undefined && props.conflicts.unsaved(props.workspace, repo, path);
+                    const shown = repo();
+                    return shown !== null && props.conflicts.unsaved(props.workspace, shown, path);
                   }}
                   scrollTop={changes().listScroll}
                   onScroll={(top) => props.changes.setScroll(props.workspace, "listScroll", top)}
@@ -322,6 +375,51 @@ export default function ChangesPane(props: {
                       }
                     />
                   )}
+                </Show>
+                <Show when={merged()}>
+                  {(group) => {
+                    const key = () => group().selection.key;
+                    const options = () => props.commit.groupOptions(props.workspace, key());
+                    const repos = () =>
+                      group().content.repos.filter((shown) => commits(shown, options().stage_all)).length;
+                    return (
+                      <CommitBox
+                        draft={props.commit.groupDraft(props.workspace, key())}
+                        staged={repos() > 0}
+                        amendable={false}
+                        busy={props.commit.groupBusy(props.workspace, key())}
+                        error={props.commit.groupError(props.workspace, key())}
+                        label={`Commit ${repos()} ${repos() === 1 ? "repo" : "repos"}`}
+                        onEdit={(change) => props.commit.editGroup(props.workspace, key(), change)}
+                        onCommit={() => props.commit.commitGroup(props.workspace, key(), group().selection.target)}
+                      >
+                        <label class="choice">
+                          <input
+                            type="checkbox"
+                            checked={options().stage_all}
+                            onChange={(event) =>
+                              props.commit.setGroupOptions(props.workspace, key(), {
+                                stage_all: event.currentTarget.checked,
+                              })
+                            }
+                          />{" "}
+                          Stage all tracked changes first
+                        </label>
+                        <label class="choice">
+                          <input
+                            type="checkbox"
+                            checked={options().push}
+                            onChange={(event) =>
+                              props.commit.setGroupOptions(props.workspace, key(), {
+                                push: event.currentTarget.checked,
+                              })
+                            }
+                          />{" "}
+                          Push after commit
+                        </label>
+                      </CommitBox>
+                    );
+                  }}
                 </Show>
               </div>
               <section class="changes-diff" aria-label={conflictTarget() === null ? "Diff" : "Conflict"}>
@@ -378,7 +476,7 @@ export default function ChangesPane(props: {
                                 <SpecialDiff
                                   diff={diff()}
                                   workspace={props.workspace}
-                                  handle={shown().handle}
+                                  handle={handleOf(shown(), changes().file ?? {}) ?? shown().handle}
                                   file={ref()}
                                   onLoadAnyway={() => void props.changes.loadAnyway(props.workspace)}
                                 />

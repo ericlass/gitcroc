@@ -10,8 +10,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use gitcroc_core::{
-    GroupId, GroupOp, MergeFastForward, MissingBranch, PlatformCacheDir, PlatformConfigDir, Prune,
-    PullStrategy, RepoId, StartPoint, Summaries, SummaryCache, Trees, WorkspaceId, Workspaces,
+    CommitMessage, GroupId, GroupOp, MergeFastForward, MissingBranch, PlatformCacheDir,
+    PlatformConfigDir, Prune, PullStrategy, RepoId, StartPoint, Summaries, SummaryCache, Trees,
+    WorkspaceId, Workspaces,
 };
 
 use crate::summaries::GivenCacheDir;
@@ -25,7 +26,8 @@ checkout <branch> [--missing skip|default-branch|create]|\
 create-branch <branch> [--start <ref>|--start-default] [--no-switch]|\
 delete-branch <branch> [--force] [--on-remote]|\
 merge <ref> [--ff config|ff-only|no-ff]|rebase <ref>|\
-create-tag <tag> [--message <text>|--lightweight] [--push] [--confirm]";
+create-tag <tag> [--message <text>|--lightweight] [--push]|\
+commit <subject> [--body <text>] [--stage-all] [--push] [--confirm]";
 
 pub const TREE_USAGE: &str = "tree [--config-dir <dir>] [--cache-dir <dir>]";
 
@@ -159,6 +161,27 @@ fn parse_run(args: &[OsString]) -> Option<(RunOp, bool)> {
                 name: (*name).to_owned(),
                 annotated,
                 message,
+                push,
+            })
+        }
+        ("commit", [subject, rest @ ..]) => {
+            let (mut body, mut stage_all, mut push) = (String::new(), false, false);
+            let mut rest = rest.iter();
+            while let Some(flag) = rest.next() {
+                match *flag {
+                    "--body" => (*rest.next()?).clone_into(&mut body),
+                    "--stage-all" => stage_all = true,
+                    "--push" => push = true,
+                    _ => return None,
+                }
+            }
+            let message = CommitMessage {
+                subject: (*subject).to_owned(),
+                body,
+            };
+            RunOp::Op(GroupOp::Commit {
+                message,
+                stage_all,
                 push,
             })
         }
@@ -514,6 +537,34 @@ mod tests {
                 }),
                 false
             )
+        );
+        assert_eq!(
+            parsed(&[
+                "run",
+                "Backend",
+                "commit",
+                "Fix it",
+                "--push",
+                "--body",
+                "Why.",
+                "--stage-all",
+                "--confirm"
+            ]),
+            run(
+                RunOp::Op(GroupOp::Commit {
+                    message: CommitMessage {
+                        subject: "Fix it".to_owned(),
+                        body: "Why.".to_owned()
+                    },
+                    stage_all: true,
+                    push: true
+                }),
+                true
+            )
+        );
+        assert_eq!(
+            parsed(&["run", "Backend", "commit", "Fix it", "--amend"]),
+            None
         );
         assert_eq!(parsed(&["run", "Backend", "rebase", "a", "b"]), None);
         assert_eq!(parsed(&["run", "Backend", "checkout"]), None);

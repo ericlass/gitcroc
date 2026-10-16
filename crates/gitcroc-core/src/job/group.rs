@@ -16,7 +16,7 @@ use gitcroc_git::{GitError, GitRepo, GitRunner, Kill, Output, StatusRead, Status
 use super::{
     Ending, JobError, JobHandle, JobId, JobRun, JobState, JobView, Jobs, NothingToDo, OnCancel,
     Outcome, ProgressFn, RepoResult, SkipReason, SubJob, Worker, cancelled, ended_view, epoch_ms,
-    finish, judge, release, see,
+    finish, judge, output_text, release, see,
 };
 use crate::unblocked::{BUSY, IN_CONFLICT, MISSING};
 use crate::{Priority, RepoId, WorkspaceId};
@@ -47,6 +47,11 @@ pub enum SubJobError {
     /// The repo could not be read before git ran.
     #[error("{0}")]
     Failed(String),
+    /// A first step was made and a later one failed, as a push after a
+    /// group commit: *failed* with git's output of both and `message`,
+    /// which says what was made.
+    #[error("{message}")]
+    Partial { output: Output, message: String },
 }
 
 /// A group operation to run, as its preflight left it.
@@ -362,6 +367,11 @@ impl Jobs {
                 Some(reason),
             ),
             Err(SubJobError::Failed(reason)) => (Outcome::Failed, String::new(), Some(reason)),
+            Err(SubJobError::Partial { output, message }) => (
+                Outcome::Failed,
+                output_text(&output.stdout, &output.stderr),
+                Some(message),
+            ),
         };
         self.reread(workspace, &sub.repo, &git, before.first(), after.first())
             .await;

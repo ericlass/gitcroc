@@ -5,6 +5,7 @@
 //! report (D8).
 
 mod branch;
+mod commit;
 mod integrate;
 mod op;
 mod summary;
@@ -39,6 +40,10 @@ pub struct RepoClass {
     pub repo_id: RepoId,
     pub repo_name: String,
     pub class: Class,
+    /// The number of files a group commit commits in the repo, which its
+    /// confirmation lists (GRP-15); `None` for the other operations and
+    /// for a repo the commit leaves out.
+    pub staged_files: Option<u32>,
 }
 
 /// A preflight's result, sent as event `preflight_ready`.
@@ -57,8 +62,8 @@ pub struct PreflightReady {
     /// Every repo of the target set, in target-set order.
     pub repos: Vec<RepoClass>,
     /// The user must confirm before it runs: a repo is not *will run*, the
-    /// operation is destructive, or the settings always show the dialog
-    /// (section 5, step 2).
+    /// operation is destructive or a group commit (GRP-15), or the settings
+    /// always show the dialog (section 5, step 2).
     pub needs_confirmation: bool,
 }
 
@@ -69,8 +74,6 @@ pub enum GroupError {
     Workspace(#[from] WorkspaceError),
     #[error(transparent)]
     Job(#[from] JobError),
-    #[error("{0} on a group is not available yet")]
-    NotAvailable(String),
     #[error(transparent)]
     Name(#[from] crate::RefNameError),
     /// The operation's options cannot run, as an annotated tag without a
@@ -229,18 +232,21 @@ impl GroupOps {
                 .collect();
             let mut classed = Vec::with_capacity(classes.len());
             for ((repo, name), class) in repos.into_iter().zip(names).zip(classes) {
-                let class = class.await.unwrap_or_else(|error| Class::Blocked {
-                    reason: format!("the read did not finish: {error}"),
+                let (class, staged_files) = class.await.unwrap_or_else(|error| {
+                    let reason = format!("the read did not finish: {error}");
+                    (Class::Blocked { reason }, None)
                 });
                 classed.push(RepoClass {
                     repo_id: repo,
                     repo_name: name,
                     class,
+                    staged_files,
                 });
             }
             let always = engine.settings.view().settings.groups.always_show_preflight;
             let destructive = op.destructive();
             let needs_confirmation = always
+                || op.always_confirm()
                 || !destructive.is_empty()
                 || classed.iter().any(|repo| repo.class != Class::WillRun);
             let ready = PreflightReady {
@@ -404,9 +410,10 @@ fn target_label(target: &TargetSet, groups: &[GroupView], names: &[String]) -> S
     }
 }
 
-/// The class of repo `repo` at `path` for `op`: GRP-8 first, for every
-/// operation since all of them write, then the operation's own rule. Holds
-/// a worker of the shared pool while it reads.
+/// The class of repo `repo` at `path` for `op`, with what the confirmation
+/// lists with it: GRP-8 first, for every operation since all of them
+/// write, then the operation's own rule. Holds a worker of the shared pool
+/// while it reads.
 async fn classify(
     summaries: &Summaries,
     workspace: &WorkspaceId,
@@ -414,9 +421,10 @@ async fn classify(
     path: PathBuf,
     op: Arc<dyn GroupOperation>,
     git: GitRunner,
-) -> Class {
-    let blocked = |reason: &str| Class::Blocked {
-        reason: reason.to_owned(),
+) -> (Class, Option<u32>) {
+    let blocked = |reason: &str| {
+        let reason = reason.to_owned();
+        (Class::Blocked { reason }, None)
     };
     let _worker = summaries.pool().worker(Priority::Job).await;
     if summaries.busy(workspace, repo) {
@@ -437,7 +445,7 @@ async fn classify(
                 Err(error) => return blocked(&format!("cannot read the repo: {error}")),
             }
         }
-        op.classify(&repo, &git)
+        op.classify_counted(&repo, &git)
     })
     .await
     .unwrap_or_else(|error| blocked(&format!("the read did not finish: {error}")))

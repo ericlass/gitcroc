@@ -1,6 +1,7 @@
 // The preflight dialog of section 5, step 2: a progress line while the core
-// classes the repos, then one row per repo with its class and reason,
-// *needs attention* and *blocked* first, and the counts. A destructive
+// classes the repos, then one row per repo with its class and reason, and
+// for a group commit its number of staged files (GRP-15), *needs attention*
+// and *blocked* first, and the counts. A destructive
 // operation names what cannot be undone and every repo it runs in (GRP-9).
 // Repos cannot be left out here: the target set is built only in the tree
 // (GRP-5). Escape cancels; Tab and Enter reach and press the buttons.
@@ -104,9 +105,18 @@ export default function PreflightDialog(props: { pending: PendingPreflight; grou
                     <li class={`preflight-repo preflight-${repo.class.kind.replaceAll("_", "-")}`}>
                       <span class="preflight-name">{repo.repo_name}</span>
                       <span class="preflight-class">{CLASS_TEXT[repo.class.kind]}</span>
-                      <Show when={reasonOf(repo.class)}>
-                        {(reason) => <span class="preflight-reason">{reason()}</span>}
-                      </Show>
+                      <span class="preflight-detail">
+                        <Show when={repo.staged_files}>
+                          {(files) => (
+                            <span class="preflight-files">
+                              {files()} staged {files() === 1 ? "file" : "files"}
+                            </span>
+                          )}
+                        </Show>
+                        <Show when={reasonOf(repo.class)}>
+                          {(reason) => <span class="preflight-reason">{reason()}</span>}
+                        </Show>
+                      </span>
                     </li>
                   )}
                 </For>

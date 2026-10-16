@@ -60,3 +60,4 @@ Conflict state | Mark resolved | mark_resolved | ops_5_mark_resolved_writes_and_
 Conflict state | Choose a version | choose | ops_6_choice_conflicts | ops_5_a_conflict_resolved_meanwhile_is_refused_as_already_resolved | n/a
 Not in section 6 | Commit-graph cache (PERF-2) | commit_graph_write | arch_1_commit_graph_is_written_by_the_git_cli | arch_1_a_failed_commit_graph_write_is_reported | n/a
 Not in section 6 | File system monitor settings (PERF-7) | fsmonitor_enable | perf_7_never_changes_git_config_without_asking | grp_8_turning_the_settings_on_is_refused_in_conflict_state | n/a
+Not in section 6 | Group commit, staging all tracked changes first (GRP-15) | stage_tracked | grp_15_stage_all_tracked_changes_first | grp_15_stage_all_on_a_locked_index_fails_that_repo_only | n/a
