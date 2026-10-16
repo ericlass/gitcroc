@@ -1,0 +1,19 @@
+```json
+{
+  "hunks": [
+    {
+      "id": 1,
+      "status": "resolved",
+      "resolution": "fn timeout() -> Duration {\n    Duration::from_secs(config::TIMEOUT_SECS)\n}\n",
+      "explanation": "Ours moved the value into config, theirs raised it to 30 seconds; the config constant already holds 30, so ours is kept.",
+      "confidence": "high"
+    },
+    {
+      "id": 2,
+      "status": "unresolved",
+      "explanation": "Both sides rewrote the retry loop with different backoff rules; choosing one needs the author's intent.",
+      "confidence": "low"
+    }
+  ]
+}
+```

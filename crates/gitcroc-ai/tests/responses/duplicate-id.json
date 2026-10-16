@@ -1,0 +1,18 @@
+{
+  "hunks": [
+    {
+      "id": 1,
+      "status": "resolved",
+      "resolution": "fn timeout() -> Duration {\n    Duration::from_secs(config::TIMEOUT_SECS)\n}\n",
+      "explanation": "Ours moved the value into config; the constant already holds the new 30 seconds of theirs.",
+      "confidence": "high"
+    },
+    {
+      "id": 1,
+      "status": "resolved",
+      "resolution": "fn timeout() -> Duration {\n    Duration::from_secs(30)\n}\n",
+      "explanation": "Theirs raised the timeout to 30 seconds.",
+      "confidence": "medium"
+    }
+  ]
+}
