@@ -4,6 +4,9 @@
 import type { Event, EventCallback, UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AddReport,
+  AiModelsReply,
+  AiSelfTestReply,
+  AiView,
   AskpassClosedEvent,
   AskpassPrompt,
   AppInfo,
@@ -177,6 +180,29 @@ const cloneReportListeners: Listeners<CloneReport> = new Set();
 const workspaceExportedListeners: Listeners<WorkspaceExportedEvent> = new Set();
 const workspaceImportedListeners: Listeners<WorkspaceImportedEvent> = new Set();
 const preflightReadyListeners: Listeners<PreflightReady> = new Set();
+const aiChangedListeners: Listeners<AiView> = new Set();
+const aiModelsListeners: Listeners<AiModelsReply> = new Set();
+const aiSelfTestListeners: Listeners<AiSelfTestReply> = new Set();
+
+/** The AI settings with no provider, as on a first start. The fake has no AI providers until M4-06 needs them. */
+const fakeAi: AiView = {
+  enabled: true,
+  exclude: [".env*", "*.pem", "*.key", "*.p12", "id_rsa*"],
+  debug_log: false,
+  default: null,
+  providers: [],
+  detected: [],
+  offer: null,
+  keychain_error: null,
+};
+
+/** What the fake answers to every AI command but `ai_providers_get`. */
+function noAiProviders() {
+  return Promise.resolve({
+    status: "error" as const,
+    error: { code: "refused" as const, message: "the fake core has no AI providers", git_stderr: null },
+  });
+}
 
 /** A repo's part of a changes view: all of a single repo's view, one repo of a merged one. */
 interface FakeViewPart {
@@ -2362,6 +2388,13 @@ export const fake: Core = {
       }
       return Promise.resolve({ status: "ok", data: job?.state === "running" ? "finishing" : "ended" });
     },
+    aiProvidersGet: () => Promise.resolve({ status: "ok", data: fakeAi }),
+    aiProviderSave: noAiProviders,
+    aiProviderDelete: noAiProviders,
+    aiProviderSetDefault: noAiProviders,
+    aiSettingsSet: noAiProviders,
+    aiModelsGet: noAiProviders,
+    aiSelfTest: noAiProviders,
     // Only `just bench-ui` builds measure; the fake has nowhere to write.
     perfTraceWrite: () =>
       Promise.resolve({
@@ -2388,5 +2421,8 @@ export const fake: Core = {
     workspacesChanged: fakeEvent(workspacesChangedListeners),
     groupSummary: fakeEvent(groupSummaryListeners),
     preflightReady: fakeEvent(preflightReadyListeners),
+    aiChanged: fakeEvent(aiChangedListeners),
+    aiModels: fakeEvent(aiModelsListeners),
+    aiSelfTest: fakeEvent(aiSelfTestListeners),
   },
 };

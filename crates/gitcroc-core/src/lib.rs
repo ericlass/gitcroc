@@ -92,10 +92,12 @@ pub use remote::{
 };
 pub use reset::{ResetError, ResetMode, ResetRequest, ResetStart, op_reset};
 pub use settings::{
-    Appearance, ChangesSettings, CodeTheme, ConfigDir, DEFAULT_FONT_SIZE, DiffMode, FileListMode,
-    GroupSettings, MAX_FONT_SIZE, MAX_GROUP_PARALLELISM, MIN_FONT_SIZE, MIN_GROUP_PARALLELISM,
-    PlatformConfigDir, SETTINGS_FILE, SETTINGS_SCHEMA, Session, Settings, SettingsError,
-    SettingsStore, SettingsView, Theme,
+    AiOptions, AiSettings, AiSettingsError, Appearance, ChangesSettings, CodeTheme, ConfigDir,
+    DEFAULT_CONTEXT_BUDGET, DEFAULT_FONT_SIZE, DiffMode, FileListMode, GroupSettings,
+    MAX_CONTEXT_BUDGET, MAX_FONT_SIZE, MAX_GROUP_PARALLELISM, MIN_CONTEXT_BUDGET, MIN_FONT_SIZE,
+    MIN_GROUP_PARALLELISM, PlatformConfigDir, ProviderDraft, ProviderEntry, ProviderId,
+    ProviderKind, SETTINGS_FILE, SETTINGS_SCHEMA, Session, Settings, SettingsError, SettingsStore,
+    SettingsView, Theme,
 };
 pub use stage::{ChangeAction, ChangeRequest, ChangeStart, ChangeTarget, changes_apply};
 pub use stash::{StashError, StashOp, StashRef, StashRequest, StashStart, op_stash};

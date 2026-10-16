@@ -10,6 +10,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::ipc::DesktopFonts;
 
+mod keychain;
 mod launch;
 #[cfg(target_os = "linux")]
 pub mod linux;
@@ -22,6 +23,7 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
+pub use keychain::{KEYCHAIN_SERVICE, KeychainError, MemoryKeychain, OsKeychain, keychain_account};
 pub use launch::{Launch, LaunchError, start};
 #[cfg(target_os = "linux")]
 pub use linux::GtkFonts as PlatformFonts;
@@ -86,4 +88,17 @@ pub trait LocalListener: Send + 'static {
 
     /// Waits for the next client.
     fn accept(&mut self) -> impl Future<Output = io::Result<Self::Stream>> + Send;
+}
+
+/// The OS keychain, where AI keys live and nowhere else (SEC-1, D11). The
+/// calls block: the Secret Service is reached over D-Bus.
+pub trait Keychain: Send + Sync {
+    /// The secret of `account`, or `None` when it has none.
+    fn read(&self, account: &str) -> Result<Option<String>, KeychainError>;
+
+    /// Stores `secret` for `account`, replacing any.
+    fn write(&self, account: &str, secret: &str) -> Result<(), KeychainError>;
+
+    /// Removes the secret of `account`; one that has none is fine.
+    fn remove(&self, account: &str) -> Result<(), KeychainError>;
 }

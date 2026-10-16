@@ -10,22 +10,22 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use gitcroc_core::{
-    AddReport, AppInfo, AppLog, Appearance, BranchChoices, BranchError, BranchRequest, BranchStart,
-    CancelResult, ChangeRequest, ChangeStart, Changes, ChangesError, ChangesSettings,
+    AddReport, AiOptions, AppInfo, AppLog, Appearance, BranchChoices, BranchError, BranchRequest,
+    BranchStart, CancelResult, ChangeRequest, ChangeStart, Changes, ChangesError, ChangesSettings,
     ChangesTarget, ChangesView, ChooseRequest, CloneError, CloneReport, CloneRequest,
     CommitGraphError, CommitRequest, ConflictDetails, ConflictRead, ConflictStart, DiffRequest,
     ExportReport, FileDiff, FileRef, FsmonitorError, GitRunner, GitSetup, GitStatus, GroupError,
     GroupId, GroupOp, GroupOps, GroupSettings, GroupSummary, Histories, HistoryTarget, HistoryView,
     HistoryViewError, ImageSide, ImportReport, IntegrateError, IntegrateRequest, IntegrateStart,
     JobError, JobEvents, JobId, JobProgress, JobView, Jobs, MissingRepo, Outcome, PaneLayout,
-    PreflightId, PreflightReady, PushChoices, Refusal, RemoteError, RemoteRequest, RemoteStart,
-    RemoteUrlsView, RepoChange, RepoId, ResetError, ResetRequest, ResetStart, ResolveRequest,
-    SettingsError, SettingsStore, SettingsView, StashError, StashRequest, StashStart, StatusError,
-    StatusReadError, Summaries, SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch,
-    TagError, TagRequest, TagStart, TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees,
-    WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs,
-    WorkspaceView, Workspaces, add_path, group_summaries, refresh_summaries, refresh_workspace,
-    tree_refs,
+    PreflightId, PreflightReady, ProviderDraft, ProviderId, PushChoices, Refusal, RemoteError,
+    RemoteRequest, RemoteStart, RemoteUrlsView, RepoChange, RepoId, ResetError, ResetRequest,
+    ResetStart, ResolveRequest, SettingsError, SettingsStore, SettingsView, StashError,
+    StashRequest, StashStart, StatusError, StatusReadError, Summaries, SummaryView, SyncError,
+    SyncRequest, SyncStart, TabSwitch, TagError, TagRequest, TagStart, TargetSet, Theme,
+    TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId,
+    WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces, add_path, group_summaries,
+    refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -33,6 +33,9 @@ use specta::function::collect_functions;
 use specta_typescript::Typescript;
 use tauri::{AppHandle, Manager, State};
 
+use crate::ai::{
+    AiError, AiModelsReply, AiProviders, AiRequestId, AiSelfTestReply, AiSink, AiView,
+};
 use crate::askpass::{AskpassPrompt, WindowAskpassUi};
 use crate::platform::{FileManager, LaunchError, PlatformFileManager, PlatformTerminal, Terminal};
 use tauri_plugin_dialog::DialogExt;
@@ -72,6 +75,8 @@ pub enum IpcErrorCode {
     /// The request was refused as it stands, such as a workspace name that
     /// is taken; the message says why and the user can change it.
     Refused,
+    /// AI features are off (AI-16); nothing was run.
+    AiOff,
 }
 
 impl IpcError {
@@ -119,8 +124,26 @@ impl From<SettingsError> for IpcError {
     fn from(error: SettingsError) -> Self {
         let code = match error {
             SettingsError::ReadOnly => IpcErrorCode::SettingsReadOnly,
-            SettingsError::Parallelism => IpcErrorCode::Refused,
+            SettingsError::Parallelism | SettingsError::Ai(_) => IpcErrorCode::Refused,
             SettingsError::Write { .. } | SettingsError::Encode(_) => IpcErrorCode::Internal,
+        };
+        Self {
+            code,
+            message: error.to_string(),
+            git_stderr: None,
+        }
+    }
+}
+
+impl From<AiError> for IpcError {
+    fn from(error: AiError) -> Self {
+        let code = match error {
+            AiError::Settings(error) => return error.into(),
+            AiError::Off => IpcErrorCode::AiOff,
+            AiError::Invalid(_)
+            | AiError::Keychain(_)
+            | AiError::NeedsKey
+            | AiError::TakesNoKey(_) => IpcErrorCode::Refused,
         };
         Self {
             code,
@@ -258,6 +281,22 @@ impl From<LaunchError> for IpcError {
 from_op_error!(StashError, "the repo");
 
 from_op_error!(ChangesError, "the working copy");
+
+/// The AI settings or providers changed, or a CLI provider's self-test
+/// finished, sent as event `ai_changed`. Never carries a key (SEC-1).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "ai_changed")]
+pub struct AiChangedEvent(pub AiView);
+
+/// The models `ai_models_get` asked for, sent as event `ai_models` (AI-1).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "ai_models")]
+pub struct AiModelsEvent(pub AiModelsReply);
+
+/// The result of `ai_self_test`, sent as event `ai_self_test` (AI-2).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "ai_self_test")]
+pub struct AiSelfTestEvent(pub AiSelfTestReply);
 
 /// A job was queued, began to run, or made progress, sent as event
 /// `job_progress` (ARCH-7, UI-21).
@@ -1105,6 +1144,112 @@ pub async fn commit_graph_decline(
     })
     .await??;
     Ok(())
+}
+
+/// The AI settings and providers, each with whether it has a key, never
+/// the key (SEC-1). Works while AI is off, so the entries stay editable.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_providers_get(app: AppHandle) -> Result<AiView, IpcError> {
+    // The keychain may be asked; keep it off the async workers (ARCH-7).
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || app.state::<Arc<AiProviders>>().view())
+            .await?,
+    )
+}
+
+/// Saves a provider, new without an id. `key` absent keeps the stored key,
+/// an empty one removes it; a key goes only to the keychain (SEC-1, D11).
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_provider_save(
+    app: AppHandle,
+    draft: ProviderDraft,
+    key: Option<String>,
+) -> Result<AiView, IpcError> {
+    ai_blocking(app, move |ai| ai.save(draft, key)).await
+}
+
+/// Removes a provider and its key (D11); removing the default clears it.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_provider_delete(app: AppHandle, id: ProviderId) -> Result<AiView, IpcError> {
+    ai_blocking(app, move |ai| ai.delete(&id)).await
+}
+
+/// Makes a provider the default (AI-1).
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_provider_set_default(app: AppHandle, id: ProviderId) -> Result<AiView, IpcError> {
+    ai_blocking(app, move |ai| ai.set_default(&id)).await
+}
+
+/// Changes the AI features switch (AI-16), the exclude list (AI-4) and the
+/// debug log switch (AI-7).
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_settings_set(app: AppHandle, options: AiOptions) -> Result<AiView, IpcError> {
+    ai_blocking(app, move |ai| ai.set_options(options)).await
+}
+
+/// Starts listing a provider's models, saved or not, and returns at once;
+/// the list arrives as an `ai_models` event (AI-1, ARCH-7). `key` as in
+/// `ai_provider_save`. Refused with `ai_off` while AI is off (AI-16).
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_models_get(
+    app: AppHandle,
+    draft: ProviderDraft,
+    key: Option<String>,
+) -> Result<AiRequestId, IpcError> {
+    ai_blocking(app, move |ai| ai.models(draft, key)).await
+}
+
+/// Starts testing a provider, saved or not, and returns at once; the result
+/// arrives as an `ai_self_test` event (AI-2, ARCH-7). Refused with `ai_off`
+/// while AI is off (AI-16).
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_self_test(
+    app: AppHandle,
+    draft: ProviderDraft,
+    key: Option<String>,
+) -> Result<AiRequestId, IpcError> {
+    ai_blocking(app, move |ai| ai.self_test(draft, key)).await
+}
+
+/// Runs `call` on the providers off the async workers: it may wait for the
+/// keychain or write the settings file (ARCH-7).
+async fn ai_blocking<T: Send + 'static>(
+    app: AppHandle,
+    call: impl FnOnce(&Arc<AiProviders>) -> Result<T, AiError> + Send + 'static,
+) -> Result<T, IpcError> {
+    tauri::async_runtime::spawn_blocking(move || call(app.state::<Arc<AiProviders>>().inner()))
+        .await?
+        .map_err(IpcError::from)
+}
+
+/// Sends the providers' views and replies to the window.
+struct AiEvents(AppHandle);
+
+impl AiSink for AiEvents {
+    // An emit fails only while the app shuts down.
+    fn changed(&self, view: &AiView) {
+        let _ = AiChangedEvent(view.clone()).emit(&self.0);
+    }
+
+    fn models(&self, reply: &AiModelsReply) {
+        let _ = AiModelsEvent(reply.clone()).emit(&self.0);
+    }
+
+    fn self_test(&self, reply: &AiSelfTestReply) {
+        let _ = AiSelfTestEvent(reply.clone()).emit(&self.0);
+    }
+}
+
+/// Where the AI providers send their events.
+pub fn ai_events(app: &AppHandle) -> Arc<dyn AiSink> {
+    Arc::new(AiEvents(app.clone()))
 }
 
 /// Saves the changes pane's view: diff mode and options and the file list
@@ -2519,6 +2664,13 @@ macro_rules! with_commands {
                 workspace_refresh,
                 watch_warning,
                 askpass_answer,
+                ai_providers_get,
+                ai_provider_save,
+                ai_provider_delete,
+                ai_provider_set_default,
+                ai_settings_set,
+                ai_models_get,
+                ai_self_test,
                 debug::perf_trace_write
             ]
         }
@@ -2608,7 +2760,14 @@ macro_rules! with_commands {
                 group_retry_failed,
                 workspace_refresh,
                 watch_warning,
-                askpass_answer
+                askpass_answer,
+                ai_providers_get,
+                ai_provider_save,
+                ai_provider_delete,
+                ai_provider_set_default,
+                ai_settings_set,
+                ai_models_get,
+                ai_self_test
             ]
         }
     }};
@@ -2636,7 +2795,10 @@ pub fn builder() -> Builder<tauri::Wry> {
             JobEndedEvent,
             PreflightReadyEvent,
             AskpassPromptEvent,
-            AskpassClosedEvent
+            AskpassClosedEvent,
+            AiChangedEvent,
+            AiModelsEvent,
+            AiSelfTestEvent
         ])
 }
 

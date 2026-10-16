@@ -5,6 +5,7 @@
 // Integration test crate: helpers outside #[test] fns are test code too (QA-4).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod ai;
 mod bench;
 mod cli;
 mod conflict;
