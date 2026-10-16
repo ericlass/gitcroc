@@ -97,7 +97,7 @@ pub use settings::{
     MAX_CONTEXT_BUDGET, MAX_FONT_SIZE, MAX_GROUP_PARALLELISM, MIN_CONTEXT_BUDGET, MIN_FONT_SIZE,
     MIN_GROUP_PARALLELISM, PlatformConfigDir, ProviderDraft, ProviderEntry, ProviderId,
     ProviderKind, SETTINGS_FILE, SETTINGS_SCHEMA, Session, Settings, SettingsError, SettingsStore,
-    SettingsView, Theme,
+    SettingsView, Theme, url_host,
 };
 pub use stage::{ChangeAction, ChangeRequest, ChangeStart, ChangeTarget, changes_apply};
 pub use stash::{StashError, StashOp, StashRef, StashRequest, StashStart, op_stash};

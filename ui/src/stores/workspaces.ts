@@ -16,6 +16,7 @@ import {
   workspaceOpen,
   workspaceRename,
   workspaceReorder,
+  workspaceSetAi,
   type WorkspaceTabs,
   type WorkspaceView,
 } from "../ipc";
@@ -124,6 +125,8 @@ export function createWorkspaceStore() {
     activate: (id: WorkspaceId) => change(workspaceActivate(id)),
     reorder: (order: WorkspaceId[]) => change(workspaceReorder(order)),
     move,
+    /** Turns AI on or off for workspace `id` (AI-6); its view is shown at once, as its event would show it. */
+    setAi: async (id: WorkspaceId, enabled: boolean) => record(await workspaceSetAi(id, enabled)),
     /** Deletes the file of a workspace that is not open, after the user confirmed. */
     remove: (id: WorkspaceId) => workspaceDelete(id, true),
   };

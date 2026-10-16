@@ -699,6 +699,45 @@ fn ui_19_pane_layout_round_trips_in_workspace_file() {
 }
 
 #[test]
+fn ai_6_workspace_switch_round_trips_in_workspace_file() {
+    let config = TempConfig::new();
+    let text =
+        "schema = 1\nname = \"Platform\"\n\n[[repo]]\nid = \"r1\"\npath = \"/somewhere/api\"\n";
+    let path = config.write("ws", text);
+    let store = Workspaces::load(&config);
+    let id = WorkspaceId("ws".to_owned());
+    // Absent, AI is on.
+    assert!(store.view(&id).unwrap().ai);
+
+    let view = store.set_ai(&id, false).unwrap();
+    assert!(!view.ai);
+    let saved = fs::read_to_string(&path).unwrap();
+    // A key of its own, so the schema stays 1 and older builds ignore it.
+    assert!(
+        saved.starts_with("schema = 1\nname = \"Platform\"\nai = false\n"),
+        "{saved}"
+    );
+    assert!(!Workspaces::load(&config).view(&id).unwrap().ai);
+
+    // On again leaves the file as it was.
+    assert!(store.set_ai(&id, true).unwrap().ai);
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
+
+    // A read-only workspace keeps its file.
+    let future = config.write("future", "schema = 99\nname = \"Future\"\n");
+    let store = Workspaces::load(&config);
+    store.open(&WorkspaceId("future".to_owned())).unwrap();
+    assert!(matches!(
+        store.set_ai(&WorkspaceId("future".to_owned()), false),
+        Err(WorkspaceError::ReadOnly)
+    ));
+    assert_eq!(
+        fs::read_to_string(&future).unwrap(),
+        "schema = 99\nname = \"Future\"\n"
+    );
+}
+
+#[test]
 fn ui_19_a_read_only_workspace_keeps_its_file() {
     let config = TempConfig::new();
     let text = "schema = 99\nname = \"Future\"\n";

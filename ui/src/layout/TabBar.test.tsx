@@ -58,6 +58,7 @@ const workspace = (id: string, name: string, repos: WorkspaceView["repos"] = [])
   repos,
   groups: [],
   layout: emptyLayout,
+  ai: true,
   read_only: false,
   warning: null,
 });

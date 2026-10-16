@@ -989,6 +989,86 @@ main:not(.main) {
   color: var(--text-secondary);
 }
 
+/* The AI section of Settings (section 7) and the consent dialog (AI-6) */
+
+.note {
+  margin: 4px 0;
+  color: var(--text-secondary);
+}
+
+.ai-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-heading {
+  margin: 8px 0 0;
+  font-size: 1em;
+}
+
+.ai-providers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-provider {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ai-provider-name {
+  font-weight: 600;
+}
+
+.ai-provider-actions,
+.provider-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.provider-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 440px;
+}
+
+.provider-key-state {
+  color: var(--text-secondary);
+}
+
+.provider-actions {
+  gap: 8px;
+}
+
+.provider-actions .spacer {
+  flex: 1;
+}
+
+.ai-exclude textarea {
+  box-sizing: border-box;
+  width: 100%;
+  font-family: var(--font-code);
+  color: var(--text-primary);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.consent-sent {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

@@ -106,6 +106,9 @@ pub struct WorkspaceView {
     /// In the user's order (GRP-2).
     pub groups: Vec<GroupView>,
     pub layout: PaneLayout,
+    /// AI for this workspace (AI-6). Off, the core refuses every AI
+    /// request for it.
+    pub ai: bool,
     /// Changes are refused; `warning` says why.
     pub read_only: bool,
     pub warning: Option<ConfigWarning>,
@@ -236,6 +239,11 @@ struct Group {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct WorkspaceFile {
     name: String,
+    /// `false` turns AI off for the workspace (AI-6); absent is on. Kept
+    /// as a key of its own, so the schema stays 1 and older builds ignore
+    /// it. The user's own choice: an export leaves it out (DATA-2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ai: Option<bool>,
     #[serde(default, rename = "repo", skip_serializing_if = "Vec::is_empty")]
     repos: Vec<RepoEntry>,
     #[serde(default, rename = "group", skip_serializing_if = "Vec::is_empty")]
@@ -249,6 +257,7 @@ impl Default for WorkspaceFile {
     fn default() -> Self {
         Self {
             name: DEFAULT_WORKSPACE_NAME.to_owned(),
+            ai: None,
             repos: Vec::new(),
             groups: Vec::new(),
             layout: None,
@@ -317,6 +326,7 @@ impl Workspace {
             repos: self.file.repos.iter().map(RepoEntry::view).collect(),
             groups: self.group_views(),
             layout: self.file.layout.clone().unwrap_or_default(),
+            ai: self.file.ai != Some(false),
             read_only: self.warning.is_some() || self.path.is_none(),
             warning: self.warning.clone(),
         }
@@ -702,6 +712,23 @@ impl Workspaces {
         })
     }
 
+    /// Turns AI on or off for the workspace (AI-6). On leaves no key in
+    /// the file.
+    pub fn set_ai(&self, id: &WorkspaceId, enabled: bool) -> Result<WorkspaceView, WorkspaceError> {
+        self.with(id, |workspace| {
+            workspace.update(|file| {
+                file.ai = (!enabled).then_some(false);
+                Ok(())
+            })?;
+            Ok(workspace.view())
+        })
+    }
+
+    /// Whether AI is on for the workspace (AI-6).
+    pub fn ai_enabled(&self, id: &WorkspaceId) -> Result<bool, WorkspaceError> {
+        self.with(id, |workspace| Ok(workspace.file.ai != Some(false)))
+    }
+
     /// Removes a repo from the workspace and from its groups. Only the
     /// workspace file changes, never anything on disk (GRP-3).
     pub fn remove_repo(
@@ -981,6 +1008,7 @@ mod tests {
     fn data_1_workspace_file_matches_section_10() {
         let file = WorkspaceFile {
             name: "Platform".to_owned(),
+            ai: None,
             repos: vec![
                 RepoEntry {
                     id: RepoId("r1".to_owned()),

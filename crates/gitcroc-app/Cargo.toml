@@ -36,6 +36,8 @@ keyring.workspace = true
 gtk.workspace = true
 
 [dev-dependencies]
+# The mock provider stands in for a real one in the consent tests (AI-6).
+gitcroc-ai = { workspace = true, features = ["mock"] }
 gitcroc-git.workspace = true
 toml.workspace = true
 repo-gen.workspace = true

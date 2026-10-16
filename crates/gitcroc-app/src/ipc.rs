@@ -143,7 +143,8 @@ impl From<AiError> for IpcError {
             AiError::Invalid(_)
             | AiError::Keychain(_)
             | AiError::NeedsKey
-            | AiError::TakesNoKey(_) => IpcErrorCode::Refused,
+            | AiError::TakesNoKey(_)
+            | AiError::ConsentChanged { .. } => IpcErrorCode::Refused,
         };
         Self {
             code,
@@ -1192,6 +1193,19 @@ pub async fn ai_settings_set(app: AppHandle, options: AiOptions) -> Result<AiVie
     ai_blocking(app, move |ai| ai.set_options(options)).await
 }
 
+/// Keeps the user's consent to sending to `target`, the host or program the
+/// consent dialog showed (AI-6). Refused when the provider sends elsewhere
+/// now, and with `ai_off` while AI is off (AI-16).
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_provider_consent(
+    app: AppHandle,
+    id: ProviderId,
+    target: String,
+) -> Result<AiView, IpcError> {
+    ai_blocking(app, move |ai| ai.consent(&id, &target)).await
+}
+
 /// Starts listing a provider's models, saved or not, and returns at once;
 /// the list arrives as an `ai_models` event (AI-1, ARCH-7). `key` as in
 /// `ai_provider_save`. Refused with `ai_off` while AI is off (AI-16).
@@ -1314,6 +1328,24 @@ pub async fn workspace_set_layout(
     tauri::async_runtime::spawn_blocking(move || workspaces.set_layout(&workspace_id, layout))
         .await??;
     Ok(())
+}
+
+/// Turns AI on or off for the workspace (AI-6) and saves its file; the
+/// view also arrives as `workspace_changed`.
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_set_ai(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    enabled: bool,
+) -> Result<WorkspaceView, IpcError> {
+    // Saving touches the disk; keep it off the async workers (ARCH-7).
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    let view =
+        tauri::async_runtime::spawn_blocking(move || workspaces.set_ai(&workspace_id, enabled))
+            .await??;
+    let _ = WorkspaceChangedEvent(view.clone()).emit(&app);
+    Ok(view)
 }
 
 /// What the changes pane shows for `target` in a repo (UI-14, UI-15,
@@ -2669,8 +2701,10 @@ macro_rules! with_commands {
                 ai_provider_delete,
                 ai_provider_set_default,
                 ai_settings_set,
+                ai_provider_consent,
                 ai_models_get,
                 ai_self_test,
+                workspace_set_ai,
                 debug::perf_trace_write
             ]
         }
@@ -2766,8 +2800,10 @@ macro_rules! with_commands {
                 ai_provider_delete,
                 ai_provider_set_default,
                 ai_settings_set,
+                ai_provider_consent,
                 ai_models_get,
-                ai_self_test
+                ai_self_test,
+                workspace_set_ai
             ]
         }
     }};

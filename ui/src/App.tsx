@@ -10,6 +10,7 @@ import {
   Switch,
   untrack,
 } from "solid-js";
+import ConsentDialog from "./ai/ConsentDialog";
 import AskpassDialog from "./AskpassDialog";
 import GitSetup from "./GitSetup";
 import GroupNameDialog from "./groups/GroupNameDialog";
@@ -33,6 +34,7 @@ import ResetDialogs from "./reset/ResetDialogs";
 import SyncDialogs, { SyncRefusal } from "./sync/SyncDialogs";
 import BranchDialogs from "./tree/BranchDialogs";
 import IntegrateDialogs from "./integrate/IntegrateDialogs";
+import { createAiStore } from "./stores/ai";
 import { createAskpassStore } from "./stores/askpass";
 import { createBranchStore } from "./stores/branch";
 import { createChangesStore } from "./stores/changes";
@@ -75,6 +77,8 @@ export default function App() {
   const askpass = createAskpassStore();
   const git = createGitStore();
   const settings = createSettingsStore();
+  // One for every tab: a change of AI features reaches all of them at once (AI-16).
+  const ai = createAiStore();
   const layout = createLayoutStore();
   const workspaces = createWorkspaceStore();
   const summaries = createSummaryStore();
@@ -391,6 +395,7 @@ export default function App() {
       stash.subscribe(),
       clone.subscribe(),
       share.subscribe(),
+      ai.subscribe(),
     ];
     onCleanup(() => {
       for (const pending of unlisten) {
@@ -419,7 +424,14 @@ export default function App() {
       </Match>
       <Match when={true}>
         <div class="app">
-          <TabBar workspaces={workspaces} jobs={jobs} dialogs={workspaceDialogs} share={share} onClose={closeTab} />
+          <TabBar
+            workspaces={workspaces}
+            jobs={jobs}
+            dialogs={workspaceDialogs}
+            share={share}
+            ai={ai}
+            onClose={closeTab}
+          />
           <Show when={share.state.notice}>
             {(notice) => (
               <div role={notice().error ? "alert" : "status"} class="banner banner-dismissible">
@@ -608,8 +620,15 @@ export default function App() {
             )}
           </Show>
           <Show when={settingsOpen()}>
-            <SettingsDialog settings={settings} info={info()} git={git.state.result} onClose={() => setSettingsOpen(false)} />
+            <SettingsDialog
+              settings={settings}
+              ai={ai}
+              info={info()}
+              git={git.state.result}
+              onClose={() => setSettingsOpen(false)}
+            />
           </Show>
+          <ConsentDialog ai={ai} />
         </div>
       </Match>
     </Switch>

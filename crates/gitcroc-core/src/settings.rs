@@ -17,7 +17,7 @@ mod ai;
 
 pub use ai::{
     AiOptions, AiSettings, AiSettingsError, DEFAULT_CONTEXT_BUDGET, MAX_CONTEXT_BUDGET,
-    MIN_CONTEXT_BUDGET, ProviderDraft, ProviderEntry, ProviderId, ProviderKind,
+    MIN_CONTEXT_BUDGET, ProviderDraft, ProviderEntry, ProviderId, ProviderKind, url_host,
 };
 
 /// The schema this build reads and writes.
@@ -407,6 +407,24 @@ impl SettingsStore {
             }
             ai.default = Some(id.clone());
             Ok(ai.clone())
+        })
+    }
+
+    /// Keeps that the user consented to sending to `consent`, the host or
+    /// program of the provider with `id` (AI-6); returns the entry.
+    pub fn set_consent(
+        &self,
+        id: &ProviderId,
+        consent: String,
+    ) -> Result<ProviderEntry, SettingsError> {
+        self.change_ai(|ai| {
+            let entry = ai
+                .providers
+                .iter_mut()
+                .find(|entry| &entry.id == id)
+                .ok_or_else(|| AiSettingsError::UnknownProvider(id.clone()))?;
+            entry.consent = Some(consent);
+            Ok(entry.clone())
         })
     }
 

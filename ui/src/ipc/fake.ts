@@ -88,6 +88,7 @@ import {
 } from "./fakeHistory";
 import { applyBranchOp, choicesOf, destructiveOf, fakeNameCheck, labelOf, refusalOf } from "./fakeBranches";
 import { type FakeFolder, fakeDefaultName, fakeTargetRefusal } from "./fakeClone";
+import { fakeAi, fakeAiCommands, resetFakeAi } from "./fakeAi";
 import { labelsOf, planResolution, textConflict } from "./fakeConflict";
 import { mergeTargetsOf, planIntegrate } from "./fakeIntegrate";
 import { fakeRemoteNameCheck, planRemote } from "./fakeRemotes";
@@ -137,6 +138,7 @@ const defaultWorkspace: WorkspaceView = {
   repos: [],
   groups: [],
   layout: emptyLayout,
+  ai: true,
   read_only: false,
   warning: null,
 };
@@ -184,25 +186,12 @@ const aiChangedListeners: Listeners<AiView> = new Set();
 const aiModelsListeners: Listeners<AiModelsReply> = new Set();
 const aiSelfTestListeners: Listeners<AiSelfTestReply> = new Set();
 
-/** The AI settings with no provider, as on a first start. The fake has no AI providers until M4-06 needs them. */
-const fakeAi: AiView = {
-  enabled: true,
-  exclude: [".env*", "*.pem", "*.key", "*.p12", "id_rsa*"],
-  debug_log: false,
-  default: null,
-  providers: [],
-  detected: [],
-  offer: null,
-  keychain_error: null,
-};
-
-/** What the fake answers to every AI command but `ai_providers_get`. */
-function noAiProviders() {
-  return Promise.resolve({
-    status: "error" as const,
-    error: { code: "refused" as const, message: "the fake core has no AI providers", git_stderr: null },
-  });
-}
+/** The AI commands, which send their events as the core does. */
+const aiCommands = fakeAiCommands({
+  changed: (view) => emit(aiChangedListeners, "ai_changed", view),
+  models: (requestId, result) => emit(aiModelsListeners, "ai_models", { request_id: requestId, result }),
+  selfTest: (requestId, result) => emit(aiSelfTestListeners, "ai_self_test", { request_id: requestId, result }),
+});
 
 /** A repo's part of a changes view: all of a single repo's view, one repo of a merged one. */
 interface FakeViewPart {
@@ -1223,6 +1212,10 @@ export function reset(): void {
   askpassPromptListeners.clear();
   askpassClosedListeners.clear();
   preflightReadyListeners.clear();
+  aiChangedListeners.clear();
+  aiModelsListeners.clear();
+  aiSelfTestListeners.clear();
+  resetFakeAi();
   resetGroups();
 }
 
@@ -1233,6 +1226,10 @@ const data = picked === null ? null : scenario(picked === "jobs" ? "tree" : pick
 if (picked === "jobs") {
   fakeState.jobs = jobsScenario(defaultWorkspace);
   nextJobId = 100;
+}
+// `ai`: no provider yet, and an OpenAI-compatible provider offers two models (AI-1).
+if (picked === "ai") {
+  fakeAi.models = { kind: "offered", models: ["small-model", "large-model"] };
 }
 if (data) {
   fakeState.workspace = { ...defaultWorkspace, repos: data.repos, groups: data.groups ?? [] };
@@ -2053,6 +2050,16 @@ export const fake: Core = {
       };
       return Promise.resolve({ status: "ok", data: fakeState.settings });
     },
+    workspaceSetAi: (workspaceId, enabled) => {
+      const workspace = openWorkspace(workspaceId);
+      if (workspace === undefined) {
+        return notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      const changed = { ...workspace, ai: enabled };
+      setFakeWorkspace(changed);
+      emitWorkspaceChanged(changed);
+      return Promise.resolve({ status: "ok", data: changed });
+    },
     workspaceSetLayout: (workspaceId, layout) => {
       const workspace = openWorkspace(workspaceId);
       if (workspace === undefined) {
@@ -2406,13 +2413,7 @@ export const fake: Core = {
       }
       return Promise.resolve({ status: "ok", data: job?.state === "running" ? "finishing" : "ended" });
     },
-    aiProvidersGet: () => Promise.resolve({ status: "ok", data: fakeAi }),
-    aiProviderSave: noAiProviders,
-    aiProviderDelete: noAiProviders,
-    aiProviderSetDefault: noAiProviders,
-    aiSettingsSet: noAiProviders,
-    aiModelsGet: noAiProviders,
-    aiSelfTest: noAiProviders,
+    ...aiCommands,
     // Only `just bench-ui` builds measure; the fake has nowhere to write.
     perfTraceWrite: () =>
       Promise.resolve({
