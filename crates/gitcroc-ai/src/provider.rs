@@ -53,6 +53,9 @@ pub enum ProviderError {
     Failed(String),
     #[error("the provider's reply could not be read: {0}")]
     Malformed(String),
+    /// A CLI provider's program could not be run.
+    #[error("could not run {program}: {message}")]
+    Start { program: String, message: String },
     #[error("{program} exited with {}: {stderr}", code.map_or_else(|| "a signal".to_owned(), |code| format!("code {code}")))]
     Exit {
         program: String,
