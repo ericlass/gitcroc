@@ -85,12 +85,13 @@ export default function Panes(props: {
     props.workspaces.state.views?.find((view) => view.id === props.workspace)?.repos.find((known) => known.id === repo)
       ?.name ?? repo;
 
-  const historyPane = () => (
+  const historyPane = (members?: () => RepoId[] | null) => (
     <HistoryPane
       workspace={props.workspace}
       history={props.history}
       summaries={props.summaries}
       name={name}
+      members={members}
       layout={props.layout}
       branch={props.branch}
       integrate={props.integrate}
@@ -109,7 +110,7 @@ export default function Panes(props: {
           summaries={props.summaries}
           name={name}
         >
-          {historyPane()}
+          {(members) => historyPane(members)}
         </TargetView>
       )}
     </Show>

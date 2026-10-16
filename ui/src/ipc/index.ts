@@ -137,6 +137,7 @@ export type {
   RemoteUrlsView,
   RepoClass,
   RepoId,
+  RepoChanges,
   RepoResult,
   RepoRef,
   RepoState,
@@ -357,6 +358,10 @@ export const workspaceSetLayout = (workspaceId: WorkspaceId, layout: PaneLayout)
 /** `null` when a newer view of the workspace superseded this one. */
 export const changesGet = (workspaceId: WorkspaceId, repoId: RepoId, target: ChangesTarget) =>
   unwrap(core.commands.changesGet(workspaceId, repoId, target));
+
+/** "Uncommitted changes" of a group or several repos (UI-34); `null` when a newer view superseded this one. */
+export const changesGetMerged = (workspaceId: WorkspaceId, target: TargetSet) =>
+  unwrap(core.commands.changesGetMerged(workspaceId, target));
 
 /** `null` when a newer view of the workspace replaced view `handle`. */
 export const diffGet = (workspaceId: WorkspaceId, handle: number, file: FileRef, request: DiffRequest) =>

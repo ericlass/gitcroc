@@ -39,7 +39,7 @@ pub use branch::{
 };
 pub use changes::{
     Changes, ChangesContent, ChangesError, ChangesTarget, ChangesView, DiffRequest, FileList,
-    FileRef, ImageSide, changes_get, diff_get, diff_image,
+    FileRef, ImageSide, RepoChanges, changes_get, changes_get_merged, diff_get, diff_image,
 };
 pub use clone::{
     CloneError, CloneHandle, CloneReport, CloneRequest, clone_default_name, clone_start,

@@ -1,5 +1,5 @@
-// The history as rows on screen: the "Uncommitted changes" row (UI-10), the
-// loaded commits, then placeholders for the page that loads next (PERF-2).
+// The history as rows on screen: the "Uncommitted changes" row (UI-10,
+// UI-34), the loaded commits, then placeholders for the page that loads next (PERF-2).
 // Rows are found by index, so nothing is built per row of a long history.
 import type { HistoryRow } from "../ipc";
 import { rowIdOf, UNCOMMITTED_ID, type WorkspaceHistory } from "../stores/history";
@@ -8,11 +8,12 @@ import { rowIdOf, UNCOMMITTED_ID, type WorkspaceHistory } from "../stores/histor
 export const PLACEHOLDER_ROWS = 500;
 
 export type ListRow =
-  | { kind: "uncommitted"; id: string; count: number }
+  /** `count` is of changed paths, or in a merged history of dirty repos (`repos`). */
+  | { kind: "uncommitted"; id: string; count: number; repos: boolean }
   | { kind: "commit"; id: string; commit: HistoryRow }
   | { kind: "placeholder"; id: string };
 
-/** What the list shows of `history`, with `changes` uncommitted paths. */
+/** What the list shows of `history`, with `changes` uncommitted paths, or dirty repos when merged. */
 export interface HistoryRows {
   count: number;
   /** Rows before the first commit. */
@@ -38,7 +39,7 @@ export function historyRows(history: WorkspaceHistory, changes: number): History
       return undefined;
     }
     if (index < offset) {
-      return { kind: "uncommitted", id: UNCOMMITTED_ID, count: changes };
+      return { kind: "uncommitted", id: UNCOMMITTED_ID, count: changes, repos: history.source?.repo === null };
     }
     const commit = rows[index - offset];
     return commit

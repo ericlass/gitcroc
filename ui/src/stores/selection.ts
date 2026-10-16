@@ -1,11 +1,14 @@
 // What is selected in the history pane, keyed by workspace id (ARCH-9): a
-// commit or a repo's uncommitted changes. The changes pane shows it (M1-09).
+// commit, a repo's uncommitted changes, or those of a group or several
+// repos (UI-34). The changes pane shows it (M1-09).
 import { createStore } from "solid-js/store";
-import type { RepoId, WorkspaceId } from "../ipc";
+import type { RepoId, TargetSet, WorkspaceId } from "../ipc";
 
 export type CommitSelection =
   | { kind: "commit"; repo_id: RepoId; hash: string }
-  | { kind: "uncommitted"; repo_id: RepoId };
+  | { kind: "uncommitted"; repo_id: RepoId }
+  /** `key` names the target set whatever order its repos were picked in, as its history's key does. */
+  | { kind: "merged_uncommitted"; target: TargetSet; key: string };
 
 export function createSelectionStore() {
   const [state, setState] = createStore<{ byWorkspace: Record<WorkspaceId, CommitSelection | null> }>({

@@ -31,7 +31,7 @@ export interface HistorySource {
   /** `null` for the merged history of a group or several repos. */
   repo: RepoId | null;
   target: HistoryTarget;
-  /** The "Uncommitted changes" row may lead the list (UI-10). */
+  /** The "Uncommitted changes" row may lead the list (UI-10, UI-34). */
   uncommitted: boolean;
 }
 
@@ -86,7 +86,7 @@ export function mergedSource(target: TargetSet): HistorySource {
       : target.kind === "repos"
         ? `repos:${[...target.repo_ids].sort().join(",")}`
         : `repo:${target.repo_id}`;
-  return { key: `merged:${key}`, repo: null, target: { kind: "merged", target }, uncommitted: false };
+  return { key: `merged:${key}`, repo: null, target: { kind: "merged", target }, uncommitted: true };
 }
 
 /**
@@ -231,6 +231,9 @@ export function createHistoryStore(selection: SelectionStore) {
     } else if (selected === UNCOMMITTED_ID) {
       if (source.repo !== null) {
         selection.select(id, { kind: "uncommitted", repo_id: source.repo });
+      } else if (source.target.kind === "merged") {
+        // Every dirty repo of the group or selection (UI-34).
+        selection.select(id, { kind: "merged_uncommitted", target: source.target.target, key: source.key });
       }
     } else {
       // A merged row shows its commit of its repo (UI-14).
@@ -494,7 +497,7 @@ export function createHistoryStore(selection: SelectionStore) {
   const selectCommit = (id: WorkspaceId, hash: string) => {
     const shown = untrack(() => history(id).source);
     const current = selection.selected(id);
-    if (shown === null || current === null) {
+    if (shown === null || current?.kind !== "commit") {
       return;
     }
     select(id, shown.repo === null ? `${current.repo_id}:${hash}` : hash);

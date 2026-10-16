@@ -1,12 +1,14 @@
-// The changed files (UI-14, UI-15), flat or as a folder tree, virtualized
-// (PERF-1). Paths are repo text, rendered as text (SEC-3). For uncommitted
-// changes each row and each list has stage, unstage and discard controls;
-// Ctrl/Cmd and Shift select several files of one list, and a double-click
-// moves a file to the other list. Which files may be changed is the
+// The changed files (UI-14, UI-15, UI-34), flat or as a folder tree,
+// virtualized (PERF-1). Paths are repo text, rendered as text (SEC-3). For
+// uncommitted changes each row and each list has stage, unstage and discard
+// controls; for a group or several repos each repo's part of a list has
+// them, except in a blocked repo (GRP-8). Ctrl/Cmd and Shift select several
+// files of one list of one repo, and a double-click moves a file to the
+// other list. Which files may be changed is the
 // core's to check; this only forwards what was clicked (ARCH-6).
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, For, Match, onMount, Show, Switch } from "solid-js";
-import type { ChangeAction, ChangesContent, FileListMode, FileStatus, UnmergedKind } from "../ipc";
+import type { ChangeAction, ChangesContent, FileListMode, FileStatus, RepoId, UnmergedKind } from "../ipc";
 import { type FileEntry, type FileKey, type FileRow, fileRows, sameFile } from "./fileRows";
 
 /** Height of one row in CSS pixels; `.file-row` in App.css sets it, as `.history-row` does. */
@@ -140,7 +142,8 @@ export default function FileList(props: {
       return;
     }
     const file = row.file;
-    const sameList = (other: FileKey) => other.list === file.list && file.list !== "unmerged";
+    const sameList = (other: FileKey) =>
+      other.list === file.list && other.repo === file.repo && file.list !== "unmerged";
     if ((event.ctrlKey || event.metaKey) && sameList(props.selected ?? file)) {
       const marked = isMarked(file)
         ? props.marked.filter((other) => !sameFile(other, file))
@@ -161,13 +164,30 @@ export default function FileList(props: {
   };
 
   /** The files a control of `file`'s row acts on: the selection when the row is in it. */
-  const targets = (file: FileKey) => (isMarked(file) ? props.marked.filter((other) => other.list === file.list) : [file]);
+  const targets = (file: FileKey) =>
+    isMarked(file) ? props.marked.filter((other) => other.list === file.list && other.repo === file.repo) : [file];
 
-  /** Files of `list`: the list's controls act on all of them. */
-  const listFiles = (list: "staged" | "unstaged"): FileKey[] =>
-    props.content.kind === "uncommitted"
-      ? props.content[list].map((file) => ({ list, id: file.id }))
-      : [];
+  /**
+   * Files of `list`, of `repo` in a merged view: the list's controls act on
+   * all of them. A merged view's lists have them per repo only.
+   */
+  const listFiles = (list: "staged" | "unstaged", repo?: RepoId): FileKey[] => {
+    const content = props.content;
+    if (content.kind === "uncommitted" && repo === undefined) {
+      return content[list].map((file) => ({ list, id: file.id }));
+    }
+    if (content.kind === "merged" && repo !== undefined) {
+      const files = content.repos.find((shown) => shown.repo_id === repo)?.[list] ?? [];
+      return files.map((file) => ({ list, id: file.id, repo }));
+    }
+    return [];
+  };
+
+  /** Why `repo`'s files of a merged view cannot be changed (GRP-8), or `null`. */
+  const blocked = (repo: RepoId | undefined) =>
+    repo === undefined || props.content.kind !== "merged"
+      ? null
+      : (props.content.repos.find((shown) => shown.repo_id === repo)?.blocked ?? null);
 
   const act = (action: ChangeAction, files: FileKey[]) => {
     if (files.length > 0) {
@@ -178,9 +198,14 @@ export default function FileList(props: {
   /** A section's list when its files can be staged or unstaged together: not the unmerged files. */
   const changeableList = (list: FileKey["list"]) => (list === "staged" || list === "unstaged" ? list : null);
 
-  /** A row's list when it has stage controls: not a commit's, not an unmerged file (OPS-3 resolves those). */
+  /**
+   * A row's list when it has stage controls: not a commit's, not an unmerged
+   * file (OPS-3 resolves those), not a file of a blocked repo.
+   */
   const changeable = (file: FileKey): "staged" | "unstaged" | null =>
-    props.onAction !== undefined && (file.list === "staged" || file.list === "unstaged") ? file.list : null;
+    props.onAction !== undefined && (file.list === "staged" || file.list === "unstaged") && blocked(file.repo) === null
+      ? file.list
+      : null;
 
   const onKeyDown = (event: KeyboardEvent) => {
     const at = files().indexOf(selectedIndex());
@@ -248,6 +273,39 @@ export default function FileList(props: {
           </>
         )}
       </Match>
+      <Match when={row.kind === "repo" && row}>
+        {(repo) => (
+          <>
+            <span class="file-repo" title={repo().label}>
+              {repo().label} ({repo().count})
+            </span>
+            <Show
+              when={repo().blocked === null}
+              fallback={
+                <span class="file-blocked" title={repo().blocked ?? ""}>
+                  blocked
+                </span>
+              }
+            >
+              <Show when={props.onAction !== undefined && changeableList(repo().list)}>
+                {(list) => (
+                  <button
+                    type="button"
+                    class="file-list-action"
+                    aria-label={`${list() === "staged" ? "Unstage all" : "Stage all"} in ${repo().label}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      act(MOVE[list()], listFiles(list(), repo().repo));
+                    }}
+                  >
+                    {list() === "staged" ? "Unstage all" : "Stage all"}
+                  </button>
+                )}
+              </Show>
+            </Show>
+          </>
+        )}
+      </Match>
       <Match when={row.kind === "folder" && row}>
         {(folder) => (
           <span class="file-folder" title={folder().name}>
@@ -310,7 +368,7 @@ export default function FileList(props: {
               {(row) => {
                 const depth = () => {
                   const current = row();
-                  return current.kind === "section" ? 0 : current.depth;
+                  return current.kind === "section" || current.kind === "repo" ? 0 : current.depth;
                 };
                 const file = () => {
                   const current = row();

@@ -2,8 +2,9 @@
 // banner (OPS-2), column header and the commit list, virtualized and paged
 // (PERF-1, PERF-2), with a context menu on each commit and a
 // multi-selection for cherry-pick. The merged history of a group or several
-// repos (PERF-5) shows each row's repo where the graph would be, and a row
-// acts on its own repo. Rows, lanes and search results come from the core
+// repos (PERF-5) shows each row's repo where the graph would be, a row acts
+// on its own repo, and "Uncommitted changes (n repos)" leads while any repo
+// is dirty (UI-34). Rows, lanes and search results come from the core
 // through the history store; this component lays them out and forwards
 // input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
@@ -130,7 +131,13 @@ function RowView(props: { row: ListRow; name: ((repo: RepoId) => string) | null 
     <Switch>
       <Match when={props.row.kind === "uncommitted" && props.row}>
         {(uncommitted) => (
-          <span class="history-cell history-uncommitted">Uncommitted changes ({uncommitted().count})</span>
+          <span class="history-cell history-uncommitted">
+            Uncommitted changes (
+            {uncommitted().repos
+              ? `${uncommitted().count} ${uncommitted().count === 1 ? "repo" : "repos"}`
+              : uncommitted().count}
+            )
+          </span>
         )}
       </Match>
       <Match when={props.row.kind === "commit" && props.row}>
@@ -149,6 +156,7 @@ function HistoryList(props: {
   history: HistoryStore;
   summaries: SummaryStore;
   name: (repo: RepoId) => string;
+  members: () => RepoId[] | null;
   branch: BranchStore;
   integrate: IntegrateStore;
   tag: TagStore;
@@ -159,9 +167,13 @@ function HistoryList(props: {
   /** A merged history: rows of several repos. */
   const merged = () => history().source?.repo === null;
   const viewOf = (repo: RepoId) => props.summaries.view(props.workspace, repo);
+  /** Changed paths of the repo shown, or in a merged history its dirty repos (UI-34). */
   const changes = () => {
     const shown = history().source?.repo;
-    return shown ? (viewOf(shown)?.summary?.changes ?? 0) : 0;
+    if (shown) {
+      return viewOf(shown)?.summary?.changes ?? 0;
+    }
+    return (props.members() ?? []).filter((repo) => viewOf(repo)?.summary?.dirty === true).length;
   };
   const rows = createMemo(() => historyRows(history(), changes()));
   const selectedIndex = () => {
@@ -481,6 +493,8 @@ export default function HistoryPane(props: {
   summaries: SummaryStore;
   /** A repo's name, for the repo column of a merged history. */
   name: (repo: RepoId) => string;
+  /** The repos of a merged history's target set, once resolved; none for one repo. */
+  members?: () => RepoId[] | null;
   layout: LayoutStore;
   branch: BranchStore;
   integrate: IntegrateStore;
@@ -581,6 +595,7 @@ export default function HistoryPane(props: {
           history={props.history}
           summaries={props.summaries}
           name={props.name}
+          members={() => props.members?.() ?? null}
           branch={props.branch}
           integrate={props.integrate}
           tag={props.tag}

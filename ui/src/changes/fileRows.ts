@@ -1,5 +1,6 @@
-// The rows of the changes pane's file list (UI-14, UI-15): a flat list or
-// a folder tree of the files the core listed, in the core's order. This is
+// The rows of the changes pane's file list (UI-14, UI-15, UI-34): a flat
+// list or a folder tree of the files the core listed, in the core's order;
+// for a group or several repos, each list is sectioned by repo. This is
 // layout only; the lists, their order and their ids come from the core.
 import type {
   ChangedFile,
@@ -9,19 +10,39 @@ import type {
   FileListMode,
   FileStatus,
   ModeChange,
+  RepoChanges,
+  RepoId,
   UnmergedFile,
 } from "../ipc";
 
-/** A file of the view: its list and its id there. Unmerged files are a list of their own. */
+/**
+ * A file of the view: its list and its id there, and in a merged view its
+ * repo. Unmerged files are a list of their own.
+ */
 export interface FileKey {
   list: FileList | "unmerged";
   id: number;
+  repo?: RepoId;
 }
 
-export const sameFile = (a: FileKey | null, b: FileKey | null) => a?.list === b?.list && a?.id === b?.id;
+export const sameFile = (a: FileKey | null, b: FileKey | null) =>
+  a?.list === b?.list && a?.id === b?.id && a?.repo === b?.repo;
+
+type SectionList = "staged" | "unstaged" | "unmerged";
 
 export type FileRow =
-  | { kind: "section"; key: string; label: string; count: number; list: "staged" | "unstaged" | "unmerged" }
+  | { kind: "section"; key: string; label: string; count: number; list: SectionList }
+  | {
+      kind: "repo";
+      key: string;
+      /** The repo's name, which heads its files in a merged view (UI-34). */
+      label: string;
+      repo: RepoId;
+      list: SectionList;
+      count: number;
+      /** Why its files cannot be changed here (GRP-8), or `null`. */
+      blocked: string | null;
+    }
   | { kind: "folder"; key: string; name: string; depth: number; collapsed: boolean }
   | {
       kind: "file";
@@ -42,13 +63,22 @@ export type FileRow =
 
 export type FileEntry = Extract<FileRow, { kind: "file" }>;
 
-const keyOf = (file: FileKey) => `${file.list}:${file.id}`;
+const keyOf = (file: FileKey) =>
+  file.repo === undefined ? `${file.list}:${file.id}` : `${file.repo}/${file.list}:${file.id}`;
 
-function changedRow(list: FileList, file: ChangedFile, name: string, depth: number): FileEntry {
+/** The key of `list`, of `repo`'s files in a merged view. */
+const listKey = (list: string, repo: RepoId | undefined) => (repo === undefined ? list : `${repo}/${list}`);
+
+/** The key of `list`'s file `id`, of `repo` in a merged view. */
+const fileKeyOf = <L extends FileKey["list"]>(list: L, id: number, repo: RepoId | undefined) =>
+  repo === undefined ? { list, id } : { list, id, repo };
+
+function changedRow(list: FileList, file: ChangedFile, name: string, depth: number, repo?: RepoId): FileEntry {
+  const key = fileKeyOf(list, file.id, repo);
   return {
     kind: "file",
-    key: keyOf({ list, id: file.id }),
-    file: { list, id: file.id },
+    key: keyOf(key),
+    file: key,
     path: file.path,
     name,
     depth,
@@ -61,14 +91,15 @@ function changedRow(list: FileList, file: ChangedFile, name: string, depth: numb
   };
 }
 
-function unmergedRow(file: UnmergedFile): FileEntry {
+function unmergedRow(file: UnmergedFile, depth = 0, repo?: RepoId): FileEntry {
+  const key = fileKeyOf("unmerged", file.id, repo);
   return {
     kind: "file",
-    key: keyOf({ list: "unmerged", id: file.id }),
-    file: { list: "unmerged", id: file.id },
+    key: keyOf(key),
+    file: key,
     path: file.path,
     name: file.path,
-    depth: 0,
+    depth,
     status: "unmerged",
     conflict: file.conflict,
     oldPath: null,
@@ -85,8 +116,17 @@ interface Folder {
 
 const emptyFolder = (): Folder => ({ folders: new Map(), files: [] });
 
-/** The files of `list` as a folder tree: folders first by name, then files in list order. */
-function treeRows(list: FileList, files: ChangedFile[], collapsed: Record<string, boolean>): FileRow[] {
+/**
+ * The files of `list` as a folder tree: folders first by name, then files in
+ * list order, from depth `base`; in a merged view, of `repo`.
+ */
+function treeRows(
+  list: FileList,
+  files: ChangedFile[],
+  collapsed: Record<string, boolean>,
+  base: number,
+  repo: RepoId | undefined,
+): FileRow[] {
   const root = emptyFolder();
   for (const file of files) {
     // A folder git lists as one entry ends in `/`; it stays one row.
@@ -116,7 +156,7 @@ function treeRows(list: FileList, files: ChangedFile[], collapsed: Record<string
         child = only;
       }
       const full = `${path}${label}/`;
-      const key = `${list}:dir:${full}`;
+      const key = `${listKey(list, repo)}:dir:${full}`;
       const closed = collapsed[key] === true;
       rows.push({ kind: "folder", key, name: label, depth, collapsed: closed });
       if (!closed) {
@@ -124,10 +164,10 @@ function treeRows(list: FileList, files: ChangedFile[], collapsed: Record<string
       }
     }
     for (const entry of folder.files) {
-      rows.push(changedRow(list, entry.file, entry.name, depth));
+      rows.push(changedRow(list, entry.file, entry.name, depth, repo));
     }
   };
-  walk(root, "", 0);
+  walk(root, "", base);
   return rows;
 }
 
@@ -136,27 +176,72 @@ function listRows(
   files: ChangedFile[],
   mode: FileListMode,
   collapsed: Record<string, boolean>,
+  base = 0,
+  repo?: RepoId,
 ): FileRow[] {
   return mode === "tree"
-    ? treeRows(list, files, collapsed)
-    : files.map((file) => changedRow(list, file, file.path, 0));
+    ? treeRows(list, files, collapsed, base, repo)
+    : files.map((file) => changedRow(list, file, file.path, base, repo));
+}
+
+const SECTIONS: { list: SectionList; label: string }[] = [
+  { list: "unmerged", label: "Unmerged" },
+  { list: "staged", label: "Staged" },
+  { list: "unstaged", label: "Unstaged" },
+];
+
+/**
+ * The rows of a merged view (UI-34): Unmerged while any repo has unmerged
+ * files, then Staged and Unstaged, each with one section per repo that has
+ * files there, in target-set order, its files below its name.
+ */
+function mergedRows(repos: RepoChanges[], mode: FileListMode, collapsed: Record<string, boolean>): FileRow[] {
+  return SECTIONS.flatMap(({ list, label }) => {
+    const shown = repos.filter((repo) => repo[list].length > 0);
+    const count = shown.reduce((sum, repo) => sum + repo[list].length, 0);
+    if (list === "unmerged" && count === 0) {
+      return [];
+    }
+    const section: FileRow = { kind: "section", key: `section:${list}`, label, count, list };
+    return [
+      section,
+      ...shown.flatMap((repo): FileRow[] => [
+        {
+          kind: "repo",
+          key: `repo:${list}:${repo.repo_id}`,
+          label: repo.repo_name,
+          repo: repo.repo_id,
+          list,
+          count: repo[list].length,
+          blocked: repo.blocked,
+        },
+        ...(list === "unmerged"
+          ? repo.unmerged.map((file) => unmergedRow(file, 1, repo.repo_id))
+          : listRows(list, repo[list], mode, collapsed, 1, repo.repo_id)),
+      ]),
+    ];
+  });
 }
 
 /**
  * The rows of `content`'s file lists. A commit has one list; uncommitted
  * changes have a Staged and an Unstaged section, and before them, while
- * files are unmerged, an Unmerged section, always by full path (OPS-3).
+ * files are unmerged, an Unmerged section, always by full path (OPS-3). A
+ * merged view has the same sections, split by repo.
  */
 export function fileRows(content: ChangesContent, mode: FileListMode, collapsed: Record<string, boolean>): FileRow[] {
   if (content.kind === "commit") {
     return listRows("commit", content.files, mode, collapsed);
+  }
+  if (content.kind === "merged") {
+    return mergedRows(content.repos, mode, collapsed);
   }
   const unmerged: FileRow[] =
     content.unmerged.length === 0
       ? []
       : [
           { kind: "section", key: "section:unmerged", label: "Unmerged", count: content.unmerged.length, list: "unmerged" },
-          ...content.unmerged.map(unmergedRow),
+          ...content.unmerged.map((file) => unmergedRow(file)),
         ];
   return [
     ...unmerged,

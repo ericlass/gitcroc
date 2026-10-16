@@ -80,8 +80,12 @@ export default function App() {
   const selection = createSelectionStore();
   const history = createHistoryStore(selection);
   const changes = createChangesStore(settings.changes);
-  // A commit from a list a refresh replaced reads the list again.
-  const commit = createCommitStore((id) => void changes.reload(id));
+  // A commit from a list a refresh replaced reads the list again; a group
+  // commit goes through the preflight (UI-34).
+  const commit = createCommitStore(
+    (id) => void changes.reload(id),
+    (id, target, op, started) => void groupOps.run(id, target, op, started),
+  );
   const conflicts = createConflictStore((id) => void changes.reload(id));
   const branch = createBranchStore();
   const sync = createSyncStore();

@@ -39,6 +39,7 @@ import type {
   PaneLayout,
   RemoteRequest,
   RemoteStart,
+  RepoChanges,
   RepoId,
   RepoRef,
   ResetRequest,
@@ -49,6 +50,7 @@ import type {
   SummaryView,
   SyncRequest,
   TagRequest,
+  TargetSet,
   TreeNode,
   WatchWarning,
   WorkspaceId,
@@ -170,18 +172,22 @@ const cloneParentPickedListeners: Listeners<CloneParentPickedEvent> = new Set();
 const cloneReportListeners: Listeners<CloneReport> = new Set();
 const preflightReadyListeners: Listeners<PreflightReady> = new Set();
 
-/** Each workspace's changes view, as the core keeps it. */
-const views = new Map<
-  string,
-  {
-    handle: number;
-    lists: Partial<Record<FileRef["list"], FakeFile[]>>;
-    /** The unmerged paths by id, for the conflict calls. */
-    unmerged: string[];
-    /** The repo the view is of. */
-    repo: RepoId;
-  }
->();
+/** A repo's part of a changes view: all of a single repo's view, one repo of a merged one. */
+interface FakeViewPart {
+  handle: number;
+  lists: Partial<Record<FileRef["list"], FakeFile[]>>;
+  /** The unmerged paths by id, for the conflict calls. */
+  unmerged: string[];
+  /** The repo the part is of. */
+  repo: RepoId;
+}
+
+/** Each workspace's changes view, as the core keeps it: one part per repo. */
+const views = new Map<string, FakeViewPart[]>();
+
+/** The part of workspace `workspaceId`'s view that `handle` names, while that view is the latest. */
+const viewPart = (workspaceId: string, handle: number) =>
+  views.get(workspaceId)?.find((part) => part.handle === handle);
 /** The file whose image diff was read last, by workspace. */
 const imageFiles = new Map<string, { handle: number; file: FakeFile; ref: FileRef }>();
 
@@ -248,6 +254,7 @@ export const fakeState: {
   /** Every `changes_get` and `diff_get`, oldest first. */
   changesCalls: (
     | { command: "changes"; repo: RepoId; target: ChangesTarget }
+    | { command: "merged"; target: TargetSet }
     | { command: "diff"; file: FileRef; request: DiffRequest }
   )[];
   /** How long each `changes_get` and `diff_get` takes, in ms. */
@@ -444,8 +451,8 @@ const unmergedPaths = (repoId: RepoId): string[] =>
  */
 function fakeResolve(workspaceId: WorkspaceId, request: ResolveRequest | ChooseRequest) {
   fakeState.conflictRequests.push(request);
-  const view = views.get(workspaceId);
-  if (view?.handle !== request.handle) {
+  const view = viewPart(workspaceId, request.handle);
+  if (view === undefined) {
     return Promise.resolve({ status: "ok" as const, data: null });
   }
   const path = view.unmerged[request.file];
@@ -1012,6 +1019,11 @@ const groupDeps: GroupDeps = {
   sendJob,
   newJobId: () => nextJobId++,
   alwaysShow: () => fakeState.settings.settings.always_show_preflight,
+  stagedFiles: (repo, stageAll) => {
+    const working = fakeState.workingCopies[repo];
+    const tracked = stageAll ? (working?.unstaged ?? []).filter((file) => file.file.status !== "untracked") : [];
+    return new Set([...(working?.staged ?? []), ...tracked].map((file) => file.file.path)).size;
+  },
 };
 
 /** Delivers a `git_status` event to every listener, as the core would. */
@@ -1946,18 +1958,62 @@ export const fake: Core = {
         lists = { staged, unstaged };
         unmerged = working.unmerged.map((file) => file.path);
       }
-      views.set(workspaceId, { handle, lists, unmerged, repo: repoId });
+      views.set(workspaceId, [{ handle, lists, unmerged, repo: repoId }]);
       imageFiles.delete(workspaceId);
       // Like the core: `null` once a newer view of the workspace began.
       return slowly(() => ({
         status: "ok" as const,
-        data: views.get(workspaceId)?.handle === handle ? { handle, content } : null,
+        data: viewPart(workspaceId, handle) !== undefined ? { handle, content } : null,
+      }));
+    },
+    // Like the core: one part per dirty repo of the target set, each with its own handle (UI-34).
+    changesGetMerged: async (workspaceId, target) => {
+      const workspace = openWorkspace(workspaceId);
+      const resolved = await fakeTargetRepos(workspaceId, target);
+      if (workspace === undefined || resolved.status === "error") {
+        return resolved.status === "error" ? resolved : notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      fakeState.changesCalls.push({ command: "merged", target });
+      const members = resolved.data;
+      const parts: FakeViewPart[] = [];
+      const repos: RepoChanges[] = [];
+      for (const repoId of members) {
+        const working = fakeState.workingCopies[repoId];
+        if (
+          working === undefined ||
+          working.staged.length + working.unstaged.length + working.unmerged.length === 0
+        ) {
+          continue;
+        }
+        const staged = numbered(working.staged);
+        const unstaged = numbered(working.unstaged);
+        const handle = nextHandle++;
+        parts.push({ handle, lists: { staged, unstaged }, unmerged: working.unmerged.map((file) => file.path), repo: repoId });
+        repos.push({
+          repo_id: repoId,
+          repo_name: workspace.repos.find((repo) => repo.id === repoId)?.name ?? repoId,
+          handle,
+          staged: staged.map((file, id) => ({ id, ...file.file })),
+          unstaged: unstaged.map((file, id) => ({ id, ...file.file })),
+          unmerged: working.unmerged.map((file, id) => ({ id, ...file })),
+          blocked: working.inConflict ? "the repo is in conflict state; continue or abort first" : null,
+        });
+      }
+      views.set(workspaceId, parts);
+      imageFiles.delete(workspaceId);
+      const first = parts[0]?.handle;
+      return slowly(() => ({
+        status: "ok" as const,
+        data:
+          first === undefined || viewPart(workspaceId, first) !== undefined
+            ? { handle: 0, content: { kind: "merged" as const, repos, members } }
+            : null,
       }));
     },
     diffGet: (workspaceId, handle, file, request) => {
       fakeState.changesCalls.push({ command: "diff", file, request });
-      const view = views.get(workspaceId);
-      if (view?.handle !== handle) {
+      const view = viewPart(workspaceId, handle);
+      if (view === undefined) {
         return Promise.resolve({ status: "ok", data: null });
       }
       const found = view.lists[file.list]?.[file.id];
@@ -1975,22 +2031,21 @@ export const fake: Core = {
       }
       return slowly(() => ({
         status: "ok" as const,
-        data: views.get(workspaceId)?.handle === handle ? diff : null,
+        data: viewPart(workspaceId, handle) !== undefined ? diff : null,
       }));
     },
     // Like the core: a discard asks for confirmation first, then a job
     // changes the working copy and the repo's summary is read again.
     changesApply: (workspaceId, request) => {
       fakeState.changeRequests.push(request);
-      const view = views.get(workspaceId);
-      if (view?.handle !== request.handle) {
+      const view = viewPart(workspaceId, request.handle);
+      if (view === undefined) {
         return Promise.resolve({ status: "ok", data: null });
       }
       const target = request.target;
       const refs = target.kind === "files" ? target.files : [target.file];
       const files = refs.flatMap((ref) => view.lists[ref.list]?.[ref.id] ?? []);
-      const repoId = fakeState.selected[workspaceId] ?? fakeState.workspace.repos[0]?.id;
-      const repo = fakeState.workspace.repos.find((known) => known.id === repoId);
+      const repo = fakeState.workspace.repos.find((known) => known.id === view.repo);
       if (files.length === 0 || repo === undefined) {
         return Promise.resolve({
           status: "error",
@@ -2035,8 +2090,7 @@ export const fake: Core = {
     // staged files, or fails with what a rejecting hook printed.
     changesCommit: (workspaceId, request) => {
       fakeState.commitRequests.push(request);
-      const view = views.get(workspaceId);
-      if (view?.handle !== request.handle) {
+      if (viewPart(workspaceId, request.handle) === undefined) {
         return Promise.resolve({ status: "ok", data: null });
       }
       const repoId = fakeState.selected[workspaceId] ?? fakeState.workspace.repos[0]?.id;
@@ -2157,8 +2211,8 @@ export const fake: Core = {
     opReset: (workspaceId, request) =>
       fakeResetOp(workspaceId, request) as Promise<{ status: "ok"; data: ResetStart } | { status: "error"; error: IpcError }>,
     conflictGet: (workspaceId, handle, file) => {
-      const view = views.get(workspaceId);
-      if (view?.handle !== handle) {
+      const view = viewPart(workspaceId, handle);
+      if (view === undefined) {
         return Promise.resolve({ status: "ok", data: null });
       }
       const path = view.unmerged[file];

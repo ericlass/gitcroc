@@ -1,6 +1,7 @@
-// What each workspace's changes pane shows (UI-14 to UI-18), keyed by
+// What each workspace's changes pane shows (UI-14 to UI-18, UI-34), keyed by
 // workspace id (ARCH-9): the core's view of the selected commit or of the
-// uncommitted changes, the selected file and its diff. The core reads the
+// uncommitted changes of a repo or of a group or several repos, the selected
+// file and its diff. The core reads the
 // lists and diffs and applies whitespace and context (ARCH-6); this store
 // asks for them and keeps the latest answers.
 import { untrack } from "solid-js";
@@ -9,6 +10,7 @@ import {
   type ChangeAction,
   changesApply,
   changesGet,
+  changesGetMerged,
   type ChangeRequest,
   type ChangesSettings,
   type ChangeTarget,
@@ -60,7 +62,14 @@ export interface WorkspaceChanges {
    * The tab went to the background and the view and diff were let go
    * (UI-31): the file to select again when they are read on return.
    */
-  released: { list: FileKey["list"]; path: string } | null | false;
+  released: Kept | null | false;
+}
+
+/** A file to select again when its view is read anew, by list and path, and in a merged view repo. */
+interface Kept {
+  list: FileKey["list"];
+  path: string;
+  repo?: RepoId;
 }
 
 const empty = (): WorkspaceChanges => ({
@@ -87,10 +96,33 @@ const empty = (): WorkspaceChanges => ({
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-const sameSelection = (a: CommitSelection | null, b: CommitSelection | null) =>
-  a?.kind === b?.kind &&
-  a?.repo_id === b?.repo_id &&
-  (a?.kind !== "commit" || b?.kind !== "commit" || a.hash === b.hash);
+const sameSelection = (a: CommitSelection | null, b: CommitSelection | null) => {
+  if (a === null || b === null) {
+    return a === b;
+  }
+  switch (a.kind) {
+    case "commit":
+      return b.kind === "commit" && a.repo_id === b.repo_id && a.hash === b.hash;
+    case "uncommitted":
+      return b.kind === "uncommitted" && a.repo_id === b.repo_id;
+    case "merged_uncommitted":
+      return b.kind === "merged_uncommitted" && a.key === b.key;
+  }
+};
+
+/** The handle that names `file`'s list: its repo's in a merged view (UI-34), else the view's. */
+export function handleOf(view: ChangesView, file: { repo?: RepoId }): number | null {
+  if (view.content.kind !== "merged") {
+    return view.handle;
+  }
+  return view.content.repos.find((repo) => repo.repo_id === file.repo)?.handle ?? null;
+}
+
+/** The file `file` names in `view`, to select again after the view is read anew. */
+const keptOf = (view: ChangesView, file: FileKey): Kept | null => {
+  const entry = entryOf(view.content, file);
+  return entry === null ? null : { list: file.list, path: entry.path, repo: file.repo };
+};
 
 /**
  * What the core is asked for, from the settings: side-by-side needs both
@@ -125,7 +157,7 @@ export function createChangesStore(settings: () => ChangesSettings) {
   const viewRequests = new Map<WorkspaceId, number>();
   const diffRequests = new Map<WorkspaceId, number>();
   /** The file a view being read selects again, by workspace, until it is read. */
-  const keeping = new Map<WorkspaceId, { list: FileKey["list"]; path: string }>();
+  const keeping = new Map<WorkspaceId, Kept>();
 
   const changes = (id: WorkspaceId): WorkspaceChanges => state.byWorkspace[id] ?? empty();
 
@@ -147,7 +179,8 @@ export function createChangesStore(settings: () => ChangesSettings) {
   const loadDiff = async (id: WorkspaceId) => {
     const request = next(diffRequests, id);
     const { view, file, loadAnyway } = untrack(() => changes(id));
-    if (view === null || file === null || file.list === "unmerged") {
+    const handle = view === null || file === null ? null : handleOf(view, file);
+    if (view === null || file === null || file.list === "unmerged" || handle === null) {
       update(id, (c) => {
         c.diff = null;
         c.diffLoading = false;
@@ -161,7 +194,7 @@ export function createChangesStore(settings: () => ChangesSettings) {
     });
     const options = untrack(() => diffRequest(settings(), loadAnyway));
     try {
-      const diff = await diffGet(id, view.handle, { list: file.list, id: file.id }, options);
+      const diff = await diffGet(id, handle, { list: file.list, id: file.id }, options);
       if (diff === null || diffRequests.get(id) !== request) {
         return;
       }
@@ -185,7 +218,7 @@ export function createChangesStore(settings: () => ChangesSettings) {
    * again when the new lists still have one with its path, as after a
    * refresh; otherwise the first file is selected (UI-14).
    */
-  const load = async (id: WorkspaceId, keep: { list: FileKey["list"]; path: string } | null) => {
+  const load = async (id: WorkspaceId, keep: Kept | null) => {
     const request = next(viewRequests, id);
     next(diffRequests, id);
     if (keep === null) {
@@ -210,7 +243,10 @@ export function createChangesStore(settings: () => ChangesSettings) {
       c.error = null;
     });
     try {
-      const view = await changesGet(id, selection.repo_id, target);
+      const view =
+        selection.kind === "merged_uncommitted"
+          ? await changesGetMerged(id, selection.target)
+          : await changesGet(id, selection.repo_id, target);
       if (view === null || viewRequests.get(id) !== request) {
         return;
       }
@@ -218,7 +254,8 @@ export function createChangesStore(settings: () => ChangesSettings) {
       // The same file in the same list, else in the other list, as after
       // staging it whole.
       const files = fileKeys(view);
-      const withPath = (file: FileKey) => keep !== null && entryOf(view.content, file)?.path === keep.path;
+      const withPath = (file: FileKey) =>
+        keep !== null && file.repo === keep.repo && entryOf(view.content, file)?.path === keep.path;
       const again =
         keep === null
           ? null
@@ -303,10 +340,9 @@ export function createChangesStore(settings: () => ChangesSettings) {
   /** Re-reads the view, keeping the selected file where it still exists (OPS-7). */
   const reload = (id: WorkspaceId) => {
     const { view, file } = untrack(() => changes(id));
-    const entry = view === null || file === null ? null : entryOf(view.content, file);
     // While a view is read, the file it was to select again.
     const pending = view === null ? (keeping.get(id) ?? null) : null;
-    return load(id, entry === null || file === null ? pending : { list: file.list, path: entry.path });
+    return load(id, view === null || file === null ? pending : (keptOf(view, file) ?? pending));
   };
 
   /**
@@ -322,11 +358,11 @@ export function createChangesStore(settings: () => ChangesSettings) {
     if (released !== false) {
       return;
     }
-    const entry = view === null || file === null ? null : entryOf(view.content, file);
+    const kept = view === null || file === null ? null : keptOf(view, file);
     const pending = keeping.get(id) ?? null;
     keeping.delete(id);
     update(id, (c) => {
-      c.released = entry === null || file === null ? pending : { list: file.list, path: entry.path };
+      c.released = kept ?? pending;
       c.view = null;
       c.diff = null;
       c.loading = false;
@@ -364,13 +400,17 @@ export function createChangesStore(settings: () => ChangesSettings) {
     }
   };
 
-  /** Stages, unstages or discards `target` of the shown view (UI-15). */
-  const apply = (id: WorkspaceId, action: ChangeAction, target: ChangeTarget) => {
+  /**
+   * Stages, unstages or discards `target` of the shown view (UI-15); in a
+   * merged view, of `repo`'s lists, as a job of that repo (UI-34).
+   */
+  const apply = (id: WorkspaceId, action: ChangeAction, target: ChangeTarget, repo?: RepoId) => {
     const view = untrack(() => changes(id).view);
-    if (view === null) {
+    const handle = view === null ? null : handleOf(view, { repo });
+    if (handle === null) {
       return Promise.resolve();
     }
-    return send(id, { handle: view.handle, action, target, confirmed: false });
+    return send(id, { handle, action, target, confirmed: false });
   };
 
   /** Runs the discard the user confirmed. */
@@ -414,13 +454,21 @@ export function createChangesStore(settings: () => ChangesSettings) {
 
   const dismissOfferError = (id: WorkspaceId) => update(id, (c) => (c.offerError = null));
 
-  /** Reads uncommitted changes again when the core reports the repo changed (ARCH-6). */
+  /** The repos whose working copies the shown uncommitted changes are of: a group's members when merged. */
+  const watched = (id: WorkspaceId): RepoId[] => {
+    const { selection, view } = untrack(() => changes(id));
+    if (selection?.kind === "uncommitted") {
+      return [selection.repo_id];
+    }
+    return view?.content.kind === "merged" ? view.content.members : [];
+  };
+
+  /** Reads uncommitted changes again when the core reports one of their repos changed (ARCH-6). */
   const subscribe = async (id: WorkspaceId) =>
     core.events.repoSummary.listen((event) => {
       const { workspace_id, repo_id, refreshing } = event.payload;
-      const { selection } = untrack(() => changes(id));
       // Only a summary just read says the working copy may have changed.
-      if (refreshing || workspace_id !== id || selection?.kind !== "uncommitted" || selection.repo_id !== repo_id) {
+      if (refreshing || workspace_id !== id || !watched(id).includes(repo_id)) {
         return;
       }
       void reload(id);
@@ -455,6 +503,13 @@ function fileKeys(view: ChangesView): FileKey[] {
   const content = view.content;
   if (content.kind === "commit") {
     return content.files.map((file) => ({ list: "commit", id: file.id }));
+  }
+  if (content.kind === "merged") {
+    return content.repos.flatMap((repo) => [
+      ...repo.staged.map((file) => ({ list: "staged" as const, id: file.id, repo: repo.repo_id })),
+      ...repo.unmerged.map((file) => ({ list: "unmerged" as const, id: file.id, repo: repo.repo_id })),
+      ...repo.unstaged.map((file) => ({ list: "unstaged" as const, id: file.id, repo: repo.repo_id })),
+    ]);
   }
   return [
     ...content.staged.map((file) => ({ list: "staged" as const, id: file.id })),

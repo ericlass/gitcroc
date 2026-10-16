@@ -13,11 +13,12 @@ use std::time::Duration;
 
 use gitcroc_core::ops::{self, FastForward};
 use gitcroc_core::{
-    Class, ConfigDir, GitError, GitRepo, GitRunner, GroupError, GroupOp, GroupOperation, GroupOps,
-    GroupSettings, JobEvents, JobId, JobState, JobView, Jobs, NothingToDo, OnCancel, Outcome,
-    Output, PreflightId, PreflightReady, Prune, RepoId, RunFuture, SettingsStore, SkipReason,
-    SubJobSpec, Summaries, SummaryCache, SummaryView, TargetSet, WorkspaceId, Workspaces, WriteJob,
-    add_path,
+    Changes, ChangesContent, ChangesTarget, Class, CommitMessage, ConfigDir, FileList, FileRef,
+    GitError, GitRepo, GitRunner, GroupError, GroupOp, GroupOperation, GroupOps, GroupSettings,
+    JobEvents, JobId, JobState, JobView, Jobs, NothingToDo, OnCancel, Outcome, Output, PreflightId,
+    PreflightReady, Prune, RepoId, RunFuture, SettingsStore, SkipReason, SubJobSpec, Summaries,
+    SummaryCache, SummaryView, TargetSet, WorkspaceId, Workspaces, WriteJob, add_path, changes_get,
+    changes_get_merged, diff_get,
 };
 use repo_gen::{Fixture, Repo};
 use tokio::sync::{mpsc, oneshot};
@@ -931,17 +932,17 @@ fn grp_9_group_ops_name_what_cannot_be_undone() {
 }
 
 #[tokio::test]
-async fn group_ops_are_not_available_until_their_task() {
-    let op = GroupOp::Commit {
-        message: gitcroc_core::CommitMessage::split("Subject"),
+async fn grp_15_a_group_commit_needs_a_subject() {
+    let commit = |message: &str| GroupOp::Commit {
+        message: CommitMessage::split(message),
         stage_all: false,
         push: false,
     };
-    assert!(matches!(op.operation(), Err(GroupError::NotAvailable(name)) if name == "Commit"));
-    let fetch = GroupOp::Fetch {
-        prune: Prune::Config,
-    };
-    assert!(fetch.operation().is_ok());
+    assert!(matches!(
+        commit("  ").operation(),
+        Err(GroupError::Refused(_))
+    ));
+    assert!(commit("Subject").operation().is_ok());
 }
 
 #[tokio::test]
@@ -1086,4 +1087,131 @@ async fn d10_group_prompts_name_their_repo_and_a_cancelled_one_fails_only_its_re
     assert_eq!(report[0], ("a".to_owned(), Outcome::Failed));
     assert_eq!(report[1].0, "b");
     assert_ne!(report[1].1, Outcome::Failed, "{view:#?}");
+}
+
+#[tokio::test]
+async fn grp_15_confirmation_lists_staged_file_counts() {
+    let setup = Setup::new(&["a", "b"]).await;
+    let a = setup.repo("a");
+    a.write("file.txt", "staged\n").unwrap();
+    a.write("new.txt", "new\n").unwrap();
+    a.git(["add", "file.txt", "new.txt"]).unwrap();
+    let b = setup.repo("b");
+    b.write("file.txt", "staged\n").unwrap();
+    b.git(["add", "file.txt"]).unwrap();
+    b.write("other.txt", "not staged\n").unwrap();
+    let op = GroupOp::Commit {
+        message: CommitMessage::split("Both"),
+        stage_all: false,
+        push: false,
+    };
+
+    let ready = setup.preflight_of(op.operation().unwrap()).await;
+    assert_eq!(
+        classes(&ready),
+        [
+            ("a".to_owned(), Class::WillRun),
+            ("b".to_owned(), Class::WillRun),
+        ]
+    );
+    let counts: Vec<_> = ready.repos.iter().map(|repo| repo.staged_files).collect();
+    assert_eq!(counts, [Some(2), Some(1)]);
+    // Every repo will run, and still nothing is committed unconfirmed.
+    assert!(ready.needs_confirmation);
+    assert!(matches!(
+        setup.groups.start(git(), ready.preflight_id, false),
+        Err(GroupError::NeedsConfirmation)
+    ));
+    assert_eq!(a.git(["rev-list", "--count", "HEAD"]).unwrap().trim(), "2");
+
+    let view = setup.ended(setup.start(ready.preflight_id)).await;
+    assert_eq!(
+        outcomes(&view),
+        [
+            ("a".to_owned(), Outcome::Succeeded),
+            ("b".to_owned(), Outcome::Succeeded),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn ui_34_merged_changes_list_each_dirty_repo_with_its_own_handle() {
+    let setup = Setup::new(&["a", "b", "c", "d"]).await;
+    let a = setup.repo("a");
+    a.write("file.txt", "staged\n").unwrap();
+    a.git(["add", "file.txt"]).unwrap();
+    a.write("file.txt", "staged and edited\n").unwrap();
+    setup.repo("c").write("new.txt", "untracked\n").unwrap();
+    setup.repo("d").merge_with_conflicts("feature").unwrap();
+    let changes = Arc::new(Changes::new());
+    let read = || {
+        let target = setup.target.clone();
+        changes_get_merged(
+            changes.clone(),
+            setup.workspaces.clone(),
+            git(),
+            setup.id.clone(),
+            target,
+        )
+    };
+
+    let view = read().await.unwrap().unwrap();
+    let ChangesContent::Merged { repos, members } = view.content else {
+        panic!("not a merged view: {view:?}");
+    };
+    assert_eq!(members.len(), 4);
+    let names: Vec<_> = repos.iter().map(|repo| repo.repo_name.as_str()).collect();
+    // The clean repo is left out; the one in conflict is listed, blocked.
+    assert_eq!(names, ["a", "c", "d"]);
+    assert_eq!((repos[0].staged.len(), repos[0].unstaged.len()), (1, 1));
+    assert_eq!((repos[1].staged.len(), repos[1].unstaged.len()), (0, 1));
+    assert_eq!(repos[0].blocked, None);
+    assert_eq!(repos[2].blocked.as_deref(), Some(IN_CONFLICT));
+    assert_eq!(repos[2].unmerged.len(), 1);
+
+    // Each repo's files are diffed through its own handle, as one repo's.
+    let diff = |handle, list| {
+        let file = FileRef { list, id: 0 };
+        diff_get(
+            changes.clone(),
+            setup.id.clone(),
+            handle,
+            file,
+            Default::default(),
+        )
+    };
+    assert!(
+        diff(repos[0].handle, FileList::Staged)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        diff(repos[1].handle, FileList::Unstaged)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_ne!(repos[0].handle, repos[1].handle);
+
+    // A newer view supersedes every repo's part.
+    changes_get(
+        changes.clone(),
+        setup.workspaces.clone(),
+        git(),
+        setup.id.clone(),
+        setup.repo_id("a"),
+        ChangesTarget::Uncommitted,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        diff(repos[1].handle, FileList::Unstaged)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    changes.release(&setup.id);
+    assert!(!changes.holds_view(&setup.id));
 }

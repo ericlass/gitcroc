@@ -55,6 +55,12 @@ export interface GroupDeps {
   newJobId: () => JobId;
   /** The always-show setting (section 5, step 2). */
   alwaysShow: () => boolean;
+  /**
+   * The number of files a group commit takes from `repo`, which its
+   * confirmation lists (GRP-15): staged ones, and with `stageAll` changed
+   * tracked ones.
+   */
+  stagedFiles: (repo: RepoId, stageAll: boolean) => number;
 }
 
 /** Preflights not used yet, and the operation of each group job started. */
@@ -136,10 +142,15 @@ export function fakePreflight(
   const id = nextPreflight++;
   kept.set(id, { ready: null, op });
   const names = repos.map((repo) => workspace.repos.find((known) => known.id === repo)?.name ?? repo);
+  // Like the core: a commit leaves out a repo with nothing staged and lists the others' staged files.
+  const staged = (repo: RepoId) => (op.kind === "commit" ? deps.stagedFiles(repo, op.stage_all) : null);
   const classed = repos.map((repo, at) => ({
     repo_id: repo,
     repo_name: names[at] ?? repo,
-    class: fakeGroups.classes[repo] ?? ({ kind: "will_run" } as const),
+    class:
+      fakeGroups.classes[repo] ??
+      (staged(repo) === 0 ? { kind: "will_skip" as const, reason: "nothing staged" } : ({ kind: "will_run" } as const)),
+    staged_files: staged(repo) || null,
   }));
   const destructive = groupDestructiveOf(op);
   const ready: PreflightReady = {
@@ -150,7 +161,10 @@ export function fakePreflight(
     destructive,
     repos: classed,
     needs_confirmation:
-      deps.alwaysShow() || destructive.length > 0 || classed.some((repo) => repo.class.kind !== "will_run"),
+      deps.alwaysShow() ||
+      op.kind === "commit" ||
+      destructive.length > 0 ||
+      classed.some((repo) => repo.class.kind !== "will_run"),
   };
   setTimeout(() => {
     const preflight = kept.get(id);

@@ -138,6 +138,18 @@ pub async fn stage(
     with_paths(git, repo, &["add", "-A"], paths, write).await
 }
 
+/// Stages every change to a tracked file, deletions included, and no
+/// untracked file (`git add -u`), as a group commit's "Stage all tracked
+/// changes first" asks (GRP-15).
+pub async fn stage_tracked(
+    git: &GitRunner,
+    repo: &Path,
+    write: Write<'_>,
+) -> Result<Output, GitError> {
+    let args = ["add", "-u"].map(OsString::from);
+    git.run_write(&args, repo, write).await
+}
+
 /// Takes `paths` out of the index, back to `HEAD`; on a branch with no
 /// commit yet (`unborn`), out of the index altogether.
 pub async fn unstage(

@@ -1170,8 +1170,15 @@ button.danger:hover:not(:disabled) {
   color: var(--danger);
 }
 
+.preflight-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+}
+
 .preflight-will-skip .preflight-class,
 .preflight-reason,
+.preflight-files,
 .preflight .hint {
   color: var(--text-secondary);
 }
@@ -1730,7 +1737,7 @@ button.link:hover:not(:disabled) {
   border-top: 1px solid var(--border);
 }
 
-.commit-box input,
+.commit-box input[type="text"],
 .commit-box textarea {
   box-sizing: border-box;
   width: 100%;
@@ -1892,8 +1899,21 @@ button.primary:disabled {
   line-height: 1;
 }
 
-.file-row-section {
+.file-row-section,
+.file-row-repo {
   justify-content: space-between;
+}
+
+.file-repo {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-blocked {
+  color: var(--danger);
+  font-size: 0.9em;
 }
 
 .file-list-action {

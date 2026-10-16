@@ -1,10 +1,8 @@
 //! The group-capable operations of section 5 and what an operation's code
 //! supplies to run on a target set: a read-only classification of a repo
-//! and the single-repo run. Each operation's own rules arrive with its task
-//! (M3-10 to M3-13); until then it is refused as not available yet.
-//! Fetch, pull and push are in `super::sync`; checkout, create and delete
+//! and the single-repo run. Fetch, pull and push are in `super::sync`; checkout, create and delete
 //! of a branch in `super::branch`; merge and rebase in `super::integrate`;
-//! create tag in `super::tag`.
+//! create tag in `super::tag`; commit in `super::commit`.
 
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -14,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use super::GroupError;
 use super::branch::GroupBranches;
+use super::commit::GroupCommit;
 use super::integrate::GroupIntegrate;
 use super::sync::GroupSync;
 use super::tag::GroupTags;
@@ -150,10 +149,9 @@ impl GroupOp {
         }
     }
 
-    /// The code that runs it on a target set; refused until the
-    /// operation's task brings its preflight rule and run. A branch or tag
-    /// name, the ref to merge or rebase onto and a tag's message are
-    /// checked here, once for every repo (SEC-4, GRP-14).
+    /// The code that runs it on a target set. A branch or tag name, the
+    /// ref to merge or rebase onto, a tag's message and a commit's subject
+    /// are checked here, once for every repo (SEC-4, GRP-14).
     pub fn operation(&self) -> Result<std::sync::Arc<dyn GroupOperation>, GroupError> {
         let (name, destructive) = (self.name(), self.destructive());
         let op = match self.clone() {
@@ -243,7 +241,22 @@ impl GroupOp {
                 };
                 return Ok(std::sync::Arc::new(GroupTags { name, tag }));
             }
-            Self::Commit { .. } => return Err(GroupError::NotAvailable(name)),
+            Self::Commit {
+                message,
+                stage_all,
+                push,
+            } => {
+                if message.subject.trim().is_empty() {
+                    return Err(GroupError::Refused(
+                        "the commit message has no subject".to_owned(),
+                    ));
+                }
+                return Ok(std::sync::Arc::new(GroupCommit {
+                    message: message.text(),
+                    stage_all,
+                    push,
+                }));
+            }
         };
         Ok(std::sync::Arc::new(GroupSync {
             name,
@@ -315,6 +328,19 @@ pub trait GroupOperation: Send + Sync + 'static {
     /// Read-only: it reads with the read API or `git`'s reads, never
     /// writes. Runs on a thread that may block.
     fn classify(&self, repo: &GitRepo, git: &GitRunner) -> Class;
+
+    /// The class of `repo`, as [`Self::classify`] gives it, and what the
+    /// confirmation lists with it: the number of files a group commit
+    /// commits there (GRP-15). `None` for the other operations.
+    fn classify_counted(&self, repo: &GitRepo, git: &GitRunner) -> (Class, Option<u32>) {
+        (self.classify(repo, git), None)
+    }
+
+    /// The confirmation appears even when every repo will run, as a group
+    /// commit's does (GRP-15).
+    fn always_confirm(&self) -> bool {
+        false
+    }
 
     /// Runs the operation in the repo at `path`, through
     /// [`gitcroc_git::ops`] with [`JobRun::write`].

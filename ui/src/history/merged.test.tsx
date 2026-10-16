@@ -2,7 +2,10 @@ import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-lib
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import App from "../App";
 import { emitRepoSummary, fakeState, reset } from "../ipc/fake";
+import { textFile } from "../ipc/fakeChanges";
+import { fakeGroups } from "../ipc/fakeGroups";
 import { hashOf } from "../ipc/fakeHistory";
+import { GROUP_COMMIT_FAILED } from "../stores/commit";
 import { refNodes, summary } from "../ipc/fakeTree";
 import { LINE_HEIGHT, STRIP_LINES } from "./TargetView";
 
@@ -18,6 +21,9 @@ beforeEach(() => {
     }
     if (this.classList.contains("history-scroller")) {
       return new DOMRect(0, 0, 600, 480);
+    }
+    if (this.classList.contains("file-list")) {
+      return new DOMRect(0, 0, 400, 400);
     }
     return real.call(this);
   });
@@ -184,4 +190,130 @@ test("ui_13_cherry_pick_needs_rows_of_one_repo", async () => {
   entry = await menu(api30 as HTMLElement);
   expect(entry(/^Cherry-pick$/).disabled).toBe(false);
   expect(entry(/^Revert$/).disabled).toBe(false);
+});
+
+/**
+ * web has a staged and an unstaged file, api an unstaged one, docs (in no
+ * group) a staged one; each summary says so.
+ */
+async function dirty() {
+  fakeState.workingCopies = {
+    r2: {
+      staged: [textFile("b.txt", [{ add: "b" }], "added")],
+      unstaged: [textFile("a.txt", [{ add: "a" }])],
+      unmerged: [],
+    },
+    r1: { staged: [], unstaged: [textFile("c.txt", [{ add: "c" }])], unmerged: [] },
+    r3: { staged: [textFile("d.txt", [{ add: "d" }], "added")], unstaged: [], unmerged: [] },
+  };
+  for (const [repoId, changes] of [
+    ["r1", 1],
+    ["r2", 2],
+    ["r3", 1],
+  ] as const) {
+    const view = summary(id(), repoId, "main");
+    emitRepoSummary({ ...view, summary: view.summary && { ...view.summary, dirty: true, changes } });
+  }
+  await settleAll();
+}
+
+/** The file list's rows on screen, top to bottom, as text. */
+const fileRowTexts = () =>
+  [...document.querySelectorAll<HTMLElement>(".file-list .file-row")]
+    .sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index))
+    .map((row) => (row.querySelector(".file-section, .file-repo, .file-name")?.textContent ?? "").trim());
+
+test("ui_34_uncommitted_row_sections_lists_by_repo_and_labels_commit_with_the_repo_count", async () => {
+  await setup();
+  await dirty();
+  await click(treeRow("Backend", 1));
+
+  // The first row counts the dirty repos of the group, not docs.
+  expect(historyRows()[0]?.textContent).toBe("Uncommitted changes (2 repos)");
+  await click(historyRows()[0] as HTMLElement);
+  expect(fakeState.changesCalls.at(-2)).toEqual({ command: "merged", target: { kind: "group", group_id: "g1" } });
+
+  // Staged and Unstaged each have a section per repo, in group order.
+  expect(fileRowTexts()).toEqual([
+    "Staged (1)",
+    "web (1)",
+    "b.txt",
+    "Unstaged (2)",
+    "web (1)",
+    "a.txt",
+    "api (1)",
+    "c.txt",
+  ]);
+  // The first file is selected and diffed as web's.
+  expect(fakeState.changesCalls.at(-1)).toMatchObject({ command: "diff", file: { list: "staged", id: 0 } });
+
+  // A repo's Stage all stages that repo's files as a job of that repo.
+  fireEvent.click(screen.getByRole("button", { name: "Stage all in api" }));
+  await settleAll();
+  expect(fakeState.changeRequests.at(-1)).toMatchObject({
+    action: "stage",
+    target: { kind: "files", files: [{ list: "unstaged", id: 0 }] },
+  });
+  expect(fakeState.workingCopies.r1?.staged.map((file) => file.file.path)).toEqual(["c.txt"]);
+  expect(fakeState.workingCopies.r2?.unstaged.map((file) => file.file.path)).toEqual(["a.txt"]);
+
+  // Commit counts the repos with staged changes; staging all tracked
+  // changes first counts the others too.
+  fakeState.workingCopies.r1 = { staged: [], unstaged: [textFile("c.txt", [{ add: "c" }])], unmerged: [] };
+  emitRepoSummary({ ...summary(id(), "r1", "main"), refs_version: 1 });
+  await settleAll();
+  const commit = () => screen.getByRole<HTMLButtonElement>("button", { name: /^Commit \d+ repos?$/ });
+  expect(commit().textContent).toBe("Commit 1 repo");
+  expect(commit().disabled).toBe(true);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Stage all tracked changes first" }));
+  expect(commit().textContent).toBe("Commit 2 repos");
+  const subject = screen.getByRole<HTMLInputElement>("textbox", { name: "Subject" });
+  fireEvent.input(subject, { target: { value: "Ship it" } });
+  expect(commit().disabled).toBe(false);
+
+  // The group Commit asks first, listing each repo's files (GRP-15).
+  fireEvent.click(commit());
+  await settleAll();
+  expect(fakeGroups.preflights.at(-1)).toEqual({
+    workspaceId: id(),
+    target: { kind: "group", group_id: "g1" },
+    op: { kind: "commit", message: { subject: "Ship it", body: "" }, stage_all: true, push: false },
+  });
+  const preflight = within(await screen.findByRole("dialog"));
+  expect(preflight.getAllByText(/staged files?$/).map((files) => files.textContent)).toEqual([
+    "2 staged files",
+    "1 staged file",
+  ]);
+  fireEvent.click(preflight.getByRole("button", { name: "Run on 2 repos" }));
+  await settleAll();
+
+  // Every repo that ran committed: the box is cleared.
+  expect(fakeGroups.starts.at(-1)).toMatchObject({ confirmed: true });
+  expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Subject" }).value).toBe("");
+});
+
+test("ui_34_no_amend_in_the_group_view", async () => {
+  await setup();
+  await dirty();
+  await click(treeRow("Backend", 1));
+  await click(historyRows()[0] as HTMLElement);
+  expect(screen.getByRole("region", { name: "Commit message" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Amend" })).toBeNull();
+
+  // A repo whose commit failed keeps the message, and the box says so.
+  fakeGroups.outcomes = { r2: { kind: "failed" } };
+  fireEvent.input(screen.getByRole("textbox", { name: "Subject" }), { target: { value: "Keep me" } });
+  fireEvent.click(screen.getByRole("button", { name: "Commit 1 repo" }));
+  await settleAll();
+  const preflight = within(await screen.findByRole("dialog"));
+  fireEvent.click(preflight.getByRole("button", { name: /^Run on/ }));
+  await settleAll();
+  expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Subject" }).value).toBe("Keep me");
+  const box = within(screen.getByRole("region", { name: "Commit message" }));
+  expect(box.getByRole("alert").textContent).toBe(GROUP_COMMIT_FAILED);
+
+  // One repo alone has Amend, as before (UI-15).
+  await click(treeRow("docs", 2));
+  await click(historyRows()[0] as HTMLElement);
+  expect(screen.getByRole("button", { name: "Amend" })).toBeTruthy();
 });

@@ -85,7 +85,9 @@ test("UI-14 file tree folds single-folder chains and lists folders first", () =>
     files: [file(0, "README.md"), file(1, "src/deep/inner/a.rs"), file(2, "src/main.rs")],
   };
   const tree = fileRows(content, "tree", {});
-  expect(tree.map((row) => (row.kind === "section" ? row.label : `${row.depth}:${row.name}`))).toEqual([
+  const shown = (row: (typeof tree)[number]) =>
+    row.kind === "section" || row.kind === "repo" ? row.label : `${row.depth}:${row.name}`;
+  expect(tree.map(shown)).toEqual([
     "0:src",
     "1:deep/inner",
     "2:a.rs",
@@ -97,5 +99,8 @@ test("UI-14 file tree folds single-folder chains and lists folders first", () =>
   expect(firstFile(content, "tree")).toEqual({ list: "commit", id: 1 });
   // A closed folder hides what is inside.
   const closed = fileRows(content, "tree", { "commit:dir:src/": true });
-  expect(closed.map((row) => (row.kind === "section" ? row.label : row.name))).toEqual(["src", "README.md"]);
+  expect(closed.map((row) => (row.kind === "section" || row.kind === "repo" ? row.label : row.name))).toEqual([
+    "src",
+    "README.md",
+  ]);
 });
