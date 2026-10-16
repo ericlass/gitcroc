@@ -102,8 +102,18 @@ Every step waits for its result in the DOM; none waits for a time. Result: passe
 ## Gates
 
 - [x] `just check` runs `just coverage M3`, and M3 has no requirement without a test (QA-3): 32 covered, 0 missing.
-- [ ] The baseline gains the new budgeted core scenarios, `refresh-all` and `group-history-first-page`. After this merges, run the Bench workflow on `main` with **baseline** ticked, and commit its `baseline-linux.json` in a pull request that says why. Until then the nightly gate reports them as `new`, and they still fail when over their budgets. Run (URL):
-- [ ] The Bench workflow passes on `main` with the new baseline. Run (URL):
+- [x] The baseline: not extended, by Eric's decision on 2026-10-16. `bench/baseline-linux.json` keeps its seven M1 rows; `refresh-all` and `group-history-first-page` are not in it. The nightly reports them as `new`, and they still fail when over their section 9 budgets (2 s and 300 ms). Why: hosted runners vary about threefold in speed from night to night, and the 20% gate (PERF-8) needs a baseline taken on a slow runner. The M1 rows happen to come from one. Five baseline runs on `main` at b5824b9 found no slow runner:
+
+  | Run | `history-first-page` | `status-60k` | `refresh-all` | `group-history-first-page` |
+  | --- | --- | --- | --- | --- |
+  | M1 baseline | 32.7 ms | 181 ms | | |
+  | Nightly [38869863151](https://github.com/ericlass/gitcroc/actions/runs/38869863151), 2026-10-16 (slow) | 27.1 ms | 149 ms | | 78.9 ms |
+  | Baseline [38878351139](https://github.com/ericlass/gitcroc/actions/runs/38878351139) | 9.3 ms | 85 ms | 438 ms | 27.2 ms |
+  | Baseline [38879629394](https://github.com/ericlass/gitcroc/actions/runs/38879629394) | 12.7 ms | 120 ms | 597 ms | 41.7 ms |
+  | Baseline [38880057426](https://github.com/ericlass/gitcroc/actions/runs/38880057426) | 9.5 ms | 120 ms | 471 ms | 30.3 ms |
+
+  Rows taken from any of these runs would have failed the slow nightly (79 ms against at most 50 ms). Two more runs were cancelled by the workflow's concurrency group.
+- [x] The Bench workflow passes on `main` at b5824b9 with the unchanged baseline: run [38880826210](https://github.com/ericlass/gitcroc/actions/runs/38880826210), on a slow runner (`history-first-page` 32.5 ms, `status-60k` 127 ms), with `refresh-all` 854 ms and `group-history-first-page` 95 ms reported as `new`. It is one run, not the median of three a baseline takes, so it does not extend the baseline either. The baseline runs above only measure; they compare against nothing.
 
 ## Windows (deferred)
 
