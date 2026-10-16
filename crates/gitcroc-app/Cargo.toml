@@ -29,6 +29,8 @@ tempfile.workspace = true
 uuid.workspace = true
 gitcroc-core.workspace = true
 gitcroc-ai.workspace = true
+# AI keys (D11, M4-05).
+keyring.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk.workspace = true

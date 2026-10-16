@@ -1,5 +1,6 @@
 //! Application shell: the Tauri 2 app that wires core and AI together.
 
+pub mod ai;
 pub mod askpass;
 pub mod ipc;
 pub mod platform;
@@ -104,6 +105,23 @@ pub fn run() -> Result<(), Error> {
             app.manage(askpass_ui);
             app.manage(jobs);
             app.manage(ipc::group_ops(app.handle()));
+            // AI providers (M4-05): their keys in the OS keychain, or in
+            // memory for the `e2e` build. With AI on, the CLI providers are
+            // detected and self-tested in the background (AI-2, AI-16).
+            #[cfg(not(feature = "e2e"))]
+            let keychain = Arc::new(platform::OsKeychain);
+            #[cfg(feature = "e2e")]
+            let keychain = Arc::new(platform::MemoryKeychain::default());
+            let ai = ai::AiProviders::new(
+                app.state::<Arc<SettingsStore>>().inner().clone(),
+                keychain,
+                Arc::new(ai::ProviderCalls),
+                ipc::ai_events(app.handle()),
+                app.state::<Arc<AppLog>>().inner().clone(),
+                tauri::async_runtime::handle().inner().clone(),
+            );
+            ai.start();
+            app.manage(ai);
             ipc::spawn_watching(app.handle());
             ipc::spawn_git_detection(app.handle().clone());
             ipc::perf_mark("setup done");

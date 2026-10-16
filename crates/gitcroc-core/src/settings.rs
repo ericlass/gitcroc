@@ -13,6 +13,13 @@ use crate::config_file::{self, ConfigWarning, Migration};
 use crate::lock;
 use crate::{POOL_SIZE, WorkspaceId};
 
+mod ai;
+
+pub use ai::{
+    AiOptions, AiSettings, AiSettingsError, DEFAULT_CONTEXT_BUDGET, MAX_CONTEXT_BUDGET,
+    MIN_CONTEXT_BUDGET, ProviderDraft, ProviderEntry, ProviderId, ProviderKind,
+};
+
 /// The schema this build reads and writes.
 pub const SETTINGS_SCHEMA: u32 = 2;
 
@@ -226,6 +233,10 @@ struct SettingsFile {
     settings: Settings,
     #[serde(skip_serializing_if = "Option::is_none")]
     session: Option<Session>,
+    /// The optional `[ai]` table, so the schema stays the same: older builds
+    /// ignore it. Written once an AI setting changes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ai: Option<AiSettings>,
 }
 
 /// The settings as the UI sees them.
@@ -250,6 +261,8 @@ pub enum SettingsError {
         "group operations run {MIN_GROUP_PARALLELISM} to {MAX_GROUP_PARALLELISM} repos at once"
     )]
     Parallelism,
+    #[error("{0}")]
+    Ai(#[from] AiSettingsError),
 }
 
 /// The file's contents, and a warning when it must not be written.
@@ -330,6 +343,90 @@ impl SettingsStore {
         self.update(|settings| settings.groups = groups)
     }
 
+    /// The AI settings and providers (AI-1, AI-16).
+    pub fn ai(&self) -> AiSettings {
+        self.lock().value.ai.clone().unwrap_or_default()
+    }
+
+    /// Checks `draft` and saves it as a new provider, or over the one with
+    /// its id. `keys` runs first, with the entry and whether it is new, and
+    /// may refuse; the file is written only after it succeeds, so a key the
+    /// keychain refused never leaves an entry behind (D11).
+    pub fn save_provider<E: From<SettingsError>>(
+        &self,
+        draft: ProviderDraft,
+        keys: impl FnOnce(&ProviderEntry, bool) -> Result<(), E>,
+    ) -> Result<ProviderEntry, E> {
+        self.change_ai(|ai| {
+            let (id, consent) = match &draft.id {
+                None => (ai.next_id(), None),
+                Some(id) => match ai.provider(id) {
+                    Some(entry) => (id.clone(), entry.consent.clone()),
+                    None => {
+                        return Err(SettingsError::from(AiSettingsError::UnknownProvider(
+                            id.clone(),
+                        ))
+                        .into());
+                    }
+                },
+            };
+            let new = draft.id.is_none();
+            let entry = draft
+                .into_entry(id, consent)
+                .map_err(|error| E::from(error.into()))?;
+            keys(&entry, new)?;
+            match ai.providers.iter_mut().find(|old| old.id == entry.id) {
+                Some(old) => *old = entry.clone(),
+                None => ai.providers.push(entry.clone()),
+            }
+            Ok(entry)
+        })
+    }
+
+    /// Removes the provider with `id`, and the default if it was the
+    /// default; returns the removed entry.
+    pub fn delete_provider(&self, id: &ProviderId) -> Result<ProviderEntry, SettingsError> {
+        self.change_ai(|ai| {
+            let at = ai
+                .providers
+                .iter()
+                .position(|entry| &entry.id == id)
+                .ok_or_else(|| AiSettingsError::UnknownProvider(id.clone()))?;
+            if ai.default.as_ref() == Some(id) {
+                ai.default = None;
+            }
+            Ok(ai.providers.remove(at))
+        })
+    }
+
+    /// Makes the provider with `id` the default (AI-1).
+    pub fn set_default_provider(&self, id: &ProviderId) -> Result<AiSettings, SettingsError> {
+        self.change_ai(|ai| {
+            if ai.provider(id).is_none() {
+                return Err(AiSettingsError::UnknownProvider(id.clone()).into());
+            }
+            ai.default = Some(id.clone());
+            Ok(ai.clone())
+        })
+    }
+
+    /// Changes the AI features switch, the exclude list and the debug log
+    /// switch; blank patterns are dropped.
+    pub fn set_ai_options(&self, options: AiOptions) -> Result<AiSettings, SettingsError> {
+        self.change_ai(|ai| {
+            ai.set_options(options);
+            Ok(ai.clone())
+        })
+    }
+
+    fn change_ai<T, E: From<SettingsError>>(
+        &self,
+        change: impl FnOnce(&mut AiSettings) -> Result<T, E>,
+    ) -> Result<T, E> {
+        self.modify(|file| change(file.ai.get_or_insert_default()))
+            .map(|(value, _)| value)
+    }
+
     fn update(&self, change: impl FnOnce(&mut Settings)) -> Result<SettingsView, SettingsError> {
         self.update_file(|file| change(&mut file.settings))
     }
@@ -338,14 +435,27 @@ impl SettingsStore {
         &self,
         change: impl FnOnce(&mut SettingsFile),
     ) -> Result<SettingsView, SettingsError> {
+        self.modify(|file| {
+            change(file);
+            Ok::<(), SettingsError>(())
+        })
+        .map(|((), view)| view)
+    }
+
+    /// Changes a copy of the file's contents, writes it, and only then
+    /// keeps it. Nothing is kept when `change` fails.
+    fn modify<T, E: From<SettingsError>>(
+        &self,
+        change: impl FnOnce(&mut SettingsFile) -> Result<T, E>,
+    ) -> Result<(T, SettingsView), E> {
         let mut state = self.lock();
         let path = match (&self.path, &state.warning) {
             (Some(path), None) => path,
-            _ => return Err(SettingsError::ReadOnly),
+            _ => return Err(SettingsError::ReadOnly.into()),
         };
         let mut next = state.value.clone();
-        change(&mut next);
-        let text = config_file::encode(SETTINGS_SCHEMA, &next)?;
+        let value = change(&mut next)?;
+        let text = config_file::encode(SETTINGS_SCHEMA, &next).map_err(SettingsError::from)?;
         config_file::write_atomic(path, text.as_bytes(), || Ok(())).map_err(|source| {
             SettingsError::Write {
                 path: path.clone(),
@@ -353,7 +463,7 @@ impl SettingsStore {
             }
         })?;
         state.value = next;
-        Ok(view(&state))
+        Ok((value, view(&state)))
     }
 
     fn lock(&self) -> MutexGuard<'_, Loaded> {
@@ -375,14 +485,28 @@ fn view(state: &Loaded) -> SettingsView {
 fn from_schema_1(_table: &mut toml::Table) {}
 
 /// Reads the file's table. A `[session]` that cannot be read is dropped:
-/// the start then opens a workspace as when there is none (UI-33).
+/// the start then opens a workspace as when there is none (UI-33). An
+/// `[ai]` table that cannot be read or holds an invalid entry makes the
+/// whole file unreadable, so it is used read-only and the user's providers
+/// are never overwritten (DATA-1).
 fn decode(mut table: toml::Table) -> Result<SettingsFile, toml::de::Error> {
     let session = table
         .remove("session")
         .and_then(|session| session.try_into().ok());
+    let ai = match table.remove("ai") {
+        None => None,
+        Some(ai) => {
+            let ai: AiSettings = ai.try_into()?;
+            ai.check().map_err(|error| {
+                <toml::de::Error as serde::de::Error>::custom(format!("in [ai]: {error}"))
+            })?;
+            Some(ai)
+        }
+    };
     Ok(SettingsFile {
         settings: decode_settings(table)?,
         session,
+        ai,
     })
 }
 

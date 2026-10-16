@@ -551,6 +551,37 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 */
 	askpassAnswer: (promptId: number, answer: string | null) => typedError<null, IpcError>(__TAURI_INVOKE("askpass_answer", { promptId, answer })),
 	/**
+	 *  The AI settings and providers, each with whether it has a key, never
+	 *  the key (SEC-1). Works while AI is off, so the entries stay editable.
+	 */
+	aiProvidersGet: () => typedError<AiView, IpcError>(__TAURI_INVOKE("ai_providers_get")),
+	/**
+	 *  Saves a provider, new without an id. `key` absent keeps the stored key,
+	 *  an empty one removes it; a key goes only to the keychain (SEC-1, D11).
+	 */
+	aiProviderSave: (draft: ProviderDraft, key: string | null) => typedError<AiView, IpcError>(__TAURI_INVOKE("ai_provider_save", { draft, key })),
+	/**  Removes a provider and its key (D11); removing the default clears it. */
+	aiProviderDelete: (id: ProviderId) => typedError<AiView, IpcError>(__TAURI_INVOKE("ai_provider_delete", { id })),
+	/**  Makes a provider the default (AI-1). */
+	aiProviderSetDefault: (id: ProviderId) => typedError<AiView, IpcError>(__TAURI_INVOKE("ai_provider_set_default", { id })),
+	/**
+	 *  Changes the AI features switch (AI-16), the exclude list (AI-4) and the
+	 *  debug log switch (AI-7).
+	 */
+	aiSettingsSet: (options: AiOptions) => typedError<AiView, IpcError>(__TAURI_INVOKE("ai_settings_set", { options })),
+	/**
+	 *  Starts listing a provider's models, saved or not, and returns at once;
+	 *  the list arrives as an `ai_models` event (AI-1, ARCH-7). `key` as in
+	 *  `ai_provider_save`. Refused with `ai_off` while AI is off (AI-16).
+	 */
+	aiModelsGet: (draft: ProviderDraft, key: string | null) => typedError<AiRequestId, IpcError>(__TAURI_INVOKE("ai_models_get", { draft, key })),
+	/**
+	 *  Starts testing a provider, saved or not, and returns at once; the result
+	 *  arrives as an `ai_self_test` event (AI-2, ARCH-7). Refused with `ai_off`
+	 *  while AI is off (AI-16).
+	 */
+	aiSelfTest: (draft: ProviderDraft, key: string | null) => typedError<AiRequestId, IpcError>(__TAURI_INVOKE("ai_self_test", { draft, key })),
+	/**
 	 *  Writes the UI's measurements to the JSON file `$GITCROC_PERF_TRACE`
 	 *  names, with the cold start (process start to tree visible) worked
 	 *  out. Fails in builds without the `perf-trace` feature.
@@ -560,6 +591,9 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 
 /** Events */
 export const events = {
+	aiChanged: makeEvent<AiChangedEvent>("ai_changed"),
+	aiModels: makeEvent<AiModelsEvent>("ai_models"),
+	aiSelfTest: makeEvent<AiSelfTestEvent>("ai_self_test"),
 	askpassClosed: makeEvent<AskpassClosedEvent>("askpass_closed"),
 	askpassPrompt: makeEvent<AskpassPromptEvent>("askpass_prompt"),
 	cloneParentPicked: makeEvent<CloneParentPickedEvent>("clone_parent_picked"),
@@ -591,6 +625,59 @@ export type AddReport = {
 	already_present: RepoView[],
 	/**  Folders that were not added or could not be read. */
 	refused: Refusal[],
+};
+
+/**
+ *  The AI settings or providers changed, or a CLI provider's self-test
+ *  finished, sent as event `ai_changed`. Never carries a key (SEC-1).
+ */
+export type AiChangedEvent = AiView;
+
+/**  The models `ai_models_get` asked for, sent as event `ai_models` (AI-1). */
+export type AiModelsEvent = AiModelsReply;
+
+/**  The answer to [`AiProviders::models`]. */
+export type AiModelsReply = {
+	request_id: AiRequestId,
+	result: ModelsResult,
+};
+
+/**  The AI settings other than the providers. */
+export type AiOptions = {
+	enabled: boolean,
+	exclude: string[],
+	debug_log: boolean,
+};
+
+/**  Identifies a models or self-test request, unique while the app runs. */
+export type AiRequestId = number;
+
+/**  The result of `ai_self_test`, sent as event `ai_self_test` (AI-2). */
+export type AiSelfTestEvent = AiSelfTestReply;
+
+/**  The answer to [`AiProviders::self_test`]. */
+export type AiSelfTestReply = {
+	request_id: AiRequestId,
+	result: SelfTest,
+};
+
+/**  The AI settings and providers. */
+export type AiView = {
+	/**  AI features (AI-16). */
+	enabled: boolean,
+	exclude: string[],
+	debug_log: boolean,
+	default: ProviderId | null,
+	providers: ProviderView[],
+	/**  Every CLI detection found while AI is on. */
+	detected: DetectedCli[],
+	/**
+	 *  The first detected CLI that is not configured yet, offered to the
+	 *  user and never added on its own.
+	 */
+	offer: DetectedCli | null,
+	/**  Why the keychain could not be used, last time it was tried. */
+	keychain_error: string | null,
 };
 
 /**  What the running build is and where it runs. */
@@ -1145,6 +1232,12 @@ export type Context = "three" | "ten" |
 /**  One hunk spanning the file, and both sides' full text. */
 "whole_file";
 
+/**  A CLI found by detection (AI-2). */
+export type DetectedCli = {
+	kind: ProviderKind,
+	path: string,
+};
+
 /**  How the diff shows a text file (UI-17). */
 export type DiffMode = "inline" | "side_by_side";
 
@@ -1520,7 +1613,9 @@ export type IpcErrorCode =
  *  The request was refused as it stands, such as a workspace name that
  *  is taken; the message says why and the user can change it.
  */
-"refused";
+"refused" | 
+/**  AI features are off (AI-16); nothing was run. */
+"ai_off";
 
 /**
  *  A job ended, sent as event `job_ended` with its outcome and git's
@@ -1646,6 +1741,13 @@ export type ModeChange = {
 	new: string,
 };
 
+/**  The models a provider offers (AI-1). */
+export type ModelsResult = 
+/**  In the provider's order. */
+{ kind: "offered"; models: string[] } | 
+/**  The provider has no list; the user types the name. */
+{ kind: "not_offered" } | { kind: "failed"; reason: string };
+
 /**
  *  An operation that stopped part way and waits to be continued or
  *  aborted.
@@ -1769,6 +1871,48 @@ export type PromptKind =
 "secret" | 
 /**  An SSH host key question, answered `yes` or `no`. */
 "yes_no";
+
+/**
+ *  A provider as the user edits it. Without an id it is a new one. The
+ *  consent is not part of it: saving keeps the stored one.
+ */
+export type ProviderDraft = {
+	id: ProviderId | null,
+	name: string,
+	kind: ProviderKind,
+	model: string | null,
+	base_url: string | null,
+	path: string | null,
+	/**  `None` takes [`DEFAULT_CONTEXT_BUDGET`]. */
+	context_budget: number | null,
+};
+
+/**  Identifies a provider: `p1`, `p2` and so on. */
+export type ProviderId = string;
+
+/**  How a provider is called (D4, section 7 "Providers"). */
+export type ProviderKind = "anthropic" | 
+/**  OpenAI-compatible: OpenAI, OpenRouter, Ollama, LM Studio and similar. */
+"openai" | "claude_code" | "codex";
+
+/**
+ *  A configured provider as the UI sees it: its entry, without the file's
+ *  defaults, and never its key (SEC-1).
+ */
+export type ProviderView = {
+	id: ProviderId,
+	name: string,
+	kind: ProviderKind,
+	model: string | null,
+	base_url: string | null,
+	path: string | null,
+	context_budget: number,
+	/**  The host or program the user consented to (AI-6). */
+	consent: string | null,
+	has_key: boolean,
+	/**  A CLI provider's self-test while AI is on; `None` otherwise. */
+	check: SelfTest | null,
+};
 
 /**
  *  Whether a fetch removes remote-tracking branches whose branch is gone
@@ -2019,6 +2163,16 @@ export type ResolveRequest = {
 	/**  Mark resolved although the text has conflict marker lines. */
 	override_markers: boolean,
 };
+
+/**
+ *  A self-test's state or result (AI-2). API providers are tested by
+ *  listing their models; a CLI provider by its version and flags.
+ */
+export type SelfTest = { kind: "running" } | 
+/**  `version` is the CLI's; API providers have none. */
+{ kind: "passed"; version: string | null } | 
+/**  The installed CLI lacks flags the provider uses. */
+{ kind: "missing_flags"; version: string; missing: string[] } | { kind: "failed"; reason: string };
 
 /**
  *  Every setting. A key missing from the file takes its default (see
