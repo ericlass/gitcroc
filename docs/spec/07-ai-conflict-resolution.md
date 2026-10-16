@@ -18,6 +18,7 @@ The AI fills in proposals for conflict hunks inside the normal conflict editor (
 
 - **AI-3** The conflict editor has **Resolve with AI** per file. The conflict banner (OPS-2) has **Resolve all with AI**. With no provider configured, both open the provider settings instead.
 - **AI-4** A file is eligible when it is a text conflict the editor can show (not OPS-6), is at most 1 MB, and does not match the exclude list. The default exclude list is `.env*`, `*.pem`, `*.key`, `*.p12`, `id_rsa*`; the user can edit it. Ineligible files show the reason.
+- **AI-16** A global setting, **AI features**, turns all AI off. It is on by default. While it is off, the app sends no AI request, detects and runs no CLI provider, and hides every AI element: the buttons of AI-3, proposals, the workspace switch of AI-6, and the AI section of Settings except this setting. Turning it off cancels running AI jobs and drops all proposals. Providers, keys and consent are kept, so turning it on again restores them.
 
 ## What is sent
 
