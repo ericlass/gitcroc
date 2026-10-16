@@ -110,3 +110,34 @@ test("OPS-7 a repo queued for a refresh is read again only once its summary arri
   expect(fakeState.changesCalls.length).toBeGreaterThan(calls);
   unsubscribe();
 });
+
+test("OPS-7 reads the core began in another order than sent never leave the list stale", async () => {
+  const changes = setup();
+  const unsubscribe = await changes.subscribe(id());
+  await changes.show(id(), { kind: "uncommitted", repo_id: "r1" });
+  expect(changes.changes(id()).view?.content).toMatchObject({ unmerged: [] });
+
+  // A merge stops on a conflict; its end sends two fresh summaries, and the
+  // core begins their reads in the opposite order. Each read ends the view
+  // of the one before, so the read sent last is answered `null`, and the
+  // read sent first is an answer the store no longer waits for.
+  fakeState.workingCopies = {
+    r1: { staged: [], unstaged: [], unmerged: [{ path: "notes.txt", conflict: "both_modified" }], inConflict: true },
+  };
+  fakeState.holdChanges = true;
+  emitRepoSummary(summary(id(), "r1", "main"));
+  emitRepoSummary(summary(id(), "r1", "main"));
+  await settle();
+  const held = fakeState.heldChanges;
+  expect(held).toHaveLength(2);
+  fakeState.holdChanges = false;
+  // The one sent last begins first.
+  held.reverse().forEach((start) => start());
+  for (let round = 0; round < 10; round++) {
+    await settle();
+  }
+
+  expect(changes.changes(id()).view?.content).toMatchObject({ unmerged: [{ path: "notes.txt" }], in_conflict: true });
+  expect(changes.changes(id()).loading).toBe(false);
+  unsubscribe();
+});
