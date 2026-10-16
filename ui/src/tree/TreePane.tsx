@@ -28,6 +28,7 @@ import {
 } from "../ipc";
 import type { BranchStore } from "../stores/branch";
 import type { CloneStore } from "../stores/clone";
+import type { ShareStore } from "../stores/share";
 import { DEFAULT_GROUP_OPS, type GroupNameDialog, type GroupOpStore } from "../stores/groupOps";
 import type { StashStore } from "../stores/stash";
 import type { RemoteStore } from "../stores/remote";
@@ -544,6 +545,7 @@ export default function TreePane(props: {
   tag: TagStore;
   remote: RemoteStore;
   clone: CloneStore;
+  share: ShareStore;
   groupOps: GroupOpStore;
 }) {
   const [actionError, setActionError] = createSignal<string | null>(null);
@@ -616,6 +618,8 @@ export default function TreePane(props: {
 
   const blocked = (repo: RepoId) => isBlocked(props.summaries.view(props.workspace, repo));
   const itemBlocked = (item: TreeItem) => "repo_id" in item && blocked(item.repo_id);
+  const itemMissing = (item: TreeItem) =>
+    item.kind === "repo" && props.summaries.view(props.workspace, item.repo_id)?.missing === true;
 
   const run = (repo: RepoId, op: Parameters<BranchStore["run"]>[2]) => void props.branch.run(props.workspace, repo, op);
 
@@ -710,6 +714,9 @@ export default function TreePane(props: {
     switch (action) {
       case "remove_repo":
         remove(repo);
+        return;
+      case "clone_missing":
+        props.share.openMissing(props.workspace, repo);
         return;
       case "open_file_manager":
         openRepo("file_manager", repo);
@@ -948,7 +955,7 @@ export default function TreePane(props: {
               }
               onClick={(event) => event.stopPropagation()}
             >
-              <For each={menuFor(open().item, itemBlocked(open().item), groups())}>
+              <For each={menuFor(open().item, itemBlocked(open().item), groups(), itemMissing(open().item))}>
                 {(entry) => (
                   <Show
                     when={entry.submenu}

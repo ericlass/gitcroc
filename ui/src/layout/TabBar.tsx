@@ -1,14 +1,15 @@
 // The workspace tabs (UI-27, UI-28): one tab per open workspace in the
 // core's order. A click activates a tab; tabs reorder by dragging and with
 // Ctrl/Cmd+Shift+PageUp/PageDown (UI-22), and the arrow keys move between
-// them. Each tab has a close button and a context menu with Rename and
-// Close. "+" lists the workspace files and offers New and Import. A tab
+// them. Each tab has a close button and a context menu with Rename,
+// Export workspace (DATA-2) and Close. "+" lists the workspace files and offers New and Import. A tab
 // shows how many of its jobs run or wait, and a marker for a failed or
 // conflicted job the user has not seen (UI-32). The core keeps the tabs;
 // this sends what the user did.
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { WorkspaceId } from "../ipc";
 import type { JobStore } from "../stores/jobs";
+import type { ShareStore } from "../stores/share";
 import type { WorkspaceStore } from "../stores/workspaces";
 import type { WorkspaceDialogs } from "../workspaces/WorkspaceDialogs";
 import WorkspaceMenu from "../workspaces/WorkspaceMenu";
@@ -19,6 +20,7 @@ export default function TabBar(props: {
   workspaces: WorkspaceStore;
   jobs: JobStore;
   dialogs: WorkspaceDialogs;
+  share: ShareStore;
   /** Closes a tab; the caller asks first when it holds unsaved conflict edits (OPS-9). */
   onClose: (id: WorkspaceId) => void;
 }) {
@@ -231,6 +233,7 @@ export default function TabBar(props: {
             at={at()}
             onClose={() => setPlusMenu(null)}
             onError={setError}
+            onImport={() => props.share.importWorkspace()}
           />
         )}
       </Show>
@@ -255,6 +258,17 @@ export default function TabBar(props: {
                 }}
               >
                 Rename…
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const { id } = open();
+                  setTabMenu(null);
+                  props.share.exportWorkspace(id);
+                }}
+              >
+                Export workspace…
               </button>
               <button
                 type="button"

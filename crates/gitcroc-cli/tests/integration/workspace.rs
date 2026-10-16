@@ -63,6 +63,38 @@ fn grp_1_cli_adds_every_repo_under_a_folder_and_shows_them() {
     assert!(unknown.stdout.is_empty());
 }
 
+#[test]
+fn data_2_cli_exports_and_imports_a_workspace() {
+    let fixture = Fixture::new().unwrap();
+    let repo = Repo::init(fixture.path().join("share").join("api")).unwrap();
+    repo.commit_file("a.txt", "a\n", "First").unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let added = json(&workspace(
+        config.path(),
+        &["add".as_ref(), repo.path().as_os_str()],
+    ));
+    let id = added["workspace_id"].as_str().unwrap().to_owned();
+    let file = fixture.path().join("share").join("team.toml");
+
+    let exported = json(&workspace(
+        config.path(),
+        &["export".as_ref(), id.as_ref(), file.as_os_str()],
+    ));
+    assert_eq!(exported["absolute"], serde_json::json!([]));
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("path = \"api\""), "{text}");
+
+    let imported = json(&workspace(
+        config.path(),
+        &["import".as_ref(), file.as_os_str()],
+    ));
+    assert_eq!(imported["missing"], serde_json::json!([]));
+    let shown = json(&workspace(config.path(), &["show".as_ref()]));
+    assert_eq!(shown["id"], imported["workspace_id"]);
+    assert_eq!(shown["name"], "My workspace (2)");
+    assert_eq!(shown["repos"], added["added"]);
+}
+
 fn summaries(config: &Path, cache: &Path, args: &[&str]) -> Output {
     Command::new(BIN)
         .arg("summaries")

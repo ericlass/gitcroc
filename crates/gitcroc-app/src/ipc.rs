@@ -14,17 +14,18 @@ use gitcroc_core::{
     CancelResult, ChangeRequest, ChangeStart, Changes, ChangesError, ChangesSettings,
     ChangesTarget, ChangesView, ChooseRequest, CloneError, CloneReport, CloneRequest,
     CommitGraphError, CommitRequest, ConflictDetails, ConflictRead, ConflictStart, DiffRequest,
-    FileDiff, FileRef, FsmonitorError, GitRunner, GitSetup, GitStatus, GroupError, GroupId,
-    GroupOp, GroupOps, GroupSettings, GroupSummary, Histories, HistoryTarget, HistoryView,
-    HistoryViewError, ImageSide, IntegrateError, IntegrateRequest, IntegrateStart, JobError,
-    JobEvents, JobId, JobProgress, JobView, Jobs, Outcome, PaneLayout, PreflightId, PreflightReady,
-    PushChoices, Refusal, RemoteError, RemoteRequest, RemoteStart, RemoteUrlsView, RepoChange,
-    RepoId, ResetError, ResetRequest, ResetStart, ResolveRequest, SettingsError, SettingsStore,
-    SettingsView, StashError, StashRequest, StashStart, StatusError, StatusReadError, Summaries,
-    SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch, TagError, TagRequest, TagStart,
-    TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers,
-    WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces,
-    add_path, group_summaries, refresh_summaries, refresh_workspace, tree_refs,
+    ExportReport, FileDiff, FileRef, FsmonitorError, GitRunner, GitSetup, GitStatus, GroupError,
+    GroupId, GroupOp, GroupOps, GroupSettings, GroupSummary, Histories, HistoryTarget, HistoryView,
+    HistoryViewError, ImageSide, ImportReport, IntegrateError, IntegrateRequest, IntegrateStart,
+    JobError, JobEvents, JobId, JobProgress, JobView, Jobs, MissingRepo, Outcome, PaneLayout,
+    PreflightId, PreflightReady, PushChoices, Refusal, RemoteError, RemoteRequest, RemoteStart,
+    RemoteUrlsView, RepoChange, RepoId, ResetError, ResetRequest, ResetStart, ResolveRequest,
+    SettingsError, SettingsStore, SettingsView, StashError, StashRequest, StashStart, StatusError,
+    StatusReadError, Summaries, SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch,
+    TagError, TagRequest, TagStart, TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees,
+    WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs,
+    WorkspaceView, Workspaces, add_path, group_summaries, refresh_summaries, refresh_workspace,
+    tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -147,7 +148,9 @@ impl From<WorkspaceError> for IpcError {
             | WorkspaceError::GroupNameTooLong
             | WorkspaceError::GroupNameTaken(_)
             | WorkspaceError::GroupNameReserved
-            | WorkspaceError::BadGroupOrder => IpcErrorCode::Refused,
+            | WorkspaceError::BadGroupOrder
+            | WorkspaceError::NotImported { .. }
+            | WorkspaceError::AlreadyPresent(_) => IpcErrorCode::Refused,
             WorkspaceError::Write { .. }
             | WorkspaceError::Read { .. }
             | WorkspaceError::Delete { .. }
@@ -326,6 +329,31 @@ pub struct WorkspaceAddReportEvent(pub AddReport);
 pub struct CloneParentPickedEvent {
     pub workspace_id: WorkspaceId,
     pub path: PathBuf,
+    /// The `key` of the request: which target of the missing repos dialog
+    /// it is for; `None` for the clone dialog.
+    pub key: Option<String>,
+}
+
+/// How an export ended, sent as event `workspace_exported` after the user
+/// picked a file; nothing is sent when they cancel.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "workspace_exported")]
+pub struct WorkspaceExportedEvent {
+    pub workspace_id: WorkspaceId,
+    /// `None` when it failed; `error` says why.
+    pub report: Option<ExportReport>,
+    pub error: Option<String>,
+}
+
+/// How an import ended, sent as event `workspace_imported` after the user
+/// picked a file, after the `workspaces_changed` that opens the new
+/// workspace; nothing is sent when they cancel.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "workspace_imported")]
+pub struct WorkspaceImportedEvent {
+    /// `None` when it was refused or failed; `error` says why.
+    pub report: Option<ImportReport>,
+    pub error: Option<String>,
 }
 
 /// How a clone ended, sent as event `clone_report` after its
@@ -675,6 +703,134 @@ pub async fn workspace_pick_and_add(
             }
         });
     Ok(())
+}
+
+/// Opens the native save dialog and returns at once. When the user picks a
+/// file, the workspace is written there with paths relative to it
+/// (DATA-2), and `workspace_exported` says how it went. Opened from Rust,
+/// as for `workspace_pick_and_add` (SEC-2).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_export(app: AppHandle, workspace_id: WorkspaceId) -> Result<(), IpcError> {
+    let view = app.state::<Arc<Workspaces>>().view(&workspace_id)?;
+    let picked = app.clone();
+    app.dialog()
+        .file()
+        .set_title("Export workspace")
+        .set_file_name(format!("{}.toml", file_name(&view.name)))
+        .add_filter("Workspace", &["toml"])
+        .save_file(move |file| {
+            let Some(file) = file else {
+                return;
+            };
+            tauri::async_runtime::spawn(async move {
+                let workspaces = picked.state::<Arc<Workspaces>>().inner().clone();
+                let id = workspace_id.clone();
+                let result = match file.into_path() {
+                    Ok(path) => {
+                        tauri::async_runtime::spawn_blocking(move || workspaces.export(&id, &path))
+                            .await
+                            .map_err(|error| error.to_string())
+                            .and_then(|result| result.map_err(|error| error.to_string()))
+                    }
+                    Err(error) => Err(format!("the dialog returned no usable file: {error}")),
+                };
+                let (report, error) = match result {
+                    Ok(report) => (Some(report), None),
+                    Err(error) => (None, Some(error)),
+                };
+                let _ = WorkspaceExportedEvent {
+                    workspace_id,
+                    report,
+                    error,
+                }
+                .emit(&picked);
+            });
+        });
+    Ok(())
+}
+
+/// `name` with the characters a file name cannot have on some platform
+/// replaced, for the save dialog's suggestion.
+fn file_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// Opens the native open dialog and returns at once. When the user picks a
+/// workspace file, it is imported into a new workspace that opens as the
+/// active tab (DATA-2), and `workspace_imported` names the repos whose
+/// folder is missing. Opened from Rust, as for `workspace_pick_and_add`
+/// (SEC-2).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_import(app: AppHandle) -> Result<(), IpcError> {
+    let git = usable_git(&app).await?;
+    let picked = app.clone();
+    app.dialog()
+        .file()
+        .set_title("Import workspace")
+        .add_filter("Workspace", &["toml"])
+        .pick_file(move |file| {
+            let Some(file) = file else {
+                return;
+            };
+            tauri::async_runtime::spawn(async move {
+                let result = match file.into_path() {
+                    Ok(path) => import_file(picked.clone(), path, git).await,
+                    Err(error) => Err(format!("the dialog returned no usable file: {error}")),
+                };
+                let (report, error) = match result {
+                    Ok(report) => (Some(report), None),
+                    Err(error) => (None, Some(error)),
+                };
+                let _ = WorkspaceImportedEvent { report, error }.emit(&picked);
+            });
+        });
+    Ok(())
+}
+
+/// Imports the workspace file at `path` and opens it as the active tab.
+async fn import_file(
+    app: AppHandle,
+    path: PathBuf,
+    git: GitRunner,
+) -> Result<ImportReport, String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    change_tabs(app, move |workspaces| {
+        let report = workspaces.import(&path, &git)?;
+        let opened = report.workspace_id.clone();
+        let _ = sender.send(report);
+        Ok(Some(opened))
+    })
+    .await
+    .map_err(|error| error.message)?;
+    receiver
+        .try_recv()
+        .map_err(|error| format!("the import did not report: {error}"))
+}
+
+/// The repos of the workspace whose folder is missing or is no repo, with
+/// their remote and default clone target (DATA-2).
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_missing_repos(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<MissingRepo>, IpcError> {
+    // Reads the disk; keep it off the async workers (ARCH-7).
+    let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || workspaces.missing_repos(&workspace_id))
+            .await??,
+    )
 }
 
 /// The current summary of every repo of the workspace, in workspace order:
@@ -1416,11 +1572,15 @@ pub async fn fsmonitor_decline(
 }
 
 /// Opens the native folder dialog for a clone's parent folder and returns
-/// at once; the folder picked arrives as `clone_parent_picked`. Opened from
-/// Rust, as for `workspace_pick_and_add` (SEC-2).
+/// at once; the folder picked arrives as `clone_parent_picked`, with `key`.
+/// Opened from Rust, as for `workspace_pick_and_add` (SEC-2).
 #[tauri::command]
 #[specta::specta]
-pub async fn clone_pick_parent(app: AppHandle, workspace_id: WorkspaceId) -> Result<(), IpcError> {
+pub async fn clone_pick_parent(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    key: Option<String>,
+) -> Result<(), IpcError> {
     app.state::<Arc<Workspaces>>().view(&workspace_id)?;
     let picked = app.clone();
     app.dialog()
@@ -1428,7 +1588,12 @@ pub async fn clone_pick_parent(app: AppHandle, workspace_id: WorkspaceId) -> Res
         .set_title("Clone into folder")
         .pick_folder(move |folder| {
             if let Some(Ok(path)) = folder.map(|folder| folder.into_path()) {
-                let _ = CloneParentPickedEvent { workspace_id, path }.emit(&picked);
+                let _ = CloneParentPickedEvent {
+                    workspace_id,
+                    path,
+                    key,
+                }
+                .emit(&picked);
             }
         });
     Ok(())
@@ -1444,11 +1609,16 @@ pub async fn clone_default_name(url: String) -> Result<Option<String>, IpcError>
 
 /// Why a clone into folder `name` of `parent` would be refused, such as a
 /// folder that exists and is not empty, or `null`. Checked as the user
-/// types.
+/// types. With `creates_parent`, as for a missing repo, a `parent` that
+/// does not exist yet is not refused: the clone creates it.
 #[tauri::command]
 #[specta::specta]
-pub async fn clone_target_check(parent: PathBuf, name: String) -> Result<Option<String>, IpcError> {
-    Ok(gitcroc_core::clone_target_check(parent, name).await)
+pub async fn clone_target_check(
+    parent: PathBuf,
+    name: String,
+    creates_parent: bool,
+) -> Result<Option<String>, IpcError> {
+    Ok(gitcroc_core::clone_target_check(parent, name, creates_parent).await)
 }
 
 /// Starts cloning `request` and returns its job's id at once. Progress
@@ -2283,6 +2453,9 @@ macro_rules! with_commands {
                 workspace_pick_and_add,
                 workspace_remove_repo,
                 workspace_summaries,
+                workspace_export,
+                workspace_import,
+                workspace_missing_repos,
                 repo_select,
                 tree_get,
                 refs_get,
@@ -2370,6 +2543,9 @@ macro_rules! with_commands {
                 workspace_pick_and_add,
                 workspace_remove_repo,
                 workspace_summaries,
+                workspace_export,
+                workspace_import,
+                workspace_missing_repos,
                 repo_select,
                 tree_get,
                 refs_get,
@@ -2451,6 +2627,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             WorkspaceAddReportEvent,
             CloneParentPickedEvent,
             CloneReportEvent,
+            WorkspaceExportedEvent,
+            WorkspaceImportedEvent,
             RepoSummaryEvent,
             RepoRefsChangedEvent,
             CommitGraphWrittenEvent,

@@ -3,9 +3,10 @@
 // per workspace (ARCH-9). The core opens the folder dialog (SEC-2), names
 // the default folder, checks the target and runs the clone as a job; this
 // store only sends requests and keeps the answers. A clone that ends with
-// its repo in the workspace hands it to `onCloned`, which selects it.
+// its repo in the workspace hands it to `onCloned`, which selects it. The
+// clone can add the repo to a group (section 6 "Repos").
 import { createStore, produce } from "solid-js/store";
-import { clonePickParent, cloneStart, core, type RepoId, type WorkspaceId } from "../ipc";
+import { type CloneGroup, clonePickParent, cloneStart, core, type RepoId, type WorkspaceId } from "../ipc";
 
 interface WorkspaceClone {
   open: boolean;
@@ -57,8 +58,8 @@ export function createCloneStore(onCloned: (id: WorkspaceId, repo: RepoId) => vo
     clonePickParent(id).catch((failure) => update(id, (s) => (s.error = message(failure))));
   };
 
-  /** Starts cloning `url` into folder `name` of the picked parent; started, the dialog closes. */
-  const start = async (id: WorkspaceId, url: string, name: string) => {
+  /** Starts cloning `url` into folder `name` of the picked parent, then into `group`; started, the dialog closes. */
+  const start = async (id: WorkspaceId, url: string, name: string, group: CloneGroup | null = null) => {
     const into = parent(id);
     if (into === null) {
       return;
@@ -68,7 +69,7 @@ export function createCloneStore(onCloned: (id: WorkspaceId, repo: RepoId) => vo
       s.sending = true;
     });
     try {
-      await cloneStart(id, { url, parent: into, name });
+      await cloneStart(id, { url, parent: into, name, repo: null, group });
       update(id, (s) => (s.open = false));
     } catch (failure) {
       update(id, (s) => (s.error = message(failure)));
@@ -80,7 +81,10 @@ export function createCloneStore(onCloned: (id: WorkspaceId, repo: RepoId) => vo
   /** Follows the picked folders and the clones' ends; resolves to the unsubscribe function. */
   const subscribe = async () => {
     const stopPicked = await core.events.cloneParentPicked.listen((event) => {
-      update(event.payload.workspace_id, (s) => (s.parent = event.payload.path));
+      // A pick with a key is the missing repos dialog's.
+      if (event.payload.key === null) {
+        update(event.payload.workspace_id, (s) => (s.parent = event.payload.path));
+      }
     });
     const stopReport = await core.events.cloneReport.listen((event) => {
       const { workspace_id, repo } = event.payload;

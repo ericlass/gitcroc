@@ -4,7 +4,8 @@
 // group entries never touch a repo (GRP-3), so they stay enabled; Fetch,
 // Pull, Push and the branch operations of a group, and those of a name in
 // its Branches node (UI-5), go through its preflight, which skips or blocks
-// each repo that cannot take them (GRP-8).
+// each repo that cannot take them (GRP-8). A repo whose folder is missing
+// offers Clone from remote, which opens the missing repos dialog (DATA-2).
 import type { GroupId, TreeItem } from "../ipc";
 import type { GroupInfo } from "./groups";
 
@@ -31,6 +32,7 @@ export type MenuAction =
   | "open_file_manager"
   | "open_terminal"
   | "remove_repo"
+  | "clone_missing"
   | "add_to_group"
   | "new_group"
   | "remove_from_group"
@@ -113,9 +115,10 @@ function groupEntries(item: TreeItem, groups: GroupInfo[]): MenuEntry[] {
 
 /**
  * What the menu of a row for `item` lists, with `groups` the workspace's
- * groups; empty when the row has none.
+ * groups and `missing` when a repo's folder is missing; empty when the row
+ * has none.
  */
-export function menuFor(item: TreeItem, blocked: boolean, groups: GroupInfo[]): MenuEntry[] {
+export function menuFor(item: TreeItem, blocked: boolean, groups: GroupInfo[], missing = false): MenuEntry[] {
   const entry = (action: MenuAction, label: string, disabled = false): MenuEntry => ({
     action,
     label,
@@ -124,6 +127,7 @@ export function menuFor(item: TreeItem, blocked: boolean, groups: GroupInfo[]): 
   switch (item.kind) {
     case "repo":
       return [
+        ...(missing ? [{ action: "clone_missing" as const, label: "Clone from remote…", disabled: false }] : []),
         entry("create", "New branch…"),
         entry("tag_create", "New tag…"),
         ...groupEntries(item, groups),

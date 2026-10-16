@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{Group, RepoEntry, RepoId, Workspace, WorkspaceError, Workspaces};
-use crate::WorkspaceId;
+use crate::{CloneGroup, WorkspaceId};
 
 /// The longest group name, in characters (GRP-2).
 pub const MAX_GROUP_NAME: usize = 64;
@@ -95,25 +95,7 @@ impl Groups<'_> {
     /// `name` trimmed, when it is a valid name no other group than
     /// `except` has (GRP-2).
     fn check_name(&self, name: &str, except: Option<usize>) -> Result<String, WorkspaceError> {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err(WorkspaceError::BlankGroupName);
-        }
-        if name.chars().count() > MAX_GROUP_NAME {
-            return Err(WorkspaceError::GroupNameTooLong);
-        }
-        let lower = name.to_lowercase();
-        if lower == UNGROUPED_NAME.to_lowercase() {
-            return Err(WorkspaceError::GroupNameReserved);
-        }
-        let taken =
-            self.groups.iter().enumerate().find(|(index, group)| {
-                Some(*index) != except && group.name.to_lowercase() == lower
-            });
-        if let Some((_, group)) = taken {
-            return Err(WorkspaceError::GroupNameTaken(group.name.clone()));
-        }
-        Ok(name.to_owned())
+        check_group_name(self.groups, name, except)
     }
 
     /// Refuses a repo that is not in the workspace.
@@ -132,6 +114,35 @@ impl Groups<'_> {
         // the same length as `groups`.
         &mut self.groups[index].repos
     }
+}
+
+/// `name` trimmed, when it is a valid group name that no group of `groups`
+/// but the one at `except` has, ignoring case, and is not "Ungrouped"
+/// (GRP-2).
+pub(super) fn check_group_name(
+    groups: &[Group],
+    name: &str,
+    except: Option<usize>,
+) -> Result<String, WorkspaceError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(WorkspaceError::BlankGroupName);
+    }
+    if name.chars().count() > MAX_GROUP_NAME {
+        return Err(WorkspaceError::GroupNameTooLong);
+    }
+    let lower = name.to_lowercase();
+    if lower == UNGROUPED_NAME.to_lowercase() {
+        return Err(WorkspaceError::GroupNameReserved);
+    }
+    let taken = groups
+        .iter()
+        .enumerate()
+        .find(|(index, group)| Some(*index) != except && group.name.to_lowercase() == lower);
+    if let Some((_, group)) = taken {
+        return Err(WorkspaceError::GroupNameTaken(group.name.clone()));
+    }
+    Ok(name.to_owned())
 }
 
 /// `repos` without repeats, in their first order.
@@ -300,6 +311,41 @@ impl Workspaces {
                 Ok(())
             })
         })
+    }
+
+    /// Refuses a group a clone cannot join: an unknown one, or a new name
+    /// GRP-2 refuses.
+    pub(crate) fn check_clone_group(
+        &self,
+        id: &WorkspaceId,
+        group: &CloneGroup,
+    ) -> Result<(), WorkspaceError> {
+        self.with(id, |workspace| match group {
+            CloneGroup::Existing { group_id } => workspace
+                .group_ids
+                .contains(group_id)
+                .then_some(())
+                .ok_or_else(|| WorkspaceError::UnknownGroup(group_id.clone())),
+            CloneGroup::New { name } => {
+                check_group_name(&workspace.file.groups, name, None).map(drop)
+            }
+        })
+    }
+
+    /// Adds the cloned `repo` to `group`: at the end of an existing one, or
+    /// as the only member of a new last one.
+    pub(crate) fn join_group(
+        &self,
+        id: &WorkspaceId,
+        repo: &RepoId,
+        group: &CloneGroup,
+    ) -> Result<(), String> {
+        let repos = std::slice::from_ref(repo);
+        match group {
+            CloneGroup::Existing { group_id } => self.add_to_group(id, group_id, repos, None),
+            CloneGroup::New { name } => self.create_group(id, name, repos).map(drop),
+        }
+        .map_err(|error| error.to_string())
     }
 
     /// Puts the groups in the order of `order`, which names each group

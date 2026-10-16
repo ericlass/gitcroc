@@ -125,6 +125,8 @@ impl Run {
                 url: url.to_owned(),
                 parent: self.parent.clone(),
                 name: name.to_owned(),
+                repo: None,
+                group: None,
             },
         )
         .await
@@ -181,7 +183,7 @@ async fn grp_1_a_clone_into_an_empty_folder_is_added() {
     let run = Run::new();
     std::fs::create_dir(run.parent.join("empty")).unwrap();
     assert_eq!(
-        clone_target_check(run.parent.clone(), "empty".into()).await,
+        clone_target_check(run.parent.clone(), "empty".into(), false).await,
         None
     );
 
@@ -198,7 +200,7 @@ async fn grp_1_a_folder_that_is_not_empty_is_refused_before_git_runs() {
     std::fs::write(full.join("mine.txt"), "mine\n").unwrap();
     let why = format!("the folder {} exists and is not empty", full.display());
     assert_eq!(
-        clone_target_check(run.parent.clone(), "full".into()).await,
+        clone_target_check(run.parent.clone(), "full".into(), false).await,
         Some(why.clone())
     );
 

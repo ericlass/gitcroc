@@ -80,6 +80,26 @@ export const commands = {
 	 */
 	workspaceSummaries: (workspaceId: WorkspaceId) => typedError<SummaryView[], IpcError>(__TAURI_INVOKE("workspace_summaries", { workspaceId })),
 	/**
+	 *  Opens the native save dialog and returns at once. When the user picks a
+	 *  file, the workspace is written there with paths relative to it
+	 *  (DATA-2), and `workspace_exported` says how it went. Opened from Rust,
+	 *  as for `workspace_pick_and_add` (SEC-2).
+	 */
+	workspaceExport: (workspaceId: WorkspaceId) => typedError<null, IpcError>(__TAURI_INVOKE("workspace_export", { workspaceId })),
+	/**
+	 *  Opens the native open dialog and returns at once. When the user picks a
+	 *  workspace file, it is imported into a new workspace that opens as the
+	 *  active tab (DATA-2), and `workspace_imported` names the repos whose
+	 *  folder is missing. Opened from Rust, as for `workspace_pick_and_add`
+	 *  (SEC-2).
+	 */
+	workspaceImport: () => typedError<null, IpcError>(__TAURI_INVOKE("workspace_import")),
+	/**
+	 *  The repos of the workspace whose folder is missing or is no repo, with
+	 *  their remote and default clone target (DATA-2).
+	 */
+	workspaceMissingRepos: (workspaceId: WorkspaceId) => typedError<MissingRepo[], IpcError>(__TAURI_INVOKE("workspace_missing_repos", { workspaceId })),
+	/**
 	 *  Tells the core which repo of the workspace is selected, so it is read
 	 *  first when its summary waits for a refresh (PERF-4) and its working tree
 	 *  is the one watched (PERF-6). `None` clears it. Returns at once; the
@@ -408,10 +428,10 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	fsmonitorDecline: (workspaceId: WorkspaceId, repoId: RepoId) => typedError<null, IpcError>(__TAURI_INVOKE("fsmonitor_decline", { workspaceId, repoId })),
 	/**
 	 *  Opens the native folder dialog for a clone's parent folder and returns
-	 *  at once; the folder picked arrives as `clone_parent_picked`. Opened from
-	 *  Rust, as for `workspace_pick_and_add` (SEC-2).
+	 *  at once; the folder picked arrives as `clone_parent_picked`, with `key`.
+	 *  Opened from Rust, as for `workspace_pick_and_add` (SEC-2).
 	 */
-	clonePickParent: (workspaceId: WorkspaceId) => typedError<null, IpcError>(__TAURI_INVOKE("clone_pick_parent", { workspaceId })),
+	clonePickParent: (workspaceId: WorkspaceId, key: string | null) => typedError<null, IpcError>(__TAURI_INVOKE("clone_pick_parent", { workspaceId, key })),
 	/**
 	 *  The folder a clone of `url` gets by default: the last segment of its
 	 *  path without `.git`; `null` when there is none.
@@ -420,9 +440,10 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	/**
 	 *  Why a clone into folder `name` of `parent` would be refused, such as a
 	 *  folder that exists and is not empty, or `null`. Checked as the user
-	 *  types.
+	 *  types. With `creates_parent`, as for a missing repo, a `parent` that
+	 *  does not exist yet is not refused: the clone creates it.
 	 */
-	cloneTargetCheck: (parent: string, name: string) => typedError<string | null, IpcError>(__TAURI_INVOKE("clone_target_check", { parent, name })),
+	cloneTargetCheck: (parent: string, name: string, createsParent: boolean) => typedError<string | null, IpcError>(__TAURI_INVOKE("clone_target_check", { parent, name, createsParent })),
 	/**
 	 *  Starts cloning `request` and returns its job's id at once. Progress
 	 *  arrives as `job_progress`; at its end, a cloned repo is in the
@@ -554,6 +575,8 @@ export const events = {
 	watchWarning: makeEvent<WatchWarningEvent>("watch_warning"),
 	workspaceAddReport: makeEvent<WorkspaceAddReportEvent>("workspace_add_report"),
 	workspaceChanged: makeEvent<WorkspaceChangedEvent>("workspace_changed"),
+	workspaceExported: makeEvent<WorkspaceExportedEvent>("workspace_exported"),
+	workspaceImported: makeEvent<WorkspaceImportedEvent>("workspace_imported"),
 	workspacesChanged: makeEvent<WorkspacesChangedEvent>("workspaces_changed"),
 };
 
@@ -882,6 +905,13 @@ export type Class = { kind: "will_run" } | { kind: "will_skip"; reason: string }
  */
 { kind: "needs_attention"; reason: string };
 
+/**  The group a cloned repo joins (section 6 "Repos"). */
+export type CloneGroup = 
+/**  A group of the workspace, at its end. */
+{ kind: "existing"; group_id: GroupId } | 
+/**  A new last group with the repo alone, named as GRP-2 says. */
+{ kind: "new"; name: string };
+
 /**
  *  The parent folder the user picked for a clone, sent as event
  *  `clone_parent_picked`; nothing is sent when they cancel.
@@ -889,6 +919,11 @@ export type Class = { kind: "will_run" } | { kind: "will_skip"; reason: string }
 export type CloneParentPickedEvent = {
 	workspace_id: WorkspaceId,
 	path: string,
+	/**
+	 *  The `key` of the request: which target of the missing repos dialog
+	 *  it is for; `None` for the clone dialog.
+	 */
+	key: string | null,
 };
 
 /**  How a clone ended. */
@@ -900,6 +935,11 @@ export type CloneReport = {
 	 *  clone failed, was cancelled or could not be added.
 	 */
 	repo: RepoView | null,
+	/**
+	 *  Why the clone failed or what went wrong after it, as the job's
+	 *  message says, with git's message when git failed.
+	 */
+	message: string | null,
 };
 
 /**
@@ -913,6 +953,14 @@ export type CloneRequest = {
 	url: string,
 	parent: string,
 	name: string,
+	/**
+	 *  The missing repo the clone fills in, keeping its id and groups,
+	 *  instead of adding a new one (DATA-2). `parent` and the folders
+	 *  above it are created when they do not exist.
+	 */
+	repo: RepoId | null,
+	/**  The group the cloned repo joins. */
+	group: CloneGroup | null,
 };
 
 /**
@@ -1121,6 +1169,17 @@ export type Edge = {
 	from: number,
 	to: number,
 	color: number,
+};
+
+/**  What an export wrote. Paths are text for display only (PLAT-2). */
+export type ExportReport = {
+	/**  The file written. */
+	path: string,
+	/**
+	 *  The repo paths no relative path reaches, such as on another drive,
+	 *  written absolute.
+	 */
+	absolute: string[],
 };
 
 /**  The diff of one file. */
@@ -1384,6 +1443,14 @@ export type ImageFormat = "png" | "jpeg" | "gif" | "webp" | "bmp";
 /**  A side of an image diff. */
 export type ImageSide = "old" | "new";
 
+/**  What an import created. */
+export type ImportReport = {
+	/**  The new workspace, opened as the active tab. */
+	workspace_id: WorkspaceId,
+	/**  The repos whose folder is missing or is no repo, in file order. */
+	missing: RepoId[],
+};
+
 /**
  *  An integrate operation (section 6 "Integrate"), or what to do with one
  *  stopped in conflict state (OPS-2).
@@ -1558,6 +1625,20 @@ export type MissingBranch =
 "default_branch" | 
 /**  X is created from `HEAD`. */
 "create";
+
+/**
+ *  A repo of the workspace whose folder is missing or is no repo, and
+ *  where a clone of it goes by default (DATA-2).
+ */
+export type MissingRepo = {
+	repo_id: RepoId,
+	name: string,
+	/**  The URL to clone from; `None` when the file named none. */
+	remote: string | null,
+	/**  The folder the repo's path names, and its last component. */
+	parent: string,
+	folder: string,
+};
 
 /**  Both modes, as git writes them (`100644`), when they differ. */
 export type ModeChange = {
@@ -2328,8 +2409,30 @@ export type WorkspaceAddReportEvent = AddReport;
  */
 export type WorkspaceChangedEvent = WorkspaceView;
 
+/**
+ *  How an export ended, sent as event `workspace_exported` after the user
+ *  picked a file; nothing is sent when they cancel.
+ */
+export type WorkspaceExportedEvent = {
+	workspace_id: WorkspaceId,
+	/**  `None` when it failed; `error` says why. */
+	report: ExportReport | null,
+	error: string | null,
+};
+
 /**  Identifies a workspace. All session state is keyed by it (ARCH-9). */
 export type WorkspaceId = string;
+
+/**
+ *  How an import ended, sent as event `workspace_imported` after the user
+ *  picked a file, after the `workspaces_changed` that opens the new
+ *  workspace; nothing is sent when they cancel.
+ */
+export type WorkspaceImportedEvent = {
+	/**  `None` when it was refused or failed; `error` says why. */
+	report: ImportReport | null,
+	error: string | null,
+};
 
 /**  A workspace file, for the list of every workspace (UI-28). */
 export type WorkspaceListItem = {

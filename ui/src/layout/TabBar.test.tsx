@@ -90,7 +90,7 @@ test("ui_28_plus_menu_lists_workspaces_and_offers_new_and_import", async () => {
     "Import workspace…",
   ]);
   expect(menu.queryByRole("menuitem", { name: "Delete My workspace…" })).toBeNull();
-  expect((menu.getByRole("menuitem", { name: "Import workspace…" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((menu.getByRole("menuitem", { name: "Import workspace…" }) as HTMLButtonElement).disabled).toBe(false);
   expect(document.activeElement).toBe(items[0]);
 
   // Delete says that the repos on disk are not touched; nothing is deleted before Delete.

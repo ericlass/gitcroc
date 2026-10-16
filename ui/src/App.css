@@ -1108,6 +1108,60 @@ button.danger:hover:not(:disabled) {
   color: var(--text-secondary);
 }
 
+/* The missing repos dialog (DATA-2): one row per repo, its remote and its target below its name. */
+.missing-dialog {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.missing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.missing-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.missing-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.missing-remote,
+.missing-state {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
+.missing-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.missing-target input {
+  width: 12em;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.missing-target input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
 .op-actions {
   padding-left: 1.2em;
   overflow-wrap: anywhere;
