@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use gitcroc_core::{
-    AddReport, AiEligibilityRead, AiOptions, AppInfo, AppLog, Appearance, BranchChoices,
+    AddReport, AiEligibilityRead, AiEvents as AiJobEvents, AiJobs, AiOptions, AiProposalGet,
+    AiProposalReady, AiResolveRequest, AiResolveStart, AppInfo, AppLog, Appearance, BranchChoices,
     BranchError, BranchRequest, BranchStart, CancelResult, ChangeRequest, ChangeStart, Changes,
     ChangesError, ChangesSettings, ChangesTarget, ChangesView, ChooseRequest, CloneError,
     CloneReport, CloneRequest, CommitGraphError, CommitRequest, ConflictDetails, ConflictRead,
@@ -299,6 +300,12 @@ pub struct AiModelsEvent(pub AiModelsReply);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "ai_self_test")]
 pub struct AiSelfTestEvent(pub AiSelfTestReply);
+
+/// A proposal job's result was kept, sent as event `ai_proposal_ready`;
+/// `ai_proposal_get` reads it (M4-08). Never carries a prompt or a reply.
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "ai_proposal_ready")]
+pub struct AiProposalReadyEvent(pub AiProposalReady);
 
 /// A job was queued, began to run, or made progress, sent as event
 /// `job_progress` (ARCH-7, UI-21).
@@ -1267,6 +1274,23 @@ pub fn ai_events(app: &AppHandle) -> Arc<dyn AiSink> {
     Arc::new(AiEvents(app.clone()))
 }
 
+impl AiJobEvents for AiEvents {
+    fn proposal_ready(&self, ready: &AiProposalReady) {
+        let _ = AiProposalReadyEvent(ready.clone()).emit(&self.0);
+    }
+}
+
+/// The proposal jobs (M4-08), sending `ai_proposal_ready`. Needs the job
+/// engine managed first.
+pub fn ai_jobs(app: &AppHandle) -> Arc<AiJobs> {
+    AiJobs::new(
+        app.state::<Arc<Jobs>>().inner().clone(),
+        app.state::<Arc<Workspaces>>().inner().clone(),
+        app.state::<Arc<SettingsStore>>().inner().clone(),
+        Arc::new(AiEvents(app.clone())),
+    )
+}
+
 /// Saves the changes pane's view: diff mode and options and the file list
 /// toggle, the same for every workspace (UI-14, UI-17).
 #[tauri::command]
@@ -1472,6 +1496,44 @@ pub async fn ai_eligibility(
     let changes = app.state::<Arc<Changes>>().inner().clone();
     let exclude = app.state::<Arc<SettingsStore>>().ai().exclude;
     Ok(gitcroc_core::ai_eligibility_get(changes, workspace_id, handle, file, exclude).await?)
+}
+
+/// Resolve with AI (AI-3): refused, in this order, with `ai_off` (AI-16),
+/// `ai_disabled` for the workspace (AI-6), `no_provider` (open the provider
+/// settings), `provider_unusable`, `ineligible` (AI-4) or `consent_needed`
+/// (AI-6); otherwise starts the job "Resolve with AI · <file name>" and
+/// returns at once. Its result arrives as `ai_proposal_ready`. The job
+/// only reads the repo and asks the provider (D9). `null` when a newer
+/// view of the workspace replaced the request's.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_resolve(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: AiResolveRequest,
+) -> Result<Option<AiResolveStart>, IpcError> {
+    let changes = app.state::<Arc<Changes>>().inner().clone();
+    let ai = app.state::<Arc<AiJobs>>().inner().clone();
+    let access = app.state::<Arc<AiProviders>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::ai_resolve(changes, ai, access, git, workspace_id, request).await?)
+}
+
+/// The proposal kept for unmerged file `file` of view `handle`, the reason
+/// AI failed for it (AI-9), or `no_proposal`; one made for a conflict the
+/// file no longer has is dropped. `null` when a newer view of the
+/// workspace replaced it.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_proposal_get(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    handle: u32,
+    file: u32,
+) -> Result<Option<AiProposalGet>, IpcError> {
+    let changes = app.state::<Arc<Changes>>().inner().clone();
+    let ai = app.state::<Arc<AiJobs>>().inner().clone();
+    Ok(gitcroc_core::ai_proposal_get(changes, ai, workspace_id, handle, file).await?)
 }
 
 /// Mark resolved (OPS-5): writes the editor's text to the file and stages
@@ -2708,6 +2770,8 @@ macro_rules! with_commands {
                 conflict_resolve,
                 conflict_choose,
                 ai_eligibility,
+                ai_resolve,
+                ai_proposal_get,
                 settings_set_appearance,
                 settings_set_groups,
                 group_drop,
@@ -2808,6 +2872,8 @@ macro_rules! with_commands {
                 conflict_resolve,
                 conflict_choose,
                 ai_eligibility,
+                ai_resolve,
+                ai_proposal_get,
                 settings_set_appearance,
                 settings_set_groups,
                 group_drop,
@@ -2854,7 +2920,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             AskpassClosedEvent,
             AiChangedEvent,
             AiModelsEvent,
-            AiSelfTestEvent
+            AiSelfTestEvent,
+            AiProposalReadyEvent
         ])
 }
 

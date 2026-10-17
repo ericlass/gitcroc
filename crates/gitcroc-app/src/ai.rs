@@ -12,23 +12,25 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
 use gitcroc_ai::{
-    AnthropicProvider, ApiKey, ClaudeCodeProvider, CodexProvider, ModelList, OpenAiProvider,
-    SelfTestError,
+    AnthropicProvider, ApiKey, ClaudeCodeProvider, CodexProvider, Logged, ModelList,
+    OpenAiProvider, Provider, ProviderSpec, SelfTestError, connect,
 };
 use gitcroc_core::{
-    AiOptions, AiSettingsError, AppLog, DEFAULT_CONTEXT_BUDGET, ProviderDraft, ProviderEntry,
-    ProviderId, ProviderKind, SettingsError, SettingsStore, WorkspaceError, WorkspaceId,
-    Workspaces, url_host,
+    AiJobs, AiOptions, AiSettingsError, AppLog, DEFAULT_CONTEXT_BUDGET, Proposer, ProviderAccess,
+    ProviderDraft, ProviderEntry, ProviderId, ProviderKind, SettingsError, SettingsStore,
+    WorkspaceError, WorkspaceId, Workspaces,
 };
+pub use gitcroc_core::{ConsentRequest, ConsentTarget};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
 use crate::platform::{Keychain, KeychainError, keychain_account};
+use crate::proposer::AiProposer;
 
 /// The future an [`AiBackend`] call returns.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -106,76 +108,15 @@ pub struct AiSelfTestReply {
     pub result: SelfTest,
 }
 
-/// Where a provider sends what AI-5 allows: an API's host, or the program a
-/// CLI provider runs (AI-6).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ConsentTarget {
-    /// With its port when the URL names one, such as `localhost:11434`.
-    Host {
-        host: String,
-    },
-    Program {
-        path: String,
-    },
-}
-
-impl ConsentTarget {
-    /// What the consent keeps: the host or the program's path.
-    pub fn value(&self) -> &str {
-        match self {
-            Self::Host { host } => host,
-            Self::Program { path } => path,
-        }
-    }
-}
-
-/// What is sent for each file (AI-5), in plain words for the consent
-/// dialog.
-const SENT: [&str; 5] = [
-    "The file's path in the repository",
-    "The operation, such as merge, rebase, cherry-pick, revert or stash apply",
-    "The labels of the two sides, such as the branch names",
-    "Each conflicting part: its base, ours and theirs text, with the 40 lines around it",
-    "The messages of up to 10 commits per side that changed the file, each cut at 2,000 characters",
-];
-
-/// The text of the consent dialog, shown before a provider's first use and
-/// again when its host or program changed (AI-6).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub struct ConsentRequest {
-    pub provider_id: ProviderId,
-    pub provider_name: String,
-    /// Where it is sent; `ai_provider_consent` takes its value back.
-    pub to: ConsentTarget,
-    /// What is sent for each file, one item per line.
-    pub sent: Vec<String>,
-}
-
 /// Where `entry` sends: its API's host or its program.
 fn consent_target(entry: &ProviderEntry) -> Option<ConsentTarget> {
-    let host = |url: &str| url_host(url).map(|host| ConsentTarget::Host { host });
-    match entry.kind {
-        ProviderKind::Anthropic => host(AnthropicProvider::DEFAULT_BASE_URL),
-        ProviderKind::Openai => entry.base_url.as_deref().and_then(host),
-        ProviderKind::ClaudeCode | ProviderKind::Codex => {
-            entry.path.as_ref().map(|path| ConsentTarget::Program {
-                path: path.display().to_string(),
-            })
-        }
-    }
+    gitcroc_core::consent_target(entry, AnthropicProvider::DEFAULT_BASE_URL)
 }
 
 /// The consent `entry` still needs: none when the user consented to where
 /// it sends now.
 fn consent_request(entry: &ProviderEntry) -> Option<ConsentRequest> {
-    let to = consent_target(entry)?;
-    (entry.consent.as_deref() != Some(to.value())).then(|| ConsentRequest {
-        provider_id: entry.id.clone(),
-        provider_name: entry.name.clone(),
-        to,
-        sent: SENT.map(str::to_owned).to_vec(),
-    })
+    gitcroc_core::consent_request(entry, AnthropicProvider::DEFAULT_BASE_URL)
 }
 
 /// A configured provider as the UI sees it: its entry, without the file's
@@ -231,6 +172,9 @@ pub trait AiBackend: Send + Sync + 'static {
         entry: &'a ProviderEntry,
         key: Option<ApiKey>,
     ) -> BoxFuture<'a, ModelsResult>;
+
+    /// The provider `spec` describes, for a proposal job (M4-08).
+    fn provider(&self, spec: ProviderSpec) -> Result<Box<dyn Provider>, String>;
 }
 
 /// Where the views and replies go: the window's events in the app.
@@ -260,7 +204,8 @@ pub enum AiError {
 }
 
 /// Why a provider is not used on a workspace, in the order the checks run.
-/// M4-08 adds its eligibility check before the consent.
+/// The core's `ai_resolve` checks the file's eligibility between the two
+/// (M4-08).
 #[derive(Debug, thiserror::Error)]
 pub enum AiRefusal {
     #[error("AI features are off")]
@@ -343,6 +288,8 @@ pub struct AiProviders {
     state: Mutex<State>,
     /// The background work started and not yet awaited by [`Self::settle`].
     tasks: Mutex<Vec<JoinHandle<()>>>,
+    /// The proposal jobs, which turning AI off cancels (AI-16).
+    jobs: OnceLock<Arc<AiJobs>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -369,7 +316,15 @@ impl AiProviders {
             runtime,
             state: Mutex::new(State::default()),
             tasks: Mutex::new(Vec::new()),
+            jobs: OnceLock::new(),
         })
+    }
+
+    /// Turning AI off from now on also cancels the proposal jobs of `jobs`
+    /// and drops their proposals (AI-16). Set once; returns `false` when it
+    /// was set already.
+    pub fn use_jobs(&self, jobs: Arc<AiJobs>) -> bool {
+        self.jobs.set(jobs).is_ok()
     }
 
     /// At app start: with AI on, detects the CLIs and self-tests every CLI
@@ -496,7 +451,10 @@ impl AiProviders {
     /// off drops what they found (AI-16).
     pub fn set_options(self: &Arc<Self>, options: AiOptions) -> Result<AiView, AiError> {
         let was = self.settings.ai().enabled;
-        let ai = self.settings.set_ai_options(options)?;
+        let ai = match self.jobs.get() {
+            Some(jobs) => jobs.set_options(options)?,
+            None => self.settings.set_ai_options(options)?,
+        };
         if ai.enabled && !was {
             self.refresh();
         } else if !ai.enabled {
@@ -844,6 +802,75 @@ impl AiProviders {
     }
 }
 
+/// The provider `entry` with `key`, as `gitcroc-ai` takes it: the settings
+/// checked that each kind has what it needs.
+fn spec(entry: &ProviderEntry, key: Option<ApiKey>) -> Result<ProviderSpec, String> {
+    let model = entry.model.clone();
+    let path = || {
+        entry
+            .path
+            .clone()
+            .ok_or_else(|| AiSettingsError::NoPath(entry.kind).to_string())
+    };
+    Ok(match entry.kind {
+        ProviderKind::Anthropic => ProviderSpec::Anthropic {
+            key: key.ok_or_else(|| AiError::NeedsKey.to_string())?,
+            model: model.unwrap_or_default(),
+        },
+        ProviderKind::Openai => ProviderSpec::OpenAi {
+            base_url: entry.base_url.clone().unwrap_or_default(),
+            key,
+            model: model.unwrap_or_default(),
+        },
+        ProviderKind::ClaudeCode => ProviderSpec::ClaudeCode {
+            path: path()?,
+            model,
+        },
+        ProviderKind::Codex => ProviderSpec::Codex {
+            path: path()?,
+            model,
+        },
+    })
+}
+
+impl ProviderAccess for AiProviders {
+    fn problem(&self, entry: &ProviderEntry) -> Option<String> {
+        lock(&self.state)
+            .checks
+            .get(&entry.id)
+            .and_then(|check| check.state.problem())
+    }
+
+    fn consent_needed(&self, entry: &ProviderEntry) -> Option<ConsentRequest> {
+        consent_request(entry)
+    }
+
+    /// Reads the key from the keychain, so it blocks.
+    fn proposer(
+        &self,
+        entry: &ProviderEntry,
+        debug_log: bool,
+    ) -> Result<Arc<dyn Proposer>, String> {
+        let ready = self
+            .ready(ChosenProvider(entry.clone()))
+            .map_err(|refusal| match refusal {
+                AiRefusal::Unusable { reason } => reason,
+                other => other.to_string(),
+            })?;
+        let provider = self.backend.provider(spec(&ready.entry, ready.key)?)?;
+        let provider: Box<dyn Provider> = if debug_log {
+            let log = self.log.clone();
+            Box::new(Logged::new(provider, Arc::new(move |text| log.ai(text))))
+        } else {
+            provider
+        };
+        Ok(Arc::new(AiProposer::new(
+            provider,
+            ready.entry.context_budget,
+        )))
+    }
+}
+
 fn account(id: &ProviderId) -> String {
     keychain_account(&id.0)
 }
@@ -927,5 +954,9 @@ impl AiBackend for ProviderCalls {
                 },
             }
         })
+    }
+
+    fn provider(&self, spec: ProviderSpec) -> Result<Box<dyn Provider>, String> {
+        connect(spec).map_err(|error| error.to_string())
     }
 }

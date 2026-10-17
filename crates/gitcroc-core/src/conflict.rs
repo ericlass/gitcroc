@@ -121,12 +121,14 @@ pub async fn conflict_get(
     }))
 }
 
-/// Starts the job that resolves `git_path` of the view's repo with `run`.
+/// Starts the job that resolves `git_path` of the view's repo with `run`,
+/// and drops the file's AI proposal.
 fn start<F, Fut>(
     jobs: &Arc<Jobs>,
     git: GitRunner,
     id: WorkspaceId,
     view: ViewState,
+    git_path: &[u8],
     label: String,
     run: F,
 ) -> Result<ConflictStart, ChangesError>
@@ -136,11 +138,15 @@ where
         + Send
         + 'static,
 {
-    let job = WriteJob::single(id, view.repo, label);
+    let job = WriteJob::single(id.clone(), view.repo.clone(), label);
     let path = view.path;
     let handle = jobs.start(git, job, move |job| async move {
         run(job.git.clone(), path, job).await
     })?;
+    // The file's proposal is stale once it is resolved (D9).
+    if let Some(ai) = jobs.ai() {
+        ai.forget_file(&id, &view.repo, git_path);
+    }
     Ok(ConflictStart::Started {
         job_id: handle.job_id,
     })
@@ -180,6 +186,7 @@ pub async fn conflict_resolve(
         git,
         id,
         view,
+        &path.clone(),
         label,
         move |git, repo, job| async move {
             ops::mark_resolved(&git, &repo, &path, &text, job.write()).await
@@ -229,6 +236,7 @@ pub async fn conflict_choose(
         git,
         id,
         view,
+        &path.clone(),
         label,
         move |git, repo, job| async move { ops::choose(&git, &repo, &path, &choice, job.write()).await },
     )?;

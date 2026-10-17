@@ -6,7 +6,9 @@ mod ask;
 mod claude_code;
 mod cli;
 mod codex;
+mod connect;
 mod http;
+mod logged;
 #[cfg(feature = "mock")]
 mod mock;
 mod openai;
@@ -21,7 +23,9 @@ pub use ask::{FileOutcome, FileResult, ask};
 pub use claude_code::ClaudeCodeProvider;
 pub use cli::SelfTestError;
 pub use codex::CodexProvider;
+pub use connect::{ProviderSpec, connect};
 pub use http::{ApiKey, ModelList, REQUEST_TIMEOUT};
+pub use logged::{DebugLog, Logged};
 #[cfg(feature = "mock")]
 pub use mock::{MockGate, MockProvider};
 pub use openai::OpenAiProvider;

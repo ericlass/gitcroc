@@ -18,8 +18,8 @@ mod status;
 
 pub use branches::{RemoteUrls, TrackedBranch};
 pub use conflict::{
-    ChoiceKind, Conflict, ConflictChunk, ConflictContent, ConflictError, MARKER_SIZE,
-    MAX_CONFLICT_TEXT, SideHolds, SideMessages, SidesRead, SidesReader, StageEntry,
+    ChoiceKind, Conflict, ConflictChunk, ConflictContent, ConflictError, ConflictStages,
+    MARKER_SIZE, MAX_CONFLICT_TEXT, SideHolds, SideMessages, SidesRead, SidesReader, StageEntry,
     chunks_from_texts, first_marker_line,
 };
 pub use detect::{

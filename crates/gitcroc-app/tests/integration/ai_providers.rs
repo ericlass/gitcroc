@@ -10,15 +10,16 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-use gitcroc_ai::{ApiKey, MockProvider, Provider, ProviderRequest};
+use gitcroc_ai::{ApiKey, MockProvider, Provider, ProviderRequest, ProviderSpec};
 use gitcroc_app::ai::{
     AiBackend, AiError, AiModelsReply, AiProviders, AiRefusal, AiSelfTestReply, AiSink, AiView,
     ConsentRequest, ConsentTarget, DetectedCli, ModelsResult, ProviderView, SelfTest,
 };
 use gitcroc_app::platform::{Keychain, MemoryKeychain, keychain_account};
 use gitcroc_core::{
-    AiOptions, AppLog, ConfigDir, LogDir, ProviderDraft, ProviderEntry, ProviderId, ProviderKind,
-    SETTINGS_FILE, SettingsStore, WorkspaceId, Workspaces,
+    AiFileContext, AiHunk, AiOperation, AiOptions, AppLog, ConfigDir, FileProposal, Kill, LogDir,
+    ProposalConfidence, ProposalStatus, ProposedHunk, ProviderAccess, ProviderDraft, ProviderEntry,
+    ProviderId, ProviderKind, SETTINGS_FILE, SettingsStore, WorkspaceId, Workspaces,
 };
 
 const KEY: &str = "sk-test-0123456789-SECRET";
@@ -29,6 +30,8 @@ struct Script {
     detected: Vec<DetectedCli>,
     models: ModelsResult,
     self_test: SelfTest,
+    /// What the mock provider of a proposal job replies, in order.
+    replies: Vec<String>,
 }
 
 impl Default for Script {
@@ -39,6 +42,7 @@ impl Default for Script {
             self_test: SelfTest::Passed {
                 version: Some("1.0.0".to_owned()),
             },
+            replies: Vec::new(),
         }
     }
 }
@@ -50,6 +54,8 @@ struct FakeCalls {
     calls: Mutex<Vec<String>>,
     /// The key each model list was asked with.
     keys: Mutex<Vec<Option<ApiKey>>>,
+    /// The provider each proposal job was given.
+    specs: Mutex<Vec<ProviderSpec>>,
 }
 
 impl FakeCalls {
@@ -87,6 +93,11 @@ impl AiBackend for FakeCalls {
             .push(format!("list_models {:?}", entry.kind));
         self.keys.lock().unwrap().push(key);
         Box::pin(async move { self.script.models.clone() })
+    }
+
+    fn provider(&self, spec: ProviderSpec) -> Result<Box<dyn Provider>, String> {
+        self.specs.lock().unwrap().push(spec);
+        Ok(Box::new(MockProvider::texts(self.script.replies.clone())))
     }
 }
 
@@ -1104,4 +1115,126 @@ async fn ai_16_off_refuses_consent() {
         Err(AiError::Off)
     ));
     assert_eq!(fixture.ai.view().providers[0].consent, None);
+}
+
+/// A file's context with text the log must not show unless asked.
+fn context() -> AiFileContext {
+    AiFileContext {
+        path: "src/a.txt".to_owned(),
+        operation: AiOperation::Merge,
+        ours_label: "main".to_owned(),
+        theirs_label: "feature".to_owned(),
+        hunks: vec![AiHunk {
+            id: 1,
+            before: "before\n".to_owned(),
+            ours: "OURS-TEXT\n".to_owned(),
+            base: "BASE-TEXT\n".to_owned(),
+            theirs: "THEIRS-TEXT\n".to_owned(),
+            after: "after\n".to_owned(),
+        }],
+        ours_commits: vec!["Main change".to_owned()],
+        theirs_commits: vec!["Feature change".to_owned()],
+    }
+}
+
+const REPLY: &str = r#"{"hunks": [{"id": 1, "status": "resolved", "resolution": "REPLY-TEXT\n", "explanation": "Kept both.", "confidence": "high"}]}"#;
+
+/// Asks the default Anthropic provider, whose key is [`KEY`], for a
+/// proposal with `debug_log`, through what the core's job uses, and returns
+/// the log.
+async fn proposal_log(debug_log: bool) -> String {
+    let fixture = Fixture::new(
+        None,
+        Script {
+            replies: vec![REPLY.to_owned()],
+            ..Script::default()
+        },
+    );
+    fixture
+        .ai
+        .save(
+            draft("Claude", ProviderKind::Anthropic),
+            Some(KEY.to_owned()),
+        )
+        .unwrap();
+    fixture.ai.set_default(&id("p1")).unwrap();
+    fixture.ai.consent(&id("p1"), "api.anthropic.com").unwrap();
+    let entry = fixture.settings.ai().providers[0].clone();
+    let ai = fixture.ai.clone();
+    let proposer = tokio::task::spawn_blocking(move || ai.proposer(&entry, debug_log))
+        .await
+        .unwrap()
+        .unwrap();
+
+    let proposal = proposer.propose(context(), Kill::new()).await.unwrap();
+
+    assert_eq!(
+        proposal,
+        FileProposal {
+            hunks: vec![ProposedHunk {
+                id: 1,
+                status: ProposalStatus::Resolved,
+                resolution: Some("REPLY-TEXT\n".to_owned()),
+                explanation: "Kept both.".to_owned(),
+                confidence: ProposalConfidence::High,
+            }],
+            usage: vec![None],
+        }
+    );
+    // The provider got the key from the keychain.
+    let specs = fixture.calls.specs.lock().unwrap();
+    assert!(
+        matches!(&specs[..], [ProviderSpec::Anthropic { key, .. }] if *key == ApiKey::new(KEY)),
+        "{specs:?}"
+    );
+    fixture.log_text()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ai_7_prompts_and_replies_not_logged_by_default() {
+    let log = proposal_log(false).await;
+    for text in [
+        "OURS-TEXT",
+        "THEIRS-TEXT",
+        "REPLY-TEXT",
+        "Feature change",
+        KEY,
+    ] {
+        assert!(!log.contains(text), "{text} in the log: {log}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ai_7_debug_log_has_prompts_and_replies_never_the_key() {
+    let log = proposal_log(true).await;
+    for text in ["OURS-TEXT", "THEIRS-TEXT", "REPLY-TEXT", "Feature change"] {
+        assert!(log.contains(text), "{text} not in the log: {log}");
+    }
+    assert!(!log.contains(KEY), "the key is in the log: {log}");
+    assert!(
+        !log.contains("0123456789"),
+        "part of the key is in the log: {log}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn d9_cancel_drops_the_request() {
+    let fixture = Fixture::new(None, Script::default());
+    fixture
+        .ai
+        .save(draft("Local", ProviderKind::Openai), None)
+        .unwrap();
+    fixture.ai.consent(&id("p1"), "localhost:11434").unwrap();
+    let entry = fixture.settings.ai().providers[0].clone();
+    let ai = fixture.ai.clone();
+    let proposer = tokio::task::spawn_blocking(move || ai.proposer(&entry, false))
+        .await
+        .unwrap()
+        .unwrap();
+    let cancel = Kill::new();
+    cancel.kill();
+    assert_eq!(
+        proposer.propose(context(), cancel).await,
+        Err("cancelled".to_owned())
+    );
 }

@@ -66,9 +66,10 @@ impl From<GitError> for InspectError {
             GitError::Failed { stderr, .. } => Self::Refused {
                 message: String::from_utf8_lossy(&stderr).trim_end().to_owned(),
             },
-            other @ (GitError::Spawn { .. } | GitError::Killed | GitError::Write { .. }) => {
-                Self::Git(other)
-            }
+            other @ (GitError::Spawn { .. }
+            | GitError::Killed
+            | GitError::ReadOnly { .. }
+            | GitError::Write { .. }) => Self::Git(other),
         }
     }
 }

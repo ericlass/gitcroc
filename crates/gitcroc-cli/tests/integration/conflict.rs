@@ -126,3 +126,97 @@ fn ai_5_cli_prints_the_ai_context_as_json() {
         })
     );
 }
+
+/// `settings.toml` with one OpenAI-compatible provider as the default,
+/// consented to when `consent`.
+fn provider_settings(consent: bool) -> String {
+    let consent = if consent {
+        "consent = \"localhost:11434\"\n"
+    } else {
+        ""
+    };
+    format!(
+        "schema = 2\n\n[ai]\ndefault = \"p1\"\n\n[[ai.provider]]\nid = \"p1\"\nname = \"Local\"\n\
+         kind = \"openai\"\nmodel = \"m\"\nbase_url = \"http://localhost:11434/v1\"\n{consent}"
+    )
+}
+
+#[test]
+fn d9_cli_resolves_a_conflict_with_the_mock_and_writes_nothing() {
+    let fixture = Fixture::new().unwrap();
+    let git = fixture.repo("app").unwrap();
+    git.commit_file("a.txt", "a\n", "Base").unwrap();
+    git.branch("feature").unwrap();
+    git.commit_file("a.txt", "main\n", "Main").unwrap();
+    git.switch("feature").unwrap();
+    git.commit_file("a.txt", "feature\n", "Feature").unwrap();
+    git.switch("main").unwrap();
+    git.merge_with_conflicts("feature").unwrap();
+    let config = fixture.path().join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    let replies = fixture.path().join("replies.json");
+    let reply = serde_json::json!({
+        "hunks": [{
+            "id": 1,
+            "status": "resolved",
+            "resolution": "main and feature\n",
+            "explanation": "Kept both lines.",
+            "confidence": "medium",
+        }]
+    });
+    std::fs::write(
+        &replies,
+        serde_json::to_string(&[reply.to_string()]).unwrap(),
+    )
+    .unwrap();
+    let resolve = || {
+        Command::new(BIN)
+            .args(["conflict", "ai-resolve"])
+            .arg(git.path())
+            .args(["a.txt", "--config-dir"])
+            .arg(&config)
+            .arg("--mock")
+            .arg(&replies)
+            .output()
+            .unwrap()
+    };
+    let status = git.git(["status", "--porcelain=v2"]).unwrap();
+    let file = std::fs::read(git.path().join("a.txt")).unwrap();
+
+    // Refused as the app refuses: no consent yet.
+    std::fs::write(config.join("settings.toml"), provider_settings(false)).unwrap();
+    let out = resolve();
+    assert_eq!(out.status.code(), Some(3));
+    let refused: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(refused["kind"], "refused");
+    assert_eq!(refused["refused"]["kind"], "consent_needed");
+
+    std::fs::write(config.join("settings.toml"), provider_settings(true)).unwrap();
+    let out = resolve();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let proposal: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(
+        proposal,
+        serde_json::json!({
+            "kind": "proposal",
+            "proposal": {
+                "hunks": [{
+                    "id": 1,
+                    "status": "resolved",
+                    "resolution": "main and feature\n",
+                    "explanation": "Kept both lines.",
+                    "confidence": "medium",
+                }],
+                "usage": [null],
+            }
+        })
+    );
+    // Debug logging is off: nothing of the prompt on stderr (AI-7).
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("feature"));
+    assert_eq!(git.git(["status", "--porcelain=v2"]).unwrap(), status);
+    assert_eq!(std::fs::read(git.path().join("a.txt")).unwrap(), file);
+}

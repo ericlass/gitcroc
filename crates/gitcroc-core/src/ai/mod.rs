@@ -3,13 +3,22 @@
 //! editor reads (OPS-8), never from the markers on disk. The core defines
 //! these types because it does not depend on `gitcroc-ai`; the app maps
 //! [`AiFileContext`] field by field onto the prompt's request. Nothing here
-//! writes (ARCH-1).
+//! writes (ARCH-1). The proposal jobs that send it are in [`proposal`].
+
+mod proposal;
 
 use std::sync::Arc;
 
 use gitcroc_git::{
-    ChoiceKind, ConflictChunk, ConflictContent, ConflictError, GitRepo, GitRunner, Operation,
-    SidesRead, SidesReader, glob_match,
+    ChoiceKind, ConflictChunk, ConflictContent, ConflictError, ConflictStages, GitRepo, GitRunner,
+    Operation, SidesRead, SidesReader, glob_match,
+};
+
+pub use proposal::{
+    AI_MAX_REQUESTS, AiEvents, AiJobs, AiProposalGet, AiProposalReady, AiRefused, AiResolveOnce,
+    AiResolveRequest, AiResolveStart, AiUsage, ConsentRequest, ConsentTarget, FileProposal,
+    ProposalConfidence, ProposalStatus, ProposeFuture, ProposedHunk, Proposer, ProviderAccess,
+    ai_proposal_get, ai_resolve, ai_resolve_once, consent_request, consent_target,
 };
 use serde::Serialize;
 
@@ -323,27 +332,41 @@ pub fn ai_file_context(
     exclude: &[String],
     wanted: Option<&[u32]>,
 ) -> Result<Option<AiContextRead>, AiContextError> {
+    Ok(file_context(repo, git, git_path, exclude, wanted)?.map(|(_, read)| read))
+}
+
+/// [`ai_file_context`], with the stages of the conflict it was read from.
+pub(crate) fn file_context(
+    repo: &GitRepo,
+    git: &GitRunner,
+    git_path: &[u8],
+    exclude: &[String],
+    wanted: Option<&[u32]>,
+) -> Result<Option<(ConflictStages, AiContextRead)>, AiContextError> {
     let Some(conflict) = repo.conflict(git_path)? else {
         return Ok(None);
     };
+    let stages = conflict.stages();
     let chunks = match (
         &conflict.content,
         ineligible(git_path, &conflict.content, exclude),
     ) {
         (ConflictContent::Text { chunks }, None) => chunks,
         (_, Some(reason)) => {
-            return Ok(Some(AiContextRead::Ineligible {
+            let read = AiContextRead::Ineligible {
                 message: reason.message(),
                 reason,
-            }));
+            };
+            return Ok(Some((stages, read)));
         }
         // A choice is always ineligible.
         (ConflictContent::Choice { reason, .. }, None) => {
             let reason = Ineligible::NotText { choice: *reason };
-            return Ok(Some(AiContextRead::Ineligible {
+            let read = AiContextRead::Ineligible {
                 message: reason.message(),
                 reason,
-            }));
+            };
+            return Ok(Some((stages, read)));
         }
     };
     let hunks = hunks(chunks, wanted)?;
@@ -358,9 +381,10 @@ pub fn ai_file_context(
         ours_commits: sides.ours.into_iter().map(cut).collect(),
         theirs_commits: sides.theirs.into_iter().map(cut).collect(),
     };
-    Ok(Some(AiContextRead::Context {
+    let read = AiContextRead::Context {
         context: Box::new(context),
-    }))
+    };
+    Ok(Some((stages, read)))
 }
 
 /// Whether unmerged file `file` of view `handle` may go to AI (AI-4), with

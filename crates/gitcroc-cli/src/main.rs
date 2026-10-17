@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use gitcroc_core::GitSetup;
 
 mod ai;
+mod ai_resolve;
 mod bench;
 mod conflict;
 mod diff;
@@ -12,6 +13,7 @@ mod gate;
 mod group;
 mod group_run;
 mod history;
+mod proposer;
 mod status;
 mod summaries;
 mod workspace;

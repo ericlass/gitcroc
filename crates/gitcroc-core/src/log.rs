@@ -96,6 +96,16 @@ impl AppLog {
         self.line(&format!("warning: {}", one_line(message)));
     }
 
+    /// Logs a prompt or a reply of AI debug logging (AI-7), its line
+    /// breaks kept as `\n`. Never called with a key (SEC-1).
+    pub fn ai(&self, text: &str) {
+        let text = text
+            .replace('\\', "\\\\")
+            .replace('\r', "\\r")
+            .replace('\n', "\\n");
+        self.line(&format!("ai: {text}"));
+    }
+
     fn lock(&self) -> MutexGuard<'_, Option<Current>> {
         // A panic mid-write leaves at worst a partial line.
         lock(&self.current)

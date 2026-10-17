@@ -521,6 +521,33 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 /**  The file is no longer in conflict; read the lists again. */
 { kind: "already_resolved" } | null, IpcError>(__TAURI_INVOKE("ai_eligibility", { workspaceId, handle, file })),
 	/**
+	 *  Resolve with AI (AI-3): refused, in this order, with `ai_off` (AI-16),
+	 *  `ai_disabled` for the workspace (AI-6), `no_provider` (open the provider
+	 *  settings), `provider_unusable`, `ineligible` (AI-4) or `consent_needed`
+	 *  (AI-6); otherwise starts the job "Resolve with AI · <file name>" and
+	 *  returns at once. Its result arrives as `ai_proposal_ready`. The job
+	 *  only reads the repo and asks the provider (D9). `null` when a newer
+	 *  view of the workspace replaced the request's.
+	 */
+	aiResolve: (workspaceId: WorkspaceId, request: AiResolveRequest) => typedError<
+/**  The job runs; `ai_proposal_ready` tells when its result is kept. */
+{ kind: "started"; job_id: JobId } | 
+/**  The file is no longer in conflict; read the lists again. */
+{ kind: "already_resolved" } | { kind: "refused"; refused: AiRefused } | null, IpcError>(__TAURI_INVOKE("ai_resolve", { workspaceId, request })),
+	/**
+	 *  The proposal kept for unmerged file `file` of view `handle`, the reason
+	 *  AI failed for it (AI-9), or `no_proposal`; one made for a conflict the
+	 *  file no longer has is dropped. `null` when a newer view of the
+	 *  workspace replaced it.
+	 */
+	aiProposalGet: (workspaceId: WorkspaceId, handle: number, file: number) => typedError<{ kind: "proposal"; proposal: FileProposal } | 
+/**  "AI failed", with the reason (AI-9). */
+{ kind: "failed"; reason: string } | 
+/**  None is kept for the conflict as it is now. */
+{ kind: "no_proposal" } | 
+/**  The file is no longer in conflict; read the lists again. */
+{ kind: "already_resolved" } | null, IpcError>(__TAURI_INVOKE("ai_proposal_get", { workspaceId, handle, file })),
+	/**
 	 *  Changes the code themes and fonts (UI-24, UI-26) and saves the settings.
 	 *  Font sizes outside 8 to 32 are moved to the nearest limit.
 	 */
@@ -613,6 +640,7 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 export const events = {
 	aiChanged: makeEvent<AiChangedEvent>("ai_changed"),
 	aiModels: makeEvent<AiModelsEvent>("ai_models"),
+	aiProposalReady: makeEvent<AiProposalReadyEvent>("ai_proposal_ready"),
 	aiSelfTest: makeEvent<AiSelfTestEvent>("ai_self_test"),
 	askpassClosed: makeEvent<AskpassClosedEvent>("askpass_closed"),
 	askpassPrompt: makeEvent<AskpassPromptEvent>("askpass_prompt"),
@@ -679,8 +707,64 @@ export type AiOptions = {
 	debug_log: boolean,
 };
 
+/**  What `ai_proposal_get` found for a file. */
+export type AiProposalGet = { kind: "proposal"; proposal: FileProposal } | 
+/**  "AI failed", with the reason (AI-9). */
+{ kind: "failed"; reason: string } | 
+/**  None is kept for the conflict as it is now. */
+{ kind: "no_proposal" } | 
+/**  The file is no longer in conflict; read the lists again. */
+{ kind: "already_resolved" };
+
+/**  A proposal job's result was kept: read it with `ai_proposal_get`. */
+export type AiProposalReady = {
+	workspace_id: WorkspaceId,
+	repo_id: RepoId,
+	/**  The path from the repo top, for display. */
+	path: string,
+	job_id: JobId,
+};
+
+/**
+ *  A proposal job's result was kept, sent as event `ai_proposal_ready`;
+ *  `ai_proposal_get` reads it (M4-08). Never carries a prompt or a reply.
+ */
+export type AiProposalReadyEvent = AiProposalReady;
+
+/**  Why a file was not sent to AI, in the order the checks run. */
+export type AiRefused = 
+/**  AI features are off (AI-16). */
+{ kind: "ai_off" } | 
+/**  The workspace's switch is off (AI-6). */
+{ kind: "ai_disabled" } | 
+/**  No provider is the default: open the provider settings (AI-3). */
+{ kind: "no_provider" } | { kind: "provider_unusable"; reason: string } | 
+/**  The file may not go to AI (AI-4). */
+{ kind: "ineligible"; reason: Ineligible; message: string } | 
+/**  Ask for consent, then try again (AI-6). */
+{ kind: "consent_needed"; consent: ConsentRequest };
+
 /**  Identifies a models or self-test request, unique while the app runs. */
 export type AiRequestId = number;
+
+/**  Resolve with AI for one unmerged file of a changes view (AI-3). */
+export type AiResolveRequest = {
+	/**  The changes view whose unmerged list `file` is from. */
+	handle: number,
+	file: number,
+	/**
+	 *  The hunks to send, counted from 1; all when `None`, so hunks
+	 *  resolved in the editor need not be sent.
+	 */
+	hunks: number[] | null,
+};
+
+/**  What `ai_resolve` did. */
+export type AiResolveStart = 
+/**  The job runs; `ai_proposal_ready` tells when its result is kept. */
+{ kind: "started"; job_id: JobId } | 
+/**  The file is no longer in conflict; read the lists again. */
+{ kind: "already_resolved" } | { kind: "refused"; refused: AiRefused };
 
 /**  The result of `ai_self_test`, sent as event `ai_self_test` (AI-2). */
 export type AiSelfTestEvent = AiSelfTestReply;
@@ -689,6 +773,12 @@ export type AiSelfTestEvent = AiSelfTestReply;
 export type AiSelfTestReply = {
 	request_id: AiRequestId,
 	result: SelfTest,
+};
+
+/**  The tokens of one request, when the provider reports them (AI-14). */
+export type AiUsage = {
+	input_tokens: number,
+	output_tokens: number,
 };
 
 /**  The AI settings and providers. */
@@ -1347,6 +1437,16 @@ export type FileList = "commit" | "staged" | "unstaged";
 /**  How the changes pane lists files (UI-14). */
 export type FileListMode = "flat" | "tree";
 
+/**
+ *  The proposal for a file (section 3 "Proposal"): an answer for every
+ *  hunk asked for, and the usage of each request sent for it, in order,
+ *  `None` where the provider reported none (AI-14).
+ */
+export type FileProposal = {
+	hunks: ProposedHunk[],
+	usage: (AiUsage | null)[],
+};
+
 /**  A file of a view: its list and its id in that list. */
 export type FileRef = {
 	list: FileList,
@@ -1931,6 +2031,23 @@ export type PromptKind =
 "secret" | 
 /**  An SSH host key question, answered `yes` or `no`. */
 "yes_no";
+
+/**  How sure the model is of a resolution (AI-8). */
+export type ProposalConfidence = "high" | "medium" | "low";
+
+/**  Whether the model resolved a hunk (AI-8). */
+export type ProposalStatus = "resolved" | "unresolved";
+
+/**  The proposal for one hunk (AI-8, AI-11). */
+export type ProposedHunk = {
+	/**  The hunk's id, counted from 1 over all hunks of the file (AI-5). */
+	id: number,
+	status: ProposalStatus,
+	/**  The exact replacement text; `None` for an unresolved hunk. */
+	resolution: string | null,
+	explanation: string,
+	confidence: ProposalConfidence,
+};
 
 /**
  *  A provider as the user edits it. Without an id it is a new one. The
