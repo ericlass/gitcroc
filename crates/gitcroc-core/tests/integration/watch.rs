@@ -331,19 +331,20 @@ async fn ops_7_external_commit_refreshes_the_summary() {
     let watched = Watched::start(fixture.path()).await;
     let id = watched.repo(app.path());
 
-    // Not selected: its git files are watched all the same.
+    // Not selected: its git files are watched all the same. HEAD moved, so
+    // the history reads the repo again. A change outside the refs, such as
+    // the index, can be read first and already show the new HEAD; the
+    // ref change raises the refs version after it, in either order.
     let hash = app.commit_file("two.txt", "two\n", "Second").unwrap();
     let expected = hash.clone();
     let view = watched
         .view_within(EVENTUALLY, move |view| {
-            head_hash(view).as_deref() == Some(expected.as_str())
+            head_hash(view).as_deref() == Some(expected.as_str()) && view.refs_version == 1
         })
         .await
-        .expect("a new summary");
+        .expect("a new summary with the refs version raised");
     assert_eq!(view.repo_id, id);
     assert!(!view.stale);
-    // HEAD moved: the history reads the repo again.
-    assert_eq!(view.refs_version, 1);
 
     // A new tag is a ref change too, though HEAD stays.
     app.tag("v1").unwrap();
