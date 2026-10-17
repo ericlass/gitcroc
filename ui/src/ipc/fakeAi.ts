@@ -2,7 +2,9 @@
 // core's `ai_*` commands, simplified. Keys live in a map that stands in for the keychain and never reach a view
 // (SEC-1). Test support only; the real rules are the core's.
 import type {
+  AiEligibility,
   AiOptions,
+  AiRefused,
   AiView,
   ConsentRequest,
   ConsentTarget,
@@ -297,4 +299,28 @@ export function fakeAiCommands(events: {
       return Promise.resolve(ok(requestId));
     },
   };
+}
+
+/** Why `ai_resolve` refuses a file of eligibility `eligibility`, in the core's order, or `null` to start. */
+export function fakeAiRefusal(workspaceOn: boolean, eligibility: AiEligibility): AiRefused | null {
+  if (!fakeAi.enabled) {
+    return { kind: "ai_off" };
+  }
+  if (!workspaceOn) {
+    return { kind: "ai_disabled" };
+  }
+  const provider = fakeAi.providers.find((known) => known.id === fakeAi.default);
+  if (provider === undefined) {
+    return { kind: "no_provider" };
+  }
+  const check = fakeAi.checks[provider.id];
+  if (check?.kind === "missing_flags" || check?.kind === "failed") {
+    const reason = check.kind === "failed" ? check.reason : `${check.version} lacks ${check.missing.join(", ")}`;
+    return { kind: "provider_unusable", reason };
+  }
+  if (eligibility.kind === "ineligible") {
+    return { kind: "ineligible", reason: eligibility.reason, message: eligibility.message };
+  }
+  const consent = consentNeeded(provider);
+  return consent === null ? null : { kind: "consent_needed", consent };
 }

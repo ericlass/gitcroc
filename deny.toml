@@ -15,6 +15,12 @@ ignore = [
     # tauri-specta needs for typed commands (section 4 "Stack"), uses this proc
     # macro at build time.
     { id = "RUSTSEC-2024-0436", reason = "unmaintained build-time proc macro, via specta's function feature for tauri-specta" },
+    # These zbus 5 crates are unmaintained, not vulnerable: they were merged
+    # into zbus 6. keyring's Linux store (D11) reaches the Secret Service
+    # through zbus 5, and no release of it uses zbus 6 yet.
+    { id = "RUSTSEC-2026-0370", reason = "unmaintained zvariant, via keyring's zbus 5 Secret Service store on Linux" },
+    { id = "RUSTSEC-2026-0371", reason = "unmaintained zbus_names, via keyring's zbus 5 Secret Service store on Linux" },
+    { id = "RUSTSEC-2026-0372", reason = "unmaintained zvariant_derive, via keyring's zbus 5 Secret Service store on Linux" },
 ]
 
 [licenses]

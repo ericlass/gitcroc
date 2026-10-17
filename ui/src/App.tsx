@@ -39,7 +39,7 @@ import { createAskpassStore } from "./stores/askpass";
 import { createBranchStore } from "./stores/branch";
 import { createChangesStore } from "./stores/changes";
 import { createCommitStore } from "./stores/commit";
-import { createConflictStore } from "./stores/conflicts";
+import { createConflictStore, followAiFeatures } from "./stores/conflicts";
 import { createGitStore } from "./stores/git";
 import { createGroupOpStore, DEFAULT_GROUP_OPS, type SyncKind } from "./stores/groupOps";
 import { createHistoryStore, mergedSource, sourceOf } from "./stores/history";
@@ -93,6 +93,7 @@ export default function App() {
     (id, target, op, started) => void groupOps.run(id, target, op, started),
   );
   const conflicts = createConflictStore((id) => void changes.reload(id));
+  followAiFeatures(ai, conflicts);
   const branch = createBranchStore();
   const sync = createSyncStore();
   const stash = createStashStore();
@@ -106,7 +107,8 @@ export default function App() {
   const integrate = createIntegrateStore((id, repo) => stash.forget(id, repo));
   const watch = createWatchStore();
   const workspaceDialogs = createWorkspaceDialogs();
-  const [settingsOpen, setSettingsOpen] = createSignal(false);
+  /** Settings is open, at its top or at its AI section (AI-3). */
+  const [settingsOpen, setSettingsOpen] = createSignal<"top" | "ai" | null>(null);
   /** The options dialog of Fetch, Pull or Push: what it is for, and what runs the picked options. */
   const [syncOptions, setSyncOptions] = createSignal<{
     kind: SyncKind;
@@ -459,7 +461,7 @@ export default function App() {
             onMerge={mergeAction()}
             onStash={stashAction()}
             disabledWhy={disabledWhy()}
-            onSettings={() => setSettingsOpen(true)}
+            onSettings={() => setSettingsOpen("top")}
           />
           <Show when={workspace()?.id}>{(id) => <SyncRefusal workspace={id()} sync={sync} />}</Show>
           <Show when={workspace()?.id}>
@@ -549,6 +551,8 @@ export default function App() {
                     reset={reset}
                     integrate={integrate}
                     settings={settings}
+                    ai={ai}
+                    onAiSettings={() => setSettingsOpen("ai")}
                   />
                 </main>
                 <BranchDialogs workspace={id} branch={branch} repoName={repoName} />
@@ -619,14 +623,17 @@ export default function App() {
               <AskpassDialog prompt={prompt} onAnswer={(answer) => void askpass.answer(prompt.prompt_id, answer)} />
             )}
           </Show>
-          <Show when={settingsOpen()}>
-            <SettingsDialog
-              settings={settings}
-              ai={ai}
-              info={info()}
-              git={git.state.result}
-              onClose={() => setSettingsOpen(false)}
-            />
+          <Show when={settingsOpen()} keyed>
+            {(at) => (
+              <SettingsDialog
+                settings={settings}
+                ai={ai}
+                info={info()}
+                git={git.state.result}
+                at={at}
+                onClose={() => setSettingsOpen(null)}
+              />
+            )}
           </Show>
           <ConsentDialog ai={ai} />
         </div>

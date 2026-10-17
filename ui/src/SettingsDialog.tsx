@@ -34,6 +34,8 @@ export default function SettingsDialog(props: {
   ai: AiStore;
   info: AppInfo | undefined;
   git: GitStatus | null;
+  /** Where it opens: at its top, or at the AI section, as Resolve with AI without a provider asks (AI-3). */
+  at?: "top" | "ai";
   onClose: () => void;
 }) {
   let dialog: HTMLDivElement | undefined;
@@ -59,7 +61,11 @@ export default function SettingsDialog(props: {
     input.value = String(props.settings.groups().group_parallelism);
   };
 
-  onMount(() => dialog?.querySelector<HTMLElement>("input:checked, input, button")?.focus());
+  onMount(() => {
+    const ai = props.at === "ai" ? dialog?.querySelector<HTMLElement>(".ai-settings") : null;
+    ai?.scrollIntoView?.({ block: "start" });
+    (ai ?? dialog)?.querySelector<HTMLElement>("input:checked, input, button")?.focus();
+  });
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {

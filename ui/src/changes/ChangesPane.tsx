@@ -10,6 +10,7 @@ import type { ChangeAction, ChangesContent, Context, FileDiff, RepoChanges, Repo
 import { ACTION_LIST, type ChangesStore, handleOf } from "../stores/changes";
 import type { CommitStore } from "../stores/commit";
 import type { ConflictStore } from "../stores/conflicts";
+import type { ConflictAi } from "../conflict/ConflictEditor";
 import ConflictView from "../conflict/ConflictView";
 import type { LayoutStore } from "../stores/layout";
 import type { SettingsStore } from "../stores/settings";
@@ -145,6 +146,8 @@ export default function ChangesPane(props: {
   layout: LayoutStore;
   /** Selects a commit in the history, as a parent link asks. */
   onSelectCommit: (hash: string) => void;
+  /** AI in the conflict editor; none without it. */
+  ai?: ConflictAi;
 }) {
   const changes = () => props.changes.changes(props.workspace);
   const view = () => props.settings.changes();
@@ -452,6 +455,7 @@ export default function ChangesPane(props: {
                               target={target()}
                               conflicts={props.conflicts}
                               wrap={view().wrap_lines}
+                              ai={props.ai}
                             />
                           )}
                         </Match>

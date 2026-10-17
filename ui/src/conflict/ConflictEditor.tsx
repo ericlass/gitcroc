@@ -3,14 +3,48 @@
 // resolved, which sends the whole buffer to the core. The editor state is
 // kept in the conflict store on every change and restored with its cursor,
 // undo and scroll when the file is shown again. Nothing is written here.
+// With AI features on (AI-16), the header has Resolve with AI for the hunks
+// still untouched (AI-3), and a proposal shows under its hunks (AI-11) with
+// the token usage of each request (AI-14). Accepting one edits the buffer
+// only (AI-12).
 import { EditorState, StateEffect, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { createEffect, createSignal, on, onCleanup, onMount, Show, untrack } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { applyLanguage, baseExtensions, newParts, wrapping } from "../changes/codemirror";
-import type { WorkspaceId } from "../ipc";
+import type { FileProposal, WorkspaceId } from "../ipc";
+import type { AiStore } from "../stores/ai";
 import type { ConflictStore, FileConflict, Start, ViewFile } from "../stores/conflicts";
 import { buildBuffer, normalize } from "./buffer";
-import { conflictExtensions, goToHunk, hunkCount } from "./editor";
+import {
+  acceptAllHigh,
+  conflictExtensions,
+  goToHunk,
+  highConfidence,
+  hunkCount,
+  showProposal,
+  untouchedHunks,
+} from "./editor";
+
+/** What the editor needs for AI; without it the editor has none. */
+export interface ConflictAi {
+  store: AiStore;
+  /** AI for this workspace (AI-6). */
+  workspaceOn: () => boolean;
+  /** Opens Settings at its AI section (AI-3). */
+  openSettings: () => void;
+}
+
+const count = (value: number) => value.toLocaleString("en");
+
+/** The token usage of each request the provider reported it for (AI-14). */
+const usageLines = (proposal: FileProposal) =>
+  proposal.usage.flatMap((usage, index) => {
+    if (usage === null) {
+      return [];
+    }
+    const tokens = `${count(usage.input_tokens)} input tokens, ${count(usage.output_tokens)} output tokens`;
+    return [`Request ${index + 1}: ${tokens}`];
+  });
 
 /** The buffer a file starts with: the conflict's hunks, or the file on disk without any. */
 function startBuffer(file: FileConflict, start: Start) {
@@ -32,11 +66,20 @@ export default function ConflictEditor(props: {
   focus: boolean;
   /** Called on closing, with whether the editor had the focus. */
   onClose: (focused: boolean) => void;
+  ai?: ConflictAi;
 }) {
   let parent: HTMLDivElement | undefined;
   let view: EditorView | undefined;
   const parts = newParts();
   const [remaining, setRemaining] = createSignal(0);
+  /** The hunks Resolve with AI sends, and how many Accept all high-confidence takes. */
+  const [untouched, setUntouched] = createSignal<number[]>([]);
+  const [high, setHigh] = createSignal(0);
+  const counted = (state: EditorState) => {
+    setRemaining(hunkCount(state));
+    setUntouched(untouchedHunks(state));
+    setHigh(highConfidence(state).length);
+  };
   // The file this editor was opened for; the parent remounts it for another.
   const { workspace, conflicts, repo, path } = untrack(() => ({
     workspace: props.workspace,
@@ -53,7 +96,12 @@ export default function ConflictEditor(props: {
 
   onMount(() => {
     const saved = conflicts.editor(workspace, repo, path);
-    const actions = { labels: props.file.conflict.labels, markResolved: () => markResolved(false) };
+    const actions = {
+      labels: props.file.conflict.labels,
+      markResolved: () => markResolved(false),
+      reject: (hunk: number) => conflicts.rejectHunk(workspace, repo, path, hunk),
+      edit: (hunk: number, text: string | null) => conflicts.editHunk(workspace, repo, path, hunk, text),
+    };
     const wrap = props.wrap;
     // What the buffer started with, to tell unsaved edits (OPS-9).
     let initial: Text;
@@ -62,7 +110,7 @@ export default function ConflictEditor(props: {
       ...conflictExtensions(actions, hunks),
       EditorView.updateListener.of((update) => {
         if (update.docChanged || update.transactions.length > 0) {
-          setRemaining(hunkCount(update.state));
+          counted(update.state);
           conflicts.keep(workspace, repo, path, { state: update.state, initial, scroll: null });
         }
       }),
@@ -79,7 +127,7 @@ export default function ConflictEditor(props: {
       conflicts.keep(workspace, repo, path, { state, initial, scroll: null });
     }
     view = new EditorView({ state, parent });
-    setRemaining(hunkCount(state));
+    counted(state);
     if (saved?.scroll) {
       view.dispatch({ effects: saved.scroll });
     }
@@ -106,6 +154,66 @@ export default function ConflictEditor(props: {
       { defer: true },
     ),
   );
+
+  const aiOn = () => props.ai?.store.enabled() === true;
+
+  // The proposal as the store keeps it, in the editor; none while AI features are off (AI-16).
+  createEffect(() => {
+    const proposal = aiOn() ? props.file.ai.proposal : null;
+    const shown =
+      proposal === null
+        ? null
+        : {
+            hunks: proposal.hunks.map((hunk) => ({ ...hunk })),
+            views: Object.fromEntries(
+              Object.entries(props.file.ai.hunks).map(([id, hunk]) => [id, hunk && { ...hunk }]),
+            ),
+          };
+    if (view !== undefined) {
+      showProposal(view, shown);
+    }
+  });
+
+  // Whether the file may go to AI (AI-4), read again when the exclude list changes.
+  createEffect(
+    on(
+      () => [aiOn(), props.ai?.store.state.view?.exclude.join("\n")] as const,
+      ([on]) => on && void conflicts.readEligibility(workspace, untrack(() => props.target)),
+    ),
+  );
+
+  // A result the core kept is read while the file is shown, through its newest view.
+  createEffect(
+    on(
+      () => [aiOn() && props.file.ai.ready, props.target.handle] as const,
+      ([ready]) => ready && void conflicts.readProposal(workspace, untrack(() => props.target)),
+    ),
+  );
+
+  /** Why Resolve with AI is disabled, shown beside it (AI-4, AI-6). */
+  const aiBlocked = () => {
+    const eligibility = props.file.ai.eligibility;
+    if (props.ai?.workspaceOn() === false) {
+      return "AI is off for this workspace.";
+    }
+    return eligibility?.kind === "ineligible" ? `Not sent to AI: ${eligibility.message}` : null;
+  };
+
+  const resolveWithAi = () => {
+    const ai = props.ai;
+    if (ai === undefined || view === undefined) {
+      return;
+    }
+    void conflicts.resolveWithAi(workspace, props.target, untouchedHunks(view.state), {
+      askConsent: (provider) => ai.store.askConsent(provider),
+      openSettings: () => ai.openSettings(),
+      providerName: () => {
+        const settings = ai.store.state.view;
+        return settings?.providers.find((provider) => provider.id === settings.default)?.name ?? "the AI provider";
+      },
+    });
+  };
+  const canResolve = () => aiBlocked() === null && !props.file.ai.starting && untouched().length > 0;
 
   const go = (direction: 1 | -1) => {
     if (view !== undefined) {
@@ -135,6 +243,65 @@ export default function ConflictEditor(props: {
         >
           Mark resolved
         </button>
+        <Show when={aiOn()}>
+          <span class="conflict-ai">
+            <Show
+              when={props.file.ai.job}
+              fallback={
+                <button
+                  type="button"
+                  title="Ask the AI provider to propose a resolution of the conflicts left"
+                  disabled={!canResolve()}
+                  onClick={resolveWithAi}
+                >
+                  Resolve with AI
+                </button>
+              }
+            >
+              {(job) => (
+                <button type="button" onClick={() => conflicts.cancelAi(workspace, repo, path)}>
+                  Cancel ({job().provider})
+                </button>
+              )}
+            </Show>
+            <Show when={aiBlocked() ?? props.file.ai.refusal}>
+              {(reason) => <span class="conflict-ai-reason">{reason()}</span>}
+            </Show>
+            <Show when={props.file.ai.failed}>
+              {(reason) => (
+                <>
+                  <span role="alert" class="conflict-ai-failed">
+                    AI failed: {reason()}
+                  </span>
+                  <Show when={props.file.ai.job === null}>
+                    <button type="button" disabled={!canResolve()} onClick={resolveWithAi}>
+                      Try again
+                    </button>
+                  </Show>
+                </>
+              )}
+            </Show>
+            <Show when={props.file.ai.proposal}>
+              {(proposal) => (
+                <>
+                  <button
+                    type="button"
+                    title="Accept every untouched hunk of this file proposed with high confidence"
+                    disabled={high() === 0}
+                    onClick={() => view !== undefined && acceptAllHigh(view)}
+                  >
+                    Accept all high-confidence
+                  </button>
+                  <Show when={usageLines(proposal()).length > 0}>
+                    <ul class="conflict-ai-usage" aria-label="Token usage">
+                      <For each={usageLines(proposal())}>{(line) => <li>{line}</li>}</For>
+                    </ul>
+                  </Show>
+                </>
+              )}
+            </Show>
+          </span>
+        </Show>
       </div>
       <Show when={props.file.markers}>
         {(line) => (

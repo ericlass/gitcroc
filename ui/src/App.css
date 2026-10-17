@@ -2233,6 +2233,33 @@ button.primary:disabled {
   margin-right: auto;
 }
 
+/* Resolve with AI and what it brought (AI-3, AI-14), on a line of their own. */
+.conflict-ai {
+  flex: 1 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.conflict-ai-usage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+}
+
+.conflict-ai-reason {
+  color: var(--text-secondary);
+}
+
+.conflict-ai-failed {
+  color: var(--danger);
+}
+
 .conflict-refusal,
 .conflict-view > [role="alert"] {
   margin: 4px 8px;

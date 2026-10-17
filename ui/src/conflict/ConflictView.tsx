@@ -6,7 +6,7 @@
 import { createEffect, Match, on, Show, Switch } from "solid-js";
 import type { ChoiceKind, ConflictChoice, SideHolds, WorkspaceId } from "../ipc";
 import type { ConflictStore, ViewFile } from "../stores/conflicts";
-import ConflictEditor from "./ConflictEditor";
+import ConflictEditor, { type ConflictAi } from "./ConflictEditor";
 
 const REASONS: Record<ChoiceKind, string> = {
   binary: "The file is binary.",
@@ -43,6 +43,7 @@ export default function ConflictView(props: {
   target: ViewFile;
   conflicts: ConflictStore;
   wrap: boolean;
+  ai?: ConflictAi;
 }) {
   const file = () => props.conflicts.file(props.workspace, props.target.repo, props.target.path);
   /** The last editor closed with the focus, so the next one takes it: resolving file after file from the keyboard. */
@@ -147,6 +148,7 @@ export default function ConflictView(props: {
                     wrap={props.wrap}
                     focus={refocus}
                     onClose={(focused) => (refocus = focused)}
+                    ai={props.ai}
                   />
                 )}
               </Show>
