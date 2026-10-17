@@ -88,6 +88,10 @@ pub enum GitError {
     /// the request came first.
     #[error("git was stopped")]
     Killed,
+    /// A read-only runner was asked to run `command`, which may change a
+    /// repo; nothing was started (D9).
+    #[error("git {command} was refused: this runner only reads")]
+    ReadOnly { command: String },
     /// The resolved file of a conflict could not be written (OPS-5), the
     /// one write the app makes itself (ARCH-1).
     #[error("cannot write {}: {source}", path.display())]
@@ -215,12 +219,33 @@ fn exit_of(status: ExitStatus) -> Exit {
     status.code().map_or(Exit::Signal, Exit::Code)
 }
 
+/// The git subcommands a read-only runner starts: those an AI job may need
+/// to read the commits it sends (AI-5), none of which changes a repo.
+const READ_ONLY_COMMANDS: [&str; 3] = ["--version", "rev-parse", "log"];
+
+/// The subcommand of `args`: the first argument that is not one of git's
+/// own options, or `--version`.
+fn subcommand(args: &[OsString]) -> Option<&OsString> {
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        if arg == "-c" || arg == "-C" {
+            args.next();
+        } else if arg == "--version" || !arg.to_string_lossy().starts_with('-') {
+            return Some(arg);
+        }
+    }
+    None
+}
+
 /// Runs one git executable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitRunner {
     git: PathBuf,
     /// Set on every process after [`GIT_ENV`].
     env: Arc<[(OsString, OsString)]>,
+    /// Refuses every write and every subcommand not in
+    /// [`READ_ONLY_COMMANDS`] (D9).
+    read_only: bool,
 }
 
 impl GitRunner {
@@ -228,7 +253,43 @@ impl GitRunner {
         Self {
             git,
             env: Arc::new([]),
+            read_only: false,
         }
+    }
+
+    /// The same runner, refusing before it starts anything every write and
+    /// every subcommand that is not a known read (D9): what AI jobs get,
+    /// so no path from them reaches a write.
+    pub fn read_only(self) -> Self {
+        Self {
+            read_only: true,
+            ..self
+        }
+    }
+
+    /// Whether [`Self::read_only`] made it refuse writes.
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// Refuses `args` when this runner is read-only and they are not a
+    /// known read; any write when `write`.
+    fn check(&self, args: &[OsString], write: bool) -> Result<(), GitError> {
+        if !self.read_only {
+            return Ok(());
+        }
+        let command = subcommand(args);
+        let read = command
+            .and_then(|command| command.to_str())
+            .is_some_and(|command| READ_ONLY_COMMANDS.contains(&command));
+        if read && !write {
+            return Ok(());
+        }
+        Err(GitError::ReadOnly {
+            command: command.map_or_else(String::new, |command| {
+                command.to_string_lossy().into_owned()
+            }),
+        })
     }
 
     /// Sets `vars` on every process this runner starts, such as a `HOME`
@@ -290,6 +351,7 @@ impl GitRunner {
     /// Like [`run`](Self::run), for a thread that may block: the read API
     /// runs on blocking threads, and its git fallback (ARCH-2) waits here.
     pub fn run_blocking(&self, args: &[OsString], cwd: Option<&Path>) -> Result<Output, GitError> {
+        self.check(args, false)?;
         let mut command = self.blocking_command(args, cwd);
         let started = Instant::now();
         let output = command.output().map_err(|source| {
@@ -328,6 +390,7 @@ impl GitRunner {
     /// Runs git with `args` in `cwd` (or the current directory) and captures
     /// stdout and stderr as bytes.
     pub async fn run(&self, args: &[OsString], cwd: Option<&Path>) -> Result<Output, GitError> {
+        self.check(args, false)?;
         let started = Instant::now();
         let output = self.command(args, cwd).output().await.map_err(|source| {
             log(args, cwd, started, Exit::NotStarted);
@@ -350,6 +413,7 @@ impl GitRunner {
         cwd: &Path,
         write: Write<'_>,
     ) -> Result<Output, GitError> {
+        self.check(args, true)?;
         let started = Instant::now();
         if write.kill.is_some_and(Kill::is_requested) {
             log(args, Some(cwd), started, Exit::NotStarted);

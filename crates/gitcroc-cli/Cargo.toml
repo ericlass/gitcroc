@@ -8,9 +8,11 @@ publish.workspace = true
 
 [dependencies]
 gitcroc-core.workspace = true
-gitcroc-ai.workspace = true
+# The mock provider of `conflict ai-resolve --mock` (M4-08). The CLI is not
+# in the release bundle.
+gitcroc-ai = { workspace = true, features = ["mock"] }
 serde_json.workspace = true
-tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 # The bench's throwaway config and cache dirs.
 tempfile.workspace = true
 

@@ -6,6 +6,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod ai_context;
+mod ai_proposals;
 mod ai_settings;
 mod branch;
 mod changes;

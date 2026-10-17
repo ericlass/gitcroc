@@ -206,3 +206,48 @@ async fn a_write_reads_its_stdin() {
         b"de2fd67c30b7f83c93682ed83ebff8a57a447cb5\n".to_vec()
     );
 }
+
+#[tokio::test]
+async fn d9_a_read_only_runner_refuses_writes_before_starting_git() {
+    let dir = tempfile::tempdir().unwrap();
+    // A git that cannot start: a refusal must come before any start.
+    let missing = GitRunner::new(dir.path().join("no-git")).read_only();
+    assert!(missing.is_read_only());
+    for write in [&["commit", "-m", "x"][..], &["-c", "a=b", "log"], &["log"]] {
+        let error = missing
+            .run_write(&args(write), dir.path(), Write::default())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, GitError::ReadOnly { .. }),
+            "{write:?}: {error}"
+        );
+    }
+    for write in [
+        &["commit", "-m", "x"][..],
+        &["-C", "log", "status"],
+        &["--literal-pathspecs", "update-index", "--add"],
+        &["-c", "core.editor=log", "rebase", "--continue"],
+        &[],
+    ] {
+        let error = missing.run_blocking(&args(write), None).unwrap_err();
+        assert!(
+            matches!(error, GitError::ReadOnly { .. }),
+            "{write:?}: {error}"
+        );
+        let error = missing.run(&args(write), None).await.unwrap_err();
+        assert!(
+            matches!(error, GitError::ReadOnly { .. }),
+            "{write:?}: {error}"
+        );
+    }
+    // A read gets as far as starting git.
+    let error = missing
+        .run_blocking(&args(&["--literal-pathspecs", "log", "-z"]), None)
+        .unwrap_err();
+    assert!(matches!(error, GitError::Spawn { .. }), "{error}");
+
+    let git = runner().await.read_only();
+    let output = git.run(&args(&["--version"]), None).await.unwrap();
+    assert!(output.stdout.starts_with(b"git version"));
+}

@@ -42,13 +42,23 @@ pub struct Conflict {
     /// most [`MAX_CONFLICT_TEXT`] bytes: what the editor opens to keep the
     /// file as it is (OPS-8).
     pub on_disk: Option<String>,
-    /// Ours and theirs as the index has them, for choosing a side.
+    /// The stages as the index has them, for choosing a side and to tell
+    /// this conflict from a later one of the same path.
     #[serde(skip)]
-    stages: [Option<StageEntry>; 2],
+    stages: ConflictStages,
+}
+
+/// The base, ours and theirs stages of a conflicted path; `None` where a
+/// side has no file.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct ConflictStages {
+    pub base: Option<StageEntry>,
+    pub ours: Option<StageEntry>,
+    pub theirs: Option<StageEntry>,
 }
 
 /// A side's conflict stage: what choosing it puts in the index (OPS-6).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StageEntry {
     pub id: gix::ObjectId,
     /// The mode as git writes it, `100644` for example.
@@ -69,11 +79,16 @@ impl StageEntry {
 impl Conflict {
     /// What `side` holds in the index; `None` when it deleted the file.
     pub fn stage(&self, side: crate::ops::conflict::Side) -> Option<StageEntry> {
-        let [ours, theirs] = self.stages;
         match side {
-            crate::ops::conflict::Side::Ours => ours,
-            crate::ops::conflict::Side::Theirs => theirs,
+            crate::ops::conflict::Side::Ours => self.stages.ours,
+            crate::ops::conflict::Side::Theirs => self.stages.theirs,
         }
+    }
+
+    /// All three stages: the same for the same conflict, different once
+    /// any side's content or mode changed.
+    pub fn stages(&self) -> ConflictStages {
+        self.stages
     }
 }
 
@@ -288,7 +303,11 @@ impl GitRepo {
             content,
             edited_outside: edited.is_some(),
             on_disk: edited.flatten(),
-            stages: [entry(ours), entry(theirs)],
+            stages: ConflictStages {
+                base: entry(base),
+                ours: entry(ours),
+                theirs: entry(theirs),
+            },
         }))
     }
 }

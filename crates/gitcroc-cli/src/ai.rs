@@ -53,7 +53,7 @@ pub fn parse_args(args: &[OsString]) -> Option<Options> {
 
 /// A portable environment variable name: letters, digits and `_`, not
 /// starting with a digit. Anything else may be a key typed by mistake.
-fn is_variable_name(name: &str) -> bool {
+pub(crate) fn is_variable_name(name: &str) -> bool {
     name.chars()
         .next()
         .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')

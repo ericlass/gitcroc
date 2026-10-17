@@ -9,6 +9,7 @@ mod ask;
 mod cli_providers;
 mod fake_cli;
 mod fake_server;
+mod logged;
 mod mock;
 mod providers;
 mod responses;

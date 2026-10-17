@@ -6,6 +6,10 @@ import type {
   AddReport,
   AiEligibility,
   AiModelsReply,
+  AiProposalGet,
+  AiProposalReady,
+  AiResolveRequest,
+  AiResolveStart,
   AiSelfTestReply,
   AiView,
   AskpassClosedEvent,
@@ -186,6 +190,10 @@ const preflightReadyListeners: Listeners<PreflightReady> = new Set();
 const aiChangedListeners: Listeners<AiView> = new Set();
 const aiModelsListeners: Listeners<AiModelsReply> = new Set();
 const aiSelfTestListeners: Listeners<AiSelfTestReply> = new Set();
+const aiProposalReadyListeners: Listeners<AiProposalReady> = new Set();
+
+/** What `ai_resolve` answers until a test sets it: the core's answer without a provider (AI-3). */
+const NO_AI_PROVIDER: AiResolveStart = { kind: "refused", refused: { kind: "no_provider" } };
 
 /** The AI commands, which send their events as the core does. */
 const aiCommands = fakeAiCommands({
@@ -344,6 +352,12 @@ export const fakeState: {
   fileConflicts: Record<string, Conflict>;
   /** What `ai_eligibility` answers by path; others are eligible. */
   aiEligibility: Record<string, AiEligibility>;
+  /** What `ai_resolve` answers for a file in conflict. */
+  aiResolve: AiResolveStart;
+  /** Every `ai_resolve`, oldest first. */
+  aiResolveRequests: AiResolveRequest[];
+  /** What `ai_proposal_get` answers by path; others have none. */
+  aiProposals: Record<string, AiProposalGet>;
   /** Every `conflict_resolve` and `conflict_choose`, oldest first. */
   conflictRequests: (ResolveRequest | ChooseRequest)[];
   /** What the clone's folder dialog returns; `null` is a cancel. */
@@ -420,6 +434,9 @@ export const fakeState: {
   fsmonitorAnswers: [],
   fileConflicts: {},
   aiEligibility: {},
+  aiResolve: NO_AI_PROVIDER,
+  aiResolveRequests: [],
+  aiProposals: {},
   conflictRequests: [],
   cloneParent: null,
   folders: {},
@@ -489,6 +506,26 @@ function endJob(workspaceId: WorkspaceId, repoId: RepoId, job: JobView): void {
 /** The unmerged paths of `repoId`'s working copy now. */
 const unmergedPaths = (repoId: RepoId): string[] =>
   fakeState.workingCopies[repoId]?.unmerged.map((file) => file.path) ?? [];
+
+/**
+ * `read` of unmerged file `file` of view `handle`, like the core: `null` for a replaced view, an
+ * error for an unknown file and `already_resolved` for one no longer in conflict.
+ */
+function fakeUnmerged<T>(workspaceId: WorkspaceId, handle: number, file: number, read: (path: string) => T) {
+  const view = viewPart(workspaceId, handle);
+  if (view === undefined) {
+    return Promise.resolve({ status: "ok" as const, data: null });
+  }
+  const path = view.unmerged[file];
+  if (path === undefined) {
+    return Promise.resolve({
+      status: "error" as const,
+      error: { code: "internal" as const, message: `the list has no file ${file}`, git_stderr: null },
+    });
+  }
+  const data = unmergedPaths(view.repo).includes(path) ? read(path) : { kind: "already_resolved" as const };
+  return Promise.resolve({ status: "ok" as const, data });
+}
 
 /**
  * Mark resolved or a chosen side, like the core: refused for a file no
@@ -1146,6 +1183,9 @@ export function reset(): void {
   fakeState.openFailure = null;
   fakeState.fileConflicts = {};
   fakeState.aiEligibility = {};
+  fakeState.aiResolve = NO_AI_PROVIDER;
+  fakeState.aiResolveRequests = [];
+  fakeState.aiProposals = {};
   fakeState.conflictRequests = [];
   fakeState.appInfo = defaultAppInfo;
   fakeState.gitStatus = defaultGitStatus;
@@ -1220,6 +1260,7 @@ export function reset(): void {
   aiChangedListeners.clear();
   aiModelsListeners.clear();
   aiSelfTestListeners.clear();
+  aiProposalReadyListeners.clear();
   resetFakeAi();
   resetGroups();
 }
@@ -2397,6 +2438,17 @@ export const fake: Core = {
           : { kind: "already_resolved" },
       });
     },
+    aiResolve: (workspaceId, request) => {
+      fakeState.aiResolveRequests.push(request);
+      return fakeUnmerged(workspaceId, request.handle, request.file, () => fakeState.aiResolve);
+    },
+    aiProposalGet: (workspaceId, handle, file) =>
+      fakeUnmerged(
+        workspaceId,
+        handle,
+        file,
+        (path): AiProposalGet => fakeState.aiProposals[path] ?? { kind: "no_proposal" },
+      ),
     conflictResolve: (workspaceId, request) => fakeResolve(workspaceId, request),
     conflictChoose: (workspaceId, request) => fakeResolve(workspaceId, request),
     mergeTargets: (_workspaceId, repoId, filter) => {
@@ -2467,5 +2519,6 @@ export const fake: Core = {
     aiChanged: fakeEvent(aiChangedListeners),
     aiModels: fakeEvent(aiModelsListeners),
     aiSelfTest: fakeEvent(aiSelfTestListeners),
+    aiProposalReady: fakeEvent(aiProposalReadyListeners),
   },
 };

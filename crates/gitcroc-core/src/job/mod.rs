@@ -13,7 +13,7 @@ mod pool;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use gitcroc_git::{
@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::lock;
-use crate::{RepoId, Summaries, SummaryView, WorkspaceError, Workspaces};
+use crate::{AiJobs, RepoId, Summaries, SummaryView, WorkspaceError, Workspaces};
 
 pub use group::{GroupRun, SubJobError, SubJobSpec};
 pub use pool::{POOL_SIZE, Pool, Priority, Worker};
@@ -392,6 +392,8 @@ pub struct Jobs {
     summaries: Arc<Summaries>,
     events: Arc<dyn JobEvents>,
     askpass: OnceLock<Arc<dyn AskpassIssuer>>,
+    /// The AI proposals that a resolution, Abort or Continue drops (D9).
+    ai: OnceLock<Weak<AiJobs>>,
     state: Mutex<State>,
 }
 
@@ -422,6 +424,7 @@ impl Jobs {
             summaries,
             events,
             askpass: OnceLock::new(),
+            ai: OnceLock::new(),
             state: Mutex::new(State::default()),
         })
     }
@@ -430,6 +433,17 @@ impl Jobs {
     /// (D10). Set once; returns `false` when it was set already.
     pub fn use_askpass(&self, issuer: Arc<dyn AskpassIssuer>) -> bool {
         self.askpass.set(issuer).is_ok()
+    }
+
+    /// Resolutions, Abort and Continue from now on drop the proposals of
+    /// `ai` they make stale (D9). Set once, by [`AiJobs::new`].
+    pub(crate) fn use_ai(&self, ai: Weak<AiJobs>) -> bool {
+        self.ai.set(ai).is_ok()
+    }
+
+    /// The AI proposals, when there are any.
+    pub(crate) fn ai(&self) -> Option<Arc<AiJobs>> {
+        self.ai.get().and_then(Weak::upgrade)
     }
 
     /// A new job id, for jobs that are not writes, such as adding repos.
@@ -555,7 +569,25 @@ impl Jobs {
         workspace: &WorkspaceId,
         label: &str,
     ) -> Result<TrackedJob, JobError> {
-        self.track_as(workspace, label, OnCancel::Finish, false)
+        self.track_as(workspace, &[], label, OnCancel::Finish, false)
+    }
+
+    /// Tracks an AI job on `repo` (D9): like [`Self::track`], outside the
+    /// repo queues and the workers, as it never writes; cancel requests its
+    /// stop through [`TrackedJob::cancel_request`].
+    pub(crate) fn track_ai(
+        self: &Arc<Self>,
+        workspace: &WorkspaceId,
+        repo: &RepoId,
+        label: &str,
+    ) -> Result<TrackedJob, JobError> {
+        self.track_as(
+            workspace,
+            std::slice::from_ref(repo),
+            label,
+            OnCancel::Kill,
+            false,
+        )
     }
 
     /// Tracks a network write that has no repo yet, a clone: like
@@ -567,18 +599,19 @@ impl Jobs {
         workspace: &WorkspaceId,
         label: &str,
     ) -> Result<TrackedJob, JobError> {
-        self.track_as(workspace, label, OnCancel::Kill, true)
+        self.track_as(workspace, &[], label, OnCancel::Kill, true)
     }
 
     fn track_as(
         self: &Arc<Self>,
         workspace: &WorkspaceId,
+        repos: &[RepoId],
         label: &str,
         on_cancel: OnCancel,
         network: bool,
     ) -> Result<TrackedJob, JobError> {
         let id = self.ids.next();
-        let view = self.new_view(id, workspace, label, &[])?;
+        let view = self.new_view(id, workspace, label, repos)?;
         let kill = Kill::new();
         self.lock().jobs.push_back(Entry {
             view,
@@ -888,6 +921,12 @@ impl TrackedJob {
             askpass: self.grant.as_ref().map(AskpassGrant::askpass),
             ..Write::default()
         }
+    }
+
+    /// The request to stop, set when the job is cancelled; only for a job
+    /// tracked as one to kill.
+    pub fn cancel_request(&self) -> Kill {
+        self.kill.clone()
     }
 
     /// Reports progress like [`Self::progress`], from another thread.

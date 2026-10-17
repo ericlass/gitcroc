@@ -34,9 +34,13 @@ mod watch;
 mod workspace;
 
 pub use ai::{
-    AI_CONTEXT_LINES, AI_MAX_FILE, AI_MAX_MESSAGE_CHARS, AI_MAX_MESSAGES, AiContextError,
-    AiContextRead, AiEligibility, AiEligibilityRead, AiFileContext, AiHunk, AiOperation,
-    Ineligible, ai_eligibility, ai_eligibility_get, ai_file_context,
+    AI_CONTEXT_LINES, AI_MAX_FILE, AI_MAX_MESSAGE_CHARS, AI_MAX_MESSAGES, AI_MAX_REQUESTS,
+    AiContextError, AiContextRead, AiEligibility, AiEligibilityRead, AiEvents, AiFileContext,
+    AiHunk, AiJobs, AiOperation, AiProposalGet, AiProposalReady, AiRefused, AiResolveOnce,
+    AiResolveRequest, AiResolveStart, AiUsage, ConsentRequest, ConsentTarget, FileProposal,
+    Ineligible, ProposalConfidence, ProposalStatus, ProposeFuture, ProposedHunk, Proposer,
+    ProviderAccess, ai_eligibility, ai_eligibility_get, ai_file_context, ai_proposal_get,
+    ai_resolve, ai_resolve_once, consent_request, consent_target,
 };
 pub use app_info::AppInfo;
 pub use branch::{
@@ -66,13 +70,13 @@ pub use gitcroc_git::{
 };
 pub use gitcroc_git::{
     ChangedFile, ChoiceKind, CommitDetails, CommitRow, Conflict, ConflictChunk, ConflictContent,
-    ConflictDetails, ConflictError, ContentKey, Context, Cursor, DiffError, DiffOptions, DiffRead,
-    DiffSource, Engine, Fallback, FileDiff, FileStatus, Filter, GitError, GitRepo, GitRunner, Head,
-    HistoryError, HistoryStart, Hunk, HunkPatch, Image, Line, LocalBranch, MergedCursor, MergedRow,
-    OpenError, Operation, PAGE_SIZE, Page, Refs, RefsError, RemoteBranches, RepoRead, RepoState,
-    RepoSummary, SearchEnv, SideHolds, SideMessages, SidesRead, SidesReader, StashEntry,
-    StatusError, StatusRead, StatusReader, Step, Tag, TextDiff, UnmergedFile, WorkingCopy,
-    merged_history,
+    ConflictDetails, ConflictError, ConflictStages, ContentKey, Context, Cursor, DiffError,
+    DiffOptions, DiffRead, DiffSource, Engine, Fallback, FileDiff, FileStatus, Filter, GitError,
+    GitRepo, GitRunner, Head, HistoryError, HistoryStart, Hunk, HunkPatch, Image, Line,
+    LocalBranch, MergedCursor, MergedRow, OpenError, Operation, PAGE_SIZE, Page, Refs, RefsError,
+    RemoteBranches, RepoRead, RepoState, RepoSummary, SearchEnv, SideHolds, SideMessages,
+    SidesRead, SidesReader, StashEntry, StatusError, StatusRead, StatusReader, Step, Tag, TextDiff,
+    UnmergedFile, WorkingCopy, merged_history,
 };
 pub use group::{
     Class, GroupBranch, GroupError, GroupOp, GroupOperation, GroupOps, GroupSummary, MissingBranch,

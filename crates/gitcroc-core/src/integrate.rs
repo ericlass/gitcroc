@@ -460,14 +460,19 @@ pub async fn op_integrate(
             actions: destructive,
         });
     }
+    let resumes = matches!(plan, Plan::Resume { .. });
     let job = WriteJob {
         may_conflict: plan.may_conflict(),
         nothing_to_do: plan.nothing_to_do(),
-        ..WriteJob::single(id, repo_id, plan.label())
+        ..WriteJob::single(id.clone(), repo_id.clone(), plan.label())
     };
     let handle = jobs.start(git, job, move |job| async move {
         run_plan(&job.git, &path, &plan, job.write()).await
     })?;
+    // Abort and Continue end the conflict the proposals were made for (D9).
+    if resumes && let Some(ai) = jobs.ai() {
+        ai.forget_repo(&id, &repo_id);
+    }
     Ok(IntegrateStart::Started {
         job_id: handle.job_id,
     })

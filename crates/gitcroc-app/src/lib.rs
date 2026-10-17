@@ -4,6 +4,7 @@ pub mod ai;
 pub mod askpass;
 pub mod ipc;
 pub mod platform;
+pub mod proposer;
 
 use std::sync::Arc;
 
@@ -120,6 +121,10 @@ pub fn run() -> Result<(), Error> {
                 app.state::<Arc<AppLog>>().inner().clone(),
                 tauri::async_runtime::handle().inner().clone(),
             );
+            // Proposal jobs (M4-08), which turning AI off cancels (AI-16).
+            let ai_jobs = ipc::ai_jobs(app.handle());
+            ai.use_jobs(ai_jobs.clone());
+            app.manage(ai_jobs);
             ai.start();
             app.manage(ai);
             ipc::spawn_watching(app.handle());
