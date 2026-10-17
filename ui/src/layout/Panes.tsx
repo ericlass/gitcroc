@@ -8,6 +8,7 @@ import { Show } from "solid-js";
 import HistoryPane from "../history/HistoryPane";
 import TargetView from "../history/TargetView";
 import type { RepoId, WorkspaceId } from "../ipc";
+import type { AiStore } from "../stores/ai";
 import type { BranchStore } from "../stores/branch";
 import type { StashStore } from "../stores/stash";
 import type { CloneStore } from "../stores/clone";
@@ -49,6 +50,9 @@ export default function Panes(props: {
   reset: ResetStore;
   integrate: IntegrateStore;
   settings: SettingsStore;
+  ai: AiStore;
+  /** Opens Settings at its AI section (AI-3). */
+  onAiSettings: () => void;
 }) {
   let fill: HTMLElement | undefined;
   let stack: HTMLElement | undefined;
@@ -127,6 +131,11 @@ export default function Panes(props: {
       settings={props.settings}
       layout={props.layout}
       onSelectCommit={(hash) => props.history.selectCommit(props.workspace, hash)}
+      ai={{
+        store: props.ai,
+        workspaceOn: () => props.workspaces.state.views?.find((view) => view.id === props.workspace)?.ai ?? true,
+        openSettings: props.onAiSettings,
+      }}
     />
   );
 

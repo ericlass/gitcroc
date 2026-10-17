@@ -93,7 +93,7 @@ import {
 } from "./fakeHistory";
 import { applyBranchOp, choicesOf, destructiveOf, fakeNameCheck, labelOf, refusalOf } from "./fakeBranches";
 import { type FakeFolder, fakeDefaultName, fakeTargetRefusal } from "./fakeClone";
-import { fakeAi, fakeAiCommands, resetFakeAi } from "./fakeAi";
+import { fakeAi, fakeAiCommands, fakeAiRefusal, resetFakeAi } from "./fakeAi";
 import { labelsOf, planResolution, textConflict } from "./fakeConflict";
 import { mergeTargetsOf, planIntegrate } from "./fakeIntegrate";
 import { fakeRemoteNameCheck, planRemote } from "./fakeRemotes";
@@ -193,8 +193,6 @@ const aiSelfTestListeners: Listeners<AiSelfTestReply> = new Set();
 const aiProposalReadyListeners: Listeners<AiProposalReady> = new Set();
 
 /** What `ai_resolve` answers until a test sets it: the core's answer without a provider (AI-3). */
-const NO_AI_PROVIDER: AiResolveStart = { kind: "refused", refused: { kind: "no_provider" } };
-
 /** The AI commands, which send their events as the core does. */
 const aiCommands = fakeAiCommands({
   changed: (view) => emit(aiChangedListeners, "ai_changed", view),
@@ -352,12 +350,16 @@ export const fakeState: {
   fileConflicts: Record<string, Conflict>;
   /** What `ai_eligibility` answers by path; others are eligible. */
   aiEligibility: Record<string, AiEligibility>;
-  /** What `ai_resolve` answers for a file in conflict. */
-  aiResolve: AiResolveStart;
+  /** What `ai_resolve` answers for a file in conflict; `null` checks like the core, then starts a job. */
+  aiResolve: AiResolveStart | null;
   /** Every `ai_resolve`, oldest first. */
   aiResolveRequests: AiResolveRequest[];
-  /** What `ai_proposal_get` answers by path; others have none. */
+  /** What `ai_proposal_get` answers by path; others have none. A proposal job keeps its result here. */
   aiProposals: Record<string, AiProposalGet>;
+  /** What a proposal job ends with, by path; others fail. */
+  aiAnswers: Record<string, AiProposalGet>;
+  /** Proposal jobs keep running until `finishAiJobs`. */
+  holdAi: boolean;
   /** Every `conflict_resolve` and `conflict_choose`, oldest first. */
   conflictRequests: (ResolveRequest | ChooseRequest)[];
   /** What the clone's folder dialog returns; `null` is a cancel. */
@@ -434,9 +436,11 @@ export const fakeState: {
   fsmonitorAnswers: [],
   fileConflicts: {},
   aiEligibility: {},
-  aiResolve: NO_AI_PROVIDER,
+  aiResolve: null,
   aiResolveRequests: [],
   aiProposals: {},
+  aiAnswers: {},
+  holdAi: false,
   conflictRequests: [],
   cloneParent: null,
   folders: {},
@@ -576,6 +580,75 @@ function fakeResolve(workspaceId: WorkspaceId, request: ResolveRequest | ChooseR
     endJob(workspaceId, repo.id, job);
   }, 0);
   return Promise.resolve({ status: "ok" as const, data: { kind: "started" as const, job_id: jobId } });
+}
+
+/** The proposal jobs running, by job id. */
+const aiJobs = new Map<JobId, { job: JobView; path: string }>();
+
+/** `ai_resolve`'s checks, in the core's order, then a proposal job that ends with `fakeState.aiAnswers`. */
+function fakeAiResolve(workspaceId: WorkspaceId, repoId: RepoId, path: string): AiResolveStart {
+  const eligibility = fakeState.aiEligibility[path] ?? { kind: "eligible" };
+  const refused = fakeAiRefusal(fakeState.workspace.ai, eligibility);
+  if (refused !== null) {
+    return { kind: "refused", refused };
+  }
+  const repo = fakeState.workspace.repos.find((known) => known.id === repoId);
+  const jobId = nextJobId++;
+  const job = fakeJob(fakeState.workspace, {
+    job_id: jobId,
+    workspace_id: workspaceId,
+    label: `Resolve with AI · ${path.split("/").pop() ?? path}`,
+    repos: [repoId],
+    repo_names: [repo?.name ?? repoId],
+    state: "running",
+    outcome: null,
+    started_at: Date.now(),
+    duration_ms: null,
+  });
+  aiJobs.set(jobId, { job, path });
+  sendJob(job);
+  if (!fakeState.holdAi) {
+    setTimeout(() => endAiJob(jobId, aiAnswerOf(path)));
+  }
+  return { kind: "started", job_id: jobId };
+}
+
+/** Ends proposal job `jobId` with `answer`, kept and announced, or cancelled with `null`. */
+function endAiJob(jobId: JobId, answer: AiProposalGet | null): void {
+  const running = aiJobs.get(jobId);
+  if (running === undefined) {
+    return;
+  }
+  aiJobs.delete(jobId);
+  const { job, path } = running;
+  const ended = { ...job, state: "ended" as const, duration_ms: 5 };
+  if (answer === null) {
+    sendJob({ ...ended, outcome: { kind: "skipped", reason: { kind: "cancelled" } }, message: "cancelled" });
+    return;
+  }
+  fakeState.aiProposals[path] = answer;
+  sendJob(
+    answer.kind === "failed"
+      ? { ...ended, outcome: { kind: "failed" }, message: `AI failed: ${answer.reason}` }
+      : { ...ended, outcome: { kind: "succeeded" } },
+  );
+  emit(aiProposalReadyListeners, "ai_proposal_ready", {
+    workspace_id: job.workspace_id,
+    repo_id: job.repos[0] ?? "",
+    path,
+    job_id: jobId,
+  });
+}
+
+/** What a proposal job for `path` ends with. */
+const aiAnswerOf = (path: string): AiProposalGet =>
+  fakeState.aiAnswers[path] ?? { kind: "failed", reason: "the fake has no answer" };
+
+/** Ends the held proposal jobs with their answers. */
+export function finishAiJobs(): void {
+  for (const [jobId, { path }] of [...aiJobs]) {
+    endAiJob(jobId, aiAnswerOf(path));
+  }
 }
 
 /**
@@ -1183,9 +1256,12 @@ export function reset(): void {
   fakeState.openFailure = null;
   fakeState.fileConflicts = {};
   fakeState.aiEligibility = {};
-  fakeState.aiResolve = NO_AI_PROVIDER;
+  fakeState.aiResolve = null;
   fakeState.aiResolveRequests = [];
   fakeState.aiProposals = {};
+  fakeState.aiAnswers = {};
+  fakeState.holdAi = false;
+  aiJobs.clear();
   fakeState.conflictRequests = [];
   fakeState.appInfo = defaultAppInfo;
   fakeState.gitStatus = defaultGitStatus;
@@ -1268,7 +1344,11 @@ export function reset(): void {
 // Playwright runs the fake build; `?fake=<name>` picks a data set.
 const picked = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("fake");
 // `jobs` is the `tree` data set with this run's jobs (UI-21).
-const data = picked === null ? null : scenario(picked === "jobs" ? "tree" : picked, defaultWorkspace.id);
+// `ai-conflict` is the `conflict` data set with AI to resolve it.
+const data =
+  picked === null
+    ? null
+    : scenario(picked === "jobs" ? "tree" : picked === "ai-conflict" ? "conflict" : picked, defaultWorkspace.id);
 if (picked === "jobs") {
   fakeState.jobs = jobsScenario(defaultWorkspace);
   nextJobId = 100;
@@ -1290,6 +1370,74 @@ if (data) {
   fakeState.workingCopies = data.workingCopies ?? {};
   fakeState.refModels = data.refModels ?? {};
   fakeState.conflicts = data.conflicts ?? {};
+}
+
+// `ai-conflict`: api stopped on README.md alone, two hunks with a proposal each from a usable provider (AI-11).
+if (picked === "ai-conflict") {
+  fakeAi.providers = [
+    {
+      id: "p1",
+      name: "Hosted",
+      kind: "openai",
+      model: "small-model",
+      base_url: "https://api.example.com/v1",
+      path: null,
+      context_budget: 100_000,
+      consent: "api.example.com",
+    },
+  ];
+  fakeAi.default = "p1";
+  const working = fakeState.workingCopies.r1;
+  if (working !== undefined) {
+    fakeState.workingCopies.r1 = { ...working, unmerged: working.unmerged.slice(0, 1) };
+  }
+  const details = fakeState.conflicts.r1;
+  if (details !== undefined) {
+    fakeState.conflicts.r1 = { ...details, unmerged_paths: 1 };
+  }
+  fakeState.summaries = fakeState.summaries.map((known) =>
+    known.repo_id === "r1" && known.summary?.state
+      ? { ...known, summary: { ...known.summary, state: { ...known.summary.state, unmerged_paths: 1 } } }
+      : known,
+  );
+  fakeState.fileConflicts = {
+    "README.md": {
+      ...textConflict("README.md", { ours: "main", theirs: "feature/login" }),
+      content: {
+        kind: "text",
+        chunks: [
+          { kind: "resolved", text: "# api\n" },
+          { kind: "hunk", ours: "Run it with make.\n", base: "Run it.\n", theirs: "Run it with just.\n" },
+          { kind: "resolved", text: "\n## Login\n" },
+          { kind: "hunk", ours: "Sign in.\n", base: "Log in.\n", theirs: "Log in with a token.\n" },
+        ],
+      },
+    },
+  };
+  fakeState.aiAnswers = {
+    "README.md": {
+      kind: "proposal",
+      proposal: {
+        hunks: [
+          {
+            id: 1,
+            status: "resolved",
+            resolution: "Run it with just.\n",
+            explanation: "Theirs replaced make with just; ours only reworded.",
+            confidence: "high",
+          },
+          {
+            id: 2,
+            status: "resolved",
+            resolution: "Sign in with a token.\n",
+            explanation: "Kept the wording of ours and the token of theirs.",
+            confidence: "medium",
+          },
+        ],
+        usage: [{ input_tokens: 1450, output_tokens: 120 }],
+      },
+    },
+  };
 }
 
 /** Resolves after the fake's paging delay, as a slow disk would. */
@@ -2440,7 +2588,13 @@ export const fake: Core = {
     },
     aiResolve: (workspaceId, request) => {
       fakeState.aiResolveRequests.push(request);
-      return fakeUnmerged(workspaceId, request.handle, request.file, () => fakeState.aiResolve);
+      const repo = viewPart(workspaceId, request.handle)?.repo;
+      return fakeUnmerged(
+        workspaceId,
+        request.handle,
+        request.file,
+        (path): AiResolveStart => fakeState.aiResolve ?? fakeAiResolve(workspaceId, repo ?? "", path),
+      );
     },
     aiProposalGet: (workspaceId, handle, file) =>
       fakeUnmerged(
@@ -2477,6 +2631,10 @@ export const fake: Core = {
     // (GRP-10). The fake's jobs do not move on by themselves.
     jobCancel: (jobId) => {
       fakeState.cancels.push(jobId);
+      if (aiJobs.has(jobId)) {
+        endAiJob(jobId, null);
+        return Promise.resolve({ status: "ok", data: "cancelled" });
+      }
       const job = fakeState.jobs.find((known) => known.job_id === jobId);
       if (job?.state === "queued") {
         sendJob({
@@ -2490,6 +2648,17 @@ export const fake: Core = {
       return Promise.resolve({ status: "ok", data: job?.state === "running" ? "finishing" : "ended" });
     },
     ...aiCommands,
+    // Turning AI features off cancels the proposal jobs and drops the proposals (AI-16).
+    aiSettingsSet: async (options) => {
+      const answer = await aiCommands.aiSettingsSet(options);
+      if (!options.enabled) {
+        for (const jobId of [...aiJobs.keys()]) {
+          endAiJob(jobId, null);
+        }
+        fakeState.aiProposals = {};
+      }
+      return answer;
+    },
     // Only `just bench-ui` builds measure; the fake has nowhere to write.
     perfTraceWrite: () =>
       Promise.resolve({
