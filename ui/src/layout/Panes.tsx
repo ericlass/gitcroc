@@ -19,6 +19,7 @@ import type { ResetStore } from "../stores/reset";
 import type { IntegrateStore } from "../stores/integrate";
 import type { ChangesStore } from "../stores/changes";
 import type { ConflictStore } from "../stores/conflicts";
+import type { ResolveAllStore } from "../stores/resolveAll";
 import type { CommitStore } from "../stores/commit";
 import type { GroupOpStore } from "../stores/groupOps";
 import type { HistoryStore } from "../stores/history";
@@ -51,9 +52,15 @@ export default function Panes(props: {
   integrate: IntegrateStore;
   settings: SettingsStore;
   ai: AiStore;
+  resolveAll: ResolveAllStore;
   /** Opens Settings at its AI section (AI-3). */
   onAiSettings: () => void;
 }) {
+  const conflictAi = () => ({
+    store: props.ai,
+    workspaceOn: () => props.workspaces.state.views?.find((view) => view.id === props.workspace)?.ai ?? true,
+    openSettings: () => props.onAiSettings(),
+  });
   let fill: HTMLElement | undefined;
   let stack: HTMLElement | undefined;
   const sizes = () => props.layout.paneSizes(props.workspace);
@@ -103,6 +110,7 @@ export default function Panes(props: {
       integrate={props.integrate}
       tag={props.tag}
       reset={props.reset}
+      resolveAll={{ store: props.resolveAll, ai: conflictAi() }}
     />
   );
 
@@ -131,11 +139,7 @@ export default function Panes(props: {
       settings={props.settings}
       layout={props.layout}
       onSelectCommit={(hash) => props.history.selectCommit(props.workspace, hash)}
-      ai={{
-        store: props.ai,
-        workspaceOn: () => props.workspaces.state.views?.find((view) => view.id === props.workspace)?.ai ?? true,
-        openSettings: props.onAiSettings,
-      }}
+      ai={conflictAi()}
     />
   );
 

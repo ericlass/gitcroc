@@ -11,23 +11,23 @@ use std::sync::Arc;
 use base64::Engine as _;
 use gitcroc_core::{
     AddReport, AiEligibilityRead, AiEvents as AiJobEvents, AiJobs, AiOptions, AiProposalGet,
-    AiProposalReady, AiResolveRequest, AiResolveStart, AppInfo, AppLog, Appearance, BranchChoices,
-    BranchError, BranchRequest, BranchStart, CancelResult, ChangeRequest, ChangeStart, Changes,
-    ChangesError, ChangesSettings, ChangesTarget, ChangesView, ChooseRequest, CloneError,
-    CloneReport, CloneRequest, CommitGraphError, CommitRequest, ConflictDetails, ConflictRead,
-    ConflictStart, DiffRequest, ExportReport, FileDiff, FileRef, FsmonitorError, GitRunner,
-    GitSetup, GitStatus, GroupError, GroupId, GroupOp, GroupOps, GroupSettings, GroupSummary,
-    Histories, HistoryTarget, HistoryView, HistoryViewError, ImageSide, ImportReport,
-    IntegrateError, IntegrateRequest, IntegrateStart, JobError, JobEvents, JobId, JobProgress,
-    JobView, Jobs, MissingRepo, Outcome, PaneLayout, PreflightId, PreflightReady, ProviderDraft,
-    ProviderId, PushChoices, Refusal, RemoteError, RemoteRequest, RemoteStart, RemoteUrlsView,
-    RepoChange, RepoId, ResetError, ResetRequest, ResetStart, ResolveRequest, SettingsError,
-    SettingsStore, SettingsView, StashError, StashRequest, StashStart, StatusError,
-    StatusReadError, Summaries, SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch,
-    TagError, TagRequest, TagStart, TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees,
-    WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs,
-    WorkspaceView, Workspaces, add_path, group_summaries, refresh_summaries, refresh_workspace,
-    tree_refs,
+    AiProposalReady, AiResolveAllRequest, AiResolveAllStart, AiResolveRequest, AiResolveStart,
+    AppInfo, AppLog, Appearance, BranchChoices, BranchError, BranchRequest, BranchStart,
+    CancelResult, ChangeRequest, ChangeStart, Changes, ChangesError, ChangesSettings,
+    ChangesTarget, ChangesView, ChooseRequest, CloneError, CloneReport, CloneRequest,
+    CommitGraphError, CommitRequest, ConflictDetails, ConflictRead, ConflictStart, DiffRequest,
+    ExportReport, FileDiff, FileRef, FsmonitorError, GitRunner, GitSetup, GitStatus, GroupError,
+    GroupId, GroupOp, GroupOps, GroupSettings, GroupSummary, Histories, HistoryTarget, HistoryView,
+    HistoryViewError, ImageSide, ImportReport, IntegrateError, IntegrateRequest, IntegrateStart,
+    JobError, JobEvents, JobId, JobProgress, JobView, Jobs, MissingRepo, Outcome, PaneLayout,
+    PreflightId, PreflightReady, ProviderDraft, ProviderId, PushChoices, Refusal, RemoteError,
+    RemoteRequest, RemoteStart, RemoteUrlsView, RepoChange, RepoId, ResetError, ResetRequest,
+    ResetStart, ResolveRequest, SettingsError, SettingsStore, SettingsView, StashError,
+    StashRequest, StashStart, StatusError, StatusReadError, Summaries, SummaryView, SyncError,
+    SyncRequest, SyncStart, TabSwitch, TagError, TagRequest, TagStart, TargetSet, Theme,
+    TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId,
+    WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces, add_path, group_summaries,
+    refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -1519,6 +1519,31 @@ pub async fn ai_resolve(
     Ok(gitcroc_core::ai_resolve(changes, ai, access, git, workspace_id, request).await?)
 }
 
+/// Resolve all with AI (AI-3, AI-13) for the unmerged files of
+/// `request.repo` that view `request.handle` lists: refused, in this order,
+/// with `ai_off` (AI-16), `ai_disabled` for the workspace (AI-6),
+/// `no_provider` (open the provider settings), `provider_unusable` or, when
+/// a file is to be sent, `consent_needed` (AI-6). Otherwise starts the job
+/// "Resolve all with AI · <repo> (n files)" and returns at once. The job's
+/// view carries each file's progress; each file's result arrives as
+/// `ai_proposal_ready`. Ineligible files (AI-4), and files whose buffer has
+/// every hunk edited, are listed and not sent. The job only reads the repo
+/// and asks the provider (D9). `null` when a newer view of the workspace
+/// replaced the request's.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_resolve_all(
+    app: AppHandle,
+    workspace_id: WorkspaceId,
+    request: AiResolveAllRequest,
+) -> Result<Option<AiResolveAllStart>, IpcError> {
+    let changes = app.state::<Arc<Changes>>().inner().clone();
+    let ai = app.state::<Arc<AiJobs>>().inner().clone();
+    let access = app.state::<Arc<AiProviders>>().inner().clone();
+    let git = usable_git(&app).await?;
+    Ok(gitcroc_core::ai_resolve_all(changes, ai, access, git, workspace_id, request).await?)
+}
+
 /// The proposal kept for unmerged file `file` of view `handle`, the reason
 /// AI failed for it (AI-9), or `no_proposal`; one made for a conflict the
 /// file no longer has is dropped. `null` when a newer view of the
@@ -2771,6 +2796,7 @@ macro_rules! with_commands {
                 conflict_choose,
                 ai_eligibility,
                 ai_resolve,
+                ai_resolve_all,
                 ai_proposal_get,
                 settings_set_appearance,
                 settings_set_groups,
@@ -2873,6 +2899,7 @@ macro_rules! with_commands {
                 conflict_choose,
                 ai_eligibility,
                 ai_resolve,
+                ai_resolve_all,
                 ai_proposal_get,
                 settings_set_appearance,
                 settings_set_groups,

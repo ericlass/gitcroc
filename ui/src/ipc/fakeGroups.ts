@@ -261,6 +261,7 @@ export function fakeStart(
       outcome: null,
     })),
     report: null,
+    ai_files: [],
   };
   const end = () => {
     const report: RepoResult[] = ready.repos.map((repo) => ({

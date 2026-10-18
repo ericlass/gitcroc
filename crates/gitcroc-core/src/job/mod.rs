@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::lock;
-use crate::{AiJobs, RepoId, Summaries, SummaryView, WorkspaceError, Workspaces};
+use crate::{AiFileProgress, AiJobs, RepoId, Summaries, SummaryView, WorkspaceError, Workspaces};
 
 pub use group::{GroupRun, SubJobError, SubJobSpec};
 pub use pool::{POOL_SIZE, Pool, Priority, Worker};
@@ -130,6 +130,9 @@ pub struct JobView {
     /// A group operation's result report, set when it ended: every repo of
     /// its target set, in target-set order, with one outcome (GRP-7).
     pub report: Option<Vec<RepoResult>>,
+    /// Resolve all with AI's files, in the order of the repo's unmerged
+    /// list, each where it is now (AI-13); empty for any other job.
+    pub ai_files: Vec<AiFileProgress>,
 }
 
 /// A sub-job of a group operation: its repo and where it is.
@@ -559,6 +562,7 @@ impl Jobs {
             message: None,
             sub_jobs: Vec::new(),
             report: None,
+            ai_files: Vec::new(),
         })
     }
 
@@ -653,6 +657,26 @@ impl Jobs {
             entry.view.done = done;
             entry.view.total = total;
             entry.view.step = step.map(str::to_owned);
+            entry.view.clone()
+        };
+        self.events.progress(&view);
+    }
+
+    /// Sets Resolve all's files of job `id` (AI-13), counts those that
+    /// ended as its progress, and sends its view.
+    pub(crate) fn set_ai_files(&self, id: JobId, files: &[AiFileProgress]) {
+        let ended = files.iter().filter(|file| file.state.ended()).count();
+        let view = {
+            let mut state = self.lock();
+            let Some(entry) = state.entry(id) else {
+                return;
+            };
+            if entry.view.state != JobState::Running {
+                return;
+            }
+            entry.view.ai_files = files.to_vec();
+            entry.view.done = u32::try_from(ended).unwrap_or(u32::MAX);
+            entry.view.total = u32::try_from(files.len()).unwrap_or(u32::MAX);
             entry.view.clone()
         };
         self.events.progress(&view);
@@ -1059,6 +1083,7 @@ fn ended_view(
         message,
         sub_jobs: Vec::new(),
         report: None,
+        ai_files: Vec::new(),
     }
 }
 

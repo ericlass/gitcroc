@@ -36,7 +36,7 @@ export function OutcomeLabel(props: { outcome: Outcome }) {
 /**
  * Running progress: the phase git names, such as `Receiving objects`, then
  * `done/total`, or a spinner while the total is not known. A group job
- * counts its repos.
+ * counts its repos, Resolve all with AI its files.
  */
 export function JobProgressLabel(props: { job: JobView }) {
   return (
@@ -49,7 +49,7 @@ export function JobProgressLabel(props: { job: JobView }) {
         <Match when={true}>
           <span class="job-progress">
             {props.job.done}/{props.job.total}
-            {props.job.sub_jobs.length > 0 ? " repos" : ""}
+            {props.job.sub_jobs.length > 0 ? " repos" : props.job.ai_files.length > 0 ? " files" : ""}
           </span>
         </Match>
       </Switch>

@@ -273,15 +273,15 @@ pub enum AiResolveOnce {
 /// A proposal's place: a file of a repo of a workspace, as git stores its
 /// path.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct Key {
-    workspace: WorkspaceId,
-    repo: RepoId,
-    git_path: Vec<u8>,
+pub(super) struct Key {
+    pub workspace: WorkspaceId,
+    pub repo: RepoId,
+    pub git_path: Vec<u8>,
 }
 
 /// What a job left for a file.
 #[derive(Debug, Clone)]
-enum Kept {
+pub(super) enum Kept {
     Proposal(FileProposal),
     Failed(String),
 }
@@ -293,16 +293,24 @@ struct Stored {
     kept: Kept,
 }
 
+/// A file being proposed for: by the job, and the request to stop it,
+/// the job's own for Resolve with AI, the file's for Resolve all.
+#[derive(Debug, Clone)]
+pub(super) struct Running {
+    pub job: JobId,
+    pub stop: Kill,
+}
+
 #[derive(Default)]
-struct State {
+pub(super) struct State {
     proposals: HashMap<Key, Stored>,
-    /// The running jobs and their files. A job whose entry is gone was
-    /// cancelled, and keeps nothing.
-    running: HashMap<JobId, Key>,
+    /// The files being proposed for. A file whose entry is gone, or is
+    /// another job's, was cancelled, and keeps nothing.
+    pub running: HashMap<Key, Running>,
 }
 
 /// How a job's work ended.
-enum Ending {
+pub(super) enum Ending {
     Proposal(ConflictStages, FileProposal),
     /// "AI failed"; kept with the stages when the conflict was read.
     Failed(Option<ConflictStages>, String),
@@ -312,13 +320,13 @@ enum Ending {
 /// The proposal jobs and their results, for the whole app, each keyed by
 /// workspace, repo and file (ARCH-9).
 pub struct AiJobs {
-    jobs: Arc<Jobs>,
-    workspaces: Arc<Workspaces>,
-    settings: Arc<SettingsStore>,
-    events: Arc<dyn AiEvents>,
+    pub(super) jobs: Arc<Jobs>,
+    pub(super) workspaces: Arc<Workspaces>,
+    pub(super) settings: Arc<SettingsStore>,
+    pub(super) events: Arc<dyn AiEvents>,
     /// Shared by every AI job: at most [`AI_MAX_REQUESTS`] ask at once.
-    requests: Arc<Semaphore>,
-    state: Mutex<State>,
+    pub(super) requests: Arc<Semaphore>,
+    pub(super) state: Mutex<State>,
 }
 
 impl std::fmt::Debug for AiJobs {
@@ -330,6 +338,41 @@ impl std::fmt::Debug for AiJobs {
 /// The default provider of `ai`, if it is configured (AI-1).
 fn default_provider(ai: &AiSettings) -> Option<ProviderEntry> {
     ai.default.as_ref().and_then(|id| ai.provider(id)).cloned()
+}
+
+/// The checks before any file is read, in their order (AI-16, AI-6, AI-3,
+/// AI-2): `workspace_on` is the workspace's switch. The default provider
+/// when they pass.
+pub(super) fn provider_checks(
+    ai: &AiSettings,
+    workspace_on: bool,
+    access: &Arc<dyn ProviderAccess>,
+) -> Result<ProviderEntry, AiRefused> {
+    if !ai.enabled {
+        return Err(AiRefused::AiOff);
+    }
+    if !workspace_on {
+        return Err(AiRefused::AiDisabled);
+    }
+    let Some(entry) = default_provider(ai) else {
+        return Err(AiRefused::NoProvider);
+    };
+    if let Some(reason) = access.problem(&entry) {
+        return Err(AiRefused::ProviderUnusable { reason });
+    }
+    Ok(entry)
+}
+
+/// The proposer of `entry`, asked for on a blocking thread as the keychain
+/// may block, or why it cannot be used (AI-2).
+pub(super) async fn proposer_of(
+    access: &Arc<dyn ProviderAccess>,
+    entry: ProviderEntry,
+    debug_log: bool,
+) -> Result<Result<Arc<dyn Proposer>, AiRefused>, ChangesError> {
+    let access = access.clone();
+    let proposer = tokio::task::spawn_blocking(move || access.proposer(&entry, debug_log)).await?;
+    Ok(proposer.map_err(|reason| AiRefused::ProviderUnusable { reason }))
 }
 
 /// What the checks before a job found.
@@ -351,18 +394,10 @@ async fn prepare(
     repo_path: PathBuf,
     git_path: Vec<u8>,
 ) -> Result<Prepared, ChangesError> {
-    if !ai.enabled {
-        return Ok(Prepared::Refused(AiRefused::AiOff));
-    }
-    if !workspace_on {
-        return Ok(Prepared::Refused(AiRefused::AiDisabled));
-    }
-    let Some(entry) = default_provider(ai) else {
-        return Ok(Prepared::Refused(AiRefused::NoProvider));
+    let entry = match provider_checks(ai, workspace_on, access) {
+        Ok(entry) => entry,
+        Err(refused) => return Ok(Prepared::Refused(refused)),
     };
-    if let Some(reason) = access.problem(&entry) {
-        return Ok(Prepared::Refused(AiRefused::ProviderUnusable { reason }));
-    }
     let exclude = ai.exclude.clone();
     let conflict = tokio::task::spawn_blocking(move || {
         let repo = GitRepo::open(&repo_path)?;
@@ -381,20 +416,17 @@ async fn prepare(
     if let Some(consent) = access.consent_needed(&entry) {
         return Ok(Prepared::Refused(AiRefused::ConsentNeeded { consent }));
     }
-    let debug_log = ai.debug_log;
-    let access = access.clone();
-    let proposer = tokio::task::spawn_blocking(move || access.proposer(&entry, debug_log)).await?;
-    Ok(match proposer {
+    Ok(match proposer_of(access, entry, ai.debug_log).await? {
         Ok(proposer) => Prepared::Ready { proposer, path },
-        Err(reason) => Prepared::Refused(AiRefused::ProviderUnusable { reason }),
+        Err(refused) => Prepared::Refused(refused),
     })
 }
 
 /// What a job sends and how it ends: reads the context of `git_path` with
 /// a read-only `git` (D9), and asks `proposer` once one of `requests` is
-/// free, until `cancel`.
+/// free, until `cancel`. `running` is called when the request goes out.
 #[allow(clippy::too_many_arguments)]
-async fn propose(
+pub(super) async fn propose(
     proposer: Arc<dyn Proposer>,
     requests: Arc<Semaphore>,
     git: GitRunner,
@@ -403,6 +435,7 @@ async fn propose(
     exclude: Vec<String>,
     hunks: Option<Vec<u32>>,
     cancel: Kill,
+    running: impl FnOnce() + Send,
 ) -> Ending {
     let git = git.read_only();
     let read = tokio::task::spawn_blocking(move || {
@@ -429,6 +462,7 @@ async fn propose(
             Err(_) => return Ending::Cancelled,
         },
     };
+    running();
     let result = tokio::select! {
         biased;
         () = cancel.requested() => return Ending::Cancelled,
@@ -443,7 +477,7 @@ async fn propose(
 
 /// The job list's output for a proposal: the usage of each request, never
 /// the prompt or the reply (AI-7, AI-14).
-fn usage_output(usage: &[Option<AiUsage>]) -> String {
+pub(super) fn usage_output(usage: &[Option<AiUsage>]) -> String {
     let mut output = String::new();
     for (number, usage) in (1..).zip(usage) {
         let line = match usage {
@@ -459,7 +493,7 @@ fn usage_output(usage: &[Option<AiUsage>]) -> String {
 }
 
 /// The last part of `path`, for the job's label.
-fn file_name(path: &str) -> &str {
+pub(super) fn file_name(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
@@ -496,22 +530,24 @@ impl AiJobs {
         Ok(ai)
     }
 
-    /// Drops the proposals and cancels the jobs of every file `matches`.
+    /// Drops the proposals of every file `matches` and stops what is
+    /// proposed for them: a Resolve with AI job is cancelled, a file of
+    /// Resolve all ends cancelled.
     fn drop_where(&self, matches: impl Fn(&Key) -> bool) {
-        let cancelled: Vec<JobId> = {
+        let stopped: Vec<Running> = {
             let mut state = lock(&self.state);
             state.proposals.retain(|key, _| !matches(key));
-            let cancelled = state
+            let stopped = state
                 .running
                 .iter()
-                .filter(|(_, key)| matches(key))
-                .map(|(id, _)| *id)
+                .filter(|(key, _)| matches(key))
+                .map(|(_, running)| running.clone())
                 .collect();
-            state.running.retain(|_, key| !matches(key));
-            cancelled
+            state.running.retain(|key, _| !matches(key));
+            stopped
         };
-        for id in cancelled {
-            self.jobs.cancel(id);
+        for running in stopped {
+            running.stop.kill();
         }
     }
 
@@ -576,6 +612,7 @@ impl AiJobs {
                 ai.exclude,
                 hunks,
                 cancel,
+                || {},
             )
             .await;
             this.end(job, key, path, ending);
@@ -583,61 +620,76 @@ impl AiJobs {
         Ok(AiResolveStart::Started { job_id })
     }
 
-    /// Starts tracking a job for `key`; a job already running for the file
-    /// is cancelled, as the newer request replaces it.
+    /// Starts tracking a job for `key`; what is proposed for the file
+    /// already is stopped, as the newer request replaces it.
     fn track(&self, key: &Key, path: &str) -> Result<TrackedJob, JobError> {
         let label = format!("Resolve with AI · {}", file_name(path));
         let job = self.jobs.track_ai(&key.workspace, &key.repo, &label)?;
-        let replaced: Vec<JobId> = {
-            let mut state = lock(&self.state);
-            let replaced = state
-                .running
-                .iter()
-                .filter(|(_, running)| *running == key)
-                .map(|(id, _)| *id)
-                .collect();
-            state.running.retain(|_, running| running != key);
-            state.running.insert(job.job_id(), key.clone());
-            replaced
-        };
-        for id in replaced {
-            self.jobs.cancel(id);
-        }
+        self.run_for(key.clone(), job.job_id(), job.cancel_request());
         Ok(job)
+    }
+
+    /// Records that job `job` proposes for `key` until `stop`; what was
+    /// proposed for the file before is stopped.
+    pub(super) fn run_for(&self, key: Key, job: JobId, stop: Kill) {
+        let replaced = lock(&self.state).running.insert(key, Running { job, stop });
+        if let Some(replaced) = replaced {
+            replaced.stop.kill();
+        }
+    }
+
+    /// Keeps what job `job_id` proposed for `key`, unless it was stopped
+    /// meanwhile (`stopped`, or the file is no longer the job's), and
+    /// returns it with the stages it was kept with; `None` when nothing is.
+    pub(super) fn keep(
+        &self,
+        job_id: JobId,
+        key: &Key,
+        stopped: bool,
+        ending: Ending,
+    ) -> Option<(Option<ConflictStages>, Kept)> {
+        let mut state = lock(&self.state);
+        let live = state
+            .running
+            .get(key)
+            .is_some_and(|running| running.job == job_id);
+        if live {
+            state.running.remove(key);
+        }
+        let (stages, kept) = match ending {
+            _ if !live || stopped => return None,
+            Ending::Cancelled => return None,
+            Ending::Proposal(stages, proposal) => (Some(stages), Kept::Proposal(proposal)),
+            Ending::Failed(stages, reason) => (stages, Kept::Failed(reason)),
+        };
+        if let Some(stages) = stages {
+            state.proposals.insert(
+                key.clone(),
+                Stored {
+                    stages,
+                    kept: kept.clone(),
+                },
+            );
+        }
+        Some((stages, kept))
+    }
+
+    /// Tells the app a result is kept for `key`.
+    pub(super) fn ready(&self, key: &Key, path: String, job_id: JobId) {
+        self.events.proposal_ready(&AiProposalReady {
+            workspace_id: key.workspace.clone(),
+            repo_id: key.repo.clone(),
+            path,
+            job_id,
+        });
     }
 
     /// Keeps what job `job` for `key` ended with, unless it was cancelled
     /// meanwhile, and ends it.
     fn end(&self, job: TrackedJob, key: Key, path: String, ending: Ending) {
         let job_id = job.job_id();
-        let kept = {
-            let mut state = lock(&self.state);
-            let live = state.running.remove(&job_id).is_some();
-            match ending {
-                _ if !live || job.cancel_request().is_requested() => None,
-                Ending::Cancelled => None,
-                Ending::Proposal(stages, proposal) => {
-                    let output = usage_output(&proposal.usage);
-                    let kept = Kept::Proposal(proposal);
-                    Some((Some(stages), kept, output))
-                }
-                Ending::Failed(stages, reason) => {
-                    Some((stages, Kept::Failed(reason), String::new()))
-                }
-            }
-            .inspect(|(stages, kept, _)| {
-                if let Some(stages) = stages {
-                    state.proposals.insert(
-                        key.clone(),
-                        Stored {
-                            stages: *stages,
-                            kept: kept.clone(),
-                        },
-                    );
-                }
-            })
-        };
-        let Some((stages, kept, output)) = kept else {
+        let stopped = job.cancel_request().is_requested();
+        let Some((stages, kept)) = self.keep(job_id, &key, stopped, ending) else {
             job.end(
                 Outcome::Skipped {
                     reason: SkipReason::Cancelled,
@@ -648,20 +700,17 @@ impl AiJobs {
             return;
         };
         match kept {
-            Kept::Proposal(_) => job.end(Outcome::Succeeded, output, None),
+            Kept::Proposal(proposal) => {
+                job.end(Outcome::Succeeded, usage_output(&proposal.usage), None);
+            }
             Kept::Failed(reason) => job.end(
                 Outcome::Failed,
-                output,
+                String::new(),
                 Some(format!("AI failed: {reason}")),
             ),
         }
         if stages.is_some() {
-            self.events.proposal_ready(&AiProposalReady {
-                workspace_id: key.workspace,
-                repo_id: key.repo,
-                path,
-                job_id,
-            });
+            self.ready(&key, path, job_id);
         }
     }
 
@@ -782,6 +831,7 @@ pub async fn ai_resolve_once(
         ai.exclude,
         hunks,
         Kill::new(),
+        || {},
     )
     .await;
     Ok(match ending {

@@ -3,11 +3,22 @@
 // the step, with Abort and Continue. Whether the repo is in conflict state
 // and how many paths are unmerged come from the repo's summary, so a
 // conflict started in a terminal shows the same (OPS-1). Names are text
-// only (SEC-3).
+// only (SEC-3). With AI features on (AI-16) it has Resolve all with AI
+// (AI-3), and under it the files of the repo's last run and where each is
+// (AI-13); a file's name opens it in the conflict editor.
 import { createEffect, on, Show } from "solid-js";
+import AiFileList from "../conflict/AiFileList";
+import { aiAsk, type ConflictAi } from "../conflict/ConflictEditor";
 import type { ConflictDetails, Operation, RepoId, WorkspaceId } from "../ipc";
 import type { IntegrateStore } from "../stores/integrate";
+import type { ResolveAllStore } from "../stores/resolveAll";
 import type { SummaryStore } from "../stores/summaries";
+
+/** What the banner needs for Resolve all with AI; without it the banner has none. */
+export interface BannerAi {
+  store: ResolveAllStore;
+  ai: ConflictAi;
+}
 
 const NAMES: Record<Operation, string> = {
   merge: "Merge",
@@ -69,12 +80,24 @@ export default function ConflictBanner(props: {
   repo: RepoId;
   summaries: SummaryStore;
   integrate: IntegrateStore;
+  resolveAll?: BannerAi;
 }) {
   const view = () => props.summaries.view(props.workspace, props.repo);
   const state = () => view()?.summary?.state;
   const operation = () => state()?.operation ?? null;
   const unmerged = () => state()?.unmerged_paths ?? 0;
   const sending = () => props.integrate.sending(props.workspace);
+  const aiOn = () => props.resolveAll?.ai.store.enabled() === true;
+  const run = () => props.resolveAll?.store.run(props.workspace, props.repo);
+  const runJob = () => props.resolveAll?.store.view(props.workspace, props.repo);
+  const running = () => runJob()?.state === "running";
+  const workspaceOff = () => props.resolveAll?.ai.workspaceOn() === false;
+  const resolveAll = () => {
+    const banner = props.resolveAll;
+    if (banner !== undefined) {
+      void banner.store.start(props.workspace, props.repo, aiAsk(banner.ai));
+    }
+  };
 
   // Read again whenever the repo is read again: a step went by, a path was
   // staged, or the operation changed.
@@ -96,8 +119,22 @@ export default function ConflictBanner(props: {
             <Show when={props.integrate.detailError(props.workspace, props.repo)}>
               {(error) => <span role="alert">Cannot read the operation: {error()}</span>}
             </Show>
+            <Show when={aiOn() && workspaceOff()}>
+              <span class="conflict-ai-reason">AI is off for this workspace.</span>
+            </Show>
+            <Show when={aiOn() && run()?.refusal}>{(refusal) => <span role="alert">{refusal()}</span>}</Show>
           </div>
           <div class="conflict-actions">
+            <Show when={aiOn()}>
+              <button
+                type="button"
+                disabled={workspaceOff() || run()?.starting === true || running()}
+                title={workspaceOff() ? "AI is off for this workspace" : "Ask AI to propose resolutions for every file"}
+                onClick={resolveAll}
+              >
+                Resolve all with AI
+              </button>
+            </Show>
             <button
               type="button"
               disabled={sending()}
@@ -122,6 +159,24 @@ export default function ConflictBanner(props: {
               Continue
             </button>
           </div>
+          <Show when={aiOn() && runJob()}>
+            {(job) => (
+              <section class="conflict-run" aria-label="Resolve all with AI">
+                <div class="conflict-run-header">
+                  <strong>{job().label}</strong>
+                  <Show when={running()}>
+                    <button type="button" onClick={() => props.resolveAll?.store.cancel(props.workspace, props.repo)}>
+                      Cancel
+                    </button>
+                  </Show>
+                </div>
+                <AiFileList
+                  job={job()}
+                  onOpen={(path) => void props.resolveAll?.store.open(props.workspace, props.repo, path)}
+                />
+              </section>
+            )}
+          </Show>
         </section>
       )}
     </Show>

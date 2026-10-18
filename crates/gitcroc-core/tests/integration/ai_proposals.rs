@@ -21,8 +21,8 @@ use gitcroc_core::{
 use repo_gen::{Fixture, Repo};
 use tokio::sync::{Semaphore, mpsc};
 
-struct Dirs {
-    root: tempfile::TempDir,
+pub(crate) struct Dirs {
+    pub(crate) root: tempfile::TempDir,
 }
 
 impl ConfigDir for Dirs {
@@ -33,7 +33,7 @@ impl ConfigDir for Dirs {
 
 /// git with no user or system config, so no hook or setting of the machine
 /// takes part.
-fn git(dirs: &Dirs) -> GitRunner {
+pub(crate) fn git(dirs: &Dirs) -> GitRunner {
     let home = dirs.root.path().join("home");
     GitRunner::new(PathBuf::from("git")).with_env([
         ("HOME", home.clone().into_os_string()),
@@ -403,7 +403,7 @@ fn held(results: impl IntoIterator<Item = Result<FileProposal, String>>) -> (Arc
 
 /// Everything a write could change: every file of the working tree and
 /// of `.git` but the logs, byte for byte.
-fn snapshot(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+pub(crate) fn snapshot(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     fn walk(root: &Path, dir: &Path, files: &mut Vec<(PathBuf, Vec<u8>)>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();

@@ -7,6 +7,7 @@ import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import type { CancelResult, JobId, RepoId, WorkspaceId } from "../ipc";
 import type { JobStore } from "../stores/jobs";
+import AiFileList from "../conflict/AiFileList";
 import { GroupReport, SubJobList } from "./GroupReport";
 import { formatDuration, formatStart, JobStateLabel } from "./outcome";
 
@@ -31,6 +32,8 @@ export default function JobList(props: {
   onClose: () => void;
   /** Selects a repo of a report in its workspace's tree. */
   onSelectRepo: (workspace: WorkspaceId, repo: RepoId) => void;
+  /** Opens a file of a Resolve all with AI run in its workspace's conflict editor (AI-13). */
+  onOpenFile?: (workspace: WorkspaceId, repo: RepoId, path: string) => void;
   /** Retry failed of a group job (GRP-11). */
   onRetry: (workspace: WorkspaceId, job: JobId) => void;
 }) {
@@ -207,6 +210,18 @@ export default function JobList(props: {
                   </Match>
                   <Match when={shown().sub_jobs.length > 0}>
                     <SubJobList job={shown()} />
+                  </Match>
+                  <Match when={shown().ai_files.length > 0}>
+                    <AiFileList
+                      job={shown()}
+                      onOpen={
+                        props.onOpenFile &&
+                        ((path) => props.onOpenFile?.(shown().workspace_id, shown().repos[0] ?? "", path))
+                      }
+                    />
+                    <Show when={shown().output}>
+                      <pre class="job-output">{shown().output}</pre>
+                    </Show>
                   </Match>
                 </Switch>
               </>

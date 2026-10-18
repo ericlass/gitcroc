@@ -2,6 +2,7 @@
 // `@tauri-apps/api` or `./bindings` directly (enforced by eslint.config.js).
 import type {
   AiOptions,
+  AiResolveAllRequest,
   AiResolveRequest,
   Appearance,
   BranchRequest,
@@ -45,10 +46,15 @@ export type {
   AddReport,
   AiEligibility,
   AiEligibilityRead,
+  AiFileProgress,
+  AiFileState,
   AiOptions,
   AiProposalGet,
   AiProposalReady,
   AiRefused,
+  AiResolveAllFile,
+  AiResolveAllRequest,
+  AiResolveAllStart,
   AiResolveRequest,
   AiResolveStart,
   AiRequestId,
@@ -535,6 +541,10 @@ export const aiEligibility = (workspaceId: WorkspaceId, handle: number, file: nu
 /** Resolve with AI, refused or started as a job whose result `ai_proposal_ready` announces (AI-3, M4-08). */
 export const aiResolve = (workspaceId: WorkspaceId, request: AiResolveRequest) =>
   unwrap(core.commands.aiResolve(workspaceId, request));
+
+/** Resolve all with AI for a repo's unmerged files (AI-3, AI-13): refused, or a job with each file's progress. */
+export const aiResolveAll = (workspaceId: WorkspaceId, request: AiResolveAllRequest) =>
+  unwrap(core.commands.aiResolveAll(workspaceId, request));
 
 /** The proposal kept for an unmerged file, why AI failed for it, or none (section 3 "Proposal"). */
 export const aiProposalGet = (workspaceId: WorkspaceId, handle: number, file: number) =>

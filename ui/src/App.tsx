@@ -40,6 +40,7 @@ import { createBranchStore } from "./stores/branch";
 import { createChangesStore } from "./stores/changes";
 import { createCommitStore } from "./stores/commit";
 import { createConflictStore, followAiFeatures } from "./stores/conflicts";
+import { createResolveAllStore } from "./stores/resolveAll";
 import { createGitStore } from "./stores/git";
 import { createGroupOpStore, DEFAULT_GROUP_OPS, type SyncKind } from "./stores/groupOps";
 import { createHistoryStore, mergedSource, sourceOf } from "./stores/history";
@@ -93,7 +94,14 @@ export default function App() {
     (id, target, op, started) => void groupOps.run(id, target, op, started),
   );
   const conflicts = createConflictStore((id) => void changes.reload(id));
-  followAiFeatures(ai, conflicts);
+  const resolveAll = createResolveAllStore({
+    history,
+    changes,
+    conflicts,
+    jobs,
+    onResolvedElsewhere: (id) => void changes.reload(id),
+  });
+  followAiFeatures(ai, conflicts, resolveAll);
   const branch = createBranchStore();
   const sync = createSyncStore();
   const stash = createStashStore();
@@ -297,6 +305,7 @@ export default function App() {
   const closeConfirmed = async (id: WorkspaceId) => {
     await workspaces.close(id);
     conflicts.forgetWorkspace(id);
+    resolveAll.forgetWorkspace(id);
   };
 
   followAppearance(settings.appearance, followTheme(settings.theme));
@@ -552,6 +561,7 @@ export default function App() {
                     integrate={integrate}
                     settings={settings}
                     ai={ai}
+                    resolveAll={resolveAll}
                     onAiSettings={() => setSettingsOpen("ai")}
                   />
                 </main>
@@ -582,6 +592,13 @@ export default function App() {
                 onSelectRepo={(id, repo) => {
                   setJobsOpen(null);
                   void workspaces.open(id).then(() => tree.selectRepo(id, repo));
+                }}
+                onOpenFile={(id, repo, path) => {
+                  setJobsOpen(null);
+                  void workspaces
+                    .open(id)
+                    .then(() => tree.selectRepo(id, repo))
+                    .then(() => resolveAll.open(id, repo, path));
                 }}
                 onRetry={(id, job) => {
                   setJobsOpen(null);

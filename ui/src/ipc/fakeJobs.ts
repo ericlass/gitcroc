@@ -30,6 +30,7 @@ export function fakeJob(
     message: null,
     sub_jobs: [],
     report: null,
+    ai_files: [],
     ...job,
   };
 }

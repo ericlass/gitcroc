@@ -5,6 +5,7 @@
 //! [`AiFileContext`] field by field onto the prompt's request. Nothing here
 //! writes (ARCH-1). The proposal jobs that send it are in [`proposal`].
 
+mod all;
 mod proposal;
 
 use std::sync::Arc;
@@ -14,6 +15,10 @@ use gitcroc_git::{
     Operation, SidesRead, SidesReader, glob_match,
 };
 
+pub use all::{
+    AiFileProgress, AiFileState, AiResolveAllFile, AiResolveAllRequest, AiResolveAllStart,
+    ai_resolve_all,
+};
 pub use proposal::{
     AI_MAX_REQUESTS, AiEvents, AiJobs, AiProposalGet, AiProposalReady, AiRefused, AiResolveOnce,
     AiResolveRequest, AiResolveStart, AiUsage, ConsentRequest, ConsentTarget, FileProposal,

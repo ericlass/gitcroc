@@ -36,11 +36,12 @@ mod workspace;
 pub use ai::{
     AI_CONTEXT_LINES, AI_MAX_FILE, AI_MAX_MESSAGE_CHARS, AI_MAX_MESSAGES, AI_MAX_REQUESTS,
     AiContextError, AiContextRead, AiEligibility, AiEligibilityRead, AiEvents, AiFileContext,
-    AiHunk, AiJobs, AiOperation, AiProposalGet, AiProposalReady, AiRefused, AiResolveOnce,
+    AiFileProgress, AiFileState, AiHunk, AiJobs, AiOperation, AiProposalGet, AiProposalReady,
+    AiRefused, AiResolveAllFile, AiResolveAllRequest, AiResolveAllStart, AiResolveOnce,
     AiResolveRequest, AiResolveStart, AiUsage, ConsentRequest, ConsentTarget, FileProposal,
     Ineligible, ProposalConfidence, ProposalStatus, ProposeFuture, ProposedHunk, Proposer,
     ProviderAccess, ai_eligibility, ai_eligibility_get, ai_file_context, ai_proposal_get,
-    ai_resolve, ai_resolve_once, consent_request, consent_target,
+    ai_resolve, ai_resolve_all, ai_resolve_once, consent_request, consent_target,
 };
 pub use app_info::AppInfo;
 pub use branch::{
