@@ -87,6 +87,7 @@ fn job_view(label: &str) -> JobView {
         message: None,
         sub_jobs: Vec::new(),
         report: None,
+        ai_files: Vec::new(),
     }
 }
 

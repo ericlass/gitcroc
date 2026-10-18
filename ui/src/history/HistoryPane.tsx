@@ -9,7 +9,7 @@
 // input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createMemo, createSignal, For, Index, Match, on, onMount, Show, Switch } from "solid-js";
-import ConflictBanner from "../integrate/ConflictBanner";
+import ConflictBanner, { type BannerAi } from "../integrate/ConflictBanner";
 import { IntegrateRefusal } from "../integrate/IntegrateDialogs";
 import type { HistoryRow, RefLabel, RepoId, WorkspaceId } from "../ipc";
 import Splitter from "../layout/Splitter";
@@ -500,6 +500,8 @@ export default function HistoryPane(props: {
   integrate: IntegrateStore;
   tag: TagStore;
   reset: ResetStore;
+  /** Resolve all with AI in the conflict banner (AI-3). */
+  resolveAll?: BannerAi;
 }) {
   const history = () => props.history.history(props.workspace);
   /** The repo of a single-repo history; a merged one has none. */
@@ -558,6 +560,7 @@ export default function HistoryPane(props: {
               repo={shown()}
               summaries={props.summaries}
               integrate={props.integrate}
+              resolveAll={props.resolveAll}
             />
           )}
         </Show>

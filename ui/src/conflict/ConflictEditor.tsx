@@ -13,7 +13,7 @@ import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack 
 import { applyLanguage, baseExtensions, newParts, wrapping } from "../changes/codemirror";
 import type { FileProposal, WorkspaceId } from "../ipc";
 import type { AiStore } from "../stores/ai";
-import type { ConflictStore, FileConflict, Start, ViewFile } from "../stores/conflicts";
+import type { AiAsk, ConflictStore, FileConflict, Start, ViewFile } from "../stores/conflicts";
 import { buildBuffer, normalize } from "./buffer";
 import {
   acceptAllHigh,
@@ -32,6 +32,18 @@ export interface ConflictAi {
   workspaceOn: () => boolean;
   /** Opens Settings at its AI section (AI-3). */
   openSettings: () => void;
+}
+
+/** What resolving with AI asks of the app: consent, the provider settings and the provider's name (AI-3, AI-6). */
+export function aiAsk(ai: ConflictAi): AiAsk {
+  return {
+    askConsent: (provider) => ai.store.askConsent(provider),
+    openSettings: () => ai.openSettings(),
+    providerName: () => {
+      const settings = ai.store.state.view;
+      return settings?.providers.find((provider) => provider.id === settings.default)?.name ?? "the AI provider";
+    },
+  };
 }
 
 const count = (value: number) => value.toLocaleString("en");
@@ -204,14 +216,7 @@ export default function ConflictEditor(props: {
     if (ai === undefined || view === undefined) {
       return;
     }
-    void conflicts.resolveWithAi(workspace, props.target, untouchedHunks(view.state), {
-      askConsent: (provider) => ai.store.askConsent(provider),
-      openSettings: () => ai.openSettings(),
-      providerName: () => {
-        const settings = ai.store.state.view;
-        return settings?.providers.find((provider) => provider.id === settings.default)?.name ?? "the AI provider";
-      },
-    });
+    void conflicts.resolveWithAi(workspace, props.target, untouchedHunks(view.state), aiAsk(ai));
   };
   const canResolve = () => aiBlocked() === null && !props.file.ai.starting && untouched().length > 0;
 

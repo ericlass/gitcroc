@@ -87,7 +87,7 @@ export interface AiAsk {
 }
 
 /** A refusal the button shows beside it, in words. */
-function refusalText(refused: AiRefused): string {
+export function refusalText(refused: AiRefused): string {
   switch (refused.kind) {
     case "ai_off":
       return "AI features are off.";
@@ -220,7 +220,8 @@ export function createConflictStore(onResolvedElsewhere: (id: WorkspaceId) => vo
             markers: null,
             sending: false,
             error: null,
-            ai: noAi(),
+            // A proposal Resolve all kept before the file was opened is read once it is shown (AI-13).
+            ai: { ...noAi(), ready: true },
           };
         }
       });
@@ -571,12 +572,16 @@ export function createConflictStore(onResolvedElsewhere: (id: WorkspaceId) => vo
 
 export type ConflictStore = ReturnType<typeof createConflictStore>;
 
-/** Drops every proposal when AI features are turned off (AI-16); call it inside a component. */
-export function followAiFeatures(ai: AiStore, conflicts: ConflictStore) {
+/**
+ * Drops every proposal, and the Resolve all runs that made them, when AI
+ * features are turned off (AI-16); call it inside a component.
+ */
+export function followAiFeatures(ai: AiStore, conflicts: ConflictStore, runs?: { dropAll: () => void }) {
   createEffect(
     on(ai.enabled, (enabled, before) => {
       if (before === true && !enabled) {
         conflicts.dropAi();
+        runs?.dropAll();
       }
     }),
   );

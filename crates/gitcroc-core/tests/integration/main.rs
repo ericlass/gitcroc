@@ -7,6 +7,7 @@
 
 mod ai_context;
 mod ai_proposals;
+mod ai_resolve_all;
 mod ai_settings;
 mod branch;
 mod changes;

@@ -535,6 +535,29 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 /**  The file is no longer in conflict; read the lists again. */
 { kind: "already_resolved" } | { kind: "refused"; refused: AiRefused } | null, IpcError>(__TAURI_INVOKE("ai_resolve", { workspaceId, request })),
 	/**
+	 *  Resolve all with AI (AI-3, AI-13) for the unmerged files of
+	 *  `request.repo` that view `request.handle` lists: refused, in this order,
+	 *  with `ai_off` (AI-16), `ai_disabled` for the workspace (AI-6),
+	 *  `no_provider` (open the provider settings), `provider_unusable` or, when
+	 *  a file is to be sent, `consent_needed` (AI-6). Otherwise starts the job
+	 *  "Resolve all with AI · <repo> (n files)" and returns at once. The job's
+	 *  view carries each file's progress; each file's result arrives as
+	 *  `ai_proposal_ready`. Ineligible files (AI-4), and files whose buffer has
+	 *  every hunk edited, are listed and not sent. The job only reads the repo
+	 *  and asks the provider (D9). `null` when a newer view of the workspace
+	 *  replaced the request's.
+	 */
+	aiResolveAll: (workspaceId: WorkspaceId, request: AiResolveAllRequest) => typedError<
+/**
+ *  The job runs; its view carries each file's progress, and
+ *  `ai_proposal_ready` tells when a file's result is kept.
+ */
+{ kind: "started"; job_id: JobId } | 
+/**  No file is in conflict any more; read the lists again. */
+{ kind: "already_resolved" } | 
+/**  Never `ineligible`: an ineligible file is listed, not sent. */
+{ kind: "refused"; refused: AiRefused } | null, IpcError>(__TAURI_INVOKE("ai_resolve_all", { workspaceId, request })),
+	/**
 	 *  The proposal kept for unmerged file `file` of view `handle`, the reason
 	 *  AI failed for it (AI-9), or `no_proposal`; one made for a conflict the
 	 *  file no longer has is dropped. `null` when a newer view of the
@@ -691,6 +714,31 @@ export type AiEligibilityRead = { kind: "read"; eligibility: AiEligibility } |
 /**  The file is no longer in conflict; read the lists again. */
 { kind: "already_resolved" };
 
+/**  A file of Resolve all and where it is (AI-13). */
+export type AiFileProgress = {
+	/**  The path from the repo top, for display. */
+	path: string,
+	state: AiFileState,
+};
+
+/**  Where a file of Resolve all is (AI-13). */
+export type AiFileState = 
+/**  Waiting for its request to go out. */
+{ kind: "waiting" } | { kind: "running" } | 
+/**
+ *  Its proposal is kept: the resolved hunks by confidence, and those
+ *  the model left unresolved.
+ */
+{ kind: "done"; high: number; medium: number; low: number; unresolved: number } | 
+/**  "AI failed", with the reason (AI-9). */
+{ kind: "failed"; reason: string } | 
+/**  Not sent (AI-4). */
+{ kind: "ineligible"; message: string } | 
+/**  Not sent: every hunk is edited in its buffer already. */
+{ kind: "all_edited" } | 
+/**  Stopped before its proposal was kept; it keeps none. */
+{ kind: "cancelled" };
+
 /**  The models `ai_models_get` asked for, sent as event `ai_models` (AI-1). */
 export type AiModelsEvent = AiModelsReply;
 
@@ -746,6 +794,41 @@ export type AiRefused =
 
 /**  Identifies a models or self-test request, unique while the app runs. */
 export type AiRequestId = number;
+
+/**  An unmerged file the UI has an editor buffer for (OPS-9). */
+export type AiResolveAllFile = {
+	/**  Its id in the view's unmerged list. */
+	file: number,
+	/**
+	 *  The hunks still untouched in the buffer, counted from 1: the only
+	 *  ones sent. None left, the file is not sent.
+	 */
+	hunks: number[],
+};
+
+/**  Resolve all with AI for the unmerged files of a repo (AI-3, AI-13). */
+export type AiResolveAllRequest = {
+	repo: RepoId,
+	/**  The changes view that lists the repo's unmerged files. */
+	handle: number,
+	/**
+	 *  The files with an editor buffer; every other file is sent with all
+	 *  its hunks.
+	 */
+	files: AiResolveAllFile[],
+};
+
+/**  What `ai_resolve_all` did. */
+export type AiResolveAllStart = 
+/**
+ *  The job runs; its view carries each file's progress, and
+ *  `ai_proposal_ready` tells when a file's result is kept.
+ */
+{ kind: "started"; job_id: JobId } | 
+/**  No file is in conflict any more; read the lists again. */
+{ kind: "already_resolved" } | 
+/**  Never `ineligible`: an ineligible file is listed, not sent. */
+{ kind: "refused"; refused: AiRefused };
 
 /**  Resolve with AI for one unmerged file of a changes view (AI-3). */
 export type AiResolveRequest = {
@@ -1842,6 +1925,11 @@ export type JobView = {
 	 *  its target set, in target-set order, with one outcome (GRP-7).
 	 */
 	report: RepoResult[] | null,
+	/**
+	 *  Resolve all with AI's files, in the order of the repo's unmerged
+	 *  list, each where it is now (AI-13); empty for any other job.
+	 */
+	ai_files: AiFileProgress[],
 };
 
 /**  One line of a hunk, without its line terminator. */

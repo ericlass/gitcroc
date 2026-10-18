@@ -208,6 +208,14 @@ impl Lists {
         Some((source, found.clone()))
     }
 
+    /// The unmerged files, in list order; none for a commit's lists.
+    pub(crate) fn unmerged_files(&self) -> &[UnmergedFile] {
+        match self {
+            Self::Uncommitted { unmerged, .. } => unmerged,
+            Self::Commit { .. } => &[],
+        }
+    }
+
     /// Unmerged file `id`, if the lists are the working copy's and have it.
     pub(crate) fn unmerged(&self, id: u32) -> Option<&UnmergedFile> {
         match self {

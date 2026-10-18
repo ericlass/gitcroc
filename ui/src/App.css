@@ -832,14 +832,16 @@ main:not(.main) {
 }
 
 .report-lines,
-.sub-jobs {
+.sub-jobs,
+.ai-files {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .report-line,
-.sub-job {
+.sub-job,
+.ai-file {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2257,6 +2259,33 @@ button.primary:disabled {
 }
 
 .conflict-ai-failed {
+  color: var(--danger);
+}
+
+/* Resolve all with AI under the conflict banner (AI-13): each file and where it is. */
+.conflict-run {
+  display: flex;
+  flex: 1 0 100%;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.conflict-run-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-file .report-name {
+  text-align: left;
+}
+
+.ai-file-state {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.ai-file-failed {
   color: var(--danger);
 }
 

@@ -7,7 +7,11 @@ import type {
   AiEligibility,
   AiModelsReply,
   AiProposalGet,
+  AiFileProgress,
+  AiFileState,
   AiProposalReady,
+  AiResolveAllRequest,
+  AiResolveAllStart,
   AiResolveRequest,
   AiResolveStart,
   AiSelfTestReply,
@@ -358,7 +362,9 @@ export const fakeState: {
   aiProposals: Record<string, AiProposalGet>;
   /** What a proposal job ends with, by path; others fail. */
   aiAnswers: Record<string, AiProposalGet>;
-  /** Proposal jobs keep running until `finishAiJobs`. */
+  /** Every `ai_resolve_all`, oldest first. */
+  aiResolveAllRequests: AiResolveAllRequest[];
+  /** Proposal jobs and Resolve all runs keep running until `finishAiJobs`. */
   holdAi: boolean;
   /** Every `conflict_resolve` and `conflict_choose`, oldest first. */
   conflictRequests: (ResolveRequest | ChooseRequest)[];
@@ -440,6 +446,7 @@ export const fakeState: {
   aiResolveRequests: [],
   aiProposals: {},
   aiAnswers: {},
+  aiResolveAllRequests: [],
   holdAi: false,
   conflictRequests: [],
   cloneParent: null,
@@ -649,6 +656,186 @@ export function finishAiJobs(): void {
   for (const [jobId, { path }] of [...aiJobs]) {
     endAiJob(jobId, aiAnswerOf(path));
   }
+  for (const jobId of [...aiRuns.keys()]) {
+    finishRun(jobId);
+  }
+}
+
+/** Ends the running files of the held Resolve all runs, which lets waiting files run (AI-13). */
+export function finishAiRunningFiles(): void {
+  for (const jobId of [...aiRuns.keys()]) {
+    finishRunningFiles(jobId);
+    endRunIfDone(jobId);
+  }
+}
+
+/** The Resolve all runs going on, by job id: the job as last sent. */
+const aiRuns = new Map<JobId, JobView>();
+
+/** At most this many files of a run are proposed for at once (AI-13). */
+const AI_RUN_LIMIT = 4;
+
+/** What a file's answer makes of it in the run's progress. */
+function fileStateOf(answer: AiProposalGet): AiFileState {
+  if (answer.kind !== "proposal") {
+    return { kind: "failed", reason: answer.kind === "failed" ? answer.reason : "no answer" };
+  }
+  const count = (confidence: string) =>
+    answer.proposal.hunks.filter((hunk) => hunk.status === "resolved" && hunk.confidence === confidence).length;
+  const unresolved = answer.proposal.hunks.filter((hunk) => hunk.status === "unresolved").length;
+  return { kind: "done", high: count("high"), medium: count("medium"), low: count("low"), unresolved };
+}
+
+/** Whether a file of a run still waits or runs. */
+const unfinished = (file: AiFileProgress) => file.state.kind === "waiting" || file.state.kind === "running";
+
+/** Sends run `jobId` with `files`, letting waiting files run while fewer than four do. */
+function moveRun(jobId: JobId, files: AiFileProgress[]): void {
+  const running = files.filter((file) => file.state.kind === "running").length;
+  let free = AI_RUN_LIMIT - running;
+  const moved = files.map((file) => {
+    if (file.state.kind === "waiting" && free > 0) {
+      free -= 1;
+      return { ...file, state: { kind: "running" as const } };
+    }
+    return file;
+  });
+  const job = aiRuns.get(jobId);
+  if (job === undefined) {
+    return;
+  }
+  const done = moved.filter((file) => !unfinished(file)).length;
+  const next = { ...job, ai_files: moved, done, total: moved.length };
+  aiRuns.set(jobId, next);
+  sendJob(next);
+}
+
+/** Ends run `jobId` when no file waits or runs any more, with the core's outcome. */
+function endRunIfDone(jobId: JobId): void {
+  const job = aiRuns.get(jobId);
+  if (job === undefined || job.ai_files.some(unfinished)) {
+    return;
+  }
+  aiRuns.delete(jobId);
+  const sent = job.ai_files.filter(
+    (file) => file.state.kind !== "ineligible" && file.state.kind !== "all_edited",
+  ).length;
+  const failed = job.ai_files.filter((file) => file.state.kind === "failed").length;
+  const done = job.ai_files.some((file) => file.state.kind === "done");
+  const of = `${sent} ${sent === 1 ? "file" : "files"}`;
+  const ending: Pick<JobView, "outcome" | "message"> =
+    sent === 0
+      ? { outcome: { kind: "nothing_to_do" }, message: null }
+      : failed > 0
+        ? { outcome: { kind: "failed" }, message: `AI failed for ${failed} of ${of}` }
+        : done
+          ? { outcome: { kind: "succeeded" }, message: null }
+          : { outcome: { kind: "skipped", reason: { kind: "cancelled" } }, message: "cancelled" };
+  sendJob({ ...job, ...ending, state: "ended", duration_ms: 5 });
+}
+
+/** Ends the running files of run `jobId` with their answers, kept and announced. */
+function finishRunningFiles(jobId: JobId): void {
+  const job = aiRuns.get(jobId);
+  if (job === undefined) {
+    return;
+  }
+  const files = job.ai_files.map((file) => {
+    if (file.state.kind !== "running") {
+      return file;
+    }
+    const answer = aiAnswerOf(file.path);
+    fakeState.aiProposals[file.path] = answer;
+    emit(aiProposalReadyListeners, "ai_proposal_ready", {
+      workspace_id: job.workspace_id,
+      repo_id: job.repos[0] ?? "",
+      path: file.path,
+      job_id: jobId,
+    });
+    return { ...file, state: fileStateOf(answer) };
+  });
+  moveRun(jobId, files);
+}
+
+/** Runs run `jobId` to its end, four files at a time. */
+function finishRun(jobId: JobId): void {
+  while (aiRuns.get(jobId)?.ai_files.some((file) => file.state.kind === "running")) {
+    finishRunningFiles(jobId);
+  }
+  endRunIfDone(jobId);
+}
+
+/** Cancels run `jobId`: waiting and running files end cancelled and keep nothing (AI-13). */
+function cancelRun(jobId: JobId): void {
+  const job = aiRuns.get(jobId);
+  if (job === undefined) {
+    return;
+  }
+  const files = job.ai_files.map((file) =>
+    file.state.kind === "waiting" || file.state.kind === "running"
+      ? { ...file, state: { kind: "cancelled" as const } }
+      : file,
+  );
+  aiRuns.set(jobId, { ...job, ai_files: files });
+  endRunIfDone(jobId);
+}
+
+/**
+ * `ai_resolve_all` like the core: the checks that are not a file's, then
+ * one job listing every unmerged file of the view, ineligible ones and ones
+ * whose buffer has every hunk edited not sent (AI-4, AI-13).
+ */
+function fakeAiResolveAll(workspaceId: WorkspaceId, request: AiResolveAllRequest): AiResolveAllStart | null {
+  fakeState.aiResolveAllRequests.push(request);
+  const view = viewPart(workspaceId, request.handle);
+  if (view === undefined || view.repo !== request.repo) {
+    return null;
+  }
+  const refused = fakeAiRefusal(fakeState.workspace.ai, { kind: "eligible" });
+  if (refused !== null && refused.kind !== "consent_needed") {
+    return { kind: "refused", refused };
+  }
+  const unmerged = unmergedPaths(view.repo);
+  const paths = view.unmerged.filter((path) => unmerged.includes(path));
+  if (paths.length === 0) {
+    return { kind: "already_resolved" };
+  }
+  const files: AiFileProgress[] = paths.map((path) => {
+    const eligibility = fakeState.aiEligibility[path];
+    const buffer = request.files.find((file) => view.unmerged[file.file] === path);
+    const state: AiFileState =
+      eligibility?.kind === "ineligible"
+        ? { kind: "ineligible", message: eligibility.message }
+        : buffer?.hunks.length === 0
+          ? { kind: "all_edited" }
+          : { kind: "waiting" };
+    return { path, state };
+  });
+  const sent = files.filter((file) => file.state.kind === "waiting").length;
+  if (refused !== null && sent > 0) {
+    return { kind: "refused", refused };
+  }
+  const repo = fakeState.workspace.repos.find((known) => known.id === view.repo);
+  const jobId = nextJobId++;
+  const job = fakeJob(fakeState.workspace, {
+    job_id: jobId,
+    workspace_id: workspaceId,
+    label: `Resolve all with AI · ${repo?.name ?? view.repo} (${sent} ${sent === 1 ? "file" : "files"})`,
+    repos: [view.repo],
+    repo_names: [repo?.name ?? view.repo],
+    state: "running",
+    outcome: null,
+    started_at: Date.now(),
+    duration_ms: null,
+  });
+  aiRuns.set(jobId, job);
+  moveRun(jobId, files);
+  if (!fakeState.holdAi) {
+    setTimeout(() => finishRun(jobId));
+  } else if (sent === 0) {
+    endRunIfDone(jobId);
+  }
+  return { kind: "started", job_id: jobId };
 }
 
 /**
@@ -1260,8 +1447,10 @@ export function reset(): void {
   fakeState.aiResolveRequests = [];
   fakeState.aiProposals = {};
   fakeState.aiAnswers = {};
+  fakeState.aiResolveAllRequests = [];
   fakeState.holdAi = false;
   aiJobs.clear();
+  aiRuns.clear();
   fakeState.conflictRequests = [];
   fakeState.appInfo = defaultAppInfo;
   fakeState.gitStatus = defaultGitStatus;
@@ -1344,11 +1533,12 @@ export function reset(): void {
 // Playwright runs the fake build; `?fake=<name>` picks a data set.
 const picked = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("fake");
 // `jobs` is the `tree` data set with this run's jobs (UI-21).
-// `ai-conflict` is the `conflict` data set with AI to resolve it.
+// `ai-conflict` and `ai-resolve-all` are the `conflict` data set with AI to resolve it.
+const withAi = picked === "ai-conflict" || picked === "ai-resolve-all";
 const data =
   picked === null
     ? null
-    : scenario(picked === "jobs" ? "tree" : picked === "ai-conflict" ? "conflict" : picked, defaultWorkspace.id);
+    : scenario(picked === "jobs" ? "tree" : withAi ? "conflict" : picked, defaultWorkspace.id);
 if (picked === "jobs") {
   fakeState.jobs = jobsScenario(defaultWorkspace);
   nextJobId = 100;
@@ -1373,7 +1563,9 @@ if (data) {
 }
 
 // `ai-conflict`: api stopped on README.md alone, two hunks with a proposal each from a usable provider (AI-11).
-if (picked === "ai-conflict") {
+// `ai-resolve-all`: the same with src/app.ts, whose hunk has a proposal too, and .env, which the exclude list keeps
+// from AI (AI-4, AI-13).
+if (withAi) {
   fakeAi.providers = [
     {
       id: "p1",
@@ -1387,19 +1579,33 @@ if (picked === "ai-conflict") {
     },
   ];
   fakeAi.default = "p1";
+  const all = picked === "ai-resolve-all";
   const working = fakeState.workingCopies.r1;
   if (working !== undefined) {
-    fakeState.workingCopies.r1 = { ...working, unmerged: working.unmerged.slice(0, 1) };
+    const unmerged = all
+      ? [...working.unmerged, { path: ".env", conflict: "both_modified" as const }]
+      : working.unmerged.slice(0, 1);
+    fakeState.workingCopies.r1 = { ...working, unmerged };
   }
+  const paths = all ? 3 : 1;
   const details = fakeState.conflicts.r1;
   if (details !== undefined) {
-    fakeState.conflicts.r1 = { ...details, unmerged_paths: 1 };
+    fakeState.conflicts.r1 = { ...details, unmerged_paths: paths };
   }
   fakeState.summaries = fakeState.summaries.map((known) =>
     known.repo_id === "r1" && known.summary?.state
-      ? { ...known, summary: { ...known.summary, state: { ...known.summary.state, unmerged_paths: 1 } } }
+      ? { ...known, summary: { ...known.summary, state: { ...known.summary.state, unmerged_paths: paths } } }
       : known,
   );
+  if (all) {
+    fakeState.aiEligibility = {
+      ".env": {
+        kind: "ineligible",
+        reason: { kind: "excluded", pattern: ".env*" },
+        message: "matches the exclude list (.env*)",
+      },
+    };
+  }
   fakeState.fileConflicts = {
     "README.md": {
       ...textConflict("README.md", { ours: "main", theirs: "feature/login" }),
@@ -1435,6 +1641,21 @@ if (picked === "ai-conflict") {
           },
         ],
         usage: [{ input_tokens: 1450, output_tokens: 120 }],
+      },
+    },
+    "src/app.ts": {
+      kind: "proposal",
+      proposal: {
+        hunks: [
+          {
+            id: 1,
+            status: "resolved",
+            resolution: "theirs\n",
+            explanation: "Only theirs changed the line.",
+            confidence: "high",
+          },
+        ],
+        usage: [null],
       },
     },
   };
@@ -2596,6 +2817,8 @@ export const fake: Core = {
         (path): AiResolveStart => fakeState.aiResolve ?? fakeAiResolve(workspaceId, repo ?? "", path),
       );
     },
+    aiResolveAll: (workspaceId, request) =>
+      Promise.resolve({ status: "ok", data: fakeAiResolveAll(workspaceId, request) }),
     aiProposalGet: (workspaceId, handle, file) =>
       fakeUnmerged(
         workspaceId,
@@ -2635,6 +2858,10 @@ export const fake: Core = {
         endAiJob(jobId, null);
         return Promise.resolve({ status: "ok", data: "cancelled" });
       }
+      if (aiRuns.has(jobId)) {
+        cancelRun(jobId);
+        return Promise.resolve({ status: "ok", data: "killing" });
+      }
       const job = fakeState.jobs.find((known) => known.job_id === jobId);
       if (job?.state === "queued") {
         sendJob({
@@ -2654,6 +2881,9 @@ export const fake: Core = {
       if (!options.enabled) {
         for (const jobId of [...aiJobs.keys()]) {
           endAiJob(jobId, null);
+        }
+        for (const jobId of [...aiRuns.keys()]) {
+          cancelRun(jobId);
         }
         fakeState.aiProposals = {};
       }
