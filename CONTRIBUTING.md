@@ -108,6 +108,14 @@ Colors exist only as CSS variables in `ui/src/theme/tokens.css`, defined once fo
 
 The app's settings live in `settings.toml` in the platform config dir under `gitcroc/` (for example `~/.config/gitcroc/settings.toml` on Linux).
 
+## UI text (D15)
+
+All text the UI shows comes from `ui/src/strings/en.ts`, one exported `strings` object grouped by area (`tree`, `history`, `integrate`, …). A component imports it and writes `strings.clone.title`, never the text itself. UI text is JSX text with a letter in it, and string literals that reach the user through `title`, `aria-label`, `aria-description`, `placeholder`, `alt`, `label`, a `Show` or `Switch` `fallback`, or the dialog parts' text props (`ui/src/dialogs/parts.tsx`). Text that is data is not UI text: names, paths, refs, git's output, and every string the core sends. The test `d15_ui_text_comes_from_the_strings_module` (`ui/src/strings/strings.test.ts`) reads every UI source file and fails on inline text; text that must stay inline, such as the sample code of a code theme preview, is listed in its `ALLOWED` with the reason.
+
+A text with values is a function of them, with the values as named parameters: `` clonesInto: (path: string) => `Clones into ${path}` ``. A function also holds the plural rule, with the `plural` helper in `en.ts`: `stagedFiles: (count: number) => plural(count, "staged file", "staged files")`.
+
+The core's text (error messages, skip and block reasons, labels the core builds) is English, built in Rust, one place per type: the `Display` of the error or reason type. The UI shows it as it arrives. Translating either side is LATER (section 2).
+
 ## Continuous integration
 
 CI (`.github/workflows/ci.yml`) runs `just check` on Linux (ubuntu-22.04), Windows and macOS for every pull request and every push to `main`. It calls only `just check`, so local and CI checks cannot drift (QA-5), and on Linux also `just smoke` (see "End-to-end smoke test"). The repository owner must mark the three CI jobs (`check (ubuntu-22.04)`, `check (windows-latest)`, `check (macos-latest)`) as required status checks in the branch protection rule for `main`; this is a manual step in the GitHub settings.

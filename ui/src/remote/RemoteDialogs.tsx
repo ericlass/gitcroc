@@ -7,6 +7,7 @@ import { createSignal, Show, untrack } from "solid-js";
 import { Actions, ConfirmDialog, createNameCheck, Frame, NameField, Refusal } from "../dialogs/parts";
 import { type RemoteUrlsView, remoteNameCheck, type RepoId, type WorkspaceId } from "../ipc";
 import type { RemoteDialog, RemoteStore } from "../stores/remote";
+import { strings } from "../strings/en";
 
 interface DialogProps<K extends RemoteDialog["kind"]> {
   workspace: WorkspaceId;
@@ -38,7 +39,7 @@ function AddDialog(props: DialogProps<"add">) {
   const close = () => props.remote.close(props.workspace);
   const ready = () => check.valid() && url().trim() !== "" && !props.remote.sending(props.workspace);
   return (
-    <Frame id="remote-add" title={`Add a remote to ${props.repoName}`} onClose={close}>
+    <Frame id="remote-add" title={strings.remote.addTitle(props.repoName)} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -52,14 +53,14 @@ function AddDialog(props: DialogProps<"add">) {
           }
         }}
       >
-        <NameField label="Name" value={name()} error={check.error()} onInput={setName} />
-        <UrlField label="URL" value={url()} onInput={setUrl} />
+        <NameField label={strings.remote.name} value={name()} error={check.error()} onInput={setName} />
+        <UrlField label={strings.remote.url} value={url()} onInput={setUrl} />
         <label class="choice">
-          <input type="checkbox" checked={fetch()} onChange={(event) => setFetch(event.currentTarget.checked)} /> Fetch
-          it after adding it
+          <input type="checkbox" checked={fetch()} onChange={(event) => setFetch(event.currentTarget.checked)} />{" "}
+          {strings.remote.fetchAfter}
         </label>
         <Refusal error={props.remote.error(props.workspace)} />
-        <Actions submit="Add" disabled={!ready()} onCancel={close} />
+        <Actions submit={strings.remote.add} disabled={!ready()} onCancel={close} />
       </form>
     </Frame>
   );
@@ -71,7 +72,7 @@ function RenameDialog(props: DialogProps<"rename">) {
   const close = () => props.remote.close(props.workspace);
   const ready = () => check.valid() && name() !== props.dialog.name && !props.remote.sending(props.workspace);
   return (
-    <Frame id="remote-rename" title={`Rename remote ${props.dialog.name} in ${props.repoName}`} onClose={close}>
+    <Frame id="remote-rename" title={strings.remote.renameTitle(props.dialog.name, props.repoName)} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -84,10 +85,10 @@ function RenameDialog(props: DialogProps<"rename">) {
           }
         }}
       >
-        <NameField label="New name" value={name()} error={check.error()} onInput={setName} />
-        <p>Its remote-tracking branches and the upstreams on it move to the new name.</p>
+        <NameField label={strings.remote.newName} value={name()} error={check.error()} onInput={setName} />
+        <p>{strings.remote.renameMoves}</p>
         <Refusal error={props.remote.error(props.workspace)} />
-        <Actions submit="Rename" disabled={!ready()} onCancel={close} />
+        <Actions submit={strings.remote.rename} disabled={!ready()} onCancel={close} />
       </form>
     </Frame>
   );
@@ -117,12 +118,16 @@ function UrlForm(props: DialogProps<"url"> & { urls: RemoteUrlsView }) {
         }
       }}
     >
-      <UrlField label={pushUrl() === null ? "URL" : "Fetch URL"} value={url()} onInput={setUrl} />
+      <UrlField
+        label={pushUrl() === null ? strings.remote.url : strings.remote.fetchUrl}
+        value={url()}
+        onInput={setUrl}
+      />
       <Show when={pushUrl() !== null}>
-        <UrlField label="Push URL" value={pushUrl() ?? ""} onInput={setPushUrl} />
+        <UrlField label={strings.remote.pushUrl} value={pushUrl() ?? ""} onInput={setPushUrl} />
       </Show>
       <Refusal error={props.remote.error(props.workspace)} />
-      <Actions submit="Save" disabled={!ready()} onCancel={close} />
+      <Actions submit={strings.remote.save} disabled={!ready()} onCancel={close} />
     </form>
   );
 }
@@ -130,19 +135,19 @@ function UrlForm(props: DialogProps<"url"> & { urls: RemoteUrlsView }) {
 function UrlDialog(props: DialogProps<"url">) {
   const close = () => props.remote.close(props.workspace);
   return (
-    <Frame id="remote-url" title={`URL of remote ${props.dialog.name} in ${props.repoName}`} onClose={close}>
+    <Frame id="remote-url" title={strings.remote.urlTitle(props.dialog.name, props.repoName)} onClose={close}>
       <Show
         when={props.dialog.urls}
         keyed
         fallback={
           <Show
             when={props.remote.error(props.workspace)}
-            fallback={<p class="placeholder">Reading the URLs…</p>}
+            fallback={<p class="placeholder">{strings.remote.readingUrls}</p>}
           >
             <Refusal error={props.remote.error(props.workspace)} />
             <div class="dialog-actions">
               <button type="button" onClick={close}>
-                Close
+                {strings.common.close}
               </button>
             </div>
           </Show>
@@ -159,7 +164,7 @@ function RemoteConfirm(props: DialogProps<"confirm">) {
     <ConfirmDialog
       repoName={props.dialog.repoName}
       actions={props.dialog.actions}
-      submit="Remove"
+      submit={strings.remote.remove}
       error={props.remote.error(props.workspace)}
       sending={props.remote.sending(props.workspace)}
       onConfirm={() => void props.remote.run(props.workspace, props.dialog.repo, props.dialog.op, true)}

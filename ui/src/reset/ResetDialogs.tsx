@@ -8,6 +8,7 @@ import { createSignal, For, Show } from "solid-js";
 import { Actions, ConfirmDialog, Frame, Refusal } from "../dialogs/parts";
 import type { RepoId, ResetMode, WorkspaceId } from "../ipc";
 import type { ResetDialog, ResetStore } from "../stores/reset";
+import { strings } from "../strings/en";
 
 interface DialogProps<K extends ResetDialog["kind"]> {
   workspace: WorkspaceId;
@@ -17,9 +18,9 @@ interface DialogProps<K extends ResetDialog["kind"]> {
 }
 
 const MODES: { mode: ResetMode; label: string }[] = [
-  { mode: "soft", label: "Soft: keep the index and the working tree" },
-  { mode: "mixed", label: "Mixed: reset the index, keep the working tree" },
-  { mode: "hard", label: "Hard: reset the index and the working tree; uncommitted changes are lost" },
+  { mode: "soft", label: strings.reset.modes.soft },
+  { mode: "mixed", label: strings.reset.modes.mixed },
+  { mode: "hard", label: strings.reset.modes.hard },
 ];
 
 function ModeDialog(props: DialogProps<"reset">) {
@@ -28,7 +29,7 @@ function ModeDialog(props: DialogProps<"reset">) {
   return (
     <Frame
       id="reset-mode"
-      title={`Reset ${props.dialog.branch ?? "HEAD"} in ${props.repoName} to ${props.dialog.text}`}
+      title={strings.reset.title(props.dialog.branch ?? "HEAD", props.repoName, props.dialog.text)}
       onClose={close}
     >
       <form
@@ -38,10 +39,10 @@ function ModeDialog(props: DialogProps<"reset">) {
         }}
       >
         <Show when={props.dialog.branch === null}>
-          <p>HEAD is detached: HEAD is reset, not a branch.</p>
+          <p>{strings.reset.detached}</p>
         </Show>
         <fieldset>
-          <legend>Mode</legend>
+          <legend>{strings.reset.mode}</legend>
           <For each={MODES}>
             {(choice) => (
               <label class="choice">
@@ -58,7 +59,7 @@ function ModeDialog(props: DialogProps<"reset">) {
         </fieldset>
         <Refusal error={props.reset.error(props.workspace)} />
         <Actions
-          submit={mode() === "hard" ? "Reset hard…" : "Reset"}
+          submit={mode() === "hard" ? strings.reset.resetHardAsk : strings.reset.reset}
           danger={mode() === "hard"}
           disabled={props.reset.sending(props.workspace)}
           onCancel={close}
@@ -73,7 +74,7 @@ function ResetConfirm(props: DialogProps<"confirm">) {
     <ConfirmDialog
       repoName={props.dialog.repoName}
       actions={props.dialog.actions}
-      submit="Reset hard"
+      submit={strings.reset.resetHard}
       error={props.reset.error(props.workspace)}
       sending={props.reset.sending(props.workspace)}
       onConfirm={() =>

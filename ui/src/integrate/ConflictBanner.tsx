@@ -13,6 +13,7 @@ import type { ConflictDetails, Operation, RepoId, WorkspaceId } from "../ipc";
 import type { IntegrateStore } from "../stores/integrate";
 import type { ResolveAllStore } from "../stores/resolveAll";
 import type { SummaryStore } from "../stores/summaries";
+import { strings } from "../strings/en";
 
 /** What the banner needs for Resolve all with AI; without it the banner has none. */
 export interface BannerAi {
@@ -20,36 +21,28 @@ export interface BannerAi {
   ai: ConflictAi;
 }
 
-const NAMES: Record<Operation, string> = {
-  merge: "Merge",
-  rebase: "Rebase",
-  apply_mailbox: "Patch application",
-  cherry_pick: "Cherry-pick",
-  revert: "Revert",
-  stash_apply: "Stash apply",
-};
+const NAMES: Record<Operation, string> = strings.integrate.operations;
 
 /** What the banner says of `operation`, with what the core read of it. */
 export function conflictText(operation: Operation, details: ConflictDetails | undefined): string {
   const known = details?.operation === operation ? details : undefined;
   const applying = known?.applying ?? null;
   const onto = known?.onto ?? null;
-  const step = known?.step ? `, step ${known.step.current} of ${known.step.total}` : "";
-  const what = (verb: string, joint: string) =>
-    applying === null ? "" : `: ${verb} ${applying}${onto === null ? "" : ` ${joint} ${onto}`}`;
+  const step = known?.step ?? null;
+  const text = strings.integrate.inProgress;
   switch (operation) {
     case "merge":
-      return `Merge in progress${what("merging", "into")}`;
+      return text.merge(applying, onto);
     case "rebase":
-      return `Rebase in progress${what("rebasing", "onto")}${step}`;
+      return text.rebase(applying, onto, step);
     case "cherry_pick":
-      return `Cherry-pick in progress${what("applying", "onto")}`;
+      return text.cherryPick(applying, onto);
     case "revert":
-      return `Revert in progress${what("reverting", "on")}`;
+      return text.revert(applying, onto);
     case "apply_mailbox":
-      return `Patch application in progress${known?.step ? `: patch ${known.step.current} of ${known.step.total}` : ""}`;
+      return text.applyMailbox(step);
     case "stash_apply":
-      return `Stash apply stopped with conflicts${onto === null ? "" : ` on ${onto}`}`;
+      return text.stashApply(onto);
   }
 }
 
@@ -59,20 +52,16 @@ export function conflictText(operation: Operation, details: ConflictDetails | un
  */
 export function unmergedText(paths: number, operation: Operation | null = null): string {
   if (paths === 0) {
-    return "All conflicts are resolved and staged.";
+    return strings.integrate.allResolved;
   }
-  const unmergedCount = paths === 1 ? "1 path is unmerged" : `${paths} paths are unmerged`;
-  const them = paths === 1 ? "it" : "them";
-  return operation === "stash_apply"
-    ? `${unmergedCount}: mark ${them} resolved, and the stash apply ends.`
-    : `${unmergedCount}: resolve and stage ${them}, then Continue.`;
+  return operation === "stash_apply" ? strings.integrate.markResolved(paths) : strings.integrate.resolveAndStage(paths);
 }
 
 /** What Abort does, for its tooltip. */
 function abortTitle(operation: Operation): string {
   return operation === "stash_apply"
-    ? "Put the files the stash apply changed back to HEAD; the stash and other local changes are kept"
-    : `Abort the ${NAMES[operation].toLowerCase()} and go back to where it started`;
+    ? strings.integrate.abortStashApply
+    : strings.integrate.abortTitle(NAMES[operation].toLowerCase());
 }
 
 export default function ConflictBanner(props: {
@@ -112,15 +101,15 @@ export default function ConflictBanner(props: {
   return (
     <Show when={operation()}>
       {(current) => (
-        <section class="conflict-banner" aria-label="Conflict state">
+        <section class="conflict-banner" aria-label={strings.integrate.conflictState}>
           <div class="conflict-text">
             <strong>{conflictText(current(), props.integrate.details(props.workspace, props.repo))}</strong>
             <span>{unmergedText(unmerged(), current())}</span>
             <Show when={props.integrate.detailError(props.workspace, props.repo)}>
-              {(error) => <span role="alert">Cannot read the operation: {error()}</span>}
+              {(error) => <span role="alert">{strings.integrate.cannotRead(error())}</span>}
             </Show>
             <Show when={aiOn() && workspaceOff()}>
-              <span class="conflict-ai-reason">AI is off for this workspace.</span>
+              <span class="conflict-ai-reason">{strings.conflict.aiOffHere}</span>
             </Show>
             <Show when={aiOn() && run()?.refusal}>{(refusal) => <span role="alert">{refusal()}</span>}</Show>
           </div>
@@ -129,10 +118,10 @@ export default function ConflictBanner(props: {
               <button
                 type="button"
                 disabled={workspaceOff() || run()?.starting === true || running()}
-                title={workspaceOff() ? "AI is off for this workspace" : "Ask AI to propose resolutions for every file"}
+                title={workspaceOff() ? strings.integrate.aiOffTitle : strings.integrate.resolveAllTitle}
                 onClick={resolveAll}
               >
-                Resolve all with AI
+                {strings.integrate.resolveAll}
               </button>
             </Show>
             <button
@@ -141,7 +130,7 @@ export default function ConflictBanner(props: {
               title={abortTitle(current())}
               onClick={() => void props.integrate.run(props.workspace, props.repo, { kind: "abort" })}
             >
-              Abort
+              {strings.integrate.abort}
             </button>
             <button
               type="button"
@@ -149,24 +138,24 @@ export default function ConflictBanner(props: {
               disabled={sending() || unmerged() > 0}
               title={
                 current() === "stash_apply"
-                  ? "A stash apply ends when its last path is marked resolved"
+                  ? strings.integrate.stashApplyEnds
                   : unmerged() > 0
-                    ? "Resolve and stage every unmerged path first"
+                    ? strings.integrate.resolveFirst
                     : undefined
               }
               onClick={() => void props.integrate.run(props.workspace, props.repo, { kind: "continue" })}
             >
-              Continue
+              {strings.integrate.continue}
             </button>
           </div>
           <Show when={aiOn() && runJob()}>
             {(job) => (
-              <section class="conflict-run" aria-label="Resolve all with AI">
+              <section class="conflict-run" aria-label={strings.integrate.resolveAll}>
                 <div class="conflict-run-header">
                   <strong>{job().label}</strong>
                   <Show when={running()}>
                     <button type="button" onClick={() => props.resolveAll?.store.cancel(props.workspace, props.repo)}>
-                      Cancel
+                      {strings.common.cancel}
                     </button>
                   </Show>
                 </div>

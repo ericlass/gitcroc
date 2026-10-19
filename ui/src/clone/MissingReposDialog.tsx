@@ -23,6 +23,7 @@ import {
   workspaceMissingRepos,
 } from "../ipc";
 import type { ShareStore } from "../stores/share";
+import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -83,7 +84,7 @@ export default function MissingReposDialog(props: { workspace: WorkspaceId; shar
   const ended = (index: number, report: CloneReport) =>
     change(index, (draft) => {
       draft.state = report.repo === null ? "failed" : "cloned";
-      draft.message = report.repo === null ? (report.message ?? "the clone failed") : null;
+      draft.message = report.repo === null ? (report.message ?? strings.clone.missing.cloneFailed) : null;
       draft.checked = report.repo === null && draft.checked;
     });
 
@@ -176,17 +177,17 @@ export default function MissingReposDialog(props: { workspace: WorkspaceId; shar
   };
 
   return (
-    <Frame id="missing-repos" title="Missing repositories" class="missing-dialog" onClose={close}>
+    <Frame id="missing-repos" title={strings.clone.missing.title} class="missing-dialog" onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
           cloneSelected();
         }}
       >
-        <Show when={loaded()} fallback={<p>Looking for missing repositories…</p>}>
-          <Show when={rows.length > 0} fallback={<p>No repository of this workspace is missing.</p>}>
-            <p>These repositories are not on this computer. Clone them from their remotes:</p>
-            <ul class="missing-list" aria-label="Missing repositories">
+        <Show when={loaded()} fallback={<p>{strings.clone.missing.looking}</p>}>
+          <Show when={rows.length > 0} fallback={<p>{strings.clone.missing.none}</p>}>
+            <p>{strings.clone.missing.intro}</p>
+            <ul class="missing-list" aria-label={strings.clone.missing.title}>
               <For each={rows}>
                 {(row, index) => (
                   <li class="missing-row">
@@ -202,26 +203,26 @@ export default function MissingReposDialog(props: { workspace: WorkspaceId; shar
                       />
                       <span class="missing-name">{row.repo.name}</span>
                     </label>
-                    <span class="missing-remote">{row.repo.remote ?? "No remote to clone from"}</span>
+                    <span class="missing-remote">{row.repo.remote ?? strings.clone.missing.noRemote}</span>
                     <div class="missing-target">
                       <span class="clone-path" title={row.parent}>
                         {row.parent}
                       </span>
                       <button
                         type="button"
-                        aria-label={`Choose the folder for ${row.repo.name}`}
+                        aria-label={strings.clone.missing.chooseFolder(row.repo.name)}
                         disabled={row.state === "cloning" || row.state === "cloned"}
                         onClick={() => {
                           clonePickParent(props.workspace, pickKey(row)).catch((failure) => setError(message(failure)));
                         }}
                       >
-                        Choose…
+                        {strings.clone.choose}
                       </button>
                       <input
                         type="text"
                         autocomplete="off"
                         spellcheck={false}
-                        aria-label={`Folder name for ${row.repo.name}`}
+                        aria-label={strings.clone.missing.folderName(row.repo.name)}
                         value={row.name}
                         disabled={row.state === "cloning" || row.state === "cloned"}
                         aria-invalid={row.check?.key === targetKey(row) && row.check.error !== null}
@@ -238,10 +239,10 @@ export default function MissingReposDialog(props: { workspace: WorkspaceId; shar
                     <Show when={row.state !== "idle"}>
                       <span class="missing-state" role="status">
                         {row.state === "cloning"
-                          ? "Cloning…"
+                          ? strings.clone.missing.cloning
                           : row.state === "cloned"
-                            ? "Cloned"
-                            : `Failed: ${row.message ?? "the clone failed"}`}
+                            ? strings.clone.missing.cloned
+                            : strings.clone.missing.failed(row.message ?? strings.clone.missing.cloneFailed)}
                       </span>
                     </Show>
                   </li>
@@ -253,10 +254,10 @@ export default function MissingReposDialog(props: { workspace: WorkspaceId; shar
         <Refusal error={error()} />
         <div class="dialog-actions">
           <button type="button" onClick={close}>
-            Close
+            {strings.common.close}
           </button>
           <button type="submit" class="primary" disabled={!rows.some(clonable)}>
-            Clone selected
+            {strings.clone.missing.cloneSelected}
           </button>
         </div>
       </form>

@@ -5,6 +5,7 @@
 // only sends requests and keeps the answers.
 import { createStore, produce } from "solid-js/store";
 import { core, type RepoId, type WorkspaceId, workspaceExport, workspaceImport } from "../ipc";
+import { strings } from "../strings/en";
 
 /** The missing repos dialog of a workspace: the repo it was opened for, checked alone, or `null` for all. */
 export interface MissingOpen {
@@ -35,13 +36,13 @@ export function createShareStore() {
   /** Asks the core for the save dialog; the result arrives as `workspace_exported`. */
   const exportWorkspace = (id: WorkspaceId) => {
     dismiss();
-    workspaceExport(id).catch((failure) => say(`Cannot export the workspace: ${message(failure)}`, true));
+    workspaceExport(id).catch((failure) => say(strings.workspaces.cannotExport(message(failure)), true));
   };
 
   /** Asks the core for the open dialog; the result arrives as `workspace_imported`. */
   const importWorkspace = () => {
     dismiss();
-    workspaceImport().catch((failure) => say(`Cannot import a workspace: ${message(failure)}`, true));
+    workspaceImport().catch((failure) => say(strings.workspaces.cannotImport(message(failure)), true));
   };
 
   const openMissing = (id: WorkspaceId, focus: RepoId | null) =>
@@ -65,19 +66,15 @@ export function createShareStore() {
     const stopExported = await core.events.workspaceExported.listen((event) => {
       const { report, error } = event.payload;
       if (report === null) {
-        say(sentence(error ?? "the export failed"), true);
+        say(sentence(error ?? strings.workspaces.exportFailed), true);
         return;
       }
-      const absolute =
-        report.absolute.length === 0
-          ? ""
-          : ` No relative path reaches these repos, so they stay absolute: ${report.absolute.join(", ")}.`;
-      say(`Exported the workspace to ${report.path}.${absolute}`, report.absolute.length > 0);
+      say(strings.workspaces.exported(report.path, report.absolute), report.absolute.length > 0);
     });
     const stopImported = await core.events.workspaceImported.listen((event) => {
       const { report, error } = event.payload;
       if (report === null) {
-        say(sentence(error ?? "the import failed"), true);
+        say(sentence(error ?? strings.workspaces.importFailed), true);
       } else if (report.missing.length > 0) {
         openMissing(report.workspace_id, null);
       }

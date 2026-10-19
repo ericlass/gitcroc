@@ -6,6 +6,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { Actions, ConfirmDialog, Frame, Refusal } from "../dialogs/parts";
 import { type PullStrategy, pushChoices, type RepoId, type WorkspaceId } from "../ipc";
 import type { SyncDialog, SyncStore } from "../stores/sync";
+import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -17,20 +18,17 @@ interface DialogProps<K extends SyncDialog["kind"]> {
 }
 
 export const STRATEGIES: { strategy: PullStrategy; label: string }[] = [
-  {
-    strategy: "config",
-    label: "As git config says (fast-forward only when unset)",
-  },
-  { strategy: "ff_only", label: "Fast-forward only" },
-  { strategy: "merge", label: "Merge" },
-  { strategy: "rebase", label: "Rebase" },
+  { strategy: "config", label: strings.sync.strategies.config },
+  { strategy: "ff_only", label: strings.sync.strategies.ffOnly },
+  { strategy: "merge", label: strings.sync.strategies.merge },
+  { strategy: "rebase", label: strings.sync.strategies.rebase },
 ];
 
 function PullDialog(props: DialogProps<"pull">) {
   const [strategy, setStrategy] = createSignal<PullStrategy>("config");
   const close = () => props.sync.close(props.workspace);
   return (
-    <Frame id="sync-pull" title={`Pull ${props.repoName}`} onClose={close}>
+    <Frame id="sync-pull" title={strings.sync.pullTitle(props.repoName)} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -41,7 +39,7 @@ function PullDialog(props: DialogProps<"pull">) {
         }}
       >
         <fieldset>
-          <legend>Strategy</legend>
+          <legend>{strings.sync.strategy}</legend>
           <For each={STRATEGIES}>
             {(choice) => (
               <label class="choice">
@@ -57,7 +55,7 @@ function PullDialog(props: DialogProps<"pull">) {
           </For>
         </fieldset>
         <Refusal error={props.sync.error(props.workspace)} />
-        <Actions submit="Pull" disabled={props.sync.sending(props.workspace)} onCancel={close} />
+        <Actions submit={strings.sync.pull} disabled={props.sync.sending(props.workspace)} onCancel={close} />
       </form>
     </Frame>
   );
@@ -78,7 +76,7 @@ function PushDialog(props: DialogProps<"push">) {
   const ready = () =>
     choices() !== undefined && (upstream() !== null || remote() !== null) && !props.sync.sending(props.workspace);
   return (
-    <Frame id="sync-push" title={`Push ${props.repoName}`} onClose={close}>
+    <Frame id="sync-push" title={strings.sync.pushTitle(props.repoName)} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -98,12 +96,12 @@ function PushDialog(props: DialogProps<"push">) {
               when={known().upstream}
               fallback={
                 <>
-                  <p>{known().branch ?? "HEAD"} has no upstream.</p>
+                  <p>{strings.sync.noUpstream(known().branch ?? "HEAD")}</p>
                   <label class="field">
-                    <span>Remote</span>
+                    <span>{strings.sync.remote}</span>
                     <select value={remote() ?? ""} onChange={(event) => setPicked(event.currentTarget.value || null)}>
                       <Show when={remote() === null}>
-                        <option value="">Choose a remote</option>
+                        <option value="">{strings.sync.chooseRemote}</option>
                       </Show>
                       <For each={remotes()}>{(name) => <option value={name}>{name}</option>}</For>
                     </select>
@@ -114,28 +112,24 @@ function PushDialog(props: DialogProps<"push">) {
                       checked={setUpstream()}
                       onChange={(event) => setSetUpstream(event.currentTarget.checked)}
                     />{" "}
-                    Set upstream
+                    {strings.sync.setUpstream}
                   </label>
                 </>
               }
             >
-              {(target) => (
-                <p>
-                  Pushes {known().branch} to {target()}.
-                </p>
-              )}
+              {(target) => <p>{strings.sync.pushes(known().branch ?? "", target())}</p>}
             </Show>
           )}
         </Show>
         <label class="choice">
-          <input type="checkbox" checked={force()} onChange={(event) => setForce(event.currentTarget.checked)} /> Force
-          with lease (replaces the remote branch)
+          <input type="checkbox" checked={force()} onChange={(event) => setForce(event.currentTarget.checked)} />{" "}
+          {strings.sync.forceWithLease}
         </label>
         <Show when={choices.error as unknown}>
-          <p role="alert">Cannot read the remotes: {message(choices.error)}</p>
+          <p role="alert">{strings.sync.cannotReadRemotes(message(choices.error))}</p>
         </Show>
         <Refusal error={props.sync.error(props.workspace)} />
-        <Actions submit="Push" disabled={!ready()} onCancel={close} />
+        <Actions submit={strings.sync.push} disabled={!ready()} onCancel={close} />
       </form>
     </Frame>
   );
@@ -147,7 +141,7 @@ function SyncConfirm(props: DialogProps<"confirm">) {
     <ConfirmDialog
       repoName={props.dialog.repoName}
       actions={props.dialog.actions}
-      submit="Force push"
+      submit={strings.sync.forcePush}
       error={props.sync.error(props.workspace)}
       sending={props.sync.sending(props.workspace)}
       onConfirm={() => void props.sync.run(props.workspace, props.dialog.repo, props.dialog.op, true)}
@@ -164,7 +158,7 @@ export function SyncRefusal(props: { workspace: WorkspaceId; sync: SyncStore }) 
         <div role="alert" class="banner banner-dismissible">
           <span>{error()}</span>
           <button type="button" onClick={() => props.sync.dismissError(props.workspace)}>
-            Dismiss
+            {strings.common.dismiss}
           </button>
         </div>
       )}

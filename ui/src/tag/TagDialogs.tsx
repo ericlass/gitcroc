@@ -9,6 +9,7 @@ import { createSignal, For, Show, untrack } from "solid-js";
 import { Actions, ConfirmDialog, createNameCheck, Frame, NameField, Refusal } from "../dialogs/parts";
 import { type RepoId, tagNameCheck, type WorkspaceId } from "../ipc";
 import type { TagDialog, TagStore } from "../stores/tag";
+import { strings } from "../strings/en";
 
 interface DialogProps<K extends TagDialog["kind"]> {
   workspace: WorkspaceId;
@@ -27,7 +28,7 @@ function CreateDialog(props: DialogProps<"create">) {
   const ready = () =>
     check.valid() && (!annotated() || message().trim() !== "") && !props.tag.sending(props.workspace);
   return (
-    <Frame id="tag-create" title={`New tag at ${props.dialog.at} in ${props.repoName}`} onClose={close}>
+    <Frame id="tag-create" title={strings.tag.createTitle(props.dialog.at, props.repoName)} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -44,20 +45,20 @@ function CreateDialog(props: DialogProps<"create">) {
           }
         }}
       >
-        <NameField label="Name" value={name()} error={check.error()} onInput={setName} />
+        <NameField label={strings.tag.name} value={name()} error={check.error()} onInput={setName} />
         <fieldset>
-          <legend>Kind</legend>
+          <legend>{strings.tag.kind}</legend>
           <label class="choice">
-            <input type="radio" name="tag-kind" checked={annotated()} onChange={() => setAnnotated(true)} /> Annotated,
-            with a message
+            <input type="radio" name="tag-kind" checked={annotated()} onChange={() => setAnnotated(true)} />{" "}
+            {strings.tag.annotated}
           </label>
           <label class="choice">
             <input type="radio" name="tag-kind" checked={!annotated()} onChange={() => setAnnotated(false)} />{" "}
-            Lightweight
+            {strings.tag.lightweight}
           </label>
         </fieldset>
         <label class="field">
-          <span>Message</span>
+          <span>{strings.tag.message}</span>
           <textarea
             rows={4}
             spellcheck={false}
@@ -67,11 +68,11 @@ function CreateDialog(props: DialogProps<"create">) {
           />
         </label>
         <label class="choice">
-          <input type="checkbox" checked={push()} onChange={(event) => setPush(event.currentTarget.checked)} /> Push
-          the tag after creating it
+          <input type="checkbox" checked={push()} onChange={(event) => setPush(event.currentTarget.checked)} />{" "}
+          {strings.tag.push}
         </label>
         <Refusal error={props.tag.error(props.workspace)} />
-        <Actions submit="Create" disabled={!ready()} onCancel={close} />
+        <Actions submit={strings.tag.create} disabled={!ready()} onCancel={close} />
       </form>
     </Frame>
   );
@@ -81,7 +82,7 @@ function DeleteDialog(props: DialogProps<"delete">) {
   const [onRemote, setOnRemote] = createSignal(false);
   const close = () => props.tag.close(props.workspace);
   return (
-    <Frame id="tag-delete" title={`Delete tag ${props.dialog.name} in ${props.repoName}?`} onClose={close}>
+    <Frame id="tag-delete" title={strings.tag.deleteTitle(props.dialog.name, props.repoName)} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -95,10 +96,10 @@ function DeleteDialog(props: DialogProps<"delete">) {
       >
         <label class="choice">
           <input type="checkbox" checked={onRemote()} onChange={(event) => setOnRemote(event.currentTarget.checked)} />{" "}
-          Also delete it on the remote
+          {strings.tag.onRemote}
         </label>
         <Refusal error={props.tag.error(props.workspace)} />
-        <Actions submit="Delete" danger disabled={props.tag.sending(props.workspace)} onCancel={close} />
+        <Actions submit={strings.tag.delete} danger disabled={props.tag.sending(props.workspace)} onCancel={close} />
       </form>
     </Frame>
   );
@@ -112,8 +113,8 @@ function RemoteDialog(props: DialogProps<"remote">) {
   const title = () => {
     const current = op();
     return current.kind === "delete"
-      ? `Delete tag ${current.name} on which remote?`
-      : `Push tag ${current.name} to which remote?`;
+      ? strings.tag.deleteOnWhich(current.name)
+      : strings.tag.pushToWhich(current.name);
   };
   return (
     <Frame id="tag-remote" title={title()} onClose={close}>
@@ -124,14 +125,20 @@ function RemoteDialog(props: DialogProps<"remote">) {
         }}
       >
         <label class="field">
-          <span>Remote</span>
+          <span>{strings.tag.remote}</span>
           <select value={remote()} onChange={(event) => setRemote(event.currentTarget.value)}>
             <For each={props.dialog.remotes}>{(name) => <option value={name}>{name}</option>}</For>
           </select>
         </label>
         <Refusal error={props.tag.error(props.workspace)} />
         <Actions
-          submit={op().kind === "delete" ? "Delete" : op().kind === "create" ? "Create" : "Push"}
+          submit={
+            op().kind === "delete"
+              ? strings.tag.delete
+              : op().kind === "create"
+                ? strings.tag.create
+                : strings.tag.pushIt
+          }
           danger={op().kind === "delete"}
           disabled={props.tag.sending(props.workspace) || remote() === ""}
           onCancel={close}
@@ -146,7 +153,7 @@ function TagConfirm(props: DialogProps<"confirm">) {
     <ConfirmDialog
       repoName={props.dialog.repoName}
       actions={props.dialog.actions}
-      submit="Delete"
+      submit={strings.tag.delete}
       error={props.tag.error(props.workspace)}
       sending={props.tag.sending(props.workspace)}
       onConfirm={() => void props.tag.run(props.workspace, props.dialog.repo, props.dialog.op, true)}
