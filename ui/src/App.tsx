@@ -63,6 +63,7 @@ import { createWorkspaceStore } from "./stores/workspaces";
 import { followAppearance, followDesktopFonts, followTheme } from "./theme/theme";
 import WorkspaceDialogsView, { createWorkspaceDialogs } from "./workspaces/WorkspaceDialogs";
 import { WorkspaceStart } from "./workspaces/WorkspaceMenu";
+import { strings } from "./strings/en";
 
 export default function App() {
   const [info] = createResource(appInfo);
@@ -155,15 +156,15 @@ export default function App() {
     if (kind !== "group" && kind !== "repos") {
       return {};
     }
-    return { stash: "Stash works on one repository at a time" };
+    return { stash: strings.app.stashOneRepo };
   };
 
   /** How the options dialog names a target set of a group or several repos. */
   const targetName = (current: TargetSet) => {
     if (current.kind === "group") {
-      return workspace()?.groups.find((group) => group.id === current.group_id)?.name ?? "the group";
+      return workspace()?.groups.find((group) => group.id === current.group_id)?.name ?? strings.app.theGroup;
     }
-    return current.kind === "repos" ? `${current.repo_ids.length} repositories` : repoName(current.repo_id);
+    return current.kind === "repos" ? strings.app.repositories(current.repo_ids.length) : repoName(current.repo_id);
   };
 
   /**
@@ -425,7 +426,7 @@ export default function App() {
     <Switch>
       <Match when={git.state.result === null}>
         <main class="message-screen">
-          <p>Looking for git…</p>
+          <p>{strings.app.lookingForGit}</p>
         </main>
       </Match>
       <Match when={gitProblem()}>
@@ -448,19 +449,16 @@ export default function App() {
               <div role={notice().error ? "alert" : "status"} class="banner banner-dismissible">
                 <span>{notice().text}</span>
                 <button type="button" onClick={() => share.dismiss()}>
-                  Dismiss
+                  {strings.common.dismiss}
                 </button>
               </div>
             )}
           </Show>
           <Show when={!missingDismissed() && workspaces.state.missing.length > 0}>
             <div role="alert" class="banner banner-dismissible">
-              <span>
-                These workspace files were not found, so their tabs were not restored:{" "}
-                {workspaces.state.missing.join(", ")}
-              </span>
+              <span>{strings.app.missingWorkspaces(workspaces.state.missing.join(", "))}</span>
               <button type="button" onClick={() => setMissingDismissed(true)}>
-                Dismiss
+                {strings.common.dismiss}
               </button>
             </div>
           </Show>
@@ -485,7 +483,7 @@ export default function App() {
           </Show>
           <Show when={info.error as unknown}>
             <div role="alert" class="banner">
-              Cannot reach the core: {String(info.error)}
+              {strings.app.cannotReachCore(String(info.error))}
             </div>
           </Show>
           <Show when={settings.state.view?.warning}>{(warning) => <SettingsBanner warning={warning()} />}</Show>
@@ -494,12 +492,9 @@ export default function App() {
               <Show when={!watch.watch(id()).dismissed && watch.watch(id()).warning}>
                 {(warning) => (
                   <div role="alert" class="banner banner-dismissible">
-                    <span>
-                      Changes made outside gitcroc show only when the window regains focus: watching files failed (
-                      {warning().message}).
-                    </span>
+                    <span>{strings.app.watchFailed(warning().message)}</span>
                     <button type="button" onClick={() => watch.dismiss(id())}>
-                      Dismiss
+                      {strings.common.dismiss}
                     </button>
                   </div>
                 )}
@@ -516,7 +511,7 @@ export default function App() {
                 <Switch
                   fallback={
                     <div class="empty-state">
-                      <p class="placeholder">No workspace is open. Open one or create a new one.</p>
+                      <p class="placeholder">{strings.app.noWorkspace}</p>
                       <Show when={startError()}>{(text) => <p role="alert">{text()}</p>}</Show>
                       <WorkspaceStart
                         workspaces={workspaces}
@@ -528,10 +523,10 @@ export default function App() {
                   }
                 >
                   <Match when={workspaces.state.error !== null}>
-                    <p class="placeholder">Cannot open the workspace: {workspaces.state.error}</p>
+                    <p class="placeholder">{strings.app.cannotOpenWorkspace(workspaces.state.error ?? "")}</p>
                   </Match>
                   <Match when={workspaces.state.views === null}>
-                    <p class="placeholder">Opening the workspace…</p>
+                    <p class="placeholder">{strings.app.openingWorkspace}</p>
                   </Match>
                 </Switch>
               </main>

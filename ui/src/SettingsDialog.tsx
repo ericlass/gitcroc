@@ -8,11 +8,12 @@ import type { AiStore } from "./stores/ai";
 import { FONT_SIZE_LIMITS, PARALLELISM_LIMITS, type SettingsStore } from "./stores/settings";
 import { CODE_THEME_NAMES, CODE_THEMES } from "./theme/codeThemes";
 import CodeThemePreview from "./theme/CodeThemePreview";
+import { strings } from "./strings/en";
 
 const THEMES: { value: Theme; label: string }[] = [
-  { value: "system", label: "Follow the system" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
+  { value: "system", label: strings.settings.themes.system },
+  { value: "light", label: strings.settings.themes.light },
+  { value: "dark", label: strings.settings.themes.dark },
 ];
 
 type CodeThemeKey = "code_theme_light" | "code_theme_dark";
@@ -20,13 +21,23 @@ type FontKey = "ui_font" | "code_font";
 type FontSizeKey = "ui_font_size" | "code_font_size";
 
 const CODE_THEME_CHOICES: { key: CodeThemeKey; label: string }[] = [
-  { key: "code_theme_light", label: "Code theme in light mode" },
-  { key: "code_theme_dark", label: "Code theme in dark mode" },
+  { key: "code_theme_light", label: strings.settings.codeThemeLight },
+  { key: "code_theme_dark", label: strings.settings.codeThemeDark },
 ];
 
 const FONTS: { font: FontKey; size: FontSizeKey; label: string; placeholder: string }[] = [
-  { font: "ui_font", size: "ui_font_size", label: "UI font", placeholder: "System UI font" },
-  { font: "code_font", size: "code_font_size", label: "Code font", placeholder: "System monospace font" },
+  {
+    font: "ui_font",
+    size: "ui_font_size",
+    label: strings.settings.uiFont,
+    placeholder: strings.settings.uiFontPlaceholder,
+  },
+  {
+    font: "code_font",
+    size: "code_font_size",
+    label: strings.settings.codeFont,
+    placeholder: strings.settings.codeFontPlaceholder,
+  },
 ];
 
 export default function SettingsDialog(props: {
@@ -84,9 +95,9 @@ export default function SettingsDialog(props: {
         ref={(element) => (dialog = element)}
         onKeyDown={onKeyDown}
       >
-        <h2 id="settings-title">Settings</h2>
+        <h2 id="settings-title">{strings.settings.title}</h2>
         <fieldset disabled={readOnly()}>
-          <legend>Theme</legend>
+          <legend>{strings.settings.theme}</legend>
           <For each={THEMES}>
             {(theme) => (
               <label class="choice">
@@ -103,7 +114,7 @@ export default function SettingsDialog(props: {
           </For>
         </fieldset>
         <fieldset disabled={readOnly()}>
-          <legend>Code themes</legend>
+          <legend>{strings.settings.codeThemes}</legend>
           <For each={CODE_THEME_CHOICES}>
             {(choice) => (
               <div class="setting">
@@ -126,7 +137,7 @@ export default function SettingsDialog(props: {
           </For>
         </fieldset>
         <fieldset disabled={readOnly()}>
-          <legend>Fonts</legend>
+          <legend>{strings.settings.fonts}</legend>
           <For each={FONTS}>
             {(font) => (
               <div class="setting setting-font">
@@ -140,7 +151,7 @@ export default function SettingsDialog(props: {
                   />
                 </label>
                 <label>
-                  {font.label} size{" "}
+                  {strings.settings.fontSize(font.label)}{" "}
                   <input
                     type="number"
                     min={FONT_SIZE_LIMITS.min}
@@ -148,17 +159,17 @@ export default function SettingsDialog(props: {
                     value={appearance()[font.size]}
                     onChange={(event) => setSize(font.size, event.currentTarget)}
                   />{" "}
-                  <span aria-hidden="true">px</span>
+                  <span aria-hidden="true">{strings.settings.pixels}</span>
                 </label>
               </div>
             )}
           </For>
         </fieldset>
         <fieldset disabled={readOnly()}>
-          <legend>Group operations</legend>
+          <legend>{strings.settings.groupOperations}</legend>
           <div class="setting">
             <label>
-              Repos at once{" "}
+              {strings.settings.reposAtOnce}{" "}
               <input
                 type="number"
                 min={PARALLELISM_LIMITS.min}
@@ -174,28 +185,24 @@ export default function SettingsDialog(props: {
               checked={props.settings.groups().always_show_preflight}
               onChange={(event) => void props.settings.setGroups({ always_show_preflight: event.currentTarget.checked })}
             />
-            Always show the preflight dialog
+            {strings.settings.alwaysShowPreflight}
           </label>
         </fieldset>
         <AiSection ai={props.ai} readOnly={readOnly()} />
         <Show when={props.settings.state.error}>{(error) => <p role="alert">{error()}</p>}</Show>
         <Show when={props.info}>
           {(info) => (
-            <p class="about">
-              {info().name} version {info().version} on {info().os} ({info().arch})
-            </p>
+            <p class="about">{strings.settings.about(info().name, info().version, info().os, info().arch)}</p>
           )}
         </Show>
         <Show when={props.git?.kind === "usable" && props.git}>
           {(git) => (
-            <p class="about">
-              git version {git().version} at {git().path}
-            </p>
+            <p class="about">{strings.settings.git(git().version, git().path)}</p>
           )}
         </Show>
         <div class="dialog-actions">
           <button type="button" onClick={() => props.onClose()}>
-            Close
+            {strings.common.close}
           </button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 // Says why the settings are read-only (DATA-1). Paths and reasons are text.
 import { Match, Switch } from "solid-js";
 import type { ConfigWarning } from "./ipc";
+import { strings } from "./strings/en";
 
 export default function SettingsBanner(props: { warning: ConfigWarning }) {
   return (
@@ -8,22 +9,16 @@ export default function SettingsBanner(props: { warning: ConfigWarning }) {
       <Switch>
         <Match when={props.warning.kind === "newer_schema" && props.warning}>
           {(warning) => (
-            <>
-              The settings file {warning().path} is from a newer gitcroc (schema {warning().found}; this version knows
-              schema {warning().supported}). It is used read-only, so changes are not saved.
-            </>
+            <>{strings.settings.newerSchema(warning().path, warning().found, warning().supported)}</>
           )}
         </Match>
         <Match when={props.warning.kind === "unreadable" && props.warning}>
           {(warning) => (
-            <>
-              The settings file {warning().path} cannot be read: {warning().reason}. The defaults are used and the file
-              is left as it is; changes are not saved until it is fixed or removed.
-            </>
+            <>{strings.settings.unreadable(warning().path, warning().reason)}</>
           )}
         </Match>
         <Match when={props.warning.kind === "no_config_dir"}>
-          There is no config directory on this system, so settings cannot be saved.
+          {strings.settings.noConfigDir}
         </Match>
       </Switch>
     </div>

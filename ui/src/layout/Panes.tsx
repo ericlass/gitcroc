@@ -30,6 +30,7 @@ import type { TreeStore } from "../stores/tree";
 import type { WorkspaceStore } from "../stores/workspaces";
 import TreePane from "../tree/TreePane";
 import Splitter from "./Splitter";
+import { strings } from "../strings/en";
 
 export default function Panes(props: {
   workspace: WorkspaceId;
@@ -145,7 +146,7 @@ export default function Panes(props: {
 
   return (
     <div class="panes">
-      <section class="pane pane-tree" aria-label="Tree" style={{ width: `${sizes().tree}px` }}>
+      <section class="pane pane-tree" aria-label={strings.panes.tree} style={{ width: `${sizes().tree}px` }}>
         <TreePane
           workspace={props.workspace}
           tree={props.tree}
@@ -160,16 +161,16 @@ export default function Panes(props: {
           groupOps={props.groupOps}
         />
       </section>
-      {splitter("tree", "Resize Tree")}
+      {splitter("tree", strings.panes.resizeTree)}
       {bottom() ? (
         <div class="pane-stack pane-fill" ref={(element) => (stack = fill = element)}>
-          <section class="pane pane-history pane-fill" aria-label="History">
+          <section class="pane pane-history pane-fill" aria-label={strings.panes.history}>
             {history()}
           </section>
           <Splitter
             pane="changes"
             orientation="horizontal"
-            label="Resize Changes"
+            label={strings.panes.resizeChanges}
             width={sizes().changes}
             min={MIN_PANE_HEIGHT}
             max={maxHeight}
@@ -177,17 +178,29 @@ export default function Panes(props: {
             onReset={() => props.layout.resetPane(props.workspace, "changes")}
             onCommit={() => props.layout.save(props.workspace)}
           />
-          <section class="pane pane-changes" aria-label="Changes" style={{ height: `${sizes().changes}px` }}>
+          <section
+            class="pane pane-changes"
+            aria-label={strings.panes.changes}
+            style={{ height: `${sizes().changes}px` }}
+          >
             {changes()}
           </section>
         </div>
       ) : (
         <>
-          <section class="pane pane-history" aria-label="History" style={{ width: `${sizes().history}px` }}>
+          <section
+            class="pane pane-history"
+            aria-label={strings.panes.history}
+            style={{ width: `${sizes().history}px` }}
+          >
             {history()}
           </section>
-          {splitter("history", "Resize History")}
-          <section class="pane pane-fill pane-changes" aria-label="Changes" ref={(element) => (fill = element)}>
+          {splitter("history", strings.panes.resizeHistory)}
+          <section
+            class="pane pane-fill pane-changes"
+            aria-label={strings.panes.changes}
+            ref={(element) => (fill = element)}
+          >
             {changes()}
           </section>
         </>

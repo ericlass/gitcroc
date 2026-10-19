@@ -4,6 +4,7 @@
 // confirmation the core asks for before a destructive operation (GRP-9).
 // Names are shown as text only (SEC-3).
 import { createEffect, createSignal, For, type JSX, on, onMount, Show } from "solid-js";
+import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -104,7 +105,7 @@ export function Actions(props: { submit: string; disabled: boolean; danger?: boo
   return (
     <div class="dialog-actions">
       <button type="button" onClick={() => props.onCancel()}>
-        Cancel
+        {strings.common.cancel}
       </button>
       <button type="submit" class={props.danger ? "danger" : "primary"} disabled={props.disabled}>
         {props.submit}
@@ -146,15 +147,15 @@ export function ConfirmDialog(props: {
           }
         }}
       >
-        <h2 id="op-confirm-title">Cannot be undone in {props.repoName}</h2>
-        <p id="op-confirm-text">This will:</p>
+        <h2 id="op-confirm-title">{strings.dialogs.cannotBeUndoneIn(props.repoName)}</h2>
+        <p id="op-confirm-text">{strings.dialogs.thisWill}</p>
         <ul class="op-actions">
           <For each={props.actions}>{(action) => <li>{action}</li>}</For>
         </ul>
         <Refusal error={props.error} />
         <div class="dialog-actions">
           <button type="button" ref={(element) => (cancel = element)} onClick={() => props.onClose()}>
-            Cancel
+            {strings.common.cancel}
           </button>
           <button type="button" class="danger" disabled={props.sending} onClick={() => props.onConfirm()}>
             {props.submit}
@@ -192,7 +193,7 @@ export function NameDialog(props: {
     <Frame id="name-dialog" title={props.title} onClose={props.onClose}>
       <form onSubmit={(event) => void submit(event)}>
         <NameField
-          label="Name"
+          label={strings.dialogs.name}
           value={name()}
           error={error()}
           onInput={(value) => {
@@ -238,7 +239,7 @@ export function Question(props: {
         <Refusal error={props.error} />
         <div class="dialog-actions">
           <button type="button" ref={(element) => (cancel = element)} onClick={() => props.onClose()}>
-            Cancel
+            {strings.common.cancel}
           </button>
           <button type="button" class="danger" disabled={props.sending} onClick={() => props.onConfirm()}>
             {props.submit}

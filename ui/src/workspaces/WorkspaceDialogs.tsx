@@ -6,6 +6,7 @@ import { createSignal, For, Show } from "solid-js";
 import { createSend, NameDialog, Question } from "../dialogs/parts";
 import type { WorkspaceId } from "../ipc";
 import type { WorkspaceStore } from "../stores/workspaces";
+import { strings } from "../strings/en";
 
 export type WorkspaceDialog =
   | { kind: "new" }
@@ -26,14 +27,14 @@ function DeleteDialog(props: { name: string; send: () => Promise<unknown>; onClo
   const sender = createSend(() => props.onClose());
   return (
     <Question
-      title={`Delete the workspace ${props.name}?`}
-      submit="Delete"
+      title={strings.workspaces.deleteDialog(props.name)}
+      submit={strings.workspaces.delete}
       error={sender.error()}
       sending={sender.sending()}
       onConfirm={() => void sender.run(props.send)}
       onClose={props.onClose}
     >
-      <p>Its workspace file is deleted. The repositories on disk are not touched.</p>
+      <p>{strings.workspaces.deleteWhat}</p>
     </Question>
   );
 }
@@ -42,14 +43,14 @@ function CloseDialog(props: { name: string; files: string[]; send: () => Promise
   const sender = createSend(() => props.onClose());
   return (
     <Question
-      title={`Close ${props.name}?`}
-      submit="Close tab"
+      title={strings.workspaces.closeDialog(props.name)}
+      submit={strings.workspaces.closeTab}
       error={sender.error()}
       sending={sender.sending()}
       onConfirm={() => void sender.run(props.send)}
       onClose={props.onClose}
     >
-      <p>The unsaved conflict edits of these files are lost:</p>
+      <p>{strings.workspaces.unsavedLost}</p>
       <ul class="op-actions">
         <For each={props.files}>{(file) => <li>{file}</li>}</For>
       </ul>
@@ -73,8 +74,8 @@ export default function WorkspaceDialogsView(props: {
     <>
       <Show when={of("new")} keyed>
         <NameDialog
-          title="New workspace"
-          submit="Create"
+          title={strings.workspaces.newDialog}
+          submit={strings.workspaces.create}
           initial=""
           send={(name) => props.workspaces.create(name)}
           onClose={close}
@@ -83,8 +84,8 @@ export default function WorkspaceDialogsView(props: {
       <Show when={of("rename")} keyed>
         {(dialog) => (
           <NameDialog
-            title={`Rename ${dialog.name}`}
-            submit="Rename"
+            title={strings.workspaces.renameDialog(dialog.name)}
+            submit={strings.workspaces.rename}
             initial={dialog.name}
             send={(name) => props.workspaces.rename(dialog.id, name)}
             onClose={close}

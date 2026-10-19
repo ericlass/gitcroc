@@ -2,6 +2,7 @@
 // as text nodes only, never as HTML (SEC-3).
 import { Show } from "solid-js";
 import type { SummaryView } from "../ipc";
+import { strings } from "../strings/en";
 
 /** Ahead and behind as `↑1 ↓2`; zero counts are left out. */
 export function AheadBehind(props: { ahead: number | null; behind: number | null }) {
@@ -9,14 +10,14 @@ export function AheadBehind(props: { ahead: number | null; behind: number | null
     <>
       <Show when={props.ahead}>
         {(ahead) => (
-          <span class="tree-count" aria-label={`${ahead()} ahead`}>
+          <span class="tree-count" aria-label={strings.tree.ahead(ahead())}>
             ↑{ahead()}
           </span>
         )}
       </Show>
       <Show when={props.behind}>
         {(behind) => (
-          <span class="tree-count" aria-label={`${behind()} behind`}>
+          <span class="tree-count" aria-label={strings.tree.behind(behind())}>
             ↓{behind()}
           </span>
         )}
@@ -48,29 +49,34 @@ export default function RepoRow(props: { name: string; view: SummaryView | undef
       </Show>
       <Show when={upstream()}>{(up) => <AheadBehind ahead={up().ahead} behind={up().behind} />}</Show>
       <Show when={summary()?.dirty}>
-        <span class="tree-dirty" role="img" aria-label="Uncommitted changes" title="Uncommitted changes">
+        <span class="tree-dirty" role="img" aria-label={strings.tree.uncommitted} title={strings.tree.uncommitted}>
           ●
         </span>
       </Show>
       <Show when={props.view?.conflict}>
-        <span class="tree-conflict" role="img" aria-label="Conflict state" title="Conflict state">
+        <span class="tree-conflict" role="img" aria-label={strings.tree.conflict} title={strings.tree.conflict}>
           ⚔
         </span>
       </Show>
       <Show when={props.view?.missing}>
-        <span class="tree-warning" role="img" aria-label="Folder is missing" title="Folder is missing">
+        <span
+          class="tree-warning"
+          role="img"
+          aria-label={strings.tree.folderMissing}
+          title={strings.tree.folderMissing}
+        >
           ⚠
         </span>
       </Show>
       <Show when={props.view?.error}>
         {(error) => (
-          <span class="tree-warning" role="img" aria-label={`Cannot read: ${error()}`} title={error()}>
+          <span class="tree-warning" role="img" aria-label={strings.tree.cannotReadRepo(error())} title={error()}>
             ⚠
           </span>
         )}
       </Show>
       <Show when={props.view?.refreshing}>
-        <span class="spinner" role="img" aria-label="Refreshing" title="Refreshing" />
+        <span class="spinner" role="img" aria-label={strings.tree.refreshing} title={strings.tree.refreshing} />
       </Show>
     </span>
   );

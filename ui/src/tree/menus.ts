@@ -8,6 +8,7 @@
 // offers Clone from remote, which opens the missing repos dialog (DATA-2).
 import type { GroupId, TreeItem } from "../ipc";
 import type { GroupInfo } from "./groups";
+import { strings } from "../strings/en";
 
 export type MenuAction =
   | "checkout"
@@ -67,33 +68,36 @@ function groupEntries(item: TreeItem, groups: GroupInfo[]): MenuEntry[] {
     case "group": {
       const index = groups.findIndex((group) => group.id === item.group_id);
       return [
-        entry("group_fetch", "Fetch"),
-        entry("group_pull", "Pull"),
-        entry("group_push", "Push"),
-        entry("group_checkout", "Check out branch…"),
-        entry("group_create", "New branch…"),
-        entry("group_delete_branch", "Delete branch…"),
-        entry("group_merge", "Merge…"),
-        entry("group_rebase", "Rebase…"),
-        entry("group_tag", "Create tag…"),
-        entry("group_rename", "Rename…"),
-        entry("group_delete", "Delete…"),
-        entry("new_group", "New group…"),
-        entry("move_up", "Move up", index <= 0),
-        entry("move_down", "Move down", index < 0 || index === groups.length - 1),
+        entry("group_fetch", strings.treeMenu.fetch),
+        entry("group_pull", strings.treeMenu.pull),
+        entry("group_push", strings.treeMenu.push),
+        entry("group_checkout", strings.treeMenu.checkOutBranch),
+        entry("group_create", strings.treeMenu.newBranch),
+        entry("group_delete_branch", strings.treeMenu.deleteBranch),
+        entry("group_merge", strings.treeMenu.merge),
+        entry("group_rebase", strings.treeMenu.rebase),
+        entry("group_tag", strings.treeMenu.createTag),
+        entry("group_rename", strings.treeMenu.rename),
+        entry("group_delete", strings.treeMenu.delete),
+        entry("new_group", strings.treeMenu.newGroup),
+        entry("move_up", strings.treeMenu.moveUp, index <= 0),
+        entry("move_down", strings.treeMenu.moveDown, index < 0 || index === groups.length - 1),
       ];
     }
     case "group_branch":
-      return [entry("group_checkout", "Check out"), entry("group_delete_branch", "Delete…")];
+      return [
+        entry("group_checkout", strings.treeMenu.checkOut),
+        entry("group_delete_branch", strings.treeMenu.delete),
+      ];
     case "ungrouped":
-      return [entry("new_group", "New group…")];
+      return [entry("new_group", strings.treeMenu.newGroup)];
     case "repo": {
       const others = groups.filter((group) => !group.repos.includes(item.repo_id));
       const add: MenuEntry = {
-        ...entry("add_to_group", "Add to group"),
+        ...entry("add_to_group", strings.treeMenu.addToGroup),
         submenu: [
           ...others.map((group) => ({ ...entry("add_to_group", group.name), group: group.id })),
-          entry("new_group", "New group…"),
+          entry("new_group", strings.treeMenu.newGroup),
         ],
       };
       if (item.group_id === null) {
@@ -103,9 +107,9 @@ function groupEntries(item: TreeItem, groups: GroupInfo[]): MenuEntry[] {
       const index = members.indexOf(item.repo_id);
       return [
         add,
-        entry("remove_from_group", "Remove from group"),
-        entry("move_up", "Move up", index <= 0),
-        entry("move_down", "Move down", index < 0 || index === members.length - 1),
+        entry("remove_from_group", strings.treeMenu.removeFromGroup),
+        entry("move_up", strings.treeMenu.moveUp, index <= 0),
+        entry("move_down", strings.treeMenu.moveDown, index < 0 || index === members.length - 1),
       ];
     }
     default:
@@ -127,47 +131,53 @@ export function menuFor(item: TreeItem, blocked: boolean, groups: GroupInfo[], m
   switch (item.kind) {
     case "repo":
       return [
-        ...(missing ? [{ action: "clone_missing" as const, label: "Clone from remote…", disabled: false }] : []),
-        entry("create", "New branch…"),
-        entry("tag_create", "New tag…"),
+        ...(missing
+          ? [{ action: "clone_missing" as const, label: strings.treeMenu.cloneFromRemote, disabled: false }]
+          : []),
+        entry("create", strings.treeMenu.newBranch),
+        entry("tag_create", strings.treeMenu.newTag),
         ...groupEntries(item, groups),
         // Not writes: a blocked repo opens all the same.
-        { action: "open_file_manager", label: "Open in file manager", disabled: false },
-        { action: "open_terminal", label: "Open in terminal", disabled: false },
-        { action: "remove_repo", label: "Remove from workspace", disabled: false },
+        { action: "open_file_manager", label: strings.treeMenu.openInFileManager, disabled: false },
+        { action: "open_terminal", label: strings.treeMenu.openInTerminal, disabled: false },
+        { action: "remove_repo", label: strings.treeMenu.removeFromWorkspace, disabled: false },
       ];
     case "branch":
       return [
-        entry("checkout", "Check out", item.current),
-        entry("create", "New branch from here…"),
-        entry("rename", "Rename…"),
-        entry("delete", "Delete…", item.current),
-        entry("set_upstream", "Set upstream…"),
-        entry("unset_upstream", "Unset upstream", item.upstream === null),
+        entry("checkout", strings.treeMenu.checkOut, item.current),
+        entry("create", strings.treeMenu.newBranchFromHere),
+        entry("rename", strings.treeMenu.rename),
+        entry("delete", strings.treeMenu.delete, item.current),
+        entry("set_upstream", strings.treeMenu.setUpstream),
+        entry("unset_upstream", strings.treeMenu.unsetUpstream, item.upstream === null),
       ];
     case "remotes":
-      return [entry("remote_add", "Add remote…")];
+      return [entry("remote_add", strings.treeMenu.addRemote)];
     case "remote":
       return [
-        entry("remote_rename", "Rename…"),
-        entry("remote_url", "Edit URL…"),
-        entry("remote_remove", "Remove…"),
+        entry("remote_rename", strings.treeMenu.rename),
+        entry("remote_url", strings.treeMenu.editUrl),
+        entry("remote_remove", strings.treeMenu.remove),
       ];
     case "remote_branch":
       return [
-        entry("checkout_remote", "Check out"),
-        entry("create", "New branch from here…"),
-        entry("delete_remote", "Delete on the remote…"),
+        entry("checkout_remote", strings.treeMenu.checkOut),
+        entry("create", strings.treeMenu.newBranchFromHere),
+        entry("delete_remote", strings.treeMenu.deleteOnRemote),
       ];
     case "tag":
       return [
-        entry("checkout_detached", "Check out (detached)"),
-        entry("create", "New branch from here…"),
-        entry("tag_push", "Push"),
-        entry("tag_delete", "Delete…"),
+        entry("checkout_detached", strings.treeMenu.checkOutDetached),
+        entry("create", strings.treeMenu.newBranchFromHere),
+        entry("tag_push", strings.treeMenu.push),
+        entry("tag_delete", strings.treeMenu.delete),
       ];
     case "stash":
-      return [entry("stash_apply", "Apply"), entry("stash_pop", "Pop"), entry("stash_drop", "Drop…")];
+      return [
+        entry("stash_apply", strings.treeMenu.apply),
+        entry("stash_pop", strings.treeMenu.pop),
+        entry("stash_drop", strings.treeMenu.drop),
+      ];
     default:
       return groupEntries(item, groups);
   }
