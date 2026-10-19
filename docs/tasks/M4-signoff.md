@@ -17,21 +17,23 @@ Linux is verified below. Windows and macOS are deferred, as decided for M0 on 20
 
 | | API provider | CLI provider |
 | --- | --- | --- |
-| Date | pending | 2026-10-19 |
-| Commit | pending | 2f31e99 (branch `m4-11-prompt-fixtures`, merged as 0d5a6cc) |
-| Command | pending | `just ai-eval --kind claude_code --path "$(which claude)"` |
-| Provider | pending | Claude Code CLI |
-| Model | pending | Claude Code's default model (none given) |
+| Date | deferred | 2026-10-19 |
+| Commit | deferred | 2f31e99 (branch `m4-11-prompt-fixtures`, merged as 0d5a6cc) |
+| Command | deferred | `just ai-eval --kind claude_code --path "$(which claude)"` |
+| Provider | deferred | Claude Code CLI |
+| Model | deferred | Claude Code's default model (none given) |
 | Prompt version | v1 | v1 |
-| Fixtures right | pending | 36 of 36 |
-| Hunks | pending | 38 |
-| Matches | pending | 30 |
-| Correct unresolved | pending | 8 |
-| Unexpected unresolved | pending | 0 |
-| Differs | pending | 0 |
-| AI failed | pending | 0 |
-| Requests | pending | 36 |
-| Tokens in / out | pending | 159,053 / 6,242 |
+| Fixtures right | deferred | 36 of 36 |
+| Hunks | deferred | 38 |
+| Matches | deferred | 30 |
+| Correct unresolved | deferred | 8 |
+| Unexpected unresolved | deferred | 0 |
+| Differs | deferred | 0 |
+| AI failed | deferred | 0 |
+| Requests | deferred | 36 |
+| Tokens in / out | deferred | 159,053 / 6,242 |
+
+The API provider run is deferred by Eric's decision on 2026-10-19: no provider key yet, and no paid usage only to test. It runs when a key is at hand. A local OpenAI-compatible model needs none: `just ai-eval --kind openai --base-url http://localhost:11434/v1 --model <model>`. Until then M4's exit criterion of one API provider run is open.
 
 Confidence against score, CLI run: high, 29 matches and 7 correct unresolved; medium, 1 match (32) and 1 correct unresolved (33); low, none.
 
