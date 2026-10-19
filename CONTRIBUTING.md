@@ -87,10 +87,10 @@ The `mock` kind exists only for the smoke test: only the `e2e` build offers and 
 
 **Adding a prompt version (AI-15).** Prompts live in `crates/gitcroc-ai/prompts/<version>/` as `system.md` and `user.md`.
 
-1. Copy the current folder to the next name, `v2`, and change it.
+1. Copy the current folder to the next name (after `v2`, `v3`) and change it.
 2. List it in `PROMPT_VERSIONS` (`crates/gitcroc-ai/src/prompt.rs`); `ai_15_every_prompt_folder_is_a_listed_version` fails on a folder that is not listed.
-3. Compare it with the current version on the fixture set: `just ai-eval --compare v1,v2` with a provider, for example `--provider p1 --key-env ANTHROPIC_API_KEY` or `--kind claude_code --path "$(which claude)"`. It scores both versions on every fixture (`crates/gitcroc-ai/fixtures/`, format in its `README.md`) and lists the fixtures whose score changed. The key is read only from the variable `--key-env` names.
-4. To ship it, make it `CURRENT` and give it a golden prompt like `tests/prompts/v1-golden.txt`. That is a pull request of its own, with both runs' summaries.
+3. Compare it with the current version on the fixture set: `just ai-eval --compare v2,v3` with a provider, for example `--provider p1 --key-env ANTHROPIC_API_KEY` or `--kind claude_code --path "$(which claude)"`. It scores both versions on every fixture (`crates/gitcroc-ai/fixtures/`, format in its `README.md`) and lists the fixtures whose score changed. The key is read only from the variable `--key-env` names.
+4. To ship it, make it `CURRENT` and give it a golden prompt next to the others in `tests/prompts/`, and keep the old version's golden test. That is a pull request of its own, with both runs' summaries.
 
 **No test calls a real provider.** The tests use `MockProvider` (the `mock` feature of `gitcroc-ai`), the fake HTTP server, `fake-cli`, or the CLI's `--mock` replies file. They wait on gates and events, never on a time. `just ai-eval` is the only thing that calls a real provider, and it is run by hand, never in `just check` or CI.
 
