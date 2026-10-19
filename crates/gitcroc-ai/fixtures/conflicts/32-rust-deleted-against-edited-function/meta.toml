@@ -1,0 +1,6 @@
+path = "src/paths.rs"
+operation = "merge"
+ours_label = "main"
+theirs_label = "fix/windows-paths"
+ours_commits = ["Remove to_slash: nothing calls it since the path rework"]
+theirs_commits = ["Handle backslashes in to_slash and normalize"]

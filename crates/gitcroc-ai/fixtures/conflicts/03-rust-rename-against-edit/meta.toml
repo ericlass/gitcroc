@@ -1,0 +1,6 @@
+path = "src/import/csv.rs"
+operation = "rebase"
+ours_label = "main"
+theirs_label = "b41c2e9 (Skip blank lines in CSV imports)"
+ours_commits = ["Rename parse_line to parse_record"]
+theirs_commits = ["Skip blank lines in CSV imports"]

@@ -1,0 +1,8 @@
+use std::time::Duration;
+
+/// How often a failed push is tried again. Never: a failure is shown at
+/// once, so a broken credential helper is not hidden.
+pub const PUSH_RETRIES: u32 = 0;
+
+/// How long to wait before the first retry.
+pub const RETRY_DELAY: Duration = Duration::from_secs(1);

@@ -1,0 +1,6 @@
+path = "app/catalog/prices.py"
+operation = "revert"
+ours_label = "main"
+theirs_label = "parent of 7b2d9e1 (Cache prices for an hour)"
+ours_commits = ["Cache prices for a day: the price API is rate limited"]
+theirs_commits = ["Revert \"Cache prices for an hour\": stale prices were shown after a sale started"]

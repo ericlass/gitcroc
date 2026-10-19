@@ -1,0 +1,6 @@
+path = "deps.lock"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/retry"
+ours_commits = ["Add anyhow for error context"]
+theirs_commits = ["Add backoff for retries"]

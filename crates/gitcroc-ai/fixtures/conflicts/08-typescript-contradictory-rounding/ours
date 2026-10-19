@@ -1,0 +1,4 @@
+/** A price in cents from a price in tenths of a cent. */
+export function toCents(tenths: number): number {
+  return Math.floor(tenths / 10);
+}

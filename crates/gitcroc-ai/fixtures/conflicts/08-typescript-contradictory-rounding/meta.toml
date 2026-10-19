@@ -1,0 +1,6 @@
+path = "src/billing/price.ts"
+operation = "merge"
+ours_label = "main"
+theirs_label = "finance/rounding"
+ours_commits = ["Round prices down: support asked that customers are never overcharged"]
+theirs_commits = ["Round prices up: finance asked that no invoice is short by a cent"]

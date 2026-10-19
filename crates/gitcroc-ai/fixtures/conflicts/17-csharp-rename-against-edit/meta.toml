@@ -1,0 +1,6 @@
+path = "src/Accounts/Account.cs"
+operation = "merge"
+ours_label = "main"
+theirs_label = "fix/negative-balance"
+ours_commits = ["Rename Amount to Balance"]
+theirs_commits = ["Refuse withdrawals that overdraw the account"]

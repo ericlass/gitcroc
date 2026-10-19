@@ -1,0 +1,8 @@
+package config
+
+type Server struct {
+	Addr     string `toml:"addr"`
+	LogLevel string `toml:"log_level"`
+	CertFile string `toml:"cert_file"`
+	KeyFile  string `toml:"key_file"`
+}

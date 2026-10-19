@@ -1,0 +1,15 @@
+export interface DiffSettings {
+  mode: "unified" | "split";
+  wrap: boolean;
+  contextLines: number;
+  ignoreWhitespace: boolean;
+  fontSize: number;
+}
+
+export const DEFAULT_DIFF: DiffSettings = {
+  mode: "unified",
+  wrap: false,
+  contextLines: 3,
+  ignoreWhitespace: false,
+  fontSize: 13,
+};

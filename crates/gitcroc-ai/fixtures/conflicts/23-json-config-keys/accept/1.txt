@@ -1,0 +1,6 @@
+{
+  "theme": "system",
+  "timeout": 30,
+  "pageSize": 50,
+  "locale": "en-US"
+}

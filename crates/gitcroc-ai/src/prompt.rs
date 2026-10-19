@@ -3,12 +3,44 @@
 
 use crate::provider::ProviderRequest;
 
-/// The prompt version in use: the folder of `prompts/` its files come from
-/// (AI-15). A new version is a new folder; an old one is never edited.
-pub const PROMPT_VERSION: &str = "v1";
+/// A prompt version: the system prompt and the user message template of
+/// one folder of `prompts/` (AI-15). A new version is a new folder; an old
+/// one is never edited.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PromptVersion {
+    /// The folder's name, such as `v1`.
+    pub name: &'static str,
+    system: &'static str,
+    user: &'static str,
+}
 
-const SYSTEM: &str = include_str!("../prompts/v1/system.md");
-const USER: &str = include_str!("../prompts/v1/user.md");
+const V1: PromptVersion = PromptVersion {
+    name: "v1",
+    system: include_str!("../prompts/v1/system.md"),
+    user: include_str!("../prompts/v1/user.md"),
+};
+
+/// Every prompt version, oldest first, so the fixture set can compare them
+/// (AI-15).
+pub const PROMPT_VERSIONS: &[PromptVersion] = &[V1];
+
+/// The prompt version in use.
+const CURRENT: &PromptVersion = &V1;
+
+/// The name of the prompt version in use.
+pub const PROMPT_VERSION: &str = CURRENT.name;
+
+impl PromptVersion {
+    /// The version named `name`.
+    pub fn named(name: &str) -> Option<&'static Self> {
+        PROMPT_VERSIONS.iter().find(|version| version.name == name)
+    }
+
+    /// The version in use.
+    pub fn current() -> &'static Self {
+        CURRENT
+    }
+}
 
 /// The operation that stopped on a conflict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,8 +214,14 @@ fn fill(template: &str, values: &[(&str, &str)]) -> String {
     out
 }
 
-/// The request for `hunks` of `file`, its repo text fenced with `token`.
-fn build(file: &FileRequest, hunks: &[&HunkRequest], token: &str) -> ProviderRequest {
+/// The request of prompt `version` for `hunks` of `file`, its repo text
+/// fenced with `token`.
+fn build(
+    version: &PromptVersion,
+    file: &FileRequest,
+    hunks: &[&HunkRequest],
+    token: &str,
+) -> ProviderRequest {
     // Destructured so a field added to `FileRequest` must be placed here.
     let FileRequest {
         path,
@@ -196,7 +234,7 @@ fn build(file: &FileRequest, hunks: &[&HunkRequest], token: &str) -> ProviderReq
     } = file;
     let hunks: String = hunks.iter().map(|hunk| hunk_part(token, hunk)).collect();
     let user = fill(
-        USER,
+        version.user,
         &[
             ("operation", operation.name()),
             ("path", &fence(token, "path", path)),
@@ -208,7 +246,7 @@ fn build(file: &FileRequest, hunks: &[&HunkRequest], token: &str) -> ProviderReq
         ],
     );
     ProviderRequest {
-        system: SYSTEM.to_owned(),
+        system: version.system.to_owned(),
         user,
         follow_up: Vec::new(),
         // A provider that takes no temperature drops it (AI-15).
@@ -216,17 +254,21 @@ fn build(file: &FileRequest, hunks: &[&HunkRequest], token: &str) -> ProviderReq
     }
 }
 
-/// The request for `hunks` of `file`, with a fresh token none of its repo
-/// text contains.
-pub(crate) fn request(file: &FileRequest, hunks: &[&HunkRequest]) -> ProviderRequest {
+/// The request of prompt `version` for `hunks` of `file`, with a fresh
+/// token none of its repo text contains.
+pub(crate) fn request(
+    version: &PromptVersion,
+    file: &FileRequest,
+    hunks: &[&HunkRequest],
+) -> ProviderRequest {
     let token = pick_token(repo_texts(file, hunks), random_token);
-    build(file, hunks, &token)
+    build(version, file, hunks, &token)
 }
 
 /// The request for every hunk of `file`, whatever its size.
 pub fn prompt(file: &FileRequest) -> ProviderRequest {
     let hunks: Vec<&HunkRequest> = file.hunks.iter().collect();
-    request(file, &hunks)
+    request(PromptVersion::current(), file, &hunks)
 }
 
 /// How a file's hunks are sent.
@@ -238,12 +280,12 @@ pub(crate) struct Plan<'a> {
     pub too_large: Vec<u32>,
 }
 
-/// Packs the hunks of `file` in order into as few requests as fit `budget`
-/// tokens (AI-10).
-pub(crate) fn plan(file: &FileRequest, budget: u32) -> Plan<'_> {
+/// Packs the hunks of `file` in order into as few requests of prompt
+/// `version` as fit `budget` tokens (AI-10).
+pub(crate) fn plan<'a>(version: &PromptVersion, file: &'a FileRequest, budget: u32) -> Plan<'a> {
     // Sizes are counted with a stand-in token: every token has the same length.
     let token = "0".repeat(TOKEN_LEN);
-    let empty = build(file, &[], &token);
+    let empty = build(version, file, &[], &token);
     let fixed = empty.system.chars().count() + empty.user.chars().count();
     let fits = |chars: usize| chars_to_tokens(chars) <= u64::from(budget);
 
@@ -319,7 +361,7 @@ mod tests {
     fn ai_5_prompt_holds_exactly_the_request_fields() {
         let file = file();
         let hunks: Vec<&HunkRequest> = file.hunks.iter().collect();
-        let request = build(&file, &hunks, TOKEN);
+        let request = build(PromptVersion::current(), &file, &hunks, TOKEN);
         let golden = include_str!("../tests/prompts/v1-golden.txt");
         assert_eq!(rendered(&request), golden);
     }
@@ -337,7 +379,7 @@ mod tests {
         let mut tokens = [TOKEN, "00c0ffee00c0ffee"].into_iter().map(str::to_owned);
         let token = pick_token(repo_texts(&file, &hunks), || tokens.next().unwrap());
         assert_eq!(token, "00c0ffee00c0ffee");
-        let request = build(&file, &hunks, &token);
+        let request = build(PromptVersion::current(), &file, &hunks, &token);
 
         // The injection sits whole inside one fence, which only its own
         // token closes.
@@ -399,7 +441,7 @@ mod tests {
     fn sec_5_placeholders_in_repo_text_stay_text() {
         let mut file = file();
         file.path = "{{hunks}} {{path}}".to_owned();
-        let request = build(&file, &[], TOKEN);
+        let request = build(PromptVersion::current(), &file, &[], TOKEN);
         assert!(request.user.contains(&format!(
             "<<<DATA {TOKEN} path>>>\n{{{{hunks}}}} {{{{path}}}}\n"
         )));
@@ -412,8 +454,10 @@ mod tests {
             .join(PROMPT_VERSION);
         let system = std::fs::read_to_string(folder.join("system.md")).unwrap();
         let user = std::fs::read_to_string(folder.join("user.md")).unwrap();
-        assert_eq!(SYSTEM, system);
-        assert_eq!(USER, user);
+        let version = PromptVersion::current();
+        assert_eq!(version.name, PROMPT_VERSION);
+        assert_eq!(version.system, system);
+        assert_eq!(version.user, user);
 
         let request = prompt(&file());
         assert_eq!(request.system, system);
@@ -440,10 +484,45 @@ mod tests {
         let file = file();
         let token = "0".repeat(TOKEN_LEN);
         let hunks: Vec<&HunkRequest> = file.hunks.iter().collect();
-        let request = build(&file, &hunks, &token);
+        let version = PromptVersion::current();
+        let request = build(version, &file, &hunks, &token);
         let chars = request.system.chars().count() + request.user.chars().count();
         let budget = u32::try_from(chars_to_tokens(chars)).unwrap();
-        assert_eq!(plan(&file, budget).parts.len(), 1);
-        assert_eq!(plan(&file, budget - 1).parts.len(), 2);
+        assert_eq!(plan(version, &file, budget).parts.len(), 1);
+        assert_eq!(plan(version, &file, budget - 1).parts.len(), 2);
+    }
+
+    #[test]
+    fn ai_15_every_prompt_folder_is_a_listed_version() {
+        let prompts = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("prompts");
+        let mut folders: Vec<String> = std::fs::read_dir(prompts)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        folders.sort();
+        let mut listed: Vec<String> = PROMPT_VERSIONS
+            .iter()
+            .map(|version| version.name.to_owned())
+            .collect();
+        listed.sort();
+        assert_eq!(folders, listed);
+        for version in PROMPT_VERSIONS {
+            let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("prompts")
+                .join(version.name);
+            assert_eq!(
+                version.system,
+                std::fs::read_to_string(folder.join("system.md")).unwrap()
+            );
+            assert_eq!(
+                version.user,
+                std::fs::read_to_string(folder.join("user.md")).unwrap()
+            );
+        }
+        assert_eq!(
+            PromptVersion::named(PROMPT_VERSION),
+            Some(PromptVersion::current())
+        );
+        assert_eq!(PromptVersion::named("v0"), None);
     }
 }

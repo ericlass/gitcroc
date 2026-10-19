@@ -1,0 +1,6 @@
+path = "docker-compose.yml"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/sentry"
+ours_commits = ["Set the log level from the environment"]
+theirs_commits = ["Report errors to Sentry"]

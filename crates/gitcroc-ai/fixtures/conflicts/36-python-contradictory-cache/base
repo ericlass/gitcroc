@@ -1,0 +1,6 @@
+from app.cache import cache_for
+
+
+@cache_for(seconds=3600)
+def price(sku):
+    return price_api.get(sku)

@@ -1,0 +1,7 @@
+services:
+  web:
+    image: shop/web:latest
+    environment:
+      DATABASE_URL: postgres://db/shop
+    ports:
+      - "8080:8080"

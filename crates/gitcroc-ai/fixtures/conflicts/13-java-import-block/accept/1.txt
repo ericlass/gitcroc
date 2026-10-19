@@ -1,0 +1,20 @@
+package com.example.billing;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class InvoiceService {
+    private final InvoiceRepository repository;
+
+    public InvoiceService(InvoiceRepository repository) {
+        this.repository = repository;
+    }
+
+    public BigDecimal total(LocalDate from, LocalDate to) {
+        List<Invoice> invoices = repository.between(from, to);
+        return invoices.stream().map(Invoice::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+}

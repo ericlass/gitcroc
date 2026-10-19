@@ -1,0 +1,11 @@
+# Changelog
+
+## Unreleased
+
+- Faster start on large workspaces.
+- Export the history as CSV.
+- Fix a crash when a repo has no commits.
+
+## 1.2.0
+
+- Tabs for workspaces.

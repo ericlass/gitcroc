@@ -1,0 +1,6 @@
+path = "deploy/api.yaml"
+operation = "merge"
+ours_label = "main"
+theirs_label = "ops/scale-up"
+ours_commits = ["Run two replicas: the cluster budget was cut"]
+theirs_commits = ["Run six replicas: p99 latency doubled at peak"]

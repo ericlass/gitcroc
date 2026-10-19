@@ -1,0 +1,10 @@
+package feed
+
+import "sort"
+
+func Sorted(entries []Entry) []Entry {
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Created.Before(entries[j].Created)
+	})
+	return entries
+}

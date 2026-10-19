@@ -1,0 +1,11 @@
+export interface DiffSettings {
+  mode: "unified" | "split";
+  wrap: boolean;
+  contextLines: number;
+}
+
+export const DEFAULT_DIFF: DiffSettings = {
+  mode: "unified",
+  wrap: false,
+  contextLines: 3,
+};

@@ -1,0 +1,9 @@
+import { db } from "../db";
+import type { Order } from "./types";
+
+export async function saveOrder(payload: Order): Promise<string> {
+  console.log("saving order", payload.id);
+  console.log("payload", payload);
+  const id = await db.orders.insert(payload);
+  return id;
+}

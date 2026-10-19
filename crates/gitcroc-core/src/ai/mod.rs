@@ -316,6 +316,14 @@ fn hunks(chunks: &[ConflictChunk], wanted: Option<&[u32]>) -> Result<Vec<AiHunk>
     Ok(hunks)
 }
 
+/// Every hunk of `chunks` as sent (AI-5), each with the merged text around
+/// it: what [`ai_file_context`] sends for a text from elsewhere, such as the
+/// prompt fixtures (AI-15).
+pub fn ai_hunks(chunks: &[ConflictChunk]) -> Vec<AiHunk> {
+    // With no ids asked for, no id can be unknown.
+    hunks(chunks, None).unwrap_or_default()
+}
+
 /// `message` cut at [`AI_MAX_MESSAGE_CHARS`] characters.
 fn cut(message: String) -> String {
     if message.chars().count() <= AI_MAX_MESSAGE_CHARS {

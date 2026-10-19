@@ -1,0 +1,6 @@
+path = "src/Uploads/Limits.cs"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/large-files"
+ours_commits = ["Lower the upload limit to 10 MB, as legal asked"]
+theirs_commits = ["Raise the upload limit to 100 MB for video customers"]

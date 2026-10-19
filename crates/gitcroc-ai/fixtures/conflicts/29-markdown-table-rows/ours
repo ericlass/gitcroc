@@ -1,0 +1,9 @@
+# Keyboard shortcuts
+
+| Keys | Action |
+| --- | --- |
+| Ctrl+Enter | Commit |
+| Ctrl+Shift+P | Push |
+| Ctrl+Shift+F | Fetch |
+
+Shortcuts can be changed in the settings.

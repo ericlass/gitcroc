@@ -1765,6 +1765,7 @@ dependencies = [
  "gitcroc-ai",
  "gitcroc-core",
  "repo-gen",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

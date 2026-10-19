@@ -1,0 +1,6 @@
+path = "src/report.rs"
+operation = "merge"
+ours_label = "main"
+theirs_label = "fix/empty-title"
+ours_commits = ["Put the helpers after the public function and take the width as an argument"]
+theirs_commits = ["Show (untitled) for an empty title"]

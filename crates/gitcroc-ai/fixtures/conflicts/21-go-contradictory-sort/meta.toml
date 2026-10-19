@@ -1,0 +1,6 @@
+path = "internal/feed/list.go"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/newest-first"
+ours_commits = ["List entries oldest first, so a thread reads top to bottom"]
+theirs_commits = ["List entries newest first, as users asked in the survey"]

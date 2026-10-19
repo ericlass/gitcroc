@@ -1,0 +1,6 @@
+path = "Cargo.toml"
+operation = "merge"
+ours_label = "develop"
+theirs_label = "main"
+ours_commits = ["Start the 0.5 development cycle"]
+theirs_commits = ["Release 0.4.3 with the crash fix"]

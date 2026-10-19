@@ -1,0 +1,6 @@
+path = "src/sync/worker.rs"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/metrics"
+ours_commits = ["Log a warning when a fetch is retried"]
+theirs_commits = ["Count fetches per remote"]

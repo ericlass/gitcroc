@@ -1,0 +1,6 @@
+path = "src/net/policy.rs"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/flaky-ci"
+ours_commits = ["Fail fast on push errors: retries hid a broken credential helper for days"]
+theirs_commits = ["Retry pushes five times: the CI proxy drops one connection in twenty"]

@@ -1,0 +1,13 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Inventory
+{
+    public class StockService
+    {
+        private readonly Dictionary<string, int> _stock = new();
+
+        public int Count(string sku) => _stock.TryGetValue(sku, out var count) ? count : 0;
+    }
+}

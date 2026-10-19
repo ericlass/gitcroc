@@ -1,0 +1,6 @@
+path = ".github/workflows/ci.yml"
+operation = "merge"
+ours_label = "main"
+theirs_label = "ci/audit"
+ours_commits = ["Lint in CI"]
+theirs_commits = ["Audit dependencies in CI"]

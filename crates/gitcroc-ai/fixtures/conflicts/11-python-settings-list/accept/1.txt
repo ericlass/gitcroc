@@ -1,0 +1,13 @@
+INSTALLED_APPS = [
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "shop.catalog",
+    "shop.orders",
+    "shop.audit",
+    "shop.search",
+]
+
+MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+]

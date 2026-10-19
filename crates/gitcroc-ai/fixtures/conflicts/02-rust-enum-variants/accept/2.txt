@@ -1,0 +1,22 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobState {
+    Queued,
+    Running,
+    Done,
+    Failed,
+    Paused,
+    Cancelled,
+}
+
+impl JobState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::Failed => "failed",
+            Self::Paused => "paused",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}

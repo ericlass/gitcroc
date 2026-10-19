@@ -1,0 +1,6 @@
+path = "src/job/state.rs"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/pause"
+ours_commits = ["Add a Cancelled state for jobs the user stops"]
+theirs_commits = ["Let jobs be paused and resumed"]

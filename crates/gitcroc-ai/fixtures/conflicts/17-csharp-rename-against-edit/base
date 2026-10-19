@@ -1,0 +1,12 @@
+namespace Accounts
+{
+    public class Account
+    {
+        public decimal Amount { get; private set; }
+
+        public void Withdraw(decimal value)
+        {
+            Amount -= value;
+        }
+    }
+}

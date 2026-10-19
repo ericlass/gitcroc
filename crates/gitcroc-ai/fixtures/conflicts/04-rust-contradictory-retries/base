@@ -1,0 +1,7 @@
+use std::time::Duration;
+
+/// How often a failed push is tried again.
+pub const PUSH_RETRIES: u32 = 2;
+
+/// How long to wait before the first retry.
+pub const RETRY_DELAY: Duration = Duration::from_secs(1);

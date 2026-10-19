@@ -1,0 +1,8 @@
+package cache
+
+func (c *LRU) add(key string, value []byte) {
+	if c.list.Len() >= c.cap {
+		c.evictOldest()
+	}
+	c.items[key] = c.list.PushFront(entry{key, value})
+}

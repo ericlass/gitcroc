@@ -1,0 +1,16 @@
+namespace Accounts
+{
+    public class Account
+    {
+        public decimal Balance { get; private set; }
+
+        public void Withdraw(decimal value)
+        {
+            if (value > Balance)
+            {
+                throw new System.InvalidOperationException("insufficient funds");
+            }
+            Balance -= value;
+        }
+    }
+}

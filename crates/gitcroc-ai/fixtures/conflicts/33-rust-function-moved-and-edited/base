@@ -1,0 +1,7 @@
+fn title(name: &str) -> String {
+    format!("{:<20}", name)
+}
+
+pub fn line(name: &str, count: usize) -> String {
+    format!("{} {count}", title(name))
+}

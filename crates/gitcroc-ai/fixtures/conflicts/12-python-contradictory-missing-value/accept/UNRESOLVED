@@ -1,0 +1,1 @@
+Ours refuses to start without the setting; theirs silently uses a default. They are opposite behaviours for the same case, so the user must choose.

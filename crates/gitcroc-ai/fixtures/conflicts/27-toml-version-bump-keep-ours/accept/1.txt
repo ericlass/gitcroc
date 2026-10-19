@@ -1,0 +1,4 @@
+[package]
+name = "tally"
+version = "0.5.0-dev"
+edition = "2021"

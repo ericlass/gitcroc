@@ -1,0 +1,7 @@
+pub fn normalize(path: &str) -> String {
+    path.trim_end_matches('/').to_owned()
+}
+
+pub fn to_slash(path: &str) -> String {
+    path.to_owned()
+}

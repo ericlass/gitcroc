@@ -40,7 +40,7 @@ pub use ai::{
     AiRefused, AiResolveAllFile, AiResolveAllRequest, AiResolveAllStart, AiResolveOnce,
     AiResolveRequest, AiResolveStart, AiUsage, ConsentRequest, ConsentTarget, FileProposal,
     Ineligible, ProposalConfidence, ProposalStatus, ProposeFuture, ProposedHunk, Proposer,
-    ProviderAccess, ai_eligibility, ai_eligibility_get, ai_file_context, ai_proposal_get,
+    ProviderAccess, ai_eligibility, ai_eligibility_get, ai_file_context, ai_hunks, ai_proposal_get,
     ai_resolve, ai_resolve_all, ai_resolve_once, consent_request, consent_target,
 };
 pub use app_info::AppInfo;

@@ -1,0 +1,15 @@
+pub const MAX_LINE: usize = 4096;
+
+pub struct LineBuffer {
+    lines: Vec<String>,
+}
+
+impl LineBuffer {
+    pub fn push(&mut self, line: String) -> Result<(), String> {
+        if line.len() >= MAX_LINE {
+            return Err(format!("line of {} bytes is too long", line.len()));
+        }
+        self.lines.push(line);
+        Ok(())
+    }
+}

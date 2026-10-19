@@ -1,0 +1,6 @@
+path = "ui/src/settings/types.ts"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/fonts"
+ours_commits = ["Let the user hide whitespace changes in diffs"]
+theirs_commits = ["Add a separate font size for the diff"]

@@ -1,0 +1,18 @@
+package com.example.shipping;
+
+public final class Carrier {
+    private Carrier() {}
+
+    public static String trackingUrl(String carrier, String code) {
+        switch (carrier) {
+            case "fedex":
+                return "https://fedex.example/track/" + code;
+            case "usps":
+                return "https://usps.example/track/" + code;
+            case "ups":
+                return "https://ups.example/track/" + code;
+            default:
+                throw new IllegalArgumentException("unknown carrier: " + carrier);
+        }
+    }
+}

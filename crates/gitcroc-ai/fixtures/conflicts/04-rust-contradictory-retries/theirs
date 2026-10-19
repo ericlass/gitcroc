@@ -1,0 +1,8 @@
+use std::time::Duration;
+
+/// How often a failed push is tried again. The CI proxy drops about one
+/// connection in twenty, so five tries make a failure rare.
+pub const PUSH_RETRIES: u32 = 5;
+
+/// How long to wait before the first retry.
+pub const RETRY_DELAY: Duration = Duration::from_secs(1);

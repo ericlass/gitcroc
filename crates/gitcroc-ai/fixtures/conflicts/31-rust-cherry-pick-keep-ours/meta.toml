@@ -1,0 +1,6 @@
+path = "src/buffer.rs"
+operation = "cherry-pick"
+ours_label = "release/1.4"
+theirs_label = "5d7e2c1 (Reject a line at the length limit)"
+ours_commits = ["Make the line limit a field and reject lines at the limit"]
+theirs_commits = ["Reject a line at the length limit"]

@@ -1,0 +1,1 @@
+Ours stops retrying so failures show at once; theirs retries more for a flaky proxy. The two goals contradict, and which wins is the team's call.

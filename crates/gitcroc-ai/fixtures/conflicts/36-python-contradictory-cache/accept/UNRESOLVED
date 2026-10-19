@@ -1,0 +1,1 @@
+Ours caches prices longer because of a rate limit; the revert removes the cache because stale prices were shown. Both reasons are real and the fix needs a decision.

@@ -1,0 +1,8 @@
+services:
+  web:
+    image: shop/web:latest
+    environment:
+      DATABASE_URL: postgres://db/shop
+      LOG_LEVEL: info
+    ports:
+      - "8080:8080"

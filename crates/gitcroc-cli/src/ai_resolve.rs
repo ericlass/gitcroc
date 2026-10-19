@@ -43,8 +43,19 @@ struct CliAccess {
     key_env: Option<String>,
 }
 
+/// The key in the environment variable `key_env`, for an API provider
+/// (SEC-1). A CLI provider uses its own login.
+pub(crate) fn key_from(key_env: Option<&str>, entry: &ProviderEntry) -> Option<ApiKey> {
+    key_env
+        .and_then(std::env::var_os)
+        .and_then(|key| key.into_string().ok())
+        .filter(|key| !key.is_empty())
+        .filter(|_| !entry.kind.is_cli())
+        .map(ApiKey::new)
+}
+
 /// The provider `entry` with `key`, as `gitcroc-ai` takes it.
-fn spec(entry: &ProviderEntry, key: Option<ApiKey>) -> Result<ProviderSpec, String> {
+pub(crate) fn spec(entry: &ProviderEntry, key: Option<ApiKey>) -> Result<ProviderSpec, String> {
     let model = entry.model.clone();
     let path = || {
         entry
@@ -93,14 +104,7 @@ impl ProviderAccess for CliAccess {
         let provider: Box<dyn Provider> = match &self.mock {
             Some(replies) => Box::new(MockProvider::texts(replies.clone())),
             None => {
-                let key = self
-                    .key_env
-                    .as_ref()
-                    .and_then(std::env::var_os)
-                    .and_then(|key| key.into_string().ok())
-                    .filter(|key| !key.is_empty())
-                    .filter(|_| !entry.kind.is_cli())
-                    .map(ApiKey::new);
+                let key = key_from(self.key_env.as_deref(), entry);
                 connect(spec(entry, key)?).map_err(|error| error.to_string())?
             }
         };
@@ -117,7 +121,7 @@ impl ProviderAccess for CliAccess {
 }
 
 /// The replies of the mock file: a JSON array of strings.
-fn mock_replies(file: &Path) -> Result<Vec<String>, String> {
+pub(crate) fn mock_replies(file: &Path) -> Result<Vec<String>, String> {
     let text = std::fs::read_to_string(file)
         .map_err(|error| format!("cannot read {}: {error}", file.display()))?;
     serde_json::from_str(&text)

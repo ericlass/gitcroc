@@ -1,0 +1,6 @@
+path = "src/api/orders.ts"
+operation = "merge"
+ours_label = "main"
+theirs_label = "fix/log-format"
+ours_commits = ["Stop logging order payloads: they hold customer addresses"]
+theirs_commits = ["Put a colon after log labels"]
