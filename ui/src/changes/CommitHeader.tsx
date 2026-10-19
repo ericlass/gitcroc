@@ -5,6 +5,7 @@
 import { For, Show } from "solid-js";
 import { formatDate, formatFullDate } from "../history/rows";
 import type { CommitDetails, Person } from "../ipc";
+import { strings } from "../strings/en";
 
 function PersonLine(props: { role: string; person: Person }) {
   return (
@@ -27,18 +28,23 @@ export default function CommitHeader(props: {
   onCompareWith: (parent: number) => void;
 }) {
   return (
-    <section class="commit-header" aria-label="Commit">
+    <section class="commit-header" aria-label={strings.changes.commit}>
       <dl>
-        <dt>Commit</dt>
+        <dt>{strings.changes.commit}</dt>
         <dd class="hash commit-hash">{props.details.hash}</dd>
-        <PersonLine role="Author" person={props.details.author} />
-        <PersonLine role="Committer" person={props.details.committer} />
-        <dt>{props.details.parents.length === 1 ? "Parent" : "Parents"}</dt>
+        <PersonLine role={strings.changes.author} person={props.details.author} />
+        <PersonLine role={strings.changes.committer} person={props.details.committer} />
+        <dt>{strings.changes.parents(props.details.parents.length)}</dt>
         <dd class="commit-parents">
-          <Show when={props.details.parents.length > 0} fallback="none (the first commit)">
+          <Show when={props.details.parents.length > 0} fallback={strings.changes.noParents}>
             <For each={props.details.parents}>
               {(hash) => (
-                <button type="button" class="link hash" title={`Select ${hash}`} onClick={() => props.onSelectParent(hash)}>
+                <button
+                  type="button"
+                  class="link hash"
+                  title={strings.changes.select(hash)}
+                  onClick={() => props.onSelectParent(hash)}
+                >
                   {hash.slice(0, 10)}
                 </button>
               )}
@@ -46,17 +52,18 @@ export default function CommitHeader(props: {
           </Show>
         </dd>
         <Show when={props.details.parents.length > 1}>
-          <dt>Compare with</dt>
+          <dt>{strings.changes.compareWith}</dt>
           <dd>
             <select
-              aria-label="Compare with parent"
+              aria-label={strings.changes.compareWithParent}
               value={props.parent}
               onChange={(event) => props.onCompareWith(Number(event.currentTarget.value))}
             >
               <For each={props.details.parents}>
                 {(hash, index) => (
                   <option value={index()}>
-                    {index() === 0 ? "First parent" : `Parent ${index() + 1}`} ({hash.slice(0, 10)})
+                    {index() === 0 ? strings.changes.firstParent : strings.changes.parent(index() + 1)}{" "}
+                    ({hash.slice(0, 10)})
                   </option>
                 )}
               </For>

@@ -14,6 +14,7 @@ import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "
 import type { ConflictLabels, ProposalConfidence, ProposedHunk } from "../ipc";
 import type { HunkView } from "../stores/conflicts";
 import { type BufferHunk, hunkAt, hunkTarget, nextHunk, normalize, type Take, takenText, untouched } from "./buffer";
+import { strings } from "../strings/en";
 
 /** A hunk leaves the buffer, taken. */
 const removeHunk = StateEffect.define<number>();
@@ -259,20 +260,24 @@ class SideHeader extends WidgetType {
     // Labels are repo text: set as text (SEC-3).
     text.textContent =
       this.side === "end"
-        ? `End of conflict ${this.number}`
-        : `${this.side === "ours" ? "Ours" : "Theirs"}: ${this.label}`;
+        ? strings.conflict.endOf(this.number)
+        : this.side === "ours"
+          ? strings.conflict.ours(this.label)
+          : strings.conflict.theirs(this.label);
     element.append(text);
     if (this.side === "ours") {
       const id = this.hunk.id;
       const actions = document.createElement("span");
       actions.className = "cm-conflict-actions";
-      const which = `conflict ${this.number}`;
+      const which = strings.conflict.which(this.number);
       actions.append(
-        button("Take ours", `Take ours in ${which}`, () => take(view, id, "ours")),
-        button("Take theirs", `Take theirs in ${which}`, () => take(view, id, "theirs")),
-        button("Take both", `Take both in ${which}`, () => take(view, id, "both")),
-        button(this.hunk.showBase ? "Hide base" : "Show base", `${this.hunk.showBase ? "Hide" : "Show"} base of ${which}`, () =>
-          view.dispatch({ effects: toggleBase.of(id) }),
+        button(strings.conflict.takeOurs, strings.conflict.takeOursIn(which), () => take(view, id, "ours")),
+        button(strings.conflict.takeTheirs, strings.conflict.takeTheirsIn(which), () => take(view, id, "theirs")),
+        button(strings.conflict.takeBoth, strings.conflict.takeBothIn(which), () => take(view, id, "both")),
+        button(
+          this.hunk.showBase ? strings.conflict.hideBase : strings.conflict.showBase,
+          this.hunk.showBase ? strings.conflict.hideBaseOf(which) : strings.conflict.showBaseOf(which),
+          () => view.dispatch({ effects: toggleBase.of(id) }),
         ),
       );
       element.append(actions);
@@ -297,9 +302,9 @@ class BaseBlock extends WidgetType {
     element.className = "cm-conflict-base";
     const head = document.createElement("div");
     head.className = "cm-conflict-head";
-    head.textContent = "Base";
+    head.textContent = strings.conflict.base;
     const text = document.createElement("pre");
-    text.textContent = this.base === "" ? "(nothing)" : this.base.replace(/\n$/, "");
+    text.textContent = this.base === "" ? strings.conflict.nothing : this.base.replace(/\n$/, "");
     element.append(head, text);
     return element;
   }
@@ -310,9 +315,9 @@ class BaseBlock extends WidgetType {
 
 /** The confidence as a word and a marker whose shape tells the level without color (UI-25). */
 const CONFIDENCE: Record<ProposalConfidence, { word: string; marker: string }> = {
-  high: { word: "High confidence", marker: "●●●" },
-  medium: { word: "Medium confidence", marker: "●●○" },
-  low: { word: "Low confidence", marker: "●○○" },
+  high: { word: strings.conflict.confidence.high, marker: "●●●" },
+  medium: { word: strings.conflict.confidence.medium, marker: "●●○" },
+  low: { word: strings.conflict.confidence.low, marker: "●○○" },
 };
 
 const textOf = (tag: string, className: string, text: string) => {
@@ -352,12 +357,12 @@ class ProposalBlock extends WidgetType {
   }
   override toDOM(view: EditorView) {
     const { proposed, hunk, changed } = this;
-    const which = `conflict ${this.number}`;
+    const which = strings.conflict.which(this.number);
     const actions = view.state.facet(conflictActions);
     const element = document.createElement("div");
     element.className = "cm-proposal";
     element.setAttribute("role", "group");
-    element.setAttribute("aria-label", `Proposal for ${which}`);
+    element.setAttribute("aria-label", strings.conflict.proposalFor(which));
 
     const head = document.createElement("div");
     head.className = "cm-proposal-head";
@@ -366,28 +371,28 @@ class ProposalBlock extends WidgetType {
     const shape = textOf("span", "cm-proposal-marker", marker);
     shape.setAttribute("aria-hidden", "true");
     confidence.append(shape, ` ${word}`);
-    head.append(textOf("span", "", "AI proposal"), confidence);
+    head.append(textOf("span", "", strings.conflict.aiProposal), confidence);
     if (proposed.status === "unresolved") {
-      head.append(textOf("span", "cm-proposal-note", "Not resolved"));
+      head.append(textOf("span", "cm-proposal-note", strings.conflict.notResolved));
     }
     if (changed) {
-      head.append(textOf("span", "cm-proposal-note", "Hunk changed"));
+      head.append(textOf("span", "cm-proposal-note", strings.conflict.hunkChanged));
     }
     element.append(head);
 
     const buttons = document.createElement("div");
     buttons.className = "cm-conflict-actions cm-proposal-actions";
     const reject = button(
-      "Reject",
-      `Reject the proposal for ${which}`,
+      strings.conflict.reject,
+      strings.conflict.rejectFor(which),
       () => actions.reject(proposed.id),
       false,
-      "Alt+5",
+      strings.conflict.keys.reject,
     );
     if (proposed.resolution !== null && this.editing !== null) {
       const box = document.createElement("textarea");
       box.className = "cm-proposal-editor";
-      box.setAttribute("aria-label", `Edited proposal for ${which}`);
+      box.setAttribute("aria-label", strings.conflict.editedProposalFor(which));
       box.value = this.editing;
       box.rows = Math.min(12, Math.max(2, this.editing.split("\n").length));
       box.spellcheck = false;
@@ -408,8 +413,20 @@ class ProposalBlock extends WidgetType {
         event.stopPropagation();
       });
       buttons.append(
-        button("Accept", `Accept the edited proposal for ${which}`, acceptEdited, changed, "Ctrl+Enter"),
-        button("Cancel", `Cancel editing the proposal for ${which}`, cancel, false, "Escape"),
+        button(
+          strings.conflict.accept,
+          strings.conflict.acceptEditedFor(which),
+          acceptEdited,
+          changed,
+          strings.conflict.keys.acceptEdited,
+        ),
+        button(
+          strings.common.cancel,
+          strings.conflict.cancelEditFor(which),
+          cancel,
+          false,
+          strings.conflict.keys.cancelEdit,
+        ),
       );
       element.append(box);
       if (focusEditor === proposed.id) {
@@ -419,17 +436,23 @@ class ProposalBlock extends WidgetType {
     } else if (proposed.resolution !== null) {
       element.append(textOf("pre", "cm-proposal-text", proposed.resolution.replace(/\n$/, "")));
       buttons.append(
-        button("Accept", `Accept the proposal for ${which}`, () => accept(view, hunk), changed, "Alt+4"),
+        button(
+          strings.conflict.accept,
+          strings.conflict.acceptFor(which),
+          () => accept(view, hunk),
+          changed,
+          strings.conflict.keys.accept,
+        ),
         reject,
         button(
-          "Edit",
-          `Edit the proposal for ${which}`,
+          strings.conflict.edit,
+          strings.conflict.editFor(which),
           () => {
             focusEditor = proposed.id;
             actions.edit(proposed.id, proposed.resolution);
           },
           changed,
-          "Alt+6",
+          strings.conflict.keys.edit,
         ),
       );
     } else {

@@ -10,6 +10,7 @@ import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createMemo, For, Match, onMount, Show, Switch } from "solid-js";
 import type { ChangeAction, ChangesContent, FileListMode, FileStatus, RepoId, UnmergedKind } from "../ipc";
 import { type FileEntry, type FileKey, type FileRow, fileRows, sameFile } from "./fileRows";
+import { strings } from "../strings/en";
 
 /** Height of one row in CSS pixels; `.file-row` in App.css sets it, as `.history-row` does. */
 export const FILE_ROW_HEIGHT = 22;
@@ -17,37 +18,29 @@ export const FILE_ROW_HEIGHT = 22;
 const OVERSCAN = 8;
 
 const STATUS: Record<FileStatus | "unmerged", [letter: string, title: string]> = {
-  added: ["A", "Added"],
-  modified: ["M", "Modified"],
-  deleted: ["D", "Deleted"],
-  renamed: ["R", "Renamed"],
-  type_changed: ["T", "Type changed"],
-  untracked: ["U", "Untracked"],
-  unmerged: ["!", "Conflict"],
+  added: ["A", strings.changes.status.added],
+  modified: ["M", strings.changes.status.modified],
+  deleted: ["D", strings.changes.status.deleted],
+  renamed: ["R", strings.changes.status.renamed],
+  type_changed: ["T", strings.changes.status.type_changed],
+  untracked: ["U", strings.changes.status.untracked],
+  unmerged: ["!", strings.changes.status.unmerged],
 };
 
-export const CONFLICTS: Record<UnmergedKind, string> = {
-  both_deleted: "both deleted",
-  added_by_us: "added by us",
-  deleted_by_them: "deleted by them",
-  added_by_them: "added by them",
-  deleted_by_us: "deleted by us",
-  both_added: "both added",
-  both_modified: "both modified",
-};
+export const CONFLICTS: Record<UnmergedKind, string> = strings.changes.conflicts;
 
 function FileCells(props: { row: FileEntry; unsaved: boolean }) {
   const status = () => STATUS[props.row.status];
   const title = () => {
     const parts = [`${status()[1]}: ${props.row.path}`];
     if (props.row.oldPath !== null) {
-      parts.push(`Renamed from ${props.row.oldPath}`);
+      parts.push(strings.changes.renamedFrom(props.row.oldPath));
     }
     if (props.row.conflict !== null) {
-      parts.push(`Conflict: ${CONFLICTS[props.row.conflict]}`);
+      parts.push(strings.changes.conflictKind(CONFLICTS[props.row.conflict]));
     }
     if (props.row.modeChange !== null) {
-      parts.push(`Mode ${props.row.modeChange.old} → ${props.row.modeChange.new}`);
+      parts.push(strings.changes.modeChange(props.row.modeChange.old, props.row.modeChange.new));
     }
     return parts.join("\n");
   };
@@ -61,7 +54,12 @@ function FileCells(props: { row: FileEntry; unsaved: boolean }) {
         <Show when={props.row.oldPath}>{(old) => <span class="file-old"> ← {old()}</span>}</Show>
         <Show when={props.row.conflict}>{(conflict) => <span class="file-conflict"> ({CONFLICTS[conflict()]})</span>}</Show>
         <Show when={props.unsaved}>
-          <span class="file-unsaved" role="img" aria-label="unsaved edits" title="Unsaved edits">
+          <span
+            class="file-unsaved"
+            role="img"
+            aria-label={strings.changes.unsavedLabel}
+            title={strings.changes.unsavedTitle}
+          >
             ●
           </span>
         </Show>
@@ -77,12 +75,16 @@ function FileCells(props: { row: FileEntry; unsaved: boolean }) {
 
 /** The controls of a row of `list`, by the action and its label. */
 const ROW_ACTIONS: Record<"staged" | "unstaged", { action: ChangeAction; label: string; glyph: string }[]> = {
-  staged: [{ action: "unstage", label: "Unstage", glyph: "−" }],
+  staged: [{ action: "unstage", label: strings.changes.unstage, glyph: "−" }],
   unstaged: [
-    { action: "discard", label: "Discard", glyph: "↺" },
-    { action: "stage", label: "Stage", glyph: "+" },
+    { action: "discard", label: strings.changes.discard, glyph: "↺" },
+    { action: "stage", label: strings.changes.stage, glyph: "+" },
   ],
 };
+
+/** What the button that moves all of `list` says. */
+const allLabel = (list: "staged" | "unstaged") =>
+  list === "staged" ? strings.changes.unstageAll : strings.changes.stageAll;
 
 /** What a double-click, Enter or Space does to a file of `list`. */
 const MOVE: Record<"staged" | "unstaged", ChangeAction> = { staged: "unstage", unstaged: "stage" };
@@ -265,7 +267,7 @@ export default function FileList(props: {
                       act(MOVE[list()], listFiles(list()));
                     }}
                   >
-                    {list() === "staged" ? "Unstage all" : "Stage all"}
+                    {allLabel(list())}
                   </button>
                 </Show>
               )}
@@ -283,7 +285,7 @@ export default function FileList(props: {
               when={repo().blocked === null}
               fallback={
                 <span class="file-blocked" title={repo().blocked ?? ""}>
-                  blocked
+                  {strings.changes.blocked}
                 </span>
               }
             >
@@ -292,13 +294,13 @@ export default function FileList(props: {
                   <button
                     type="button"
                     class="file-list-action"
-                    aria-label={`${list() === "staged" ? "Unstage all" : "Stage all"} in ${repo().label}`}
+                    aria-label={strings.changes.allIn(allLabel(list()), repo().label)}
                     onClick={(event) => {
                       event.stopPropagation();
                       act(MOVE[list()], listFiles(list(), repo().repo));
                     }}
                   >
-                    {list() === "staged" ? "Unstage all" : "Stage all"}
+                    {allLabel(list())}
                   </button>
                 )}
               </Show>
@@ -354,7 +356,7 @@ export default function FileList(props: {
       class="file-list"
       ref={(element) => (scroller = element)}
       role="listbox"
-      aria-label="Changed files"
+      aria-label={strings.changes.changedFiles}
       aria-multiselectable={props.onAction !== undefined ? "true" : undefined}
       tabindex="0"
       aria-activedescendant={selectedIndex() >= 0 ? `file-row-${selectedIndex()}` : undefined}

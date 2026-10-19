@@ -10,6 +10,7 @@ import { createEffect, on, onCleanup, Show } from "solid-js";
 import type { ChangeAction, Context, DiffMode, Hunk, TextDiff } from "../ipc";
 import { applyLanguage, baseExtensions, type EditorParts, newParts, wrapping } from "./codemirror";
 import { changeRanges, type InlineDoc, inlineDoc } from "./diffDoc";
+import { strings } from "../strings/en";
 
 /** Unchanged lines kept around each change in side-by-side mode; `null` folds nothing. */
 const MARGIN: Record<Context, number | null> = { three: 3, ten: 10, whole_file: null };
@@ -231,13 +232,10 @@ export default function DiffView(props: {
   );
   onCleanup(destroy);
 
-  const missing = () =>
-    [props.diff.old_missing_newline && "old", props.diff.new_missing_newline && "new"].filter(Boolean).join(" and ");
-
   return (
     <div class="diff-text">
       <Show when={props.diff.hunks.length === 0}>
-        <p class="placeholder">No lines changed.</p>
+        <p class="placeholder">{strings.changes.noLines}</p>
       </Show>
       <div
         class="diff-editor"
@@ -245,8 +243,10 @@ export default function DiffView(props: {
         data-mode={sideBySide() ? "side_by_side" : "inline"}
         ref={(element) => (host = element)}
       />
-      <Show when={missing() !== ""}>
-        <p class="diff-note">No newline at the end of the {missing()} file.</p>
+      <Show when={props.diff.old_missing_newline || props.diff.new_missing_newline}>
+        <p class="diff-note">
+          {strings.changes.noNewline(props.diff.old_missing_newline, props.diff.new_missing_newline)}
+        </p>
       </Show>
     </div>
   );

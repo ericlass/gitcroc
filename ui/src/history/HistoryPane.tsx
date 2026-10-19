@@ -23,6 +23,7 @@ import { isBlocked, type SummaryStore } from "../stores/summaries";
 import CommitMenu, { type CommitAction, commitMenu } from "./CommitMenu";
 import Graph from "./Graph";
 import { formatDate, formatFullDate, historyRows, type ListRow } from "./rows";
+import { strings } from "../strings/en";
 
 /**
  * Height of one row in CSS pixels; every row has it. `.history-row` in
@@ -37,13 +38,7 @@ export const OVERSCAN = 8;
 /** The next page is requested when this few loaded rows are left below the view. */
 export const PREFETCH_ROWS = 100;
 
-const REF_TITLES: Record<RefLabel["kind"], string> = {
-  head: "Detached HEAD",
-  current_branch: "Current branch",
-  local_branch: "Local branch",
-  remote_branch: "Remote branch",
-  tag: "Tag",
-};
+const REF_TITLES: Record<RefLabel["kind"], string> = strings.history.refTitles;
 
 function RefLabels(props: { refs: RefLabel[] }) {
   return (
@@ -64,8 +59,8 @@ function RefLabels(props: { refs: RefLabel[] }) {
 /** A commit's cells; `repo` names its repo in a merged history, which has it in place of the graph (UI-9). */
 function CommitCells(props: { commit: HistoryRow; repo: string | null }) {
   const dateTitle = () =>
-    `Authored ${formatFullDate(props.commit.author_time.seconds)}\n` +
-    `Committed ${formatFullDate(props.commit.commit_time.seconds)}`;
+    `${strings.history.authored(formatFullDate(props.commit.author_time.seconds))}\n` +
+    strings.history.committed(formatFullDate(props.commit.commit_time.seconds));
   return (
     <>
       <Show
@@ -99,26 +94,23 @@ function CommitCells(props: { commit: HistoryRow; repo: string | null }) {
 
 const COLUMNS: { column: HistoryColumn | null; label: string; class: string }[] = [
   // "Repository" in a merged history, at the graph's width.
-  { column: "graph", label: "Graph", class: "history-graph" },
-  { column: null, label: "Subject", class: "history-subject" },
-  { column: "author", label: "Author", class: "history-author" },
-  { column: "date", label: "Date", class: "history-date" },
-  { column: "hash", label: "Hash", class: "history-hash" },
+  { column: "graph", label: strings.history.columns.graph, class: "history-graph" },
+  { column: null, label: strings.history.columns.subject, class: "history-subject" },
+  { column: "author", label: strings.history.columns.author, class: "history-author" },
+  { column: "date", label: strings.history.columns.date, class: "history-date" },
+  { column: "hash", label: strings.history.columns.hash, class: "history-hash" },
 ];
 
 function CommitGraphOffer(props: { onWrite: () => void; onDecline: () => void }) {
   return (
-    <div class="history-offer" role="group" aria-label="Commit-graph offer">
-      <p>
-        This repo has no commit-graph file, so its history loads slowly. Git can write one now in the background;
-        nothing else changes.
-      </p>
+    <div class="history-offer" role="group" aria-label={strings.history.commitGraphOffer}>
+      <p>{strings.history.commitGraphWhy}</p>
       <div class="history-offer-actions">
         <button type="button" onClick={() => props.onWrite()}>
-          Write commit-graph file
+          {strings.history.writeCommitGraph}
         </button>
         <button type="button" onClick={() => props.onDecline()}>
-          Don't ask again
+          {strings.history.dontAskAgain}
         </button>
       </div>
     </div>
@@ -132,11 +124,9 @@ function RowView(props: { row: ListRow; name: ((repo: RepoId) => string) | null 
       <Match when={props.row.kind === "uncommitted" && props.row}>
         {(uncommitted) => (
           <span class="history-cell history-uncommitted">
-            Uncommitted changes (
-            {uncommitted().repos
-              ? `${uncommitted().count} ${uncommitted().count === 1 ? "repo" : "repos"}`
-              : uncommitted().count}
-            )
+            {strings.history.uncommitted(
+              uncommitted().repos ? strings.history.repos(uncommitted().count) : String(uncommitted().count),
+            )}
           </span>
         )}
       </Match>
@@ -144,7 +134,7 @@ function RowView(props: { row: ListRow; name: ((repo: RepoId) => string) | null 
         {(commit) => <CommitCells commit={commit().commit} repo={props.name?.(commit().commit.repo_id) ?? null} />}
       </Match>
       <Match when={props.row.kind === "placeholder"}>
-        <span class="history-cell history-skeleton" aria-label="Loading" />
+        <span class="history-cell history-skeleton" aria-label={strings.history.loading} />
       </Match>
     </Switch>
   );
@@ -330,7 +320,7 @@ function HistoryList(props: {
       ? entries
       : entries.map((entry) =>
           entry.action === "cherry_pick"
-            ? { ...entry, disabled: true, title: "Cherry-pick takes commits of one repository only" }
+            ? { ...entry, disabled: true, title: strings.history.cherryPickOneRepo }
             : entry,
         );
   };
@@ -425,7 +415,7 @@ function HistoryList(props: {
       class="history-scroller"
       ref={(element) => (scroller = element)}
       role="listbox"
-      aria-label="History"
+      aria-label={strings.history.label}
       aria-multiselectable="true"
       tabindex="0"
       aria-activedescendant={selectedIndex() >= 0 ? `history-row-${selectedIndex()}` : undefined}
@@ -522,14 +512,14 @@ export default function HistoryPane(props: {
     <div class="history-pane" style={widths()}>
       <Show
         when={history().source}
-        fallback={<p class="placeholder">Select a repo, branch, tag or stash to see its history.</p>}
+        fallback={<p class="placeholder">{strings.history.noSource}</p>}
       >
         <div class="history-header">
           <input
             class="history-search"
             type="search"
-            placeholder="Search subject, author or hash"
-            aria-label="Search history"
+            placeholder={strings.history.search}
+            aria-label={strings.history.searchLabel}
             value={history().text}
             onInput={(event) => void props.history.setText(props.workspace, event.currentTarget.value)}
           />
@@ -547,12 +537,12 @@ export default function HistoryPane(props: {
             <div class="history-offer error" role="alert">
               <p>{error()}</p>
               <button type="button" onClick={() => props.history.dismissOfferError(props.workspace, repo() ?? "")}>
-                Dismiss
+                {strings.common.dismiss}
               </button>
             </div>
           )}
         </Show>
-        <Show when={history().error}>{(error) => <p role="alert">Cannot read the history: {error()}</p>}</Show>
+        <Show when={history().error}>{(error) => <p role="alert">{strings.history.cannotRead(error())}</p>}</Show>
         <Show when={repo()}>
           {(shown) => (
             <ConflictBanner
@@ -570,14 +560,14 @@ export default function HistoryPane(props: {
             {(column) => (
               <span class={`history-cell ${column.class}`}>
                 <span class="history-column-label">
-                  {column.column === "graph" && repo() === undefined ? "Repository" : column.label}
+                  {column.column === "graph" && repo() === undefined ? strings.history.repository : column.label}
                 </span>
                 <Show when={column.column}>
                   {(resizable) => (
                     <Splitter
                       pane={resizable()}
                       class="column-splitter"
-                      label={`Resize ${column.label}`}
+                      label={strings.history.resizeColumn(column.label)}
                       width={columns()[resizable()]}
                       min={MIN_COLUMN_WIDTH}
                       max={() => undefined}
@@ -591,7 +581,7 @@ export default function HistoryPane(props: {
           </For>
         </div>
         <Show when={empty()}>
-          <p class="placeholder">{history().text === "" ? "No commits yet." : "No commits match."}</p>
+          <p class="placeholder">{history().text === "" ? strings.history.noCommits : strings.history.noMatch}</p>
         </Show>
         <HistoryList
           workspace={props.workspace}

@@ -3,18 +3,13 @@
 // tokens (UI-23): `.outcome-<kind>` in App.css.
 import { Match, Show, Switch } from "solid-js";
 import type { JobView, Outcome, SkipReason } from "../ipc";
+import { strings } from "../strings/en";
 
-export const OUTCOME_TEXT: Record<Outcome["kind"], string> = {
-  succeeded: "Succeeded",
-  nothing_to_do: "Nothing to do",
-  skipped: "Skipped",
-  failed: "Failed",
-  conflict: "Conflict",
-};
+export const OUTCOME_TEXT: Record<Outcome["kind"], string> = strings.jobs.outcomes;
 
 /** Why a job or a repo was skipped, as the parentheses after "Skipped" say. */
 function skipText(reason: SkipReason): string {
-  return reason.kind === "cancelled" ? "cancelled" : reason.reason;
+  return reason.kind === "cancelled" ? strings.jobs.cancelled : reason.reason;
 }
 
 export function outcomeText(outcome: Outcome): string {
@@ -44,12 +39,16 @@ export function JobProgressLabel(props: { job: JobView }) {
       <Show when={props.job.step}>{(step) => <span class="job-step">{step()} </span>}</Show>
       <Switch>
         <Match when={props.job.total === 0}>
-          <span class="spinner" role="img" aria-label="Running" />
+          <span class="spinner" role="img" aria-label={strings.jobs.running} />
         </Match>
         <Match when={true}>
           <span class="job-progress">
             {props.job.done}/{props.job.total}
-            {props.job.sub_jobs.length > 0 ? " repos" : props.job.ai_files.length > 0 ? " files" : ""}
+            {props.job.sub_jobs.length > 0
+              ? ` ${strings.jobs.repos}`
+              : props.job.ai_files.length > 0
+                ? ` ${strings.jobs.files}`
+                : ""}
           </span>
         </Match>
       </Switch>
@@ -63,7 +62,7 @@ export function JobStateLabel(props: { job: JobView }) {
     <Switch>
       <Match when={props.job.outcome}>{(outcome) => <OutcomeLabel outcome={outcome()} />}</Match>
       <Match when={props.job.state === "queued"}>
-        <span class="job-waiting">waiting for {props.job.repo_names.join(", ")}</span>
+        <span class="job-waiting">{strings.jobs.waitingFor(props.job.repo_names.join(", "))}</span>
       </Match>
       <Match when={true}>
         <JobProgressLabel job={props.job} />
@@ -83,11 +82,11 @@ export function formatDuration(ms: number | null): string {
     return "";
   }
   if (ms < 1000) {
-    return `${ms} ms`;
+    return strings.jobs.milliseconds(ms);
   }
   if (ms < 60_000) {
-    return `${(ms / 1000).toFixed(1)} s`;
+    return strings.jobs.seconds((ms / 1000).toFixed(1));
   }
   const seconds = Math.round(ms / 1000);
-  return `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+  return strings.jobs.minutes(Math.floor(seconds / 60), seconds % 60);
 }

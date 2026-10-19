@@ -14,6 +14,7 @@ import type {
   RepoId,
   UnmergedFile,
 } from "../ipc";
+import { strings } from "../strings/en";
 
 /**
  * A file of the view: its list and its id there, and in a merged view its
@@ -185,9 +186,9 @@ function listRows(
 }
 
 const SECTIONS: { list: SectionList; label: string }[] = [
-  { list: "unmerged", label: "Unmerged" },
-  { list: "staged", label: "Staged" },
-  { list: "unstaged", label: "Unstaged" },
+  { list: "unmerged", label: strings.changes.sections.unmerged },
+  { list: "staged", label: strings.changes.sections.staged },
+  { list: "unstaged", label: strings.changes.sections.unstaged },
 ];
 
 /**
@@ -240,14 +241,32 @@ export function fileRows(content: ChangesContent, mode: FileListMode, collapsed:
     content.unmerged.length === 0
       ? []
       : [
-          { kind: "section", key: "section:unmerged", label: "Unmerged", count: content.unmerged.length, list: "unmerged" },
+          {
+            kind: "section",
+            key: "section:unmerged",
+            label: strings.changes.sections.unmerged,
+            count: content.unmerged.length,
+            list: "unmerged",
+          },
           ...content.unmerged.map((file) => unmergedRow(file)),
         ];
   return [
     ...unmerged,
-    { kind: "section", key: "section:staged", label: "Staged", count: content.staged.length, list: "staged" },
+    {
+      kind: "section",
+      key: "section:staged",
+      label: strings.changes.sections.staged,
+      count: content.staged.length,
+      list: "staged",
+    },
     ...listRows("staged", content.staged, mode, collapsed),
-    { kind: "section", key: "section:unstaged", label: "Unstaged", count: content.unstaged.length, list: "unstaged" },
+    {
+      kind: "section",
+      key: "section:unstaged",
+      label: strings.changes.sections.unstaged,
+      count: content.unstaged.length,
+      list: "unstaged",
+    },
     ...listRows("unstaged", content.unstaged, mode, collapsed),
   ];
 }

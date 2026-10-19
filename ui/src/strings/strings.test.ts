@@ -30,14 +30,8 @@ const TEXT_NAMES = new Set([
 /** JSX attributes whose string is shown: what `Show` and `Switch` render while their condition is false. */
 const JSX_TEXT_NAMES = new Set([...TEXT_NAMES, "fallback"]);
 
-/** Areas not converted yet; M5-05 and M5-06 shrink this list to empty. */
+/** Areas not converted yet; M5-06 empties this list. */
 const NOT_CONVERTED = [
-  // M5-05
-  "ai/",
-  "changes/",
-  "conflict/",
-  "history/",
-  "jobs/",
   // M5-06
   "clone/",
   "groups/",
@@ -155,7 +149,8 @@ function inlineText(file: ts.SourceFile, checker: ts.TypeChecker, name: string):
     ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : undefined;
   const visit = (node: ts.Node): void => {
     if (ts.isJsxText(node)) {
-      report(node, node.text);
+      // An entity such as `&lt;` is a character, not a word.
+      report(node, node.text.replaceAll(/&#?\w+;/g, " "));
     } else if (ts.isJsxExpression(node) && (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent))) {
       results(node.expression);
     } else if (ts.isJsxAttribute(node)) {

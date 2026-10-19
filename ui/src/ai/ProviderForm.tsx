@@ -13,16 +13,11 @@ import type {
   SelfTest,
 } from "../ipc";
 import type { AiStore } from "../stores/ai";
+import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export const KIND_LABELS: Record<ProviderKind, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI-compatible",
-  claude_code: "Claude Code",
-  codex: "Codex",
-  mock: "Mock",
-};
+export const KIND_LABELS: Record<ProviderKind, string> = strings.ai.kinds;
 
 export const isCli = (kind: ProviderKind) => kind === "claude_code" || kind === "codex";
 
@@ -33,13 +28,13 @@ const isApi = (kind: ProviderKind) => kind === "anthropic" || kind === "openai";
 export function selfTestText(test: SelfTest): string {
   switch (test.kind) {
     case "running":
-      return "Testing…";
+      return strings.ai.testing;
     case "passed":
-      return test.version === null ? "Works" : `Works: ${test.version}`;
+      return test.version === null ? strings.ai.works : strings.ai.worksWith(test.version);
     case "missing_flags":
-      return `${test.version} lacks ${test.missing.join(", ")}`;
+      return strings.ai.lacks(test.version, test.missing.join(", "));
     case "failed":
-      return `Failed: ${test.reason}`;
+      return strings.ai.failed(test.reason);
   }
 }
 
@@ -157,7 +152,7 @@ export default function ProviderForm(props: {
 
   const modelField = () => (
     <label class="field">
-      <span>{isApi(kind()) ? "Model" : "Model (optional)"}</span>
+      <span>{isApi(kind()) ? strings.ai.model : strings.ai.modelOptional}</span>
       <input
         type="text"
         autocomplete="off"
@@ -171,12 +166,12 @@ export default function ProviderForm(props: {
   return (
     <form
       class="provider-form"
-      aria-label={saved === null ? "New AI provider" : `AI provider ${saved.name}`}
+      aria-label={saved === null ? strings.ai.newProvider : strings.ai.provider(saved.name)}
       onSubmit={onSave}
     >
       <Show when={saved === null}>
         <label class="field">
-          <span>Kind</span>
+          <span>{strings.ai.kind}</span>
           <select
             value={kind()}
             onChange={(event) => {
@@ -195,29 +190,29 @@ export default function ProviderForm(props: {
         <p class="about">{KIND_LABELS[kind()]}</p>
       </Show>
       <label class="field">
-        <span>Name</span>
+        <span>{strings.ai.name}</span>
         <input type="text" autocomplete="off" value={name()} onInput={(event) => setName(event.currentTarget.value)} />
       </label>
       <Show when={kind() === "openai"}>
         <label class="field">
-          <span>Base URL</span>
+          <span>{strings.ai.baseUrl}</span>
           <input
             type="url"
             autocomplete="off"
             spellcheck={false}
-            placeholder="https://host/v1"
+            placeholder={strings.ai.baseUrlPlaceholder}
             value={baseUrl()}
             onInput={(event) => setBaseUrl(event.currentTarget.value)}
           />
         </label>
       </Show>
       <Show when={isApi(kind())}>
-        <div class="provider-key" role="group" aria-label="API key">
+        <div class="provider-key" role="group" aria-label={strings.ai.apiKey}>
           <Show
             when={hasKey() && !replacing()}
             fallback={
               <label class="field">
-                <span>{kind() === "openai" ? "API key (optional)" : "API key"}</span>
+                <span>{kind() === "openai" ? strings.ai.apiKeyOptional : strings.ai.apiKey}</span>
                 <input
                   type="password"
                   autocomplete="off"
@@ -231,9 +226,9 @@ export default function ProviderForm(props: {
               </label>
             }
           >
-            <span class="provider-key-state">Key stored</span>
+            <span class="provider-key-state">{strings.ai.keyStored}</span>
             <button type="button" onClick={() => setReplacing(true)}>
-              Replace key…
+              {strings.ai.replaceKey}
             </button>
             <button
               type="button"
@@ -242,18 +237,18 @@ export default function ProviderForm(props: {
                 setKey("");
               }}
             >
-              Remove key
+              {strings.ai.removeKey}
             </button>
           </Show>
           <Show when={removeKey()}>
-            <p class="note">The stored key is removed when you save.</p>
+            <p class="note">{strings.ai.keyRemovedOnSave}</p>
           </Show>
         </div>
       </Show>
       <Show when={isCli(kind())}>
         <Show when={detected().length > 0}>
           <fieldset class="provider-detected">
-            <legend>Programs found</legend>
+            <legend>{strings.ai.programsFound}</legend>
             <For each={detected()}>
               {(cli) => (
                 <label class="choice">
@@ -270,7 +265,7 @@ export default function ProviderForm(props: {
           </fieldset>
         </Show>
         <label class="field">
-          <span>Program</span>
+          <span>{strings.ai.program}</span>
           <input
             type="text"
             autocomplete="off"
@@ -284,10 +279,10 @@ export default function ProviderForm(props: {
         <Match when={offered()}>
           {(list) => (
             <label class="field">
-              <span>Model</span>
+              <span>{strings.ai.model}</span>
               <select value={model()} onChange={(event) => setModel(event.currentTarget.value)}>
                 <option value="" disabled>
-                  Pick a model
+                  {strings.ai.pickModel}
                 </option>
                 <For each={list()}>{(option) => <option value={option}>{option}</option>}</For>
               </select>
@@ -297,24 +292,24 @@ export default function ProviderForm(props: {
         <Match when={modelsRequest() !== null && models() === undefined}>
           {modelField()}
           <p class="note" role="status">
-            Fetching models…
+            {strings.ai.fetchingModels}
           </p>
         </Match>
         <Match when={models()?.kind === "not_offered"}>
           {modelField()}
-          <p class="note">The provider offers no list of models; type the model's name.</p>
+          <p class="note">{strings.ai.noModelList}</p>
         </Match>
         <Match when={modelsFailure()}>
           {(reason) => (
             <>
               {modelField()}
-              <p role="alert">Cannot fetch the models: {reason()}</p>
+              <p role="alert">{strings.ai.cannotFetchModels(reason())}</p>
             </>
           )}
         </Match>
       </Switch>
       <label class="field">
-        <span>Context budget in tokens</span>
+        <span>{strings.ai.contextBudget}</span>
         <input
           type="number"
           min="1000"
@@ -327,7 +322,7 @@ export default function ProviderForm(props: {
       <Show when={testResult()}>
         {(result) => (
           <p class="provider-test" role="status">
-            Test: {selfTestText(result())}
+            {strings.ai.testResult(selfTestText(result()))}
           </p>
         )}
       </Show>
@@ -335,18 +330,18 @@ export default function ProviderForm(props: {
       <div class="dialog-actions provider-actions">
         <Show when={isApi(kind())}>
           <button type="button" disabled={sending()} onClick={() => void onFetchModels()}>
-            Fetch models
+            {strings.ai.fetchModels}
           </button>
         </Show>
         <button type="button" disabled={sending()} onClick={() => void onTest()}>
-          Test
+          {strings.ai.test}
         </button>
         <span class="spacer" />
         <button type="button" onClick={() => props.onDone()}>
-          Cancel
+          {strings.common.cancel}
         </button>
         <button type="submit" class="primary" disabled={sending() || props.readOnly}>
-          Save
+          {strings.ai.save}
         </button>
       </div>
     </form>

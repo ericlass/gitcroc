@@ -21,20 +21,21 @@ import DiscardDialog from "./DiscardDialog";
 import FileList from "./FileList";
 import { entryOf, type FileKey } from "./fileRows";
 import SpecialDiff from "./SpecialDiff";
+import { strings } from "../strings/en";
 
 /** The controls of a hunk of the staged or unstaged diff (UI-15). */
 const HUNK_ACTIONS: Record<"staged" | "unstaged", { action: ChangeAction; label: string }[]> = {
-  staged: [{ action: "unstage", label: "Unstage hunk" }],
+  staged: [{ action: "unstage", label: strings.changes.unstageHunk }],
   unstaged: [
-    { action: "discard", label: "Discard hunk" },
-    { action: "stage", label: "Stage hunk" },
+    { action: "discard", label: strings.changes.discardHunk },
+    { action: "stage", label: strings.changes.stageHunk },
   ],
 };
 
 const CONTEXTS: { value: Context; label: string }[] = [
-  { value: "three", label: "3 lines" },
-  { value: "ten", label: "10 lines" },
-  { value: "whole_file", label: "Whole file" },
+  { value: "three", label: strings.changes.contexts.three },
+  { value: "ten", label: strings.changes.contexts.ten },
+  { value: "whole_file", label: strings.changes.contexts.whole_file },
 ];
 
 /**
@@ -64,21 +65,21 @@ function Toolbar(props: { workspace: WorkspaceId; settings: SettingsStore; layou
   const view = () => props.settings.changes();
   const dock = () => props.layout.dock(props.workspace);
   return (
-    <div class="changes-toolbar" role="toolbar" aria-label="Diff options">
-      <div class="segmented" role="group" aria-label="Diff mode">
+    <div class="changes-toolbar" role="toolbar" aria-label={strings.changes.diffOptions}>
+      <div class="segmented" role="group" aria-label={strings.changes.diffMode}>
         <button
           type="button"
           aria-pressed={view().diff_mode === "inline"}
           onClick={() => void props.settings.setChanges({ diff_mode: "inline" })}
         >
-          Inline
+          {strings.changes.inline}
         </button>
         <button
           type="button"
           aria-pressed={view().diff_mode === "side_by_side"}
           onClick={() => void props.settings.setChanges({ diff_mode: "side_by_side" })}
         >
-          Side by side
+          {strings.changes.sideBySide}
         </button>
       </div>
       <label>
@@ -87,7 +88,7 @@ function Toolbar(props: { workspace: WorkspaceId; settings: SettingsStore; layou
           checked={view().ignore_whitespace}
           onChange={(event) => void props.settings.setChanges({ ignore_whitespace: event.currentTarget.checked })}
         />
-        Ignore whitespace
+        {strings.changes.ignoreWhitespace}
       </label>
       <label>
         <input
@@ -95,10 +96,10 @@ function Toolbar(props: { workspace: WorkspaceId; settings: SettingsStore; layou
           checked={view().wrap_lines}
           onChange={(event) => void props.settings.setChanges({ wrap_lines: event.currentTarget.checked })}
         />
-        Wrap lines
+        {strings.changes.wrapLines}
       </label>
       <label>
-        Context
+        {strings.changes.context}
         <select
           value={view().context}
           onChange={(event) => void props.settings.setChanges({ context: event.currentTarget.value as Context })}
@@ -111,7 +112,7 @@ function Toolbar(props: { workspace: WorkspaceId; settings: SettingsStore; layou
         class="dock-button"
         onClick={() => props.layout.setDock(props.workspace, dock() === "right" ? "bottom" : "right")}
       >
-        {dock() === "right" ? "Dock at bottom" : "Dock right"}
+        {dock() === "right" ? strings.changes.dockBottom : strings.changes.dockRight}
       </button>
     </div>
   );
@@ -120,17 +121,14 @@ function Toolbar(props: { workspace: WorkspaceId; settings: SettingsStore; layou
 /** The offer to turn on the settings `keys` that speed up a large repo's status (PERF-7). */
 function FsmonitorOffer(props: { keys: string[]; onEnable: () => void; onDecline: () => void }) {
   return (
-    <div class="changes-offer" role="group" aria-label="Status settings offer">
-      <p>
-        This repo tracks many files, so reading its status is slow. Git can speed it up with{" "}
-        {props.keys.join(" and ")}, turned on in the repo's own config; nothing else changes.
-      </p>
+    <div class="changes-offer" role="group" aria-label={strings.changes.fsmonitorOffer}>
+      <p>{strings.changes.fsmonitorWhy(props.keys)}</p>
       <div class="changes-offer-actions">
         <button type="button" onClick={() => props.onEnable()}>
-          Turn on
+          {strings.changes.turnOn}
         </button>
         <button type="button" onClick={() => props.onDecline()}>
-          Don't ask again
+          {strings.changes.dontAskAgain}
         </button>
       </div>
     </div>
@@ -282,9 +280,9 @@ export default function ChangesPane(props: {
       <Toolbar workspace={props.workspace} settings={props.settings} layout={props.layout} />
       <Show
         when={changes().selection}
-        fallback={<p class="placeholder">Select a commit or the uncommitted changes to see what changed.</p>}
+        fallback={<p class="placeholder">{strings.changes.noSelection}</p>}
       >
-        <Show when={changes().error}>{(error) => <p role="alert">Cannot read the changes: {error()}</p>}</Show>
+        <Show when={changes().error}>{(error) => <p role="alert">{strings.changes.cannotRead(error())}</p>}</Show>
         <Show when={changes().view}>
           {(shown) => (
             <div class="changes-body">
@@ -303,12 +301,12 @@ export default function ChangesPane(props: {
                     <div class="changes-offer error" role="alert">
                       <p>{error()}</p>
                       <button type="button" onClick={() => props.changes.dismissOfferError(props.workspace)}>
-                        Dismiss
+                        {strings.common.dismiss}
                       </button>
                     </div>
                   )}
                 </Show>
-                <Show when={commit()} fallback={<h2 class="changes-title">Uncommitted changes</h2>}>
+                <Show when={commit()} fallback={<h2 class="changes-title">{strings.changes.uncommitted}</h2>}>
                   {(content) => (
                     <CommitHeader
                       details={content().details}
@@ -319,23 +317,21 @@ export default function ChangesPane(props: {
                   )}
                 </Show>
                 <div class="files-header">
-                  <span>
-                    {count()} {count() === 1 ? "file" : "files"}
-                  </span>
-                  <div class="segmented" role="group" aria-label="File list">
+                  <span>{strings.changes.files(count())}</span>
+                  <div class="segmented" role="group" aria-label={strings.changes.fileList}>
                     <button
                       type="button"
                       aria-pressed={view().file_list === "flat"}
                       onClick={() => void props.settings.setChanges({ file_list: "flat" })}
                     >
-                      Flat
+                      {strings.changes.flat}
                     </button>
                     <button
                       type="button"
                       aria-pressed={view().file_list === "tree"}
                       onClick={() => void props.settings.setChanges({ file_list: "tree" })}
                     >
-                      Tree
+                      {strings.changes.tree}
                     </button>
                   </div>
                 </div>
@@ -392,7 +388,7 @@ export default function ChangesPane(props: {
                         amendable={false}
                         busy={props.commit.groupBusy(props.workspace, key())}
                         error={props.commit.groupError(props.workspace, key())}
-                        label={`Commit ${repos()} ${repos() === 1 ? "repo" : "repos"}`}
+                        label={strings.changes.commitRepos(repos())}
                         onEdit={(change) => props.commit.editGroup(props.workspace, key(), change)}
                         onCommit={() => props.commit.commitGroup(props.workspace, key(), group().selection.target)}
                       >
@@ -406,7 +402,7 @@ export default function ChangesPane(props: {
                               })
                             }
                           />{" "}
-                          Stage all tracked changes first
+                          {strings.changes.stageAllFirst}
                         </label>
                         <label class="choice">
                           <input
@@ -418,15 +414,18 @@ export default function ChangesPane(props: {
                               })
                             }
                           />{" "}
-                          Push after commit
+                          {strings.changes.pushAfter}
                         </label>
                       </CommitBox>
                     );
                   }}
                 </Show>
               </div>
-              <section class="changes-diff" aria-label={conflictTarget() === null ? "Diff" : "Conflict"}>
-                <Show when={entry()} fallback={<p class="placeholder">No file changed.</p>}>
+              <section
+                class="changes-diff"
+                aria-label={conflictTarget() === null ? strings.changes.diff : strings.changes.conflict}
+              >
+                <Show when={entry()} fallback={<p class="placeholder">{strings.changes.noFile}</p>}>
                   {(file) => (
                     <>
                       <div class="diff-header" title={file().path}>
@@ -435,17 +434,17 @@ export default function ChangesPane(props: {
                           {(mode) => (
                             <span class="diff-mode">
                               {" "}
-                              mode {mode().old} → {mode().new}
+                              {strings.changes.mode(mode().old, mode().new)}
                             </span>
                           )}
                         </Show>
                       </div>
                       <Show when={changes().diffError}>
-                        {(error) => <p role="alert">Cannot read the diff: {error()}</p>}
+                        {(error) => <p role="alert">{strings.changes.cannotReadDiff(error())}</p>}
                       </Show>
                       <Show when={changes().notice}>{(notice) => <p role="status">{notice()}</p>}</Show>
                       <Show when={uncommitted() && view().ignore_whitespace && textDiff() !== null}>
-                        <p class="diff-note">Hunks can be staged with "Ignore whitespace" off.</p>
+                        <p class="diff-note">{strings.changes.hunksIgnoreWhitespace}</p>
                       </Show>
                       <Switch>
                         <Match when={conflictTarget()}>

@@ -7,34 +7,21 @@ import { createEffect, Match, on, Show, Switch } from "solid-js";
 import type { ChoiceKind, ConflictChoice, SideHolds, WorkspaceId } from "../ipc";
 import type { ConflictStore, ViewFile } from "../stores/conflicts";
 import ConflictEditor, { type ConflictAi } from "./ConflictEditor";
+import { strings } from "../strings/en";
 
-const REASONS: Record<ChoiceKind, string> = {
-  binary: "The file is binary.",
-  deleted_by_us: "Our side deleted the file and theirs changed it.",
-  deleted_by_them: "Their side deleted the file and ours changed it.",
-  both_deleted: "Neither side kept the file at this path.",
-  mode: "Both sides changed the file's mode differently.",
-  submodule: "A side is a submodule.",
-  type_change: "One side has a file and the other a symbolic link.",
-  symlink: "Both sides changed the symbolic link.",
-  not_utf8: "The file is not UTF-8 text.",
-  too_large: "The file is too large to edit here.",
-  marker_like: "The file has lines that cannot be told apart from conflict markers.",
-};
-
-const bytes = (size: number) => (size === 1 ? "1 byte" : `${size.toLocaleString("en")} bytes`);
+const REASONS: Record<ChoiceKind, string> = strings.conflict.reasons;
 
 /** What a side holds, in words. */
 export function holdsText(holds: SideHolds): string {
   switch (holds.kind) {
     case "deleted":
-      return "Deleted";
+      return strings.conflict.deleted;
     case "file":
-      return `File, ${bytes(holds.size)}${holds.executable ? ", executable" : ""}`;
+      return strings.conflict.file(strings.conflict.bytes(holds.size), holds.executable);
     case "symlink":
-      return `Symbolic link, ${bytes(holds.size)}`;
+      return strings.conflict.symlink(strings.conflict.bytes(holds.size));
     case "submodule":
-      return `Submodule at commit ${holds.commit.slice(0, 12)}`;
+      return strings.conflict.submodule(holds.commit.slice(0, 12));
   }
 }
 
@@ -76,28 +63,25 @@ export default function ConflictView(props: {
         fallback={
           <Show
             when={props.conflicts.error(props.workspace)}
-            fallback={<p class="placeholder">Reading the conflict…</p>}
+            fallback={<p class="placeholder">{strings.conflict.reading}</p>}
           >
-            {(error) => <p role="alert">Cannot read the conflict: {error()}</p>}
+            {(error) => <p role="alert">{strings.conflict.cannotRead(error())}</p>}
           </Show>
         }
       >
         <Match when={file()?.start === null && file()}>
           {(current) => (
-            <div class="conflict-ask" role="group" aria-label="Edited outside">
-              <p>
-                {props.target.path} was changed outside gitcroc since the conflict began. Keep the file as it is, or
-                start over from the conflict?
-              </p>
+            <div class="conflict-ask" role="group" aria-label={strings.conflict.editedOutside}>
+              <p>{strings.conflict.changedOutside(props.target.path)}</p>
               <Show when={current().conflict.on_disk === null}>
-                <p>The file cannot be shown as it is: it is missing, not UTF-8 text, or too large.</p>
+                <p>{strings.conflict.cannotShowDisk}</p>
               </Show>
               <button
                 type="button"
                 disabled={current().conflict.on_disk === null}
                 onClick={() => props.conflicts.answer(props.workspace, props.target.repo, props.target.path, "disk")}
               >
-                Keep the file as it is
+                {strings.conflict.keepDisk}
               </button>
               <button
                 type="button"
@@ -105,7 +89,7 @@ export default function ConflictView(props: {
                   props.conflicts.answer(props.workspace, props.target.repo, props.target.path, "conflict")
                 }
               >
-                Start over from the conflict
+                {strings.conflict.startOver}
               </button>
             </div>
           )}
@@ -113,24 +97,29 @@ export default function ConflictView(props: {
         <Match when={choice()}>
           {(content) => (
             <div class="conflict-choice">
-              <p>{REASONS[content().reason]} Choose the version to keep.</p>
+              <p>{strings.conflict.choose(REASONS[content().reason])}</p>
               <div class="conflict-sides">
-                <section class="conflict-side" aria-label={`Ours: ${file()?.conflict.labels.ours ?? ""}`}>
-                  <h3>Ours: {file()?.conflict.labels.ours}</h3>
+                <section class="conflict-side" aria-label={strings.conflict.ours(file()?.conflict.labels.ours ?? "")}>
+                  <h3>{strings.conflict.ours(file()?.conflict.labels.ours ?? "")}</h3>
                   <p>{holdsText(content().ours)}</p>
                   <button type="button" disabled={file()?.sending} onClick={() => choose("ours")}>
-                    Use this version
+                    {strings.conflict.useThis}
                   </button>
                 </section>
-                <section class="conflict-side" aria-label={`Theirs: ${file()?.conflict.labels.theirs ?? ""}`}>
-                  <h3>Theirs: {file()?.conflict.labels.theirs}</h3>
+                <section
+                  class="conflict-side"
+                  aria-label={strings.conflict.theirs(file()?.conflict.labels.theirs ?? "")}
+                >
+                  <h3>{strings.conflict.theirs(file()?.conflict.labels.theirs ?? "")}</h3>
                   <p>{holdsText(content().theirs)}</p>
                   <button type="button" disabled={file()?.sending} onClick={() => choose("theirs")}>
-                    Use this version
+                    {strings.conflict.useThis}
                   </button>
                 </section>
               </div>
-              <Show when={file()?.error}>{(error) => <p role="alert">Cannot resolve it: {error()}</p>}</Show>
+              <Show when={file()?.error}>
+                {(error) => <p role="alert">{strings.conflict.cannotResolve(error())}</p>}
+              </Show>
             </div>
           )}
         </Match>
