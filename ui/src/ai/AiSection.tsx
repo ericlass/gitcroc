@@ -5,6 +5,7 @@ import { createSignal, For, Show } from "solid-js";
 import type { DetectedCli, ProviderView } from "../ipc";
 import type { AiStore } from "../stores/ai";
 import ProviderForm, { isCli, KIND_LABELS, selfTestText } from "./ProviderForm";
+import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -24,44 +25,41 @@ export default function AiSection(props: { ai: AiStore; readOnly: boolean }) {
     <Show when={view()}>
       {(ai) => (
         <fieldset class="ai-settings" disabled={props.readOnly}>
-          <legend>AI</legend>
+          <legend>{strings.ai.legend}</legend>
           <label class="choice">
             <input
               type="checkbox"
               checked={ai().enabled}
               onChange={(event) => void props.ai.setOptions({ enabled: event.currentTarget.checked })}
             />
-            AI features
+            {strings.ai.features}
           </label>
           <Show
             when={ai().enabled}
             fallback={
-              <p class="note">
-                AI features are off: no AI request is sent and the AI buttons are hidden. Providers, keys and consent
-                are kept for when you turn them on.
-              </p>
+              <p class="note">{strings.ai.off}</p>
             }
           >
             <Show when={ai().keychain_error}>
-              {(reason) => <p role="alert">The keychain cannot be used, so keys cannot be stored: {reason()}</p>}
+              {(reason) => <p role="alert">{strings.ai.noKeychain(reason())}</p>}
             </Show>
             <Show
               when={editing()}
               keyed
               fallback={
                 <>
-                  <h3 class="ai-heading">Providers</h3>
+                  <h3 class="ai-heading">{strings.ai.providers}</h3>
                   <Show when={ai().providers.length === 0}>
-                    <p class="note">No AI provider yet.</p>
+                    <p class="note">{strings.ai.noProvider}</p>
                   </Show>
-                  <ul class="ai-providers" aria-label="AI providers">
+                  <ul class="ai-providers" aria-label={strings.ai.providersLabel}>
                     <For each={ai().providers}>
                       {(provider) => (
                         <li class="ai-provider">
                           <div class="ai-provider-text">
                             <span class="ai-provider-name">{provider.name}</span>
                             <Show when={ai().default === provider.id}>
-                              <span class="ai-provider-default"> (default)</span>
+                              <span class="ai-provider-default"> {strings.ai.isDefault}</span>
                             </Show>
                             <span class="about">
                               {" "}
@@ -78,37 +76,41 @@ export default function AiSection(props: { ai: AiStore; readOnly: boolean }) {
                               <div class="ai-provider-actions">
                                 <button
                                   type="button"
-                                  aria-label={`Edit ${provider.name}`}
+                                  aria-label={strings.ai.editLabel(provider.name)}
                                   onClick={() => setEditing({ provider })}
                                 >
-                                  Edit…
+                                  {strings.ai.edit}
                                 </button>
                                 <button
                                   type="button"
-                                  aria-label={`Set ${provider.name} as default`}
+                                  aria-label={strings.ai.setDefaultLabel(provider.name)}
                                   disabled={ai().default === provider.id}
                                   onClick={() => send(props.ai.setDefault(provider.id))}
                                 >
-                                  Set as default
+                                  {strings.ai.setDefault}
                                 </button>
                                 <button
                                   type="button"
-                                  aria-label={`Remove ${provider.name}`}
+                                  aria-label={strings.ai.removeLabel(provider.name)}
                                   onClick={() => setRemoving(provider)}
                                 >
-                                  Remove…
+                                  {strings.ai.remove}
                                 </button>
                               </div>
                             }
                           >
-                            <div class="ai-provider-actions" role="group" aria-label={`Remove ${provider.name}?`}>
-                              <span>Remove {provider.name} and its key?</span>
+                            <div
+                              class="ai-provider-actions"
+                              role="group"
+                              aria-label={strings.ai.removeQuestion(provider.name)}
+                            >
+                              <span>{strings.ai.removeWithKey(provider.name)}</span>
                               <button
                                 type="button"
                                 ref={(element) => queueMicrotask(() => element.focus())}
                                 onClick={() => setRemoving(null)}
                               >
-                                Cancel
+                                {strings.common.cancel}
                               </button>
                               <button
                                 type="button"
@@ -118,7 +120,7 @@ export default function AiSection(props: { ai: AiStore; readOnly: boolean }) {
                                   send(props.ai.remove(provider.id));
                                 }}
                               >
-                                Remove
+                                {strings.ai.removeConfirm}
                               </button>
                             </div>
                           </Show>
@@ -129,16 +131,17 @@ export default function AiSection(props: { ai: AiStore; readOnly: boolean }) {
                   <Show when={ai().offer}>
                     {(offer) => (
                       <p class="ai-offer">
-                        Found {KIND_LABELS[offer().kind]} at <code>{offer().path}</code>.{" "}
+                        {strings.ai.found(KIND_LABELS[offer().kind])}
+                        <code>{offer().path}</code>.{" "}
                         <button type="button" onClick={() => setEditing({ provider: null, start: offer() })}>
-                          Add it…
+                          {strings.ai.addIt}
                         </button>
                       </p>
                     )}
                   </Show>
                   <Show when={error()}>{(text) => <p role="alert">{text()}</p>}</Show>
                   <button type="button" onClick={() => setEditing({ provider: null })}>
-                    Add provider…
+                    {strings.ai.addProvider}
                   </button>
                 </>
               }
@@ -154,7 +157,7 @@ export default function AiSection(props: { ai: AiStore; readOnly: boolean }) {
               )}
             </Show>
             <label class="field ai-exclude">
-              <span>Never send files matching (one pattern per line)</span>
+              <span>{strings.ai.exclude}</span>
               <textarea
                 rows={4}
                 spellcheck={false}
@@ -168,12 +171,9 @@ export default function AiSection(props: { ai: AiStore; readOnly: boolean }) {
                 checked={ai().debug_log}
                 onChange={(event) => void props.ai.setOptions({ debug_log: event.currentTarget.checked })}
               />
-              AI debug logging
+              {strings.ai.debugLog}
             </label>
-            <p class="note">
-              While on, every prompt and reply is written to the log, which then holds repo content. Keys are never
-              written.
-            </p>
+            <p class="note">{strings.ai.debugLogNote}</p>
           </Show>
           <Show when={props.ai.state.error}>{(text) => <p role="alert">{text()}</p>}</Show>
         </fieldset>

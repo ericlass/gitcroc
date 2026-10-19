@@ -6,6 +6,7 @@
 // and refuses what cannot be committed (ARCH-6).
 import { type JSX, Show } from "solid-js";
 import type { CommitMessage } from "../ipc";
+import { strings } from "../strings/en";
 
 export default function CommitBox(props: {
   draft: CommitMessage;
@@ -36,12 +37,12 @@ export default function CommitBox(props: {
   };
 
   return (
-    <section class="commit-box" aria-label="Commit message">
+    <section class="commit-box" aria-label={strings.changes.commitMessage}>
       <input
         type="text"
         class="commit-subject"
-        aria-label="Subject"
-        placeholder="Subject"
+        aria-label={strings.changes.subject}
+        placeholder={strings.changes.subject}
         spellcheck={true}
         value={props.draft.subject}
         onInput={(event) => props.onEdit({ subject: event.currentTarget.value })}
@@ -49,8 +50,8 @@ export default function CommitBox(props: {
       />
       <textarea
         class="commit-body"
-        aria-label="Body"
-        placeholder="Body (optional)"
+        aria-label={strings.changes.body}
+        placeholder={strings.changes.bodyPlaceholder}
         rows={3}
         spellcheck={true}
         value={props.draft.body}
@@ -65,15 +66,15 @@ export default function CommitBox(props: {
             <button
               type="button"
               disabled={props.busy || !props.amendable}
-              title="Replace the last commit with this message and the staged changes. With an empty box, fill in the last commit's message first."
+              title={strings.changes.amendTitle}
               onClick={() => amend()()}
             >
-              Amend
+              {strings.changes.amend}
             </button>
           )}
         </Show>
         <button type="button" class="primary" disabled={!canCommit()} onClick={() => props.onCommit()}>
-          {props.busy ? "Committing…" : (props.label ?? "Commit")}
+          {props.busy ? strings.changes.committing : (props.label ?? strings.changes.commit)}
         </button>
       </div>
     </section>

@@ -7,36 +7,37 @@
 import { For, Match, Show, Switch } from "solid-js";
 import type { AiFileProgress, AiFileState, JobView } from "../ipc";
 import { JobStateLabel } from "../jobs/outcome";
+import { strings } from "../strings/en";
 
 /** A done file's hunks, such as `2 high, 1 medium, 1 unresolved`. */
 function doneText(state: Extract<AiFileState, { kind: "done" }>): string {
   const counts = [
-    [state.high, "high"],
-    [state.medium, "medium"],
-    [state.low, "low"],
-    [state.unresolved, "unresolved"],
+    [state.high, strings.conflict.hunks.high],
+    [state.medium, strings.conflict.hunks.medium],
+    [state.low, strings.conflict.hunks.low],
+    [state.unresolved, strings.conflict.hunks.unresolved],
   ] as const;
   const parts = counts.filter(([n]) => n > 0).map(([n, name]) => `${n} ${name}`);
-  return parts.length === 0 ? "Done" : `Done: ${parts.join(", ")}`;
+  return parts.length === 0 ? strings.conflict.done : strings.conflict.doneWith(parts.join(", "));
 }
 
 /** Where a file is, in words. */
 export function fileStateText(state: AiFileState): string {
   switch (state.kind) {
     case "waiting":
-      return "Waiting";
+      return strings.conflict.waiting;
     case "running":
-      return "Running";
+      return strings.conflict.running;
     case "done":
       return doneText(state);
     case "failed":
-      return `AI failed: ${state.reason}`;
+      return strings.conflict.aiFailed(state.reason);
     case "ineligible":
-      return `Not sent: ${state.message}`;
+      return strings.conflict.notSent(state.message);
     case "all_edited":
-      return "Not sent: every conflict is already edited";
+      return strings.conflict.allEdited;
     case "cancelled":
-      return "Cancelled";
+      return strings.conflict.cancelled;
   }
 }
 
@@ -44,7 +45,7 @@ export default function AiFileList(props: { job: JobView; onOpen?: (path: string
   const state = (file: AiFileProgress) => (
     <Switch fallback={<span class={`ai-file-state ai-file-${file.state.kind}`}>{fileStateText(file.state)}</span>}>
       <Match when={file.state.kind === "running"}>
-        <span class="spinner" role="img" aria-label="Running" />
+        <span class="spinner" role="img" aria-label={strings.conflict.running} />
       </Match>
     </Switch>
   );
@@ -53,7 +54,7 @@ export default function AiFileList(props: { job: JobView; onOpen?: (path: string
       <p class="report-counts">
         <JobStateLabel job={props.job} />
       </p>
-      <ul class="ai-files" aria-label="Files">
+      <ul class="ai-files" aria-label={strings.conflict.files}>
         <For each={props.job.ai_files}>
           {(file) => (
             <li class="ai-file">

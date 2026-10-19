@@ -3,6 +3,7 @@
 // applies, and only to commits of one repo, and a blocked repo (GRP-8) has
 // every write disabled; the core refuses them as well.
 import { For, onCleanup } from "solid-js";
+import { strings } from "../strings/en";
 
 export type CommitAction = "checkout" | "create_branch" | "create_tag" | "cherry_pick" | "revert" | "reset" | "copy_hash";
 
@@ -23,13 +24,13 @@ export function commitMenu(count: number, blocked: boolean): CommitMenuEntry[] {
     disabled: blocked || !applies,
   });
   return [
-    write("checkout", "Check out (detached)"),
-    write("create_branch", "Create branch here…"),
-    write("create_tag", "Create tag here…"),
-    write("cherry_pick", one ? "Cherry-pick" : `Cherry-pick ${count} commits`, count > 0),
-    write("revert", "Revert"),
-    write("reset", "Reset current branch to here…"),
-    { action: "copy_hash", label: "Copy hash", disabled: !one },
+    write("checkout", strings.history.checkOutDetached),
+    write("create_branch", strings.history.createBranch),
+    write("create_tag", strings.history.createTag),
+    write("cherry_pick", one ? strings.history.cherryPick : strings.history.cherryPickCommits(count), count > 0),
+    write("revert", strings.history.revert),
+    write("reset", strings.history.reset),
+    { action: "copy_hash", label: strings.history.copyHash, disabled: !one },
   ];
 }
 
@@ -52,7 +53,7 @@ export default function CommitMenu(props: {
       <div
         class="menu"
         role="menu"
-        aria-label="Commit actions"
+        aria-label={strings.history.menu}
         style={{ left: `${props.x}px`, top: `${props.y}px` }}
         ref={(element) =>
           queueMicrotask(() => element.querySelector<HTMLElement>("[role=menuitem]:not(:disabled)")?.focus())

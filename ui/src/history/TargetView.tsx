@@ -10,6 +10,7 @@ import { type RepoId, type SummaryView, type TargetSet, targetRepos, type Worksp
 import type { SummaryStore } from "../stores/summaries";
 import type { TreeStore } from "../stores/tree";
 import { AheadBehind } from "../tree/RepoRow";
+import { strings } from "../strings/en";
 
 /** Height of one strip line in CSS pixels; `.strip-line` in App.css sets it. */
 export const LINE_HEIGHT = 22;
@@ -18,8 +19,6 @@ export const LINE_HEIGHT = 22;
 export const STRIP_LINES = 8;
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 function StripLine(props: { name: string; view: SummaryView | undefined; onSelect: () => void }) {
   const summary = () => props.view?.summary ?? null;
@@ -53,20 +52,25 @@ function StripLine(props: { name: string; view: SummaryView | undefined; onSelec
           <span
             class="tree-dirty"
             role="img"
-            aria-label={plural(changes(), "changed file", "changed files")}
-            title={plural(changes(), "file with uncommitted changes", "files with uncommitted changes")}
+            aria-label={strings.history.changedFiles(changes())}
+            title={strings.history.filesWithChanges(changes())}
           >
             ●{changes()}
           </span>
         )}
       </Show>
       <Show when={props.view?.conflict}>
-        <span class="tree-conflict" role="img" aria-label="Conflict state" title="Conflict state">
+        <span class="tree-conflict" role="img" aria-label={strings.tree.conflict} title={strings.tree.conflict}>
           ⚔
         </span>
       </Show>
       <Show when={props.view?.missing}>
-        <span class="tree-warning" role="img" aria-label="Folder is missing" title="Folder is missing">
+        <span
+          class="tree-warning"
+          role="img"
+          aria-label={strings.tree.folderMissing}
+          title={strings.tree.folderMissing}
+        >
           ⚠
         </span>
       </Show>
@@ -96,7 +100,7 @@ function SummaryStrip(props: {
       class="summary-strip"
       ref={(element) => (scroller = element)}
       role="list"
-      aria-label="Repositories of the selection"
+      aria-label={strings.history.strip}
       style={{ height: `${Math.min(props.repos.length, STRIP_LINES) * LINE_HEIGHT}px` }}
     >
       <div class="strip-lines" style={{ height: `${virtualizer.getTotalSize()}px` }}>
@@ -182,10 +186,10 @@ export default function TargetView(props: {
 
   return (
     <div class="target-view">
-      <Show when={error()}>{(text) => <p role="alert">Cannot show the selection: {text()}</p>}</Show>
+      <Show when={error()}>{(text) => <p role="alert">{strings.history.cannotShow(text())}</p>}</Show>
       <Show when={repos()}>
         {(shown) => (
-          <Show when={shown().length > 0} fallback={<p class="placeholder">This group has no repositories.</p>}>
+          <Show when={shown().length > 0} fallback={<p class="placeholder">{strings.history.noRepos}</p>}>
             <SummaryStrip
               workspace={props.workspace}
               repos={shown()}

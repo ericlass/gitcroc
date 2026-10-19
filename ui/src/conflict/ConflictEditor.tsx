@@ -24,6 +24,7 @@ import {
   showProposal,
   untouchedHunks,
 } from "./editor";
+import { strings } from "../strings/en";
 
 /** What the editor needs for AI; without it the editor has none. */
 export interface ConflictAi {
@@ -41,7 +42,8 @@ export function aiAsk(ai: ConflictAi): AiAsk {
     openSettings: () => ai.openSettings(),
     providerName: () => {
       const settings = ai.store.state.view;
-      return settings?.providers.find((provider) => provider.id === settings.default)?.name ?? "the AI provider";
+      const provider = settings?.providers.find((provider) => provider.id === settings.default);
+      return provider?.name ?? strings.conflict.theProvider;
     },
   };
 }
@@ -54,8 +56,8 @@ const usageLines = (proposal: FileProposal) =>
     if (usage === null) {
       return [];
     }
-    const tokens = `${count(usage.input_tokens)} input tokens, ${count(usage.output_tokens)} output tokens`;
-    return [`Request ${index + 1}: ${tokens}`];
+    const tokens = strings.conflict.tokens(count(usage.input_tokens), count(usage.output_tokens));
+    return [strings.conflict.request(index + 1, tokens)];
   });
 
 /** The buffer a file starts with: the conflict's hunks, or the file on disk without any. */
@@ -126,7 +128,7 @@ export default function ConflictEditor(props: {
           conflicts.keep(workspace, repo, path, { state: update.state, initial, scroll: null });
         }
       }),
-      EditorView.contentAttributes.of({ "aria-label": `Resolution of ${path}` }),
+      EditorView.contentAttributes.of({ "aria-label": strings.conflict.resolution(path) }),
     ];
     let state: EditorState;
     if (saved !== undefined) {
@@ -206,9 +208,9 @@ export default function ConflictEditor(props: {
   const aiBlocked = () => {
     const eligibility = props.file.ai.eligibility;
     if (props.ai?.workspaceOn() === false) {
-      return "AI is off for this workspace.";
+      return strings.conflict.aiOffHere;
     }
-    return eligibility?.kind === "ineligible" ? `Not sent to AI: ${eligibility.message}` : null;
+    return eligibility?.kind === "ineligible" ? strings.conflict.notSentToAi(eligibility.message) : null;
   };
 
   const resolveWithAi = () => {
@@ -229,24 +231,29 @@ export default function ConflictEditor(props: {
 
   return (
     <div class="conflict-editor-pane">
-      <div class="conflict-toolbar" role="toolbar" aria-label="Conflict">
+      <div class="conflict-toolbar" role="toolbar" aria-label={strings.conflict.toolbar}>
         <span class="conflict-count" role="status">
-          {remaining() === 0 ? "No conflict left" : remaining() === 1 ? "1 conflict left" : `${remaining()} conflicts left`}
+          {strings.conflict.left(remaining())}
         </span>
-        <button type="button" title="Alt+↑" disabled={remaining() === 0} onClick={() => go(-1)}>
-          Previous conflict
+        <button
+          type="button"
+          title={strings.conflict.keys.previous}
+          disabled={remaining() === 0}
+          onClick={() => go(-1)}
+        >
+          {strings.conflict.previous}
         </button>
-        <button type="button" title="Alt+↓" disabled={remaining() === 0} onClick={() => go(1)}>
-          Next conflict
+        <button type="button" title={strings.conflict.keys.next} disabled={remaining() === 0} onClick={() => go(1)}>
+          {strings.conflict.next}
         </button>
         <button
           type="button"
           class="primary"
-          title="Write this text to the file and stage it (Ctrl+Enter)"
+          title={strings.conflict.markResolvedTitle}
           disabled={props.file.sending}
           onClick={() => markResolved(false)}
         >
-          Mark resolved
+          {strings.conflict.markResolved}
         </button>
         <Show when={aiOn()}>
           <span class="conflict-ai">
@@ -255,17 +262,17 @@ export default function ConflictEditor(props: {
               fallback={
                 <button
                   type="button"
-                  title="Ask the AI provider to propose a resolution of the conflicts left"
+                  title={strings.conflict.resolveWithAiTitle}
                   disabled={!canResolve()}
                   onClick={resolveWithAi}
                 >
-                  Resolve with AI
+                  {strings.conflict.resolveWithAi}
                 </button>
               }
             >
               {(job) => (
                 <button type="button" onClick={() => conflicts.cancelAi(workspace, repo, path)}>
-                  Cancel ({job().provider})
+                  {strings.conflict.cancelAi(job().provider)}
                 </button>
               )}
             </Show>
@@ -276,11 +283,11 @@ export default function ConflictEditor(props: {
               {(reason) => (
                 <>
                   <span role="alert" class="conflict-ai-failed">
-                    AI failed: {reason()}
+                    {strings.conflict.aiFailed(reason())}
                   </span>
                   <Show when={props.file.ai.job === null}>
                     <button type="button" disabled={!canResolve()} onClick={resolveWithAi}>
-                      Try again
+                      {strings.conflict.tryAgain}
                     </button>
                   </Show>
                 </>
@@ -291,14 +298,14 @@ export default function ConflictEditor(props: {
                 <>
                   <button
                     type="button"
-                    title="Accept every untouched hunk of this file proposed with high confidence"
+                    title={strings.conflict.acceptAllHighTitle}
                     disabled={high() === 0}
                     onClick={() => view !== undefined && acceptAllHigh(view)}
                   >
-                    Accept all high-confidence
+                    {strings.conflict.acceptAllHigh}
                   </button>
                   <Show when={usageLines(proposal()).length > 0}>
-                    <ul class="conflict-ai-usage" aria-label="Token usage">
+                    <ul class="conflict-ai-usage" aria-label={strings.conflict.tokenUsage}>
                       <For each={usageLines(proposal())}>{(line) => <li>{line}</li>}</For>
                     </ul>
                   </Show>
@@ -311,14 +318,16 @@ export default function ConflictEditor(props: {
       <Show when={props.file.markers}>
         {(line) => (
           <p role="alert" class="conflict-refusal">
-            Line {line()} is still a conflict marker line, so the file was not marked resolved.
+            {strings.conflict.markerLine(line())}
             <button type="button" disabled={props.file.sending} onClick={() => markResolved(true)}>
-              Mark resolved anyway
+              {strings.conflict.markResolvedAnyway}
             </button>
           </p>
         )}
       </Show>
-      <Show when={props.file.error}>{(error) => <p role="alert">Cannot mark it resolved: {error()}</p>}</Show>
+      <Show when={props.file.error}>
+        {(error) => <p role="alert">{strings.conflict.cannotMarkResolved(error())}</p>}
+      </Show>
       <div class="conflict-editor" ref={(element) => (parent = element)} />
     </div>
   );

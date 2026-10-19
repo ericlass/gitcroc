@@ -10,6 +10,7 @@ import type { JobStore } from "../stores/jobs";
 import AiFileList from "../conflict/AiFileList";
 import { GroupReport, SubJobList } from "./GroupReport";
 import { formatDuration, formatStart, JobStateLabel } from "./outcome";
+import { strings } from "../strings/en";
 
 /** Height of one row in CSS pixels; `.job-row` in App.css sets it. */
 export const ROW_HEIGHT = 24;
@@ -20,8 +21,8 @@ export const OVERSCAN = 8;
 /** What a cancel did, as the user reads it. */
 const CANCEL_TEXT: Record<CancelResult, string | null> = {
   cancelled: null,
-  killing: "Stopping git…",
-  finishing: "This job cannot be stopped; it runs to its end.",
+  killing: strings.jobs.stopping,
+  finishing: strings.jobs.cannotStop,
   ended: null,
 };
 
@@ -112,7 +113,7 @@ export default function JobList(props: {
     try {
       text = CANCEL_TEXT[await props.jobs.cancel(id)];
     } catch (error) {
-      text = `Cannot cancel: ${error instanceof Error ? error.message : String(error)}`;
+      text = strings.jobs.cannotCancel(error instanceof Error ? error.message : String(error));
     }
     setCancelled((current) => ({ ...current, [id]: text ?? "" }));
   };
@@ -121,32 +122,32 @@ export default function JobList(props: {
     <div class="backdrop" onClick={(event) => event.target === event.currentTarget && props.onClose()}>
       <div role="dialog" aria-modal="true" aria-labelledby="jobs-title" class="dialog job-list" onKeyDown={onKeyDown}>
         <div class="job-list-header">
-          <h2 id="jobs-title">Jobs</h2>
+          <h2 id="jobs-title">{strings.jobs.title}</h2>
           <button type="button" onClick={() => props.onClose()}>
-            Close
+            {strings.common.close}
           </button>
         </div>
         <Show when={props.jobs.state.error}>
-          {(error) => <p role="alert">Cannot read the jobs: {error()}</p>}
+          {(error) => <p role="alert">{strings.jobs.cannotRead(error())}</p>}
         </Show>
         <div class="job-columns" aria-hidden="true">
-          <span>Job</span>
-          <span>Workspace</span>
-          <span>Repo</span>
-          <span>State</span>
-          <span>Started</span>
-          <span>Duration</span>
+          <span>{strings.jobs.columns.job}</span>
+          <span>{strings.jobs.columns.workspace}</span>
+          <span>{strings.jobs.columns.repo}</span>
+          <span>{strings.jobs.columns.state}</span>
+          <span>{strings.jobs.columns.started}</span>
+          <span>{strings.jobs.columns.duration}</span>
         </div>
         <div
           class="job-scroller"
           ref={(element) => (scroller = element)}
           role="listbox"
-          aria-label="Jobs"
+          aria-label={strings.jobs.title}
           tabindex="0"
           aria-activedescendant={selectedIndex() >= 0 ? `job-row-${selectedIndex()}` : undefined}
           onKeyDown={onListKeyDown}
         >
-          <Show when={rows().length > 0} fallback={<p class="placeholder">No jobs have run yet.</p>}>
+          <Show when={rows().length > 0} fallback={<p class="placeholder">{strings.jobs.noJobs}</p>}>
             <div class="job-rows" style={{ height: `${virtualizer.getTotalSize()}px` }}>
               <For each={virtualizer.getVirtualItems()}>
                 {(item) => (
@@ -176,8 +177,8 @@ export default function JobList(props: {
             </div>
           </Show>
         </div>
-        <section class="job-detail" aria-label="Job output">
-          <Show when={job()} fallback={<p class="placeholder">Select a job to see git's output.</p>}>
+        <section class="job-detail" aria-label={strings.jobs.output}>
+          <Show when={job()} fallback={<p class="placeholder">{strings.jobs.selectJob}</p>}>
             {(shown) => (
               <>
                 <div class="job-detail-header">
@@ -185,7 +186,7 @@ export default function JobList(props: {
                   <JobStateLabel job={shown()} />
                   <Show when={shown().state !== "ended"}>
                     <button type="button" onClick={() => void cancel(shown().job_id)}>
-                      Cancel
+                      {strings.common.cancel}
                     </button>
                   </Show>
                 </div>
@@ -193,7 +194,7 @@ export default function JobList(props: {
                 <Show when={shown().message}>{(message) => <p class="job-message">{message()}</p>}</Show>
                 <Switch
                   fallback={
-                    <Show when={shown().output} fallback={<p class="placeholder">No output.</p>}>
+                    <Show when={shown().output} fallback={<p class="placeholder">{strings.jobs.noOutput}</p>}>
                       <pre class="job-output">{shown().output}</pre>
                     </Show>
                   }

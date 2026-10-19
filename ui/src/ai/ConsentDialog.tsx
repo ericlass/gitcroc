@@ -4,6 +4,7 @@
 import { For, onMount, Show } from "solid-js";
 import type { AiStore } from "../stores/ai";
 import { consentTargetValue } from "../stores/ai";
+import { strings } from "../strings/en";
 
 export default function ConsentDialog(props: { ai: AiStore }) {
   return (
@@ -28,29 +29,32 @@ export default function ConsentDialog(props: { ai: AiStore }) {
                 }
               }}
             >
-              <h2 id="consent-title">Send to {where()}?</h2>
+              <h2 id="consent-title">{strings.ai.consent.title(where())}</h2>
               <div id="consent-text">
                 <p>
                   {request().to.kind === "host" ? (
                     <>
-                      The AI provider {request().provider_name} sends to the host <code>{where()}</code>
+                      {strings.ai.consent.sendsToHost(request().provider_name)}
+                      <code>{where()}</code>
                     </>
                   ) : (
                     <>
-                      The AI provider {request().provider_name} runs the program <code>{where()}</code> and passes it
+                      {strings.ai.consent.runsProgram(request().provider_name)}
+                      <code>{where()}</code>
+                      {strings.ai.consent.passesIt}
                     </>
                   )}{" "}
-                  this for each file it resolves, and nothing else:
+                  {strings.ai.consent.whatIsSent}
                 </p>
                 <ul class="consent-sent">
                   <For each={request().sent}>{(item) => <li>{item}</li>}</For>
                 </ul>
-                <p class="note">You are asked again if the provider's host or program changes.</p>
+                <p class="note">{strings.ai.consent.askedAgain}</p>
               </div>
               <Show when={open().error}>{(error) => <p role="alert">{error()}</p>}</Show>
               <div class="dialog-actions">
                 <button type="button" ref={(element) => (cancel = element)} onClick={() => props.ai.cancel()}>
-                  Cancel
+                  {strings.common.cancel}
                 </button>
                 <button
                   type="button"
@@ -58,7 +62,7 @@ export default function ConsentDialog(props: { ai: AiStore }) {
                   disabled={open().sending}
                   onClick={() => void props.ai.allow()}
                 >
-                  Allow
+                  {strings.ai.consent.allow}
                 </button>
               </div>
             </div>

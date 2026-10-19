@@ -3,6 +3,7 @@
 // a discard sent without it; this only asks. Escape and Cancel keep the
 // changes.
 import { For, onMount } from "solid-js";
+import { strings } from "../strings/en";
 
 /** Files named one by one; more are counted. */
 const LISTED = 10;
@@ -39,24 +40,24 @@ export default function DiscardDialog(props: {
         class="dialog discard"
         onKeyDown={onKeyDown}
       >
-        <h2 id="discard-title">Discard changes in {props.repo}?</h2>
+        <h2 id="discard-title">{strings.changes.discardDialog(props.repo)}</h2>
         <p id="discard-text">
           {props.hunk
-            ? "This hunk is lost; it cannot be restored:"
+            ? strings.changes.hunkLost
             : props.files.length === 1
-              ? "The changes to this file are lost; they cannot be restored:"
-              : `The changes to these ${props.files.length} files are lost; they cannot be restored:`}
+              ? strings.changes.fileLost
+              : strings.changes.filesLost(props.files.length)}
         </p>
         <ul class="discard-files">
           <For each={props.files.slice(0, LISTED)}>{(file) => <li>{file}</li>}</For>
-          {more() > 0 && <li>and {more()} more</li>}
+          {more() > 0 && <li>{strings.changes.andMore(more())}</li>}
         </ul>
         <div class="dialog-actions">
           <button type="button" ref={(element) => (cancel = element)} onClick={() => props.onCancel()}>
-            Cancel
+            {strings.common.cancel}
           </button>
           <button type="button" class="danger" onClick={() => props.onConfirm()}>
-            Discard
+            {strings.changes.discard}
           </button>
         </div>
       </div>

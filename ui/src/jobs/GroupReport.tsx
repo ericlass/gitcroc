@@ -8,6 +8,7 @@
 import { createSignal, For, Match, Show, Switch } from "solid-js";
 import type { JobView, Outcome, RepoId, RepoResult, SubJob } from "../ipc";
 import { JobProgressLabel, OUTCOME_TEXT, OutcomeLabel } from "./outcome";
+import { strings } from "../strings/en";
 
 /** GRP-7's outcomes, in the order the counts name them. */
 const OUTCOMES: Outcome["kind"][] = ["failed", "conflict", "succeeded", "nothing_to_do", "skipped"];
@@ -29,10 +30,10 @@ export function SubJobList(props: { job: JobView }) {
     <Switch>
       <Match when={sub.outcome}>{(outcome) => <OutcomeLabel outcome={outcome()} />}</Match>
       <Match when={sub.state === "queued"}>
-        <span class="job-waiting">Waiting</span>
+        <span class="job-waiting">{strings.jobs.waiting}</span>
       </Match>
       <Match when={true}>
-        <span class="spinner" role="img" aria-label="Running" />
+        <span class="spinner" role="img" aria-label={strings.jobs.running} />
       </Match>
     </Switch>
   );
@@ -41,7 +42,7 @@ export function SubJobList(props: { job: JobView }) {
       <p class="report-counts">
         <JobProgressLabel job={props.job} />
       </p>
-      <ul class="sub-jobs" aria-label="Repos">
+      <ul class="sub-jobs" aria-label={strings.jobs.reposLabel}>
         <For each={props.job.sub_jobs}>
           {(sub) => (
             <li class="sub-job">
@@ -89,13 +90,18 @@ export function GroupReport(props: {
         <button
           type="button"
           disabled={!failed()}
-          title={failed() ? "Run the operation again on the failed repos" : "No repo failed"}
+          title={failed() ? strings.jobs.retryTitle : strings.jobs.noRepoFailed}
           onClick={() => props.onRetry()}
         >
-          Retry failed
+          {strings.jobs.retryFailed}
         </button>
       </div>
-      <ul class="report-lines" aria-label="Result report" ref={(element) => (list = element)} onKeyDown={onKeyDown}>
+      <ul
+        class="report-lines"
+        aria-label={strings.jobs.resultReport}
+        ref={(element) => (list = element)}
+        onKeyDown={onKeyDown}
+      >
         <For each={props.report}>
           {(line) => {
             const expanded = () => open()[line.repo_id] === true;
@@ -107,7 +113,7 @@ export function GroupReport(props: {
                   class="report-toggle"
                   data-control="toggle"
                   aria-expanded={expanded()}
-                  aria-label={`Git's output in ${line.repo_name}`}
+                  aria-label={strings.jobs.outputIn(line.repo_name)}
                   onClick={() => setOpen((current) => ({ ...current, [line.repo_id]: !expanded() }))}
                 >
                   <span class="report-chevron" aria-hidden="true">
@@ -118,7 +124,7 @@ export function GroupReport(props: {
                   type="button"
                   class="report-name link"
                   data-control="name"
-                  title="Select it in the tree"
+                  title={strings.jobs.selectInTree}
                   onClick={() => props.onSelectRepo(line.repo_id)}
                 >
                   {line.repo_name}
@@ -128,7 +134,7 @@ export function GroupReport(props: {
                   {(text) => <span class="report-reason">{text()}</span>}
                 </Show>
                 <Show when={expanded()}>
-                  <Show when={line.output} fallback={<p class="placeholder report-output">No output.</p>}>
+                  <Show when={line.output} fallback={<p class="placeholder report-output">{strings.jobs.noOutput}</p>}>
                     <pre class="job-output report-output">{line.output}</pre>
                   </Show>
                 </Show>

@@ -3,6 +3,7 @@
 // it, an untracked folder and a submodule's commits.
 import { createResource, Match, onCleanup, Show, Switch } from "solid-js";
 import { diffImage, type FileDiff, type FileRef, type Image, type ImageFormat, type WorkspaceId } from "../ipc";
+import { strings } from "../strings/en";
 
 const MIME: Record<ImageFormat, string> = {
   png: "image/png",
@@ -15,9 +16,9 @@ const MIME: Record<ImageFormat, string> = {
 /** A size in bytes for people: `68 B`, `1.2 KB`, `3.4 MB`. */
 export function formatSize(bytes: number): string {
   if (bytes < 1024) {
-    return `${bytes} B`;
+    return strings.changes.bytes(bytes);
   }
-  const units = ["KB", "MB", "GB"];
+  const units = strings.changes.sizeUnits;
   let value = bytes / 1024;
   let unit = 0;
   while (value >= 1024 && unit < units.length - 1) {
@@ -27,7 +28,7 @@ export function formatSize(bytes: number): string {
   return `${value.toFixed(1)} ${units[unit]}`;
 }
 
-const sizeText = (size: number | null) => (size === null ? "none" : formatSize(size));
+const sizeText = (size: number | null) => (size === null ? strings.changes.none : formatSize(size));
 
 /** The bytes of a base64 text. */
 function bytesOf(base64: string): Uint8Array<ArrayBuffer> {
@@ -63,9 +64,14 @@ function ImageSide(props: { label: string; image: Image | null; load: () => Prom
   return (
     <figure class="diff-image">
       <figcaption>
-        {props.label}: {props.image === null ? "none" : `${props.image.format.toUpperCase()}, ${formatSize(props.image.size)}`}
+        {props.label}:{" "}
+        {props.image === null
+          ? strings.changes.none
+          : `${props.image.format.toUpperCase()}, ${formatSize(props.image.size)}`}
       </figcaption>
-      <Show when={props.image !== null && url()}>{(src) => <img src={src()} alt={`${props.label} image`} />}</Show>
+      <Show when={props.image !== null && url()}>
+        {(src) => <img src={src()} alt={strings.changes.image(props.label)} />}
+      </Show>
     </figure>
   );
 }
@@ -82,21 +88,19 @@ export default function SpecialDiff(props: {
       <Switch>
         <Match when={props.diff.kind === "binary" && props.diff}>
           {(diff) => (
-            <p>
-              Binary file changed. Before: {sizeText(diff().old_size)}, after: {sizeText(diff().new_size)}.
-            </p>
+            <p>{strings.changes.binary(sizeText(diff().old_size), sizeText(diff().new_size))}</p>
           )}
         </Match>
         <Match when={props.diff.kind === "image" && props.diff}>
           {(diff) => (
             <div class="diff-images">
               <ImageSide
-                label="Before"
+                label={strings.changes.before}
                 image={diff().old}
                 load={() => diffImage(props.workspace, props.handle, props.file, "old")}
               />
               <ImageSide
-                label="After"
+                label={strings.changes.after}
                 image={diff().new}
                 load={() => diffImage(props.workspace, props.handle, props.file, "new")}
               />
@@ -106,26 +110,23 @@ export default function SpecialDiff(props: {
         <Match when={props.diff.kind === "too_large" && props.diff}>
           {(diff) => (
             <div class="diff-large">
-              <p>
-                This diff is large: {diff().added.toLocaleString()} lines added and {diff().removed.toLocaleString()}{" "}
-                removed. Showing it may take a while.
-              </p>
+              <p>{strings.changes.large(diff().added.toLocaleString(), diff().removed.toLocaleString())}</p>
               <button type="button" onClick={() => props.onLoadAnyway()}>
-                Load diff
+                {strings.changes.loadDiff}
               </button>
             </div>
           )}
         </Match>
         <Match when={props.diff.kind === "directory"}>
-          <p>An untracked folder. Its files are not read.</p>
+          <p>{strings.changes.untrackedFolder}</p>
         </Match>
         <Match when={props.diff.kind === "submodule" && props.diff}>
           {(diff) => (
             <dl class="diff-submodule">
-              <dt>Submodule commit before</dt>
-              <dd class="hash">{diff().old ?? "none"}</dd>
-              <dt>Submodule commit after</dt>
-              <dd class="hash">{diff().new ?? "none"}</dd>
+              <dt>{strings.changes.submoduleBefore}</dt>
+              <dd class="hash">{diff().old ?? strings.changes.none}</dd>
+              <dt>{strings.changes.submoduleAfter}</dt>
+              <dd class="hash">{diff().new ?? strings.changes.none}</dd>
             </dl>
           )}
         </Match>
