@@ -125,6 +125,16 @@ export const commands = {
 	 */
 	treeFilter: (workspaceId: WorkspaceId, text: string) => typedError<TreeNode[] | null, IpcError>(__TAURI_INVOKE("tree_filter", { workspaceId, text })),
 	/**
+	 *  The command palette's items for `text` (UI-22): the operations, and the
+	 *  repos, groups and branches that match, ranked, at most 100 with the
+	 *  total. `null` when a newer `palette_query` of the workspace superseded
+	 *  this one.
+	 */
+	paletteQuery: (workspaceId: WorkspaceId, text: string) => typedError<{
+	items: PaletteItem[],
+	total: number,
+} | null, IpcError>(__TAURI_INVOKE("palette_query", { workspaceId, text })),
+	/**
 	 *  The children of a group's Branches node (UI-5): every local branch name
 	 *  of at least one member, with how many members have it.
 	 */
@@ -2025,6 +2035,59 @@ export type Operation =
  *  in conflict state (OPS-1).
  */
 export type Outcome = { kind: "succeeded" } | { kind: "nothing_to_do" } | { kind: "skipped"; reason: SkipReason } | { kind: "failed" } | { kind: "conflict" };
+
+/**  One row of the palette. */
+export type PaletteItem = { kind: "operation"; op: PaletteOp; label: string; subject: PaletteSubject } | { kind: "repo"; repo_id: RepoId; name: string; 
+/**
+ *  The current branch; `None` when `HEAD` is detached or the refs
+ *  could not be read.
+ */
+branch: string | null } | { kind: "group"; group_id: GroupId; name: string; members: number } | { kind: "branch"; repo_id: RepoId; repo_name: string; 
+/**
+ *  As the tree names it: `feature/x`, or `origin/feature/x` for a
+ *  remote branch.
+ */
+name: string; 
+/**  The full ref name, for example `refs/heads/feature/x`. */
+full_name: string; 
+/**  The remote of a remote branch; `None` for a local one. */
+remote: string | null };
+
+/**
+ *  An operation of the palette. The id is stable: the UI maps each to the
+ *  handler its toolbar, menu or pane entry uses.
+ */
+export type PaletteOp = "add_folder" | "clone" | "remove_repo" | "open_in_file_manager" | "open_in_terminal" | "stage_file" | "unstage_file" | "discard_file" | "stage_all" | "unstage_all" | "commit" | "amend" | "checkout" | "create_branch" | "rename_branch" | "delete_branch" | "set_upstream" | "checkout_remote_branch" | "checkout_commit" | "fetch" | "fetch_with_options" | "pull" | "pull_with_options" | "push" | "push_with_options" | "merge" | "rebase" | "cherry_pick" | "revert" | "abort" | "continue" | "mark_resolved" | "take_ours" | "take_theirs" | "take_both" | "keep_ours" | "keep_theirs" | "stash" | "stash_apply" | "stash_pop" | "stash_drop" | "create_tag" | "delete_tag" | "push_tag" | "reset_soft" | "reset_mixed" | "reset_hard" | "add_remote" | "rename_remote" | "remove_remote" | "edit_remote_url" | "resolve_with_ai" | "resolve_all_with_ai" | "accept_high_confidence" | "settings" | "new_workspace" | "import_workspace" | "export_workspace" | "job_list" | "close_tab" | "next_tab" | "previous_tab" | "new_group";
+
+/**  The best [`MAX_PALETTE_ITEMS`] items of a query, and how many matched. */
+export type PaletteResult = {
+	items: PaletteItem[],
+	total: number,
+};
+
+/**  What an operation acts on. */
+export type PaletteSubject = 
+/**  The target set (GRP-5). */
+"target_set" | 
+/**  The selected tree row, a branch. */
+"branch" | 
+/**  The selected tree row, a tag. */
+"tag" | 
+/**  The selected tree row, a stash entry. */
+"stash" | 
+/**  The selected tree row, a remote. */
+"remote" | 
+/**  The selected commit of the history. */
+"commit" | 
+/**
+ *  The selected file of the changes pane, or the one open in the
+ *  conflict editor.
+ */
+"file" | 
+/**  The repo in conflict state. */
+"conflict" | 
+/**  The app or the workspace. */
+"app";
 
 /**
  *  The workspace's pane layout (section 10, UI-19): where the changes pane

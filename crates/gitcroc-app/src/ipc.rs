@@ -19,15 +19,15 @@ use gitcroc_core::{
     ExportReport, FileDiff, FileRef, FsmonitorError, GitRunner, GitSetup, GitStatus, GroupError,
     GroupId, GroupOp, GroupOps, GroupSettings, GroupSummary, Histories, HistoryTarget, HistoryView,
     HistoryViewError, ImageSide, ImportReport, IntegrateError, IntegrateRequest, IntegrateStart,
-    JobError, JobEvents, JobId, JobProgress, JobView, Jobs, MissingRepo, Outcome, PaneLayout,
-    PreflightId, PreflightReady, ProviderDraft, ProviderId, PushChoices, Refusal, RemoteError,
-    RemoteRequest, RemoteStart, RemoteUrlsView, RepoChange, RepoId, ResetError, ResetRequest,
-    ResetStart, ResolveRequest, SettingsError, SettingsStore, SettingsView, StashError,
-    StashRequest, StashStart, StatusError, StatusReadError, Summaries, SummaryView, SyncError,
-    SyncRequest, SyncStart, TabSwitch, TagError, TagRequest, TagStart, TargetSet, Theme,
-    TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers, WorkspaceError, WorkspaceId,
-    WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces, add_path, group_summaries,
-    refresh_summaries, refresh_workspace, tree_refs,
+    JobError, JobEvents, JobId, JobProgress, JobView, Jobs, MissingRepo, Outcome, PaletteResult,
+    Palettes, PaneLayout, PreflightId, PreflightReady, ProviderDraft, ProviderId, PushChoices,
+    Refusal, RemoteError, RemoteRequest, RemoteStart, RemoteUrlsView, RepoChange, RepoId,
+    ResetError, ResetRequest, ResetStart, ResolveRequest, SettingsError, SettingsStore,
+    SettingsView, StashError, StashRequest, StashStart, StatusError, StatusReadError, Summaries,
+    SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch, TagError, TagRequest, TagStart,
+    TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers,
+    WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces,
+    add_path, group_summaries, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -566,6 +566,7 @@ pub async fn workspace_close(
     // Its state goes with its tab (ARCH-9).
     app.state::<Arc<Watchers>>().stop(&closed);
     app.state::<Arc<Trees>>().forget(&closed);
+    app.state::<Arc<Palettes>>().forget(&closed);
     app.state::<Arc<Histories>>().forget(&closed);
     app.state::<Arc<Changes>>().forget(&closed);
     app.state::<Arc<Summaries>>().forget(&closed);
@@ -1005,6 +1006,28 @@ pub async fn tree_filter(
     let (trees, workspaces) = (trees.inner().clone(), workspaces.inner().clone());
     let summaries = summaries.inner().clone();
     Ok(gitcroc_core::tree_filter(trees, workspaces, summaries, workspace_id, text).await?)
+}
+
+/// The command palette's items for `text` (UI-22): the operations, and the
+/// repos, groups and branches that match, ranked, at most 100 with the
+/// total. `null` when a newer `palette_query` of the workspace superseded
+/// this one.
+#[tauri::command]
+#[specta::specta]
+pub async fn palette_query(
+    workspaces: State<'_, Arc<Workspaces>>,
+    settings: State<'_, Arc<SettingsStore>>,
+    trees: State<'_, Arc<Trees>>,
+    palettes: State<'_, Arc<Palettes>>,
+    workspace_id: WorkspaceId,
+    text: String,
+) -> Result<Option<PaletteResult>, IpcError> {
+    let (palettes, trees) = (palettes.inner().clone(), trees.inner().clone());
+    let (workspaces, settings) = (workspaces.inner().clone(), settings.inner().clone());
+    Ok(
+        gitcroc_core::palette_query(palettes, trees, workspaces, settings, workspace_id, text)
+            .await?,
+    )
 }
 
 /// The first page of `target`'s history (section 8 "History pane"): of
@@ -2743,6 +2766,7 @@ macro_rules! with_commands {
                 tree_get,
                 refs_get,
                 tree_filter,
+                palette_query,
                 group_branches,
                 group_create,
                 group_rename,
@@ -2846,6 +2870,7 @@ macro_rules! with_commands {
                 tree_get,
                 refs_get,
                 tree_filter,
+                palette_query,
                 group_branches,
                 group_create,
                 group_rename,

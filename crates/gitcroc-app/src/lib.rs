@@ -9,8 +9,8 @@ pub mod proposer;
 use std::sync::Arc;
 
 use gitcroc_core::{
-    AppLog, Changes, GitSetup, Histories, PlatformCacheDir, PlatformConfigDir, PlatformLogDir,
-    SettingsStore, Summaries, SummaryCache, Trees, Workspaces,
+    AppLog, Changes, GitSetup, Histories, Palettes, PlatformCacheDir, PlatformConfigDir,
+    PlatformLogDir, SettingsStore, Summaries, SummaryCache, Trees, Workspaces,
 };
 use platform::DesktopFontSource;
 use tauri::Manager;
@@ -66,6 +66,7 @@ pub fn run() -> Result<(), Error> {
         .manage(workspaces)
         .manage(summaries)
         .manage(Arc::new(Trees::new()))
+        .manage(Arc::new(Palettes::new()))
         .manage(Arc::new(Histories::default()))
         .manage(Arc::new(Changes::new()))
         // The window is created hidden and shown once its page starts

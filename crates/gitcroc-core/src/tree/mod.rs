@@ -237,7 +237,7 @@ impl Trees {
     }
 
     /// Reads the refs of `repo`, or takes the loaded ones.
-    fn read(
+    pub(crate) fn read(
         &self,
         workspaces: &Workspaces,
         id: &WorkspaceId,
