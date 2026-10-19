@@ -146,6 +146,7 @@ impl From<AiError> for IpcError {
             | AiError::Keychain(_)
             | AiError::NeedsKey
             | AiError::TakesNoKey(_)
+            | AiError::NotOffered(_)
             | AiError::ConsentChanged { .. } => IpcErrorCode::Refused,
         };
         Self {

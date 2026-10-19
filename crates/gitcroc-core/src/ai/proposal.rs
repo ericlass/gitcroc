@@ -158,6 +158,11 @@ pub fn consent_target(entry: &ProviderEntry, anthropic_url: &str) -> Option<Cons
     match entry.kind {
         ProviderKind::Anthropic => host(anthropic_url),
         ProviderKind::Openai => entry.base_url.as_deref().and_then(host),
+        // Nothing leaves the machine; the dialog still shows, as for any
+        // provider's first use.
+        ProviderKind::Mock => Some(ConsentTarget::Host {
+            host: "mock".to_owned(),
+        }),
         ProviderKind::ClaudeCode | ProviderKind::Codex => {
             entry.path.as_ref().map(|path| ConsentTarget::Program {
                 path: path.display().to_string(),

@@ -142,6 +142,7 @@ runs against one API provider and one CLI provider.
 | [M4-10](M4-10-resolve-all.md) | Resolve all with AI from the banner: 4 files at a time, progress, cancel | M4-09 |
 | [M4-11](M4-11-prompt-fixture-set.md) | At least 30 reviewed fixture conflicts and `just ai-eval` | M4-02, M4-03, M4-04, M4-07 |
 | [M4-12](M4-12-signoff.md) | Fixture runs against an API and a CLI provider, AI smoke test, M4 sign-off | M4-01 to M4-11 |
+| [M4-13](M4-13-idle-memory.md) | Idle memory within 400 MB again (missed in M4-12) | M4-12 |
 
 M4-07 needs nothing from the other M4 tasks and can run beside M4-01 to M4-04.
 M4-03 and M4-04 can run in parallel after M4-01, and M4-11 beside M4-08 to

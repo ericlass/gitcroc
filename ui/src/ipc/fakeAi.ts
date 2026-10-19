@@ -13,6 +13,7 @@ import type {
   ModelsResult,
   ProviderDraft,
   ProviderId,
+  ProviderKind,
   ProviderView,
   SelfTest,
 } from "./bindings";
@@ -46,6 +47,8 @@ export const fakeAi: {
   selfTest: SelfTest;
   /** Every draft and key sent to `ai_models_get` and `ai_self_test`, oldest first. */
   requests: { command: "models" | "self_test"; draft: ProviderDraft; key: string | null }[];
+  /** The kinds a provider can be added as; the core adds the mock only in the `e2e` build. */
+  kinds: ProviderKind[];
 } = {
   enabled: true,
   exclude: [],
@@ -58,7 +61,10 @@ export const fakeAi: {
   models: { kind: "not_offered" },
   selfTest: { kind: "passed", version: null },
   requests: [],
+  kinds: [],
 };
+
+const REAL_KINDS: ProviderKind[] = ["anthropic", "openai", "claude_code", "codex"];
 
 export const DEFAULT_EXCLUDE = [".env*", "*.pem", "*.key", "*.p12", "id_rsa*"];
 
@@ -74,6 +80,7 @@ export function resetFakeAi(): void {
   fakeAi.models = { kind: "not_offered" };
   fakeAi.selfTest = { kind: "passed", version: null };
   fakeAi.requests = [];
+  fakeAi.kinds = [...REAL_KINDS];
 }
 resetFakeAi();
 
@@ -125,6 +132,7 @@ export function fakeAiView(): AiView {
     detected: fakeAi.enabled ? [...fakeAi.detected] : [],
     offer: fakeAi.enabled ? (fakeAi.detected.find((cli) => !configured.has(cli.path)) ?? null) : null,
     keychain_error: null,
+    kinds: [...fakeAi.kinds],
   };
 }
 

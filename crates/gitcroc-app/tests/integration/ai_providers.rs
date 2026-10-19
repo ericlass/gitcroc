@@ -32,6 +32,8 @@ struct Script {
     self_test: SelfTest,
     /// What the mock provider of a proposal job replies, in order.
     replies: Vec<String>,
+    /// Offers the mock kind, as the `e2e` build does for the smoke test.
+    mock: bool,
 }
 
 impl Default for Script {
@@ -43,6 +45,7 @@ impl Default for Script {
                 version: Some("1.0.0".to_owned()),
             },
             replies: Vec::new(),
+            mock: false,
         }
     }
 }
@@ -97,6 +100,24 @@ impl AiBackend for FakeCalls {
 
     fn provider(&self, spec: ProviderSpec) -> Result<Box<dyn Provider>, String> {
         self.specs.lock().unwrap().push(spec);
+        Ok(Box::new(MockProvider::texts(self.script.replies.clone())))
+    }
+
+    fn kinds(&self) -> Vec<ProviderKind> {
+        let mut kinds = vec![
+            ProviderKind::Anthropic,
+            ProviderKind::Openai,
+            ProviderKind::ClaudeCode,
+            ProviderKind::Codex,
+        ];
+        if self.script.mock {
+            kinds.push(ProviderKind::Mock);
+        }
+        kinds
+    }
+
+    fn mock(&self) -> Result<Box<dyn Provider>, String> {
+        self.calls.lock().unwrap().push("mock".to_owned());
         Ok(Box::new(MockProvider::texts(self.script.replies.clone())))
     }
 }
@@ -233,6 +254,7 @@ fn draft(name: &str, kind: ProviderKind) -> ProviderDraft {
         ProviderKind::ClaudeCode | ProviderKind::Codex => {
             draft.path = Some(PathBuf::from("/opt/cli/bin/tool"));
         }
+        ProviderKind::Mock => {}
     }
     draft
 }
@@ -1237,4 +1259,69 @@ async fn d9_cancel_drops_the_request() {
         proposer.propose(context(), cancel).await,
         Err("cancelled".to_owned())
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ai_1_the_mock_kind_only_where_the_build_offers_it() {
+    let fixture = Fixture::new(None, Script::default());
+    assert!(!fixture.ai.view().kinds.contains(&ProviderKind::Mock));
+    assert!(matches!(
+        fixture.ai.save(draft("Mock", ProviderKind::Mock), None),
+        Err(AiError::NotOffered(ProviderKind::Mock))
+    ));
+    assert!(matches!(
+        fixture
+            .ai
+            .self_test(draft("Mock", ProviderKind::Mock), None),
+        Err(AiError::NotOffered(ProviderKind::Mock))
+    ));
+    assert!(fixture.settings.ai().providers.is_empty());
+
+    // Offered, it is saved without a key and answers from the mock after
+    // the consent dialog, as any provider does (AI-6).
+    let fixture = Fixture::new(
+        None,
+        Script {
+            replies: vec![REPLY.to_owned()],
+            mock: true,
+            ..Script::default()
+        },
+    );
+    let view = fixture.ai.view();
+    assert_eq!(view.kinds.last(), Some(&ProviderKind::Mock));
+    assert!(matches!(
+        fixture
+            .ai
+            .save(draft("Mock", ProviderKind::Mock), Some(KEY.to_owned())),
+        Err(AiError::TakesNoKey(ProviderKind::Mock))
+    ));
+    let view = fixture
+        .ai
+        .save(draft("Mock", ProviderKind::Mock), None)
+        .unwrap();
+    assert!(!view.providers[0].has_key);
+    assert_eq!(
+        view.providers[0]
+            .consent_needed
+            .as_ref()
+            .map(|request| &request.to),
+        Some(&ConsentTarget::Host {
+            host: "mock".to_owned()
+        })
+    );
+    fixture.ai.consent(&id("p1"), "mock").unwrap();
+    let entry = fixture.settings.ai().providers[0].clone();
+    let ai = fixture.ai.clone();
+    let proposer = tokio::task::spawn_blocking(move || ai.proposer(&entry, false))
+        .await
+        .unwrap()
+        .unwrap();
+    let proposal = proposer.propose(context(), Kill::new()).await.unwrap();
+    assert_eq!(
+        proposal.hunks[0].resolution.as_deref(),
+        Some("REPLY-TEXT\n")
+    );
+    assert!(fixture.calls.specs.lock().unwrap().is_empty());
+    assert!(fixture.calls.calls().contains(&"mock".to_owned()));
+    assert!(fixture.keychain.entries().is_empty());
 }
