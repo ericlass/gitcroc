@@ -20,12 +20,18 @@ const V1: PromptVersion = PromptVersion {
     user: include_str!("../prompts/v1/user.md"),
 };
 
+const V2: PromptVersion = PromptVersion {
+    name: "v2",
+    system: include_str!("../prompts/v2/system.md"),
+    user: include_str!("../prompts/v2/user.md"),
+};
+
 /// Every prompt version, oldest first, so the fixture set can compare them
 /// (AI-15).
-pub const PROMPT_VERSIONS: &[PromptVersion] = &[V1];
+pub const PROMPT_VERSIONS: &[PromptVersion] = &[V1, V2];
 
 /// The prompt version in use.
-const CURRENT: &PromptVersion = &V1;
+const CURRENT: &PromptVersion = &V2;
 
 /// The name of the prompt version in use.
 pub const PROMPT_VERSION: &str = CURRENT.name;
@@ -362,6 +368,10 @@ mod tests {
         let file = file();
         let hunks: Vec<&HunkRequest> = file.hunks.iter().collect();
         let request = build(PromptVersion::current(), &file, &hunks, TOKEN);
+        let golden = include_str!("../tests/prompts/v2-golden.txt");
+        assert_eq!(rendered(&request), golden);
+        // An older version still renders as it did (AI-15).
+        let request = build(&V1, &file, &hunks, TOKEN);
         let golden = include_str!("../tests/prompts/v1-golden.txt");
         assert_eq!(rendered(&request), golden);
     }

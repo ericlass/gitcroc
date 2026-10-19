@@ -28,10 +28,11 @@ fn file(hunks: Vec<HunkRequest>) -> FileRequest {
     }
 }
 
-/// The estimated tokens of a file's whole prompt with only `hunks`.
+/// The estimated tokens of a file's whole prompt with only `hunks`: system
+/// prompt and user message counted together, as the plan counts them.
 fn tokens(hunks: Vec<HunkRequest>) -> u64 {
     let request = prompt(&file(hunks));
-    estimate_tokens(&request.system) + estimate_tokens(&request.user)
+    estimate_tokens(&format!("{}{}", request.system, request.user))
 }
 
 /// A valid reply resolving `ids`.

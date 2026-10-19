@@ -109,7 +109,7 @@ fn ai_15_eval_json_report_has_every_field() {
         String::from_utf8_lossy(&out.stderr)
     );
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(json["prompt"], "v1");
+    assert_eq!(json["prompt"], gitcroc_ai::PROMPT_VERSION);
     assert_eq!(json["provider"], "mock");
     let fixture = &json["fixtures"][0];
     assert_eq!(json["fixtures"].as_array().unwrap().len(), 1);
@@ -149,7 +149,8 @@ fn ai_15_eval_json_report_has_every_field() {
     let out = eval(&[LEFT], &[]);
     assert!(out.status.success());
     let table = String::from_utf8(out.stdout).unwrap();
-    assert!(table.contains("prompt v1 · mock"), "{table}");
+    let title = format!("prompt {} · mock", gitcroc_ai::PROMPT_VERSION);
+    assert!(table.contains(&title), "{table}");
     assert!(table.contains("01-rust-import-block"), "{table}");
     assert!(
         table.contains("1 hunks: 0 match, 0 correct unresolved, 1 unresolved"),

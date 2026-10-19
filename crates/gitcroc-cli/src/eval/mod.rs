@@ -603,7 +603,7 @@ mod tests {
                     config_dir: None,
                 },
                 key_env: Some("KEY".to_owned()),
-                prompts: vec!["v1".to_owned()],
+                prompts: vec![PROMPT_VERSION.to_owned()],
                 only: Some("07".to_owned()),
                 json: true,
             })
