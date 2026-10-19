@@ -197,7 +197,7 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Rust toolchain | Pinned stable version in `rust-toolchain.toml`, latest stable at the time of M0-01 | M0-01 |
 | JS package manager | pnpm, Node LTS pinned in `.nvmrc` | M0-04 |
 | Styling | Plain CSS with CSS variables, one stylesheet per component; no CSS framework | M0-04, M0-07 |
-| App identifier | `dev.gitcroc.app` | M0-04 |
+| App identifier | `dev.gitcroc.desktop` (ADR 0002) | M0-04, M5-01 |
 | Config directory name | `gitcroc` under the platform config, cache and log dirs | M0-07 |
 | CI service | GitHub Actions | M0-03 |
 | Task file headings | "Implements" and "Respects" inside the Spec section, so the coverage script knows which IDs a milestone must test | M0-02 |

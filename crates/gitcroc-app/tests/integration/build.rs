@@ -1,5 +1,5 @@
-//! Build configuration (M0-08): one version number for the whole app, and no
-//! updater until auto-update arrives in M5.
+//! Build configuration (M0-08): one version number for the whole app, no
+//! updater until auto-update arrives in M5, and the app identifier (ADR 0002).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -78,4 +78,55 @@ fn no_updater_until_m5() {
         !manifest.contains("tauri-plugin-updater"),
         "the updater plugin must not be a dependency"
     );
+}
+
+/// ADR 0002: the app identifier is `dev.gitcroc.desktop`. Tauri merges an
+/// overlay config over `tauri.conf.json` (`--config`, or a platform file such
+/// as `tauri.linux.conf.json`), so no overlay may set another identifier.
+#[test]
+fn the_identifier_is_dev_gitcroc_desktop() {
+    let config = read_json(&app_dir().join("tauri.conf.json"));
+    assert_eq!(
+        config["identifier"].as_str(),
+        Some("dev.gitcroc.desktop"),
+        "tauri.conf.json identifier"
+    );
+
+    for path in overlay_configs() {
+        let identifier = if path.extension().is_some_and(|ext| ext == "toml") {
+            let table: toml::Table = toml::from_str(&read(&path))
+                .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+            table.get("identifier").map(ToString::to_string)
+        } else {
+            read_json(&path).get("identifier").map(ToString::to_string)
+        };
+        assert_eq!(
+            identifier,
+            None,
+            "{} must not set an identifier",
+            path.display()
+        );
+    }
+}
+
+/// The Tauri configs in the app crate other than `tauri.conf.json`:
+/// `tauri.<name>.conf.json` and `Tauri.<name>.toml`.
+fn overlay_configs() -> Vec<PathBuf> {
+    let entries =
+        fs::read_dir(app_dir()).unwrap_or_else(|e| panic!("read {}: {e}", app_dir().display()));
+    let mut overlays: Vec<PathBuf> = entries
+        .map(|entry| entry.expect("directory entry").path())
+        .filter(|path| {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            let lower = name.to_ascii_lowercase();
+            name != "tauri.conf.json"
+                && lower.starts_with("tauri.")
+                && (lower.ends_with(".conf.json") || lower.ends_with(".toml"))
+        })
+        .collect();
+    overlays.sort();
+    overlays
 }
