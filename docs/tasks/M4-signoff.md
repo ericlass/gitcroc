@@ -95,7 +95,30 @@ The p95 of `select-commit`, `switch-repo` and `input-latency-group-job` is over 
 
 ### Missed budgets
 
-- **Memory, idle and with a second tab: 441 MB and 456 MB, of 400 MB.** M4 caused it. On 2026-10-19, `just bench-ui --runs 1 --verbose` on the same machine and data measured the M3 commit (b5824b9) at 358 MB and 379 MB, and `main` at 442 MB and 463 MB. Both processes grew. The gitcroc process went from 151–189 MB to 185–199 MB, and the WebKit web process from 189–203 MB to 232–260 MB. The follow-up is [M4-13](M4-13-idle-memory.md): find the commit and what it holds, and bring both rows within budget.
+- **Memory, idle and with a second tab: 441 MB and 456 MB, of 400 MB.** The miss predates M4: M3 and M4 measure alike.
+
+  A first comparison, on 2026-10-19 with `just bench-ui --runs 1 --verbose`, measured the M3 commit (b5824b9) at 358 MB and 379 MB and `main` at 442 MB and 463 MB, and was read as growth in M4. [M4-13](M4-13-idle-memory.md) measured every commit from M3 to M4-11 again, the same day, under the same conditions: `taskset -c 0-7 just bench-ui --runs 2 --verbose` in a worktree of each commit, which runs three times (the medians below are of the three), with no other WebKit process running.
+
+  | Commit | memory-idle | memory-two-tabs | gitcroc, idle | WebKit web process, idle |
+  | --- | --- | --- | --- | --- |
+  | b5824b9 M3-15 | 404 MB | 424 MB | 159–162 MB | 220–240 MB |
+  | 512722d M4-01 | 393 MB | 414 MB | 158–169 MB | 212–248 MB |
+  | 2842fe7 M4-02 | 416 MB | 433 MB | 159–161 MB | 233–260 MB |
+  | 65627f3 AI-16 switch | 396 MB | 415 MB | 153–172 MB | 212–220 MB |
+  | a0a8a74 M4-03 | 422 MB | 437 MB | 153–173 MB | 223–261 MB |
+  | d1f8be9 M4-04 | 403 MB | 417 MB | 151–167 MB | 190–242 MB |
+  | a6f1265 M4-05 | 379 MB | 400 MB | 155–170 MB | 195–231 MB |
+  | 4284d7d #71 | 415 MB | 426 MB | 155–162 MB | 220–272 MB |
+  | 9e290d5 M4-06 | 428 MB | 441 MB | 156–183 MB | 229–247 MB |
+  | 23fa019 M4-07 | 405 MB | 423 MB | 160–168 MB | 219–244 MB |
+  | 4b8d69e M4-08 | 425 MB | 440 MB | 156–169 MB | 215–240 MB |
+  | fd774df M4-09 | 421 MB | 435 MB | 163 MB | 234–262 MB |
+  | 6dabffc M4-10 | 430 MB | 441 MB | 162–183 MB | 220–363 MB |
+  | 0d5a6cc M4-11 | 415 MB | 426 MB | 157–168 MB | 226–256 MB |
+
+  No commit shows a step: every median lies between 379 MB and 430 MB, and M3 is over the budget as well. The WebKit web process of one build varies by 30 to 40 MB from run to run, more than any commit changes it; the network process stayed at 18–19 MB throughout. The sizes are proportional (PSS), so they also depend on what else runs: with a WebKit MiniBrowser open beside the app, M4-11's gitcroc process read about 10 MB less and its network process 4 MB less. That does not explain the earlier 358 MB on its own; the conditions of that run are not known.
+
+  Reducing memory is deferred by Eric's decision (2026-10-19). Section 9's memory budget stays missed, at M3 and at M4.
 
 ## Keychain (Linux, by hand)
 
