@@ -16,6 +16,7 @@ import { createTagStore } from "../stores/tag";
 import { createTreeStore } from "../stores/tree";
 import { createWorkspaceStore } from "../stores/workspaces";
 import TreePane from "./TreePane";
+import { createCommandStore } from "../palette/commands";
 
 /** Row height in the mocked layout; a drop in its upper half lands above the row. */
 const ROW = 22;
@@ -97,6 +98,7 @@ async function setup() {
   render(() => (
     <TreePane
       workspace={id()}
+      commands={createCommandStore()}
       tree={tree}
       summaries={summaries}
       workspaces={createWorkspaceStore()}

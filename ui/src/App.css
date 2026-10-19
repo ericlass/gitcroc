@@ -1130,6 +1130,92 @@ button.danger:hover:not(:disabled) {
   color: var(--danger);
 }
 
+/* Command palette (UI-22) */
+
+.palette {
+  width: min(640px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.palette h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.palette-input {
+  width: 100%;
+}
+
+.palette-list {
+  height: min(60vh, 448px);
+  overflow: auto;
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.palette-rows {
+  position: relative;
+}
+
+.palette-row {
+  height: 28px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.palette-row.highlighted {
+  background: var(--bg-3);
+}
+
+.palette-row.disabled .palette-text {
+  color: var(--text-secondary);
+}
+
+.palette-kind {
+  flex: 0 0 96px;
+  color: var(--text-secondary);
+}
+
+.palette-text,
+.palette-detail,
+.palette-reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.palette-detail,
+.palette-reason {
+  color: var(--text-secondary);
+}
+
+.palette-reason {
+  margin-left: auto;
+}
+
+.palette-shortcut {
+  margin-left: auto;
+}
+
+.palette-more {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
 /* Operation dialogs: branches and sync (section 6) */
 
 .op-dialog {

@@ -14,6 +14,7 @@ import { createSummaryStore } from "../stores/summaries";
 import { createTagStore } from "../stores/tag";
 import HistoryPane, { ROW_HEIGHT } from "./HistoryPane";
 import { formatDate } from "./rows";
+import { createCommandStore } from "../palette/commands";
 
 // jsdom lays nothing out; give the list a height so rows are rendered.
 beforeEach(() => {
@@ -52,6 +53,7 @@ async function setup(options: { changes?: number } = {}) {
   render(() => (
     <HistoryPane
       workspace={id()}
+      commands={createCommandStore()}
       history={history}
       summaries={summaries}
       name={(repo) => repo}

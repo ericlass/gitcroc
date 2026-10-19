@@ -102,8 +102,9 @@ import { labelsOf, planResolution, textConflict } from "./fakeConflict";
 import { mergeTargetsOf, planIntegrate } from "./fakeIntegrate";
 import { fakeRemoteNameCheck, planRemote } from "./fakeRemotes";
 import { planReset, planTag, type TagPlan } from "./fakeTags";
-import { fakeDrop, fakePreflight, fakeRetry, fakeStart, type GroupDeps, resetGroups } from "./fakeGroups";
+import { fakeDrop, fakeGroups, fakePreflight, fakeRetry, fakeStart, type GroupDeps, resetGroups } from "./fakeGroups";
 import { fakeJob, jobsScenario } from "./fakeJobs";
+import { fakePaletteQuery } from "./fakePalette";
 import { applySync, planSync, pushChoicesOf } from "./fakeSync";
 import {
   type FakeRefs,
@@ -298,6 +299,10 @@ export const fakeState: {
   holdChanges: boolean;
   /** The held `changes_get` calls, oldest first; calling one starts it. */
   heldChanges: (() => void)[];
+  /** `palette_query` calls wait in `heldPalette` instead of answering, so a test can answer them in another order. */
+  holdPalette: boolean;
+  /** The held `palette_query` calls, oldest first; calling one answers it, `true` as superseded. */
+  heldPalette: ((superseded: boolean) => void)[];
   /** Every `workspace_set_layout`, oldest first. */
   layouts: PaneLayout[];
   /** Every `workspace_refresh`, oldest first. */
@@ -382,6 +387,8 @@ export const fakeState: {
   exportAnswer: ExportReport | { error: string } | null;
   /** Every workspace `workspace_export` was asked for, oldest first. */
   exports: WorkspaceId[];
+  /** How many times `workspace_import` was called. */
+  imports: number;
   /** What the import's open dialog leads to: a workspace with its missing repos, an error, or `null` for a cancel. */
   importAnswer: { workspace: WorkspaceView; missing: RepoId[] } | { error: string } | null;
   /** Every repo opened in the file manager or a terminal, oldest first. */
@@ -414,6 +421,8 @@ export const fakeState: {
   changesDelay: 0,
   holdChanges: false,
   heldChanges: [],
+  holdPalette: false,
+  heldPalette: [],
   layouts: [],
   refreshes: [],
   watchWarning: null,
@@ -456,6 +465,7 @@ export const fakeState: {
   missingRepos: [],
   exportAnswer: null,
   exports: [],
+  imports: 0,
   importAnswer: null,
   opened: [],
   openFailure: null,
@@ -1230,8 +1240,10 @@ function fakeResetOp(workspaceId: WorkspaceId, request: ResetRequest) {
     return refused(blocked);
   }
   const index = parentOf(request.commit) === null ? -1 : Number.parseInt(request.commit.slice(0, 8), 16);
-  const history = fakeState.histories[repo];
-  if (history === undefined || index < 0 || index >= history.length) {
+  // The history the history pane shows, which has a default for a repo without one.
+  const name = fakeState.workspace.repos.find((known) => known.id === repo)?.name ?? repo;
+  const history = fakeState.histories[repo] ?? defaultHistory(name, { kind: "repo" });
+  if (index < 0 || index >= history.length) {
     return refused(`'${request.commit}' names no commit`);
   }
   const row = commitAt(history, index);
@@ -1438,6 +1450,7 @@ export function reset(): void {
   fakeState.missingRepos = [];
   fakeState.exportAnswer = null;
   fakeState.exports = [];
+  fakeState.imports = 0;
   fakeState.importAnswer = null;
   fakeState.opened = [];
   fakeState.openFailure = null;
@@ -1499,6 +1512,8 @@ export function reset(): void {
   fakeState.changesDelay = 0;
   fakeState.holdChanges = false;
   fakeState.heldChanges = [];
+  fakeState.holdPalette = false;
+  fakeState.heldPalette = [];
   fakeState.layouts = [];
   fakeState.refreshes = [];
   fakeState.watchWarning = null;
@@ -1535,10 +1550,12 @@ const picked = typeof location === "undefined" ? null : new URLSearchParams(loca
 // `jobs` is the `tree` data set with this run's jobs (UI-21).
 // `ai-conflict` and `ai-resolve-all` are the `conflict` data set with AI to resolve it.
 const withAi = picked === "ai-conflict" || picked === "ai-resolve-all";
+// `conflict-choice` is the `conflict` data set with src/app.ts a choice between the two versions (OPS-6).
+const choice = picked === "conflict-choice";
 const data =
   picked === null
     ? null
-    : scenario(picked === "jobs" ? "tree" : withAi ? "conflict" : picked, defaultWorkspace.id);
+    : scenario(picked === "jobs" ? "tree" : withAi || choice ? "conflict" : picked, defaultWorkspace.id);
 if (picked === "jobs") {
   fakeState.jobs = jobsScenario(defaultWorkspace);
   nextJobId = 100;
@@ -1546,6 +1563,26 @@ if (picked === "jobs") {
 // `ai`: no provider yet, and an OpenAI-compatible provider offers two models (AI-1).
 if (picked === "ai") {
   fakeAi.models = { kind: "offered", models: ["small-model", "large-model"] };
+}
+if (choice) {
+  fakeState.fileConflicts = {
+    "src/app.ts": {
+      path: "src/app.ts",
+      labels: { ours: "main", theirs: "feature/login" },
+      content: {
+        kind: "choice",
+        reason: "deleted_by_them",
+        ours: { kind: "file", size: 120, executable: false },
+        theirs: { kind: "deleted" },
+      },
+      edited_outside: false,
+      on_disk: null,
+    },
+  };
+}
+// Playwright reads what reached the fake core, to tell which handler ran (UI-22).
+if (picked !== null && typeof window !== "undefined") {
+  Object.assign(window, { fakeCore: { state: fakeState, groups: fakeGroups } });
 }
 if (data) {
   fakeState.workspace = { ...defaultWorkspace, repos: data.repos, groups: data.groups ?? [] };
@@ -2121,6 +2158,7 @@ const fakeShareCommands: Pick<Core["commands"], "workspaceExport" | "workspaceIm
     return Promise.resolve({ status: "ok", data: null });
   },
   workspaceImport: () => {
+    fakeState.imports += 1;
     const answer = fakeState.importAnswer;
     if (answer !== null) {
       setTimeout(() => {
@@ -2307,11 +2345,18 @@ export const fake: Core = {
       return Promise.resolve({ status: "ok", data: filterTree(workspace, fakeState.refs, text, fakeState.summaries) });
     },
     // Nothing matches yet: the palette's window and the fake's matching come with M5-08.
-    paletteQuery: (workspaceId) => {
-      if (openWorkspace(workspaceId) === undefined) {
+    paletteQuery: (workspaceId, text) => {
+      const workspace = openWorkspace(workspaceId);
+      if (workspace === undefined) {
         return notFound(`no open workspace has the id ${workspaceId}`);
       }
-      return Promise.resolve({ status: "ok", data: { items: [], total: 0 } });
+      const answer = () => fakePaletteQuery(workspace, fakeState.summaries, fakeState.refModels, fakeAi.enabled, text);
+      if (!fakeState.holdPalette) {
+        return Promise.resolve({ status: "ok", data: answer() });
+      }
+      return new Promise((resolve) =>
+        fakeState.heldPalette.push((superseded) => resolve({ status: "ok", data: superseded ? null : answer() })),
+      );
     },
     historyGet: async (workspaceId, repoId, target, text) => {
       const workspace = openWorkspace(workspaceId);

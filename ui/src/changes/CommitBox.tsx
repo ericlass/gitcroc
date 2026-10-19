@@ -1,11 +1,13 @@
 // The commit message box under the file lists of "Uncommitted changes"
 // (UI-15): a subject line, a body, Commit and Amend. For a group or several
 // repos (UI-34) the Commit button names how many repos it commits, the
-// group Commit's options sit above it, and there is no Amend. It shows what
+// group Commit's options sit above it, and there is no Amend. The palette's
+// Commit and Amend run its buttons, by their rules (UI-22). It shows what
 // the commit store holds and forwards input; the core composes the message
 // and refuses what cannot be committed (ARCH-6).
-import { type JSX, Show } from "solid-js";
-import type { CommitMessage } from "../ipc";
+import { createEffect, type JSX, onCleanup, Show } from "solid-js";
+import type { CommitMessage, WorkspaceId } from "../ipc";
+import { type CommandStore, commandOf, type Providers } from "../palette/commands";
 import { strings } from "../strings/en";
 
 export default function CommitBox(props: {
@@ -25,8 +27,31 @@ export default function CommitBox(props: {
   onAmend?: () => void;
   /** Options shown above the buttons. */
   children?: JSX.Element;
+  /** Where the box provides the palette's Commit and Amend, for the workspace it shows (UI-22). */
+  commands: { store: CommandStore; workspace: WorkspaceId };
 }) {
   const canCommit = () => !props.busy && props.staged && props.draft.subject.trim() !== "";
+  const canAmend = () => !props.busy && props.amendable;
+
+  // Why Commit is disabled: what is missing first.
+  const commitWhy = () =>
+    !props.staged
+      ? strings.palette.nothingStaged
+      : props.draft.subject.trim() === ""
+        ? strings.palette.noSubject
+        : undefined;
+  const paletteCommands: Providers<"commit"> = {
+    commit: () => (canCommit() ? { run: () => props.onCommit() } : commandOf(null, commitWhy())),
+    amend: () =>
+      props.onAmend === undefined
+        ? { reason: strings.palette.oneRepo }
+        : canAmend()
+          ? { run: () => props.onAmend?.() }
+          : commandOf(null),
+  };
+  createEffect(() =>
+    onCleanup(props.commands.store.provide(props.commands.workspace, "commit", paletteCommands)),
+  );
 
   // Ctrl or Cmd and Enter commits from either field.
   const onKeyDown = (event: KeyboardEvent) => {
@@ -65,7 +90,7 @@ export default function CommitBox(props: {
           {(amend) => (
             <button
               type="button"
-              disabled={props.busy || !props.amendable}
+              disabled={!canAmend()}
               title={strings.changes.amendTitle}
               onClick={() => amend()()}
             >

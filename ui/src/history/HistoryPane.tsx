@@ -6,12 +6,26 @@
 // on its own repo, and "Uncommitted changes (n repos)" leads while any repo
 // is dirty (UI-34). Rows, lanes and search results come from the core
 // through the history store; this component lays them out and forwards
-// input.
+// input. The palette's commit operations run the commit menu's entries for
+// the selected commits, by the menu's rules (UI-22).
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, createSignal, For, Index, Match, on, onMount, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Index,
+  Match,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+  Switch,
+} from "solid-js";
 import ConflictBanner, { type BannerAi } from "../integrate/ConflictBanner";
 import { IntegrateRefusal } from "../integrate/IntegrateDialogs";
-import type { HistoryRow, RefLabel, RepoId, WorkspaceId } from "../ipc";
+import type { HistoryRow, RefLabel, RepoId, ResetMode, WorkspaceId } from "../ipc";
+import { type Command, type CommandStore, commandOf, type Provider, type Providers } from "../palette/commands";
 import Splitter from "../layout/Splitter";
 import type { BranchStore } from "../stores/branch";
 import { commitOf, type HistoryStore } from "../stores/history";
@@ -151,6 +165,7 @@ function HistoryList(props: {
   integrate: IntegrateStore;
   tag: TagStore;
   reset: ResetStore;
+  commands: CommandStore;
 }) {
   let scroller: HTMLDivElement | undefined;
   const history = () => props.history.history(props.workspace);
@@ -325,7 +340,8 @@ function HistoryList(props: {
         );
   };
 
-  const act = (action: CommitAction, rowIds: string[], text: string) => {
+  /** `mode` is the reset mode the dialog opens with. */
+  const act = (action: CommitAction, rowIds: string[], text: string, mode?: ResetMode) => {
     setMenu(null);
     const { repo: shown, hashes: commits } = commitsOf(rowIds);
     const [hash] = commits;
@@ -356,11 +372,44 @@ function HistoryList(props: {
       case "reset": {
         const head = viewOf(shown)?.summary?.head;
         const branch = head?.kind === "branch" ? head.name : null;
-        props.reset.open(props.workspace, { kind: "reset", repo: shown, commit: hash, text, branch });
+        props.reset.open(props.workspace, { kind: "reset", repo: shown, commit: hash, text, branch, mode });
         return;
       }
     }
   };
+
+  /**
+   * The palette's command for `action` of the commit menu of `commits`, as
+   * the menu opened on the row `text` names has it.
+   */
+  const menuCommand = (action: CommitAction, commits: string[], text: string, mode?: ResetMode): Command | null => {
+    const entry = entries(commits).find((candidate) => candidate.action === action);
+    if (entry === undefined) {
+      return null;
+    }
+    return entry.disabled ? commandOf(null, entry.title) : { run: () => act(action, commits, text, mode) };
+  };
+  /** The command for `action` on the selected commits: the multi-selection when the selected row is in it. */
+  const fromMenu =
+    (action: CommitAction, mode?: ResetMode): Provider =>
+    () => {
+      const row = rows().at(selectedIndex());
+      if (row?.kind !== "commit") {
+        return null;
+      }
+      const marked = history().marked;
+      const commits = marked.includes(row.id) ? marked : [row.id];
+      return menuCommand(action, commits, `${row.commit.short_hash} ${row.commit.subject}`, mode);
+    };
+  const paletteCommands: Providers<"history"> = {
+    checkout_commit: fromMenu("checkout"),
+    cherry_pick: fromMenu("cherry_pick"),
+    revert: fromMenu("revert"),
+    reset_soft: fromMenu("reset", "soft"),
+    reset_mixed: fromMenu("reset", "mixed"),
+    reset_hard: fromMenu("reset", "hard"),
+  };
+  createEffect(() => onCleanup(props.commands.provide(props.workspace, "history", paletteCommands)));
 
   const onKeyDown = (event: KeyboardEvent) => {
     const index = selectedIndex();
@@ -492,6 +541,7 @@ export default function HistoryPane(props: {
   reset: ResetStore;
   /** Resolve all with AI in the conflict banner (AI-3). */
   resolveAll?: BannerAi;
+  commands: CommandStore;
 }) {
   const history = () => props.history.history(props.workspace);
   /** The repo of a single-repo history; a merged one has none. */
@@ -551,6 +601,7 @@ export default function HistoryPane(props: {
               summaries={props.summaries}
               integrate={props.integrate}
               resolveAll={props.resolveAll}
+              commands={props.commands}
             />
           )}
         </Show>
@@ -593,6 +644,7 @@ export default function HistoryPane(props: {
           integrate={props.integrate}
           tag={props.tag}
           reset={props.reset}
+          commands={props.commands}
         />
       </Show>
     </div>

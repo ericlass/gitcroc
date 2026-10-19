@@ -27,7 +27,7 @@ use gitcroc_core::{
     SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch, TagError, TagRequest, TagStart,
     TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers,
     WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces,
-    add_path, group_summaries, refresh_summaries, refresh_workspace, tree_refs,
+    add_path, group_summaries, palette_catalog, refresh_summaries, refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -2952,6 +2952,8 @@ macro_rules! with_commands {
 pub fn builder() -> Builder<tauri::Wry> {
     Builder::new()
         .commands(with_commands!(collect_commands))
+        // The palette's operations (UI-22), for the fake core and the tests.
+        .constant("PALETTE_CATALOG", palette_catalog())
         .events(collect_events![
             JobProgressEvent,
             GitStatusEvent,

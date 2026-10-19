@@ -5,11 +5,14 @@
 // conflict started in a terminal shows the same (OPS-1). Names are text
 // only (SEC-3). With AI features on (AI-16) it has Resolve all with AI
 // (AI-3), and under it the files of the repo's last run and where each is
-// (AI-13); a file's name opens it in the conflict editor.
-import { createEffect, on, Show } from "solid-js";
+// (AI-13); a file's name opens it in the conflict editor. The palette's
+// Abort, Continue and Resolve all with AI run its buttons, by their rules
+// (UI-22).
+import { createEffect, on, onCleanup, Show } from "solid-js";
 import AiFileList from "../conflict/AiFileList";
 import { aiAsk, type ConflictAi } from "../conflict/ConflictEditor";
 import type { ConflictDetails, Operation, RepoId, WorkspaceId } from "../ipc";
+import { type CommandStore, commandOf, type Providers } from "../palette/commands";
 import type { IntegrateStore } from "../stores/integrate";
 import type { ResolveAllStore } from "../stores/resolveAll";
 import type { SummaryStore } from "../stores/summaries";
@@ -70,6 +73,7 @@ export default function ConflictBanner(props: {
   summaries: SummaryStore;
   integrate: IntegrateStore;
   resolveAll?: BannerAi;
+  commands: CommandStore;
 }) {
   const view = () => props.summaries.view(props.workspace, props.repo);
   const state = () => view()?.summary?.state;
@@ -87,6 +91,35 @@ export default function ConflictBanner(props: {
       void banner.store.start(props.workspace, props.repo, aiAsk(banner.ai));
     }
   };
+
+  const abort = () => void props.integrate.run(props.workspace, props.repo, { kind: "abort" });
+  const continueOperation = () => void props.integrate.run(props.workspace, props.repo, { kind: "continue" });
+  /** Continue's tooltip. */
+  const continueTitle = () =>
+    operation() === "stash_apply"
+      ? strings.integrate.stashApplyEnds
+      : unmerged() > 0
+        ? strings.integrate.resolveFirst
+        : undefined;
+  /** Why Continue is disabled, as its tooltip says; `null` while it is enabled. */
+  const continueWhy = () =>
+    sending() || unmerged() > 0 ? (continueTitle() ?? strings.palette.cannotApply) : null;
+
+  // The banner's buttons, for the palette, while it is shown.
+  const paletteCommands: Providers<"banner"> = {
+    abort: () => (operation() === null ? null : commandOf(sending() ? null : abort)),
+    continue: () => {
+      const why = continueWhy();
+      return operation() === null ? null : why === null ? commandOf(continueOperation) : { reason: why };
+    },
+    resolve_all_with_ai: () =>
+      operation() === null || !aiOn()
+        ? null
+        : workspaceOff()
+          ? { reason: strings.integrate.aiOffTitle }
+          : commandOf(run()?.starting === true || running() ? null : resolveAll),
+  };
+  createEffect(() => onCleanup(props.commands.provide(props.workspace, "banner", paletteCommands)));
 
   // Read again whenever the repo is read again: a step went by, a path was
   // staged, or the operation changed.
@@ -128,7 +161,7 @@ export default function ConflictBanner(props: {
               type="button"
               disabled={sending()}
               title={abortTitle(current())}
-              onClick={() => void props.integrate.run(props.workspace, props.repo, { kind: "abort" })}
+              onClick={abort}
             >
               {strings.integrate.abort}
             </button>
@@ -136,14 +169,8 @@ export default function ConflictBanner(props: {
               type="button"
               class="primary"
               disabled={sending() || unmerged() > 0}
-              title={
-                current() === "stash_apply"
-                  ? strings.integrate.stashApplyEnds
-                  : unmerged() > 0
-                    ? strings.integrate.resolveFirst
-                    : undefined
-              }
-              onClick={() => void props.integrate.run(props.workspace, props.repo, { kind: "continue" })}
+              title={continueTitle()}
+              onClick={continueOperation}
             >
               {strings.integrate.continue}
             </button>

@@ -123,8 +123,9 @@ pub enum PaletteSubject {
     App,
 }
 
-/// One entry of the catalog.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// One entry of the catalog. Exported to the UI's bindings as a constant,
+/// for the fake core and the tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 pub struct PaletteEntry {
     pub op: PaletteOp,
     pub label: &'static str,

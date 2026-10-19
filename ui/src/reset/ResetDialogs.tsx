@@ -4,7 +4,7 @@
 // before a hard reset, naming the branch, the commit and how many files'
 // changes are lost (GRP-9). Names and subjects are shown as text only
 // (SEC-3).
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, untrack } from "solid-js";
 import { Actions, ConfirmDialog, Frame, Refusal } from "../dialogs/parts";
 import type { RepoId, ResetMode, WorkspaceId } from "../ipc";
 import type { ResetDialog, ResetStore } from "../stores/reset";
@@ -24,7 +24,8 @@ const MODES: { mode: ResetMode; label: string }[] = [
 ];
 
 function ModeDialog(props: DialogProps<"reset">) {
-  const [mode, setMode] = createSignal<ResetMode>("mixed");
+  // The dialog is made anew for each opening: the mode it opens with is read once.
+  const [mode, setMode] = createSignal<ResetMode>(untrack(() => props.dialog.mode ?? "mixed"));
   const close = () => props.reset.close(props.workspace);
   return (
     <Frame

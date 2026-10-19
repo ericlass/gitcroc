@@ -5,10 +5,12 @@
 // Export workspace (DATA-2), AI for this workspace (AI-6), shown only
 // while AI features are on (AI-16), and Close. "+" lists the workspace files and offers New and Import. A tab
 // shows how many of its jobs run or wait, and a marker for a failed or
-// conflicted job the user has not seen (UI-32). The core keeps the tabs;
+// conflicted job the user has not seen (UI-32). The palette's next and
+// previous tab do what the arrow keys do (UI-22). The core keeps the tabs;
 // this sends what the user did.
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { WorkspaceId } from "../ipc";
+import { type Command, type CommandStore, type Providers } from "../palette/commands";
 import type { AiStore } from "../stores/ai";
 import type { JobStore } from "../stores/jobs";
 import type { ShareStore } from "../stores/share";
@@ -20,6 +22,7 @@ import { strings } from "../strings/en";
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export default function TabBar(props: {
+  commands: CommandStore;
   workspaces: WorkspaceStore;
   jobs: JobStore;
   dialogs: WorkspaceDialogs;
@@ -66,17 +69,39 @@ export default function TabBar(props: {
   window.addEventListener("keydown", onWindowKey);
   onCleanup(() => window.removeEventListener("keydown", onWindowKey));
 
+  /** The tab `step` places from `id`, if there is one. */
+  const beside = (id: WorkspaceId, step: 1 | -1): WorkspaceId | undefined => {
+    const order = views().map((view) => view.id);
+    return order[order.indexOf(id) + step];
+  };
+
+  /** Activates `id`, the focus on its tab. */
+  const activate = (id: WorkspaceId) => send(props.workspaces.activate(id).then(() => focusTab(id)));
+
+  /** Activates `next`, as the arrow keys do; `reason` says why not when there is none. */
+  const activateCommand = (next: WorkspaceId | undefined, reason: string): Command =>
+    next === undefined ? { reason } : { run: () => activate(next) };
+  // The palette's next and previous tab: what the arrow keys on the active tab do.
+  const besideActive = (step: 1 | -1, reason: string) => {
+    const id = active();
+    return id === null ? null : activateCommand(beside(id, step), reason);
+  };
+  const paletteCommands: Providers<"tabs"> = {
+    next_tab: () => besideActive(1, strings.palette.lastTab),
+    previous_tab: () => besideActive(-1, strings.palette.firstTab),
+  };
+  createEffect(() => onCleanup(props.commands.provide(null, "tabs", paletteCommands)));
+
   /** The arrow keys, Home and End activate another tab; the context menu key opens its menu. */
   const onTabKey = (event: KeyboardEvent, id: WorkspaceId, name: string) => {
     const order = views().map((view) => view.id);
-    const index = order.indexOf(id);
     let next: WorkspaceId | undefined;
     switch (event.key) {
       case "ArrowLeft":
-        next = order[index - 1];
+        next = beside(id, -1);
         break;
       case "ArrowRight":
-        next = order[index + 1];
+        next = beside(id, 1);
         break;
       case "Home":
         next = order[0];
@@ -97,8 +122,7 @@ export default function TabBar(props: {
     }
     event.preventDefault();
     if (next !== undefined) {
-      const target = next;
-      send(props.workspaces.activate(target).then(() => focusTab(target)));
+      activate(next);
     }
   };
 

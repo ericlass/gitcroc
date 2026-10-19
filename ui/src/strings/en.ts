@@ -141,6 +141,47 @@ export const strings = {
     settings: "Settings",
   },
 
+  palette: {
+    label: "Command palette",
+    search: "Type a command, repository, group or branch",
+    results: "Matches",
+    /** What each kind of row is, shown before its text. */
+    kinds: {
+      operation: "Command",
+      repo: "Repository",
+      group: "Group",
+      branch: "Branch",
+      remoteBranch: "Remote branch",
+    },
+    /** A branch's repo, after its name. */
+    inRepo: (repo: string) => `in ${repo}`,
+    members: (count: number) => plural(count, "repository", "repositories"),
+    more: (shown: number, total: number) => `${shown} of ${total}, keep typing`,
+    nothing: "Nothing matches",
+    cannotRead: (error: string) => `Cannot search: ${error}`,
+    /** Why an operation cannot apply, when its control gives no reason of its own. */
+    cannotApply: "Cannot apply to the selection now",
+    /** What to select for an operation, by what it acts on. */
+    select: {
+      target_set: "Select a repository or a group in the tree",
+      branch: "Select a branch in the tree",
+      tag: "Select a tag in the tree",
+      stash: "Select a stash in the tree",
+      remote: "Select a remote in the tree",
+      commit: "Select a commit in the history",
+      file: "Select a file in the changes pane",
+      conflict: "Select a repository in conflict",
+      app: "Open a workspace",
+    },
+    oneRepo: "Works on one repository at a time",
+    nothingStaged: "Stage changes first",
+    noSubject: "Write the commit message first",
+    noHunk: "Put the cursor in a conflict hunk",
+    notChoice: "Only for a file that cannot be merged line by line",
+    lastTab: "There is no tab after this one",
+    firstTab: "There is no tab before this one",
+  },
+
   tabs: {
     label: "Workspaces",
     jobs: (count: number) => plural(count, "job", "jobs"),

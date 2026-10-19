@@ -16,10 +16,12 @@ import GitSetup from "./GitSetup";
 import GroupNameDialog from "./groups/GroupNameDialog";
 import GroupSyncDialog from "./groups/GroupSyncDialog";
 import PreflightDialog from "./groups/PreflightDialog";
-import { appInfo, type GroupOp, type JobId, type TargetSet, type WorkspaceId } from "./ipc";
+import { appInfo, type GroupOp, type JobId, type PaletteItem, type TargetSet, type WorkspaceId } from "./ipc";
 import { needsLook } from "./jobs/GroupReport";
 import JobList from "./jobs/JobList";
 import Panes from "./layout/Panes";
+import { commandOf, createCommandStore } from "./palette/commands";
+import Palette from "./palette/Palette";
 import StatusBar from "./layout/StatusBar";
 import TabBar from "./layout/TabBar";
 import Toolbar, { type ToolbarReasons } from "./layout/Toolbar";
@@ -116,6 +118,8 @@ export default function App() {
   const integrate = createIntegrateStore((id, repo) => stash.forget(id, repo));
   const watch = createWatchStore();
   const workspaceDialogs = createWorkspaceDialogs();
+  // What the palette's operations run, provided by the places that have them (UI-22).
+  const commands = createCommandStore();
   /** Settings is open, at its top or at its AI section (AI-3). */
   const [settingsOpen, setSettingsOpen] = createSignal<"top" | "ai" | null>(null);
   /** The options dialog of Fetch, Pull or Push: what it is for, and what runs the picked options. */
@@ -129,6 +133,8 @@ export default function App() {
   const [missingDismissed, setMissingDismissed] = createSignal(false);
   /** Why a workspace chosen while no tab is open did not open. */
   const [startError, setStartError] = createSignal<string | null>(null);
+  /** The palette, when open: the workspace it searches and what had the focus before (UI-22). */
+  const [palette, setPalette] = createSignal<{ workspace: WorkspaceId; opener: Element | null } | null>(null);
 
   // The active tab's workspace (UI-27). It is passed down, never read from
   // a module, so switching tabs needs no rework (ARCH-9).
@@ -267,6 +273,25 @@ export default function App() {
     return () => integrate.open(selected.id, { kind: "merge", repo: selected.repo });
   };
 
+  /**
+   * Rebase onto a ref: the merge dialog with rebase chosen for the selected
+   * repo, by the rules of Merge, or the group rebase dialog of a group or
+   * several repos (GRP-13).
+   */
+  const rebaseAction = () => {
+    const current = target();
+    const workspaceId = workspace()?.id;
+    if (workspaceId !== undefined && (current?.kind === "group" || current?.kind === "repos")) {
+      return () =>
+        groupOps.openName({ workspaceId, target: current, targetName: targetName(current), kind: "rebase", name: "" });
+    }
+    const selected = selectedRepo();
+    if (selected === null || !canPullOrPush(selected.view)) {
+      return null;
+    }
+    return () => integrate.open(selected.id, { kind: "merge", repo: selected.repo, rebase: true });
+  };
+
   /** Opens the stash dialog for the selected repo: not blocked (GRP-8) and with changes to stash. */
   const stashAction = () => {
     const target = branchRepo();
@@ -308,6 +333,79 @@ export default function App() {
     conflicts.forgetWorkspace(id);
     resolveAll.forgetWorkspace(id);
   };
+
+  /** Opens the palette on the active workspace, unless another dialog is open (UI-22). */
+  const openPalette = () => {
+    const id = workspace()?.id;
+    if (id === undefined || document.querySelector("[aria-modal=true]") !== null) {
+      return;
+    }
+    setPalette({ workspace: id, opener: document.activeElement });
+  };
+
+  /** Closes the palette; the focus goes back where it was. */
+  const closePalette = () => {
+    const open = palette();
+    setPalette(null);
+    if (open?.opener instanceof HTMLElement) {
+      open.opener.focus();
+    }
+  };
+
+  /** A repo, group or branch chosen in the palette is selected in the tree as a click does; the tree has the focus. */
+  const selectFromPalette = (id: WorkspaceId, item: Exclude<PaletteItem, { kind: "operation" }>) => {
+    const place =
+      item.kind === "repo"
+        ? ({ kind: "repo", repo: item.repo_id } as const)
+        : item.kind === "group"
+          ? ({ kind: "group", group: item.group_id } as const)
+          : ({ kind: "branch", repo: item.repo_id, name: item.name, remote: item.remote } as const);
+    void tree.reveal(id, place).then(() => document.querySelector<HTMLElement>("[role=tree]")?.focus());
+  };
+
+  // Ctrl+K, or Cmd+K on macOS, opens and closes the palette wherever the focus is, also in the
+  // diff and conflict editors: it is caught before them.
+  const onPaletteKey = (event: KeyboardEvent) => {
+    const mod = info()?.os === "macos" ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+    if (!mod || event.altKey || event.shiftKey || event.key.toLowerCase() !== "k") {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (palette() === null) {
+      openPalette();
+    } else {
+      closePalette();
+    }
+  };
+  window.addEventListener("keydown", onPaletteKey, true);
+  onCleanup(() => window.removeEventListener("keydown", onPaletteKey, true));
+
+  // The toolbar's operations and the window's own, as their controls run them (UI-22).
+  commands.provide(null, "app", {
+    fetch: () => (target() === null ? null : commandOf(syncActions().fetch, disabledWhy().fetch)),
+    fetch_with_options: () => (target() === null ? null : commandOf(syncActions().fetchOptions, disabledWhy().fetch)),
+    pull: () => (target() === null ? null : commandOf(syncActions().pull, disabledWhy().pull)),
+    pull_with_options: () => (target() === null ? null : commandOf(syncActions().pullOptions, disabledWhy().pull)),
+    push: () => (target() === null ? null : commandOf(syncActions().push, disabledWhy().push)),
+    push_with_options: () => (target() === null ? null : commandOf(syncActions().pushOptions, disabledWhy().push)),
+    create_branch: () => (target() === null ? null : commandOf(branchAction(), disabledWhy().branch)),
+    merge: () => (target() === null ? null : commandOf(mergeAction(), disabledWhy().merge)),
+    rebase: () => (target() === null ? null : commandOf(rebaseAction(), disabledWhy().merge)),
+    stash: () => (target() === null ? null : commandOf(stashAction(), disabledWhy().stash)),
+    settings: () => commandOf(() => setSettingsOpen("top")),
+    job_list: () => commandOf(() => setJobsOpen({})),
+    new_workspace: () => commandOf(() => workspaceDialogs.open({ kind: "new" })),
+    import_workspace: () => commandOf(() => share.importWorkspace()),
+    export_workspace: () => {
+      const id = workspace()?.id;
+      return id === undefined ? null : commandOf(() => share.exportWorkspace(id));
+    },
+    close_tab: () => {
+      const id = workspace()?.id;
+      return id === undefined ? null : commandOf(() => void closeTab(id));
+    },
+  });
 
   followAppearance(settings.appearance, followTheme(settings.theme));
   followDesktopFonts(() => ({ ui: info()?.ui_font ?? null, code: info()?.code_font ?? null }));
@@ -437,6 +535,7 @@ export default function App() {
       <Match when={true}>
         <div class="app">
           <TabBar
+            commands={commands}
             workspaces={workspaces}
             jobs={jobs}
             dialogs={workspaceDialogs}
@@ -468,6 +567,7 @@ export default function App() {
             onMerge={mergeAction()}
             onStash={stashAction()}
             disabledWhy={disabledWhy()}
+            onPalette={workspace() === undefined ? null : openPalette}
             onSettings={() => setSettingsOpen("top")}
           />
           <Show when={workspace()?.id}>{(id) => <SyncRefusal workspace={id()} sync={sync} />}</Show>
@@ -557,6 +657,7 @@ export default function App() {
                     settings={settings}
                     ai={ai}
                     resolveAll={resolveAll}
+                    commands={commands}
                     onAiSettings={() => setSettingsOpen("ai")}
                   />
                 </main>
@@ -644,6 +745,16 @@ export default function App() {
                 git={git.state.result}
                 at={at}
                 onClose={() => setSettingsOpen(null)}
+              />
+            )}
+          </Show>
+          <Show when={palette()} keyed>
+            {(open) => (
+              <Palette
+                workspace={open.workspace}
+                commands={commands}
+                onClose={closePalette}
+                onSelect={(item) => selectFromPalette(open.workspace, item)}
               />
             )}
           </Show>

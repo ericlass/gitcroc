@@ -10,6 +10,7 @@ import { createLayoutStore } from "../stores/layout";
 import type { CommitSelection } from "../stores/selection";
 import { createSettingsStore } from "../stores/settings";
 import ChangesPane from "./ChangesPane";
+import { createCommandStore } from "../palette/commands";
 
 // jsdom lays nothing out; give the file list a height so rows are rendered,
 // and stand in for the blob URLs it cannot make.
@@ -55,6 +56,7 @@ async function setup() {
   render(() => (
     <ChangesPane
       workspace={id()}
+      commands={createCommandStore()}
       changes={changes}
       commit={createCommitStore()}
       conflicts={createConflictStore(() => {})}

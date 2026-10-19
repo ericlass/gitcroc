@@ -67,6 +67,12 @@ export interface WorkspaceTree {
   groups: Record<GroupId, GroupSummary>;
 }
 
+/** A row the palette selects (UI-22): a repo, a group, or a local or remote branch by its tree name. */
+export type RevealPlace =
+  | { kind: "repo"; repo: RepoId }
+  | { kind: "group"; group: GroupId }
+  | { kind: "branch"; repo: RepoId; name: string; remote: string | null };
+
 /** A multi-selected repo row. */
 export interface SelectedRow {
   row: string;
@@ -153,6 +159,20 @@ function findRepo(nodes: TreeNode[], repo: RepoId): TreeNode | undefined {
     }
   }
   return undefined;
+}
+
+/** The nodes from the top of `nodes` down to the first node `match` finds, depth first; `null` when none. */
+function pathTo(nodes: TreeNode[], match: (node: TreeNode) => boolean): TreeNode[] | null {
+  for (const node of nodes) {
+    if (match(node)) {
+      return [node];
+    }
+    const below = pathTo(node.children ?? [], match);
+    if (below !== null) {
+      return [node, ...below];
+    }
+  }
+  return null;
 }
 
 export function createTreeStore() {
@@ -444,6 +464,56 @@ export function createTreeStore() {
     return refilter(id);
   };
 
+  /**
+   * Selects the row of `place` as a click does (UI-22): a filter is cleared
+   * so the row is in the tree, the rows above it are expanded, and a
+   * branch's refs are loaded first. A repo in several places is selected
+   * where it first appears. Nothing happens when the tree has no such row.
+   */
+  const reveal = async (id: WorkspaceId, place: RevealPlace) => {
+    if (tree(id).filter !== "") {
+      await setFilter(id, "");
+    }
+    const roots = tree(id).roots ?? [];
+    const path =
+      place.kind === "group"
+        ? pathTo(roots, (node) => node.item.kind === "group" && node.item.group_id === place.group)
+        : pathTo(roots, (node) => node.item.kind === "repo" && node.item.repo_id === place.repo);
+    const found = path?.at(-1);
+    if (path === null || found === undefined) {
+      return;
+    }
+    if (place.kind !== "branch") {
+      for (const above of path.slice(0, -1)) {
+        setExpanded(id, above, true);
+      }
+      select(id, found);
+      return;
+    }
+    const refNode = found.children?.find((child) => child.item.kind === (place.remote === null ? "local" : "remotes"));
+    const key = refNode === undefined ? null : loadKey(refNode.item);
+    if (refNode === undefined || key === null) {
+      return;
+    }
+    if (tree(id).refs[key] === undefined) {
+      await load(id, refNode.item);
+    }
+    const loaded = tree(id).refs[key]?.find((ref) => ref.id === refNode.id)?.children ?? [];
+    const below = pathTo(loaded, (node) =>
+      place.remote === null
+        ? node.item.kind === "branch" && node.item.name === place.name
+        : node.item.kind === "remote_branch" && node.item.name === place.name,
+    );
+    const branch = below?.at(-1);
+    if (below === null || branch === undefined) {
+      return;
+    }
+    for (const above of [...path, refNode, ...below.slice(0, -1)]) {
+      setExpanded(id, above, true);
+    }
+    select(id, branch);
+  };
+
   const setScrollTop = (id: WorkspaceId, scrollTop: number) => update(id, (t) => (t.scrollTop = scrollTop));
 
   /** What the row of a group node with `summary` shows now. */
@@ -464,6 +534,7 @@ export function createTreeStore() {
     target,
     selectRow,
     selectRepo,
+    reveal,
     setFilter,
     setScrollTop,
     groupSummary,

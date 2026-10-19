@@ -9,6 +9,7 @@ import { createConflictStore } from "../stores/conflicts";
 import { createLayoutStore } from "../stores/layout";
 import { createSettingsStore } from "../stores/settings";
 import ChangesPane from "./ChangesPane";
+import { createCommandStore } from "../palette/commands";
 
 afterEach(() => {
   cleanup();
@@ -42,6 +43,7 @@ async function setup(offer: string[] | null) {
   render(() => (
     <ChangesPane
       workspace={id()}
+      commands={createCommandStore()}
       changes={changes}
       commit={createCommitStore()}
       conflicts={createConflictStore(() => {})}

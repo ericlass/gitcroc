@@ -3,7 +3,8 @@
 // Fetch, Pull and Push act on the target set: a click runs with the
 // defaults, the arrow beside each opens its options. On a group or several
 // repos they run through the preflight (section 5). Merge opens the dialog
-// that merges or rebases, Stash the stash dialog.
+// that merges or rebases, Stash the stash dialog. The palette button opens
+// the command palette (UI-22).
 import { strings } from "../strings/en";
 
 /** What a button does; `null` disables it. */
@@ -60,6 +61,8 @@ export default function Toolbar(props: {
   onStash: Action;
   /** Why buttons are disabled, when it is not plain. */
   disabledWhy?: ToolbarReasons;
+  /** Opens the command palette; `null` while no workspace is open. */
+  onPalette: Action;
   onSettings: () => void;
 }) {
   const why = () => props.disabledWhy ?? {};
@@ -111,7 +114,7 @@ export default function Toolbar(props: {
         {strings.toolbar.stash}
       </button>
       <span class="toolbar-gap" />
-      <button type="button" disabled>
+      <button type="button" disabled={props.onPalette === null} onClick={() => props.onPalette?.()}>
         {strings.toolbar.palette}
       </button>
       <button type="button" onClick={() => props.onSettings()}>

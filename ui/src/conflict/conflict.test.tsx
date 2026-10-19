@@ -11,6 +11,7 @@ import { createCommitStore } from "../stores/commit";
 import { createConflictStore } from "../stores/conflicts";
 import { createLayoutStore } from "../stores/layout";
 import { createSettingsStore } from "../stores/settings";
+import { createCommandStore } from "../palette/commands";
 
 // jsdom lays nothing out; give the file list a height so rows are rendered,
 // and text ranges the empty rectangles CodeMirror measures.
@@ -90,6 +91,7 @@ async function setup() {
   render(() => (
     <ChangesPane
       workspace={id()}
+      commands={createCommandStore()}
       changes={changes}
       commit={createCommitStore()}
       conflicts={conflicts}
