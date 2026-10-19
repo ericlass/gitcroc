@@ -4,6 +4,7 @@
 import { Show } from "solid-js";
 import { createSend, NameDialog, Question } from "../dialogs/parts";
 import { groupCreate, groupDelete, groupRename, type GroupId, type RepoId, type WorkspaceId } from "../ipc";
+import { strings } from "../strings/en";
 
 export type GroupDialog =
   /** `repos` become the new group's members. */
@@ -15,14 +16,14 @@ function DeleteDialog(props: { name: string; send: () => Promise<unknown>; onClo
   const sender = createSend(() => props.onClose());
   return (
     <Question
-      title={`Delete the group ${props.name}?`}
-      submit="Delete"
+      title={strings.groups.deleteDialog(props.name)}
+      submit={strings.groups.delete}
       error={sender.error()}
       sending={sender.sending()}
       onConfirm={() => void sender.run(props.send)}
       onClose={props.onClose}
     >
-      <p>Its repositories stay in the workspace. Nothing on disk is touched.</p>
+      <p>{strings.groups.deleteWhat}</p>
     </Question>
   );
 }
@@ -42,8 +43,8 @@ export default function GroupDialogs(props: {
       <Show when={of("new")} keyed>
         {(dialog) => (
           <NameDialog
-            title="New group"
-            submit="Create"
+            title={strings.groups.newDialog}
+            submit={strings.groups.create}
             initial=""
             send={(name) => groupCreate(props.workspace, name, dialog.repos)}
             onClose={props.onClose}
@@ -53,8 +54,8 @@ export default function GroupDialogs(props: {
       <Show when={of("rename")} keyed>
         {(dialog) => (
           <NameDialog
-            title={`Rename ${dialog.name}`}
-            submit="Rename"
+            title={strings.groups.renameDialog(dialog.name)}
+            submit={strings.groups.rename}
             initial={dialog.name}
             send={(name) => groupRename(props.workspace, dialog.group, name)}
             onClose={props.onClose}

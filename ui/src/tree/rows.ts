@@ -3,6 +3,7 @@
 // and match a filter is the core's answer; this only lays it out.
 import type { TreeNode } from "../ipc";
 import { loadKey, type WorkspaceTree } from "../stores/tree";
+import { strings } from "../strings/en";
 
 export type Row =
   | {
@@ -68,7 +69,7 @@ export function flatten(tree: WorkspaceTree): Row[] {
         id: `${node.id}:message`,
         depth: depth + 1,
         parent: node.id,
-        text: error ?? "Loading…",
+        text: error ?? strings.tree.loading,
         error: error !== undefined,
       });
     }

@@ -4,6 +4,7 @@
 // and Cancel give git no answer.
 import { createSignal, Match, onMount, Switch } from "solid-js";
 import type { AskpassPrompt } from "./ipc";
+import { strings } from "./strings/en";
 
 export default function AskpassDialog(props: {
   prompt: AskpassPrompt;
@@ -23,7 +24,7 @@ export default function AskpassDialog(props: {
 
   const where = () => {
     const repos = props.prompt.repo_names.join(", ");
-    return repos === "" ? props.prompt.workspace_name : `${repos} in ${props.prompt.workspace_name}`;
+    return repos === "" ? props.prompt.workspace_name : strings.askpass.where(repos, props.prompt.workspace_name);
   };
 
   return (
@@ -47,10 +48,10 @@ export default function AskpassDialog(props: {
           <Match when={props.prompt.kind === "yes_no"}>
             <div class="dialog-actions">
               <button type="button" onClick={() => props.onAnswer("yes")}>
-                Yes
+                {strings.common.yes}
               </button>
               <button type="button" onClick={() => props.onAnswer("no")}>
-                No
+                {strings.common.no}
               </button>
             </div>
           </Match>
@@ -71,9 +72,9 @@ export default function AskpassDialog(props: {
               />
               <div class="dialog-actions">
                 <button type="button" onClick={() => props.onAnswer(null)}>
-                  Cancel
+                  {strings.common.cancel}
                 </button>
-                <button type="submit">OK</button>
+                <button type="submit">{strings.common.ok}</button>
               </div>
             </form>
           </Match>

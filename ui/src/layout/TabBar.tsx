@@ -15,6 +15,7 @@ import type { ShareStore } from "../stores/share";
 import type { WorkspaceStore } from "../stores/workspaces";
 import type { WorkspaceDialogs } from "../workspaces/WorkspaceDialogs";
 import WorkspaceMenu from "../workspaces/WorkspaceMenu";
+import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -132,7 +133,7 @@ export default function TabBar(props: {
   return (
     <>
       <div class="tab-bar">
-        <div role="tablist" aria-label="Workspaces" class="tabs" ref={(element) => (list = element)}>
+        <div role="tablist" aria-label={strings.tabs.label} class="tabs" ref={(element) => (list = element)}>
           <For each={views()}>
             {(view) => (
               <div
@@ -177,15 +178,15 @@ export default function TabBar(props: {
                     {(count) => (
                       <span
                         class="tab-badge"
-                        aria-label={count() === 1 ? "1 job" : `${count()} jobs`}
-                        title={count() === 1 ? "1 job running or waiting" : `${count()} jobs running or waiting`}
+                        aria-label={strings.tabs.jobs(count())}
+                        title={strings.tabs.jobsTitle(count())}
                       >
                         {count()}
                       </span>
                     )}
                   </Show>
                   <Show when={props.jobs.marks(view.id).unseen}>
-                    <span class="tab-marker" aria-label="a job failed" title="A job failed or stopped on a conflict">
+                    <span class="tab-marker" aria-label={strings.tabs.failed} title={strings.tabs.failedTitle}>
                       !
                     </span>
                   </Show>
@@ -193,8 +194,8 @@ export default function TabBar(props: {
                 <button
                   type="button"
                   class="tab-close"
-                  aria-label={`Close ${view.name}`}
-                  title={`Close ${view.name}`}
+                  aria-label={strings.tabs.close(view.name)}
+                  title={strings.tabs.close(view.name)}
                   onClick={() => props.onClose(view.id)}
                 >
                   <span aria-hidden="true">×</span>
@@ -206,8 +207,8 @@ export default function TabBar(props: {
         <button
           type="button"
           class="tab-add"
-          aria-label="Open workspace"
-          title="Open or create a workspace"
+          aria-label={strings.tabs.open}
+          title={strings.tabs.openTitle}
           aria-haspopup="menu"
           aria-expanded={plusMenu() !== null}
           onClick={(event) => {
@@ -223,7 +224,7 @@ export default function TabBar(props: {
           <div role="alert" class="banner banner-dismissible">
             <span>{text()}</span>
             <button type="button" onClick={() => setError(null)}>
-              Dismiss
+              {strings.common.dismiss}
             </button>
           </div>
         )}
@@ -246,7 +247,7 @@ export default function TabBar(props: {
             <div
               class="menu"
               role="menu"
-              aria-label="Tab actions"
+              aria-label={strings.tabs.actions}
               style={{ left: `${open().x}px`, top: `${open().y}px` }}
               ref={(element) => queueMicrotask(() => element.querySelector<HTMLElement>("[role=menuitem]")?.focus())}
               onClick={(event) => event.stopPropagation()}
@@ -260,7 +261,7 @@ export default function TabBar(props: {
                   props.dialogs.open({ kind: "rename", id, name });
                 }}
               >
-                Rename…
+                {strings.tabs.rename}
               </button>
               <button
                 type="button"
@@ -271,7 +272,7 @@ export default function TabBar(props: {
                   props.share.exportWorkspace(id);
                 }}
               >
-                Export workspace…
+                {strings.tabs.export}
               </button>
               <Show when={props.ai.enabled() && views().find((view) => view.id === open().id)}>
                 {(view) => (
@@ -286,7 +287,7 @@ export default function TabBar(props: {
                       send(props.workspaces.setAi(id, !ai));
                     }}
                   >
-                    AI for this workspace
+                    {strings.tabs.ai}
                   </button>
                 )}
               </Show>
@@ -299,7 +300,7 @@ export default function TabBar(props: {
                   props.onClose(id);
                 }}
               >
-                Close
+                {strings.tabs.closeTab}
               </button>
             </div>
           </div>

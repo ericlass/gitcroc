@@ -6,6 +6,7 @@ import { createEffect, createResource, For, type JSX, on, onCleanup, Show } from
 import type { ConfigWarning, WorkspaceListItem } from "../ipc";
 import type { WorkspaceStore } from "../stores/workspaces";
 import type { WorkspaceDialogs } from "./WorkspaceDialogs";
+import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -13,11 +14,11 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 function warningText(warning: ConfigWarning): string {
   switch (warning.kind) {
     case "newer_schema":
-      return `From a newer gitcroc (schema ${warning.found}); it opens read-only.`;
+      return strings.workspaces.newerSchema(warning.found);
     case "unreadable":
-      return `Cannot be read: ${warning.reason}. It opens read-only.`;
+      return strings.workspaces.unreadable(warning.reason);
     case "no_config_dir":
-      return "There is no config directory; changes are not saved.";
+      return strings.workspaces.noConfigDir;
   }
 }
 
@@ -43,10 +44,10 @@ function Entries(props: {
             >
               <span class="workspace-name">{item.name}</span>
               <Show when={item.open}>
-                <span class="workspace-mark"> (open)</span>
+                <span class="workspace-mark"> {strings.workspaces.open}</span>
               </Show>
               <Show when={item.warning !== null}>
-                <span class="workspace-mark"> (read-only)</span>
+                <span class="workspace-mark"> {strings.workspaces.readOnly}</span>
               </Show>
             </button>
             <Show when={!item.open}>
@@ -54,11 +55,11 @@ function Entries(props: {
                 type="button"
                 role={props.role}
                 class="workspace-delete"
-                aria-label={`Delete ${item.name}…`}
-                title={`Delete the workspace ${item.name}`}
+                aria-label={strings.workspaces.deleteLabel(item.name)}
+                title={strings.workspaces.deleteTitle(item.name)}
                 onClick={() => props.onDelete(item)}
               >
-                Delete…
+                {strings.workspaces.deleteEntry}
               </button>
             </Show>
           </div>
@@ -66,10 +67,10 @@ function Entries(props: {
       </For>
       <hr class="menu-separator" />
       <button type="button" role={props.role} onClick={() => props.onNew()}>
-        New workspace…
+        {strings.workspaces.newEntry}
       </button>
       <button type="button" role={props.role} onClick={() => props.onImport()}>
-        Import workspace…
+        {strings.workspaces.importEntry}
       </button>
     </>
   );
@@ -94,7 +95,7 @@ function createEntries(props: MenuProps) {
   const open = (item: WorkspaceListItem) => {
     done();
     props.workspaces.open(item.id).catch((error) => {
-      props.onError(`Cannot open ${item.name}: ${message(error)}`);
+      props.onError(strings.workspaces.cannotOpen(item.name, message(error)));
       void refetch();
     });
   };
@@ -114,7 +115,7 @@ function createEntries(props: MenuProps) {
   const entries = (role: "menuitem" | undefined): JSX.Element => (
     <>
       <Show when={items.error as unknown}>
-        <p role="alert">Cannot list the workspaces: {message(items.error)}</p>
+        <p role="alert">{strings.workspaces.cannotList(message(items.error))}</p>
       </Show>
       <Entries role={role} items={items.latest ?? []} onOpen={open} onDelete={remove} onNew={create} onImport={importFile} />
     </>
@@ -126,7 +127,7 @@ function createEntries(props: MenuProps) {
 export function WorkspaceStart(props: MenuProps) {
   const { entries } = createEntries(props);
   return (
-    <div class="workspace-start" role="group" aria-label="Workspaces">
+    <div class="workspace-start" role="group" aria-label={strings.workspaces.label}>
       {entries(undefined)}
     </div>
   );
@@ -159,7 +160,7 @@ export default function WorkspaceMenu(props: MenuProps & { at: { right: number; 
       <div
         class="menu workspace-menu"
         role="menu"
-        aria-label="Open workspace"
+        aria-label={strings.workspaces.menu}
         style={{ right: `${props.at.right}px`, top: `${props.at.top}px` }}
         ref={(element) => (menu = element)}
         onClick={(event) => event.stopPropagation()}

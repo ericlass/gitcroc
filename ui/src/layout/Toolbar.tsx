@@ -4,6 +4,7 @@
 // defaults, the arrow beside each opens its options. On a group or several
 // repos they run through the preflight (section 5). Merge opens the dialog
 // that merges or rebases, Stash the stash dialog.
+import { strings } from "../strings/en";
 
 /** What a button does; `null` disables it. */
 type Action = (() => void) | null;
@@ -39,8 +40,8 @@ function SplitButton(props: { name: string; title: string; why: string | undefin
         type="button"
         class="split-arrow"
         disabled={props.options === null}
-        aria-label={`${props.name} options`}
-        title={titleOf(props.options, `${props.name} with options`, props.why)}
+        aria-label={strings.toolbar.options(props.name)}
+        title={titleOf(props.options, strings.toolbar.withOptions(props.name), props.why)}
         onClick={() => props.options?.()}
       >
         <span aria-hidden="true">▾</span>
@@ -63,24 +64,24 @@ export default function Toolbar(props: {
 }) {
   const why = () => props.disabledWhy ?? {};
   return (
-    <div role="toolbar" aria-label="Main" class="toolbar">
+    <div role="toolbar" aria-label={strings.toolbar.label} class="toolbar">
       <SplitButton
-        name="Fetch"
-        title="Fetch all remotes"
+        name={strings.toolbar.fetch}
+        title={strings.toolbar.fetchTitle}
         why={why().fetch}
         run={props.sync.fetch}
         options={props.sync.fetchOptions}
       />
       <SplitButton
-        name="Pull"
-        title="Update the current branch from its upstream"
+        name={strings.toolbar.pull}
+        title={strings.toolbar.pullTitle}
         why={why().pull}
         run={props.sync.pull}
         options={props.sync.pullOptions}
       />
       <SplitButton
-        name="Push"
-        title="Push the current branch to its upstream"
+        name={strings.toolbar.push}
+        title={strings.toolbar.pushTitle}
         why={why().push}
         run={props.sync.push}
         options={props.sync.pushOptions}
@@ -88,37 +89,33 @@ export default function Toolbar(props: {
       <button
         type="button"
         disabled={props.onBranch === null}
-        title={titleOf(props.onBranch, "Create a branch", why().branch)}
+        title={titleOf(props.onBranch, strings.toolbar.branchTitle, why().branch)}
         onClick={() => props.onBranch?.()}
       >
-        Branch
+        {strings.toolbar.branch}
       </button>
       <button
         type="button"
         disabled={props.onMerge === null}
-        title={titleOf(
-          props.onMerge,
-          "Merge a branch into the current branch, or rebase onto it",
-          why().merge,
-        )}
+        title={titleOf(props.onMerge, strings.toolbar.mergeTitle, why().merge)}
         onClick={() => props.onMerge?.()}
       >
-        Merge
+        {strings.toolbar.merge}
       </button>
       <button
         type="button"
         disabled={props.onStash === null}
-        title={titleOf(props.onStash, "Stash the local changes of the selected repository", why().stash)}
+        title={titleOf(props.onStash, strings.toolbar.stashTitle, why().stash)}
         onClick={() => props.onStash?.()}
       >
-        Stash
+        {strings.toolbar.stash}
       </button>
       <span class="toolbar-gap" />
       <button type="button" disabled>
-        Command palette
+        {strings.toolbar.palette}
       </button>
       <button type="button" onClick={() => props.onSettings()}>
-        Settings
+        {strings.toolbar.settings}
       </button>
     </div>
   );

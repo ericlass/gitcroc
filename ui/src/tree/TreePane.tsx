@@ -56,6 +56,7 @@ import {
 import { type MenuAction, type MenuEntry, menuFor } from "./menus";
 import RepoRow, { AheadBehind } from "./RepoRow";
 import { flatten, type Row } from "./rows";
+import { strings } from "../strings/en";
 
 /** Height of one row in CSS pixels; `.tree-row` in App.css sets it, as `.history-row` does. */
 export const ROW_HEIGHT = 22;
@@ -68,17 +69,7 @@ const INDENT = 14;
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** The accessible name of each kind of row's menu. */
-const MENU_NAMES: Partial<Record<TreeItem["kind"], string>> = {
-  repo: "Repository",
-  branch: "Branch",
-  remote_branch: "Remote branch",
-  tag: "Tag",
-  stash: "Stash",
-  remotes: "Remotes",
-  remote: "Remote",
-  group: "Group",
-  ungrouped: "Ungrouped",
-};
+const MENU_NAMES: Partial<Record<TreeItem["kind"], string>> = strings.tree.menuNames;
 
 /** The group operation on a name X each menu action opens the dialog of (section 5). */
 const NAME_DIALOGS = {
@@ -120,7 +111,7 @@ function RefLabel(props: { node: TreeNode }) {
           </span>
           <Show when={groupBranch()}>
             {(name) => (
-              <span class="tree-count" aria-label={`in ${name().present} of ${name().members} members`}>
+              <span class="tree-count" aria-label={strings.tree.inMembers(name().present, name().members)}>
                 ({name().present}/{name().members})
               </span>
             )}
@@ -134,14 +125,19 @@ function RefLabel(props: { node: TreeNode }) {
             {props.node.label}
           </span>
           <Show when={b().current}>
-            <span class="tree-current" role="img" aria-label="Current branch" title="Current branch">
+            <span
+              class="tree-current"
+              role="img"
+              aria-label={strings.tree.currentBranch}
+              title={strings.tree.currentBranch}
+            >
               ✓
             </span>
           </Show>
           <AheadBehind ahead={b().ahead} behind={b().behind} />
           <Show when={b().gone}>
-            <span class="tree-gone" title="The upstream is gone">
-              gone
+            <span class="tree-gone" title={strings.tree.upstreamGone}>
+              {strings.tree.gone}
             </span>
           </Show>
         </>
@@ -155,22 +151,20 @@ function AddReportView(props: { workspaces: WorkspaceStore; workspace: Workspace
   return (
     <Show when={report()}>
       {(report) => (
-        <ul class="tree-report" aria-label="Add result">
+        <ul class="tree-report" aria-label={strings.tree.addResult}>
           <Show when={report().added.length > 0}>
-            <li>Added: {report().added.map((repo) => repo.name).join(", ")}</li>
+            <li>{strings.tree.added(report().added.map((repo) => repo.name).join(", "))}</li>
           </Show>
           <Show when={report().already_present.length > 0}>
-            <li>Already present: {report().already_present.map((repo) => repo.name).join(", ")}</li>
+            <li>{strings.tree.alreadyPresent(report().already_present.map((repo) => repo.name).join(", "))}</li>
           </Show>
           <For each={report().refused}>
             {(refusal) => (
-              <li class="tree-refused">
-                Refused {refusal.path}: {refusal.reason}
-              </li>
+              <li class="tree-refused">{strings.tree.refused(refusal.path, refusal.reason)}</li>
             )}
           </For>
           <Show when={report().added.length + report().already_present.length + report().refused.length === 0}>
-            <li>No repos found.</li>
+            <li>{strings.tree.noReposFound}</li>
           </Show>
         </ul>
       )}
@@ -386,7 +380,7 @@ function TreeList(props: {
         props.ref(element);
       }}
       role="tree"
-      aria-label="Repositories"
+      aria-label={strings.tree.label}
       aria-multiselectable="true"
       tabindex="0"
       aria-activedescendant={selectedIndex() >= 0 ? `tree-row-${selectedIndex()}` : undefined}
@@ -605,7 +599,7 @@ export default function TreePane(props: {
 
   const AddButton = () => (
     <button type="button" aria-haspopup="menu" aria-expanded={addMenu() !== null} onClick={openAddMenu}>
-      Add repository
+      {strings.tree.addRepository}
     </button>
   );
 
@@ -857,8 +851,8 @@ export default function TreePane(props: {
         <input
           class="tree-filter"
           type="search"
-          placeholder="Filter repos and branches"
-          aria-label="Filter repos and branches"
+          placeholder={strings.tree.filter}
+          aria-label={strings.tree.filter}
           value={tree().filter}
           onInput={(event) => void props.tree.setFilter(props.workspace, event.currentTarget.value)}
         />
@@ -870,7 +864,7 @@ export default function TreePane(props: {
           <div role="alert" class="tree-refusal">
             <span>{error()}</span>
             <button type="button" onClick={() => props.stash.dismissError(props.workspace)}>
-              Dismiss
+              {strings.common.dismiss}
             </button>
           </div>
         )}
@@ -880,7 +874,7 @@ export default function TreePane(props: {
           <div role="alert" class="tree-refusal">
             <span>{error()}</span>
             <button type="button" onClick={() => props.tag.dismissError(props.workspace)}>
-              Dismiss
+              {strings.common.dismiss}
             </button>
           </div>
         )}
@@ -890,7 +884,7 @@ export default function TreePane(props: {
           <div role="alert" class="tree-refusal">
             <span>{error()}</span>
             <button type="button" onClick={() => props.remote.dismissError(props.workspace)}>
-              Dismiss
+              {strings.common.dismiss}
             </button>
           </div>
         )}
@@ -900,18 +894,18 @@ export default function TreePane(props: {
           <div role="alert" class="tree-refusal">
             <span>{error()}</span>
             <button type="button" onClick={() => props.branch.dismissError(props.workspace)}>
-              Dismiss
+              {strings.common.dismiss}
             </button>
           </div>
         )}
       </Show>
       <AddReportView workspaces={props.workspaces} workspace={props.workspace} />
-      <Show when={tree().error}>{(error) => <p role="alert">Cannot read the tree: {error()}</p>}</Show>
+      <Show when={tree().error}>{(error) => <p role="alert">{strings.tree.cannotRead(error())}</p>}</Show>
       <Show
         when={!empty()}
         fallback={
           <div class="tree-empty">
-            <p class="placeholder">This workspace has no repositories yet.</p>
+            <p class="placeholder">{strings.tree.empty}</p>
             <AddButton />
           </div>
         }
@@ -941,16 +935,16 @@ export default function TreePane(props: {
             <div
               class="menu"
               role="menu"
-              aria-label="Add repository"
+              aria-label={strings.tree.addRepository}
               style={{ left: `${open().x}px`, top: `${open().y}px` }}
               ref={(element) => queueMicrotask(() => element.querySelector<HTMLElement>("[role=menuitem]")?.focus())}
               onClick={(event) => event.stopPropagation()}
             >
               <button type="button" role="menuitem" onClick={add}>
-                Add folder…
+                {strings.tree.addFolder}
               </button>
               <button type="button" role="menuitem" onClick={clone}>
-                Clone…
+                {strings.tree.clone}
               </button>
             </div>
           </div>
@@ -962,7 +956,7 @@ export default function TreePane(props: {
             <div
               class="menu"
               role="menu"
-              aria-label={MENU_NAMES[open().item.kind] ?? "Actions"}
+              aria-label={MENU_NAMES[open().item.kind] ?? strings.tree.menu}
               style={{ left: `${open().x}px`, top: `${open().y}px` }}
               ref={(element) =>
                 queueMicrotask(() => element.querySelector<HTMLElement>("[role=menuitem]:not(:disabled)")?.focus())

@@ -6,6 +6,7 @@ import { createEffect, createSignal, For, type JSX, Match, on, onCleanup, Show, 
 import type { JobId, WorkspaceId } from "../ipc";
 import { JobProgressLabel, OutcomeLabel } from "../jobs/outcome";
 import type { JobStore } from "../stores/jobs";
+import { strings } from "../strings/en";
 
 /** How long the outcome of the job that ended last stays, in ms. */
 export const OUTCOME_SHOWN_MS = 10_000;
@@ -62,11 +63,11 @@ export default function StatusBar(props: {
         type="button"
         class="status-jobs"
         aria-haspopup="dialog"
-        title="Show the job list"
+        title={strings.statusBar.showJobs}
         onClick={() => props.onOpenJobs()}
       >
         <span role="status">
-          <Switch fallback="No jobs running">
+          <Switch fallback={strings.statusBar.noJobs}>
             <Match when={running().length > 0}>
               <For each={running()}>
                 {(job) => (

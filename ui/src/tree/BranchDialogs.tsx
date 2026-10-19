@@ -7,6 +7,7 @@ import { createResource, createSignal, For, Show, untrack } from "solid-js";
 import { branchChoices, branchNameCheck, type RepoId, type StartPoint, type WorkspaceId } from "../ipc";
 import type { BranchDialog, BranchStore } from "../stores/branch";
 import { Actions, ConfirmDialog, createNameCheck, Frame, NameField, Refusal } from "../dialogs/parts";
+import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -32,7 +33,7 @@ function CreateDialog(props: DialogProps<"create">) {
   const ready = () => check.valid() && !props.branch.sending(props.workspace) && (start() !== "revision" || revision().trim() !== "");
 
   return (
-    <Frame id="branch-create" title={`New branch in ${props.repoName}`} onClose={close}>
+    <Frame id="branch-create" title={strings.branches.createDialog(props.repoName)} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -46,12 +47,12 @@ function CreateDialog(props: DialogProps<"create">) {
           }
         }}
       >
-        <NameField label="Name" value={name()} error={check.error()} onInput={setName} />
+        <NameField label={strings.branches.name} value={name()} error={check.error()} onInput={setName} />
         <fieldset>
-          <legend>Start point</legend>
+          <legend>{strings.branches.startPoint}</legend>
           <label class="choice">
-            <input type="radio" name="start" checked={start() === "head"} onChange={() => setStart("head")} /> Current
-            HEAD
+            <input type="radio" name="start" checked={start() === "head"} onChange={() => setStart("head")} />{" "}
+            {strings.branches.currentHead}
           </label>
           <label class="choice">
             <input
@@ -61,17 +62,17 @@ function CreateDialog(props: DialogProps<"create">) {
               disabled={!choices()?.default_branch}
               onChange={() => setStart("default_branch")}
             />{" "}
-            Default branch
+            {strings.branches.defaultBranch}
             <Show when={choices()?.default_branch}>{(found) => <> ({found()})</>}</Show>
           </label>
           <label class="choice">
             <input type="radio" name="start" checked={start() === "revision"} onChange={() => setStart("revision")} />{" "}
-            Branch, tag or commit:
+            {strings.branches.revision}
           </label>
           <input
             type="text"
             class="start-revision"
-            aria-label="Branch, tag or commit"
+            aria-label={strings.branches.revisionLabel}
             list="branch-start-points"
             autocomplete="off"
             spellcheck={false}
@@ -88,13 +89,13 @@ function CreateDialog(props: DialogProps<"create">) {
         </fieldset>
         <label class="choice">
           <input type="checkbox" checked={checkout()} onChange={(event) => setCheckout(event.currentTarget.checked)} />{" "}
-          Check out the new branch
+          {strings.branches.checkOutNew}
         </label>
         <Show when={choices.error as unknown}>
-          <p role="alert">Cannot read the branches: {message(choices.error)}</p>
+          <p role="alert">{strings.branches.cannotRead(message(choices.error))}</p>
         </Show>
         <Refusal error={props.branch.error(props.workspace)} />
-        <Actions submit="Create" disabled={!ready()} onCancel={close} />
+        <Actions submit={strings.branches.create} disabled={!ready()} onCancel={close} />
       </form>
     </Frame>
   );
@@ -106,7 +107,7 @@ function RenameDialog(props: DialogProps<"rename">) {
   const close = () => props.branch.close(props.workspace);
   const ready = () => check.valid() && name() !== props.dialog.name && !props.branch.sending(props.workspace);
   return (
-    <Frame id="branch-rename" title={`Rename ${props.dialog.name} in ${props.repoName}`} onClose={close}>
+    <Frame id="branch-rename" title={strings.branches.renameDialog(props.dialog.name, props.repoName)} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -119,9 +120,9 @@ function RenameDialog(props: DialogProps<"rename">) {
           }
         }}
       >
-        <NameField label="New name" value={name()} error={check.error()} onInput={setName} />
+        <NameField label={strings.branches.newName} value={name()} error={check.error()} onInput={setName} />
         <Refusal error={props.branch.error(props.workspace)} />
-        <Actions submit="Rename" disabled={!ready()} onCancel={close} />
+        <Actions submit={strings.branches.rename} disabled={!ready()} onCancel={close} />
       </form>
     </Frame>
   );
@@ -132,7 +133,7 @@ function DeleteDialog(props: DialogProps<"delete">) {
   const [onRemote, setOnRemote] = createSignal(false);
   const close = () => props.branch.close(props.workspace);
   return (
-    <Frame id="branch-delete" title={`Delete branch ${props.dialog.name} in ${props.repoName}?`} onClose={close}>
+    <Frame id="branch-delete" title={strings.branches.deleteDialog(props.dialog.name, props.repoName)} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -145,8 +146,8 @@ function DeleteDialog(props: DialogProps<"delete">) {
         }}
       >
         <label class="choice">
-          <input type="checkbox" checked={force()} onChange={(event) => setForce(event.currentTarget.checked)} /> Delete
-          it even if it is not merged
+          <input type="checkbox" checked={force()} onChange={(event) => setForce(event.currentTarget.checked)} />{" "}
+          {strings.branches.force}
         </label>
         <label class="choice">
           <input
@@ -155,10 +156,15 @@ function DeleteDialog(props: DialogProps<"delete">) {
             disabled={!props.dialog.tracked}
             onChange={(event) => setOnRemote(event.currentTarget.checked)}
           />{" "}
-          Also delete the branch it tracks on the remote
+          {strings.branches.onRemote}
         </label>
         <Refusal error={props.branch.error(props.workspace)} />
-        <Actions submit="Delete" danger disabled={props.branch.sending(props.workspace)} onCancel={close} />
+        <Actions
+          submit={strings.branches.delete}
+          danger
+          disabled={props.branch.sending(props.workspace)}
+          onCancel={close}
+        />
       </form>
     </Frame>
   );
@@ -172,7 +178,11 @@ function UpstreamDialog(props: DialogProps<"upstream">) {
   const chosen = () =>
     choices()?.remote_branches.find((candidate) => key(candidate.remote, candidate.branch) === picked()) ?? null;
   return (
-    <Frame id="branch-upstream" title={`Upstream of ${props.dialog.name} in ${props.repoName}`} onClose={close}>
+    <Frame
+      id="branch-upstream"
+      title={strings.branches.upstreamDialog(props.dialog.name, props.repoName)}
+      onClose={close}
+    >
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -187,10 +197,10 @@ function UpstreamDialog(props: DialogProps<"upstream">) {
         }}
       >
         <label class="field">
-          <span>Remote branch</span>
+          <span>{strings.branches.remoteBranch}</span>
           <select value={picked()} onChange={(event) => setPicked(event.currentTarget.value)}>
             <option value="" disabled>
-              {choices.loading ? "Loading…" : "Pick a remote branch"}
+              {choices.loading ? strings.branches.loading : strings.branches.pickRemoteBranch}
             </option>
             <For each={choices()?.remote_branches ?? []}>
               {(candidate) => (
@@ -200,14 +210,14 @@ function UpstreamDialog(props: DialogProps<"upstream">) {
           </select>
         </label>
         <Show when={choices()?.remote_branches.length === 0}>
-          <p>The repo has no remote branches.</p>
+          <p>{strings.branches.noRemoteBranches}</p>
         </Show>
         <Show when={choices.error as unknown}>
-          <p role="alert">Cannot read the branches: {message(choices.error)}</p>
+          <p role="alert">{strings.branches.cannotRead(message(choices.error))}</p>
         </Show>
         <Refusal error={props.branch.error(props.workspace)} />
         <Actions
-          submit="Set upstream"
+          submit={strings.branches.setUpstream}
           disabled={chosen() === null || props.branch.sending(props.workspace)}
           onCancel={close}
         />
@@ -222,7 +232,7 @@ function BranchConfirm(props: DialogProps<"confirm">) {
     <ConfirmDialog
       repoName={props.dialog.repoName}
       actions={props.dialog.actions}
-      submit="Delete"
+      submit={strings.branches.delete}
       error={props.branch.error(props.workspace)}
       sending={props.branch.sending(props.workspace)}
       onConfirm={() => void props.branch.run(props.workspace, props.dialog.repo, props.dialog.op, true)}
