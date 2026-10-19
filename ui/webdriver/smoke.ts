@@ -6,7 +6,12 @@
 // history then shows the merge commit and the repo is clean. Then the group
 // flow (M3-15): a second workspace tab gets both fixture repos, a group of
 // them made from a multi-selection, and a group checkout of a branch only
-// one of them has, which creates it in the other.
+// one of them has, which creates it in the other. Last the AI flow
+// (M4-12): a merge that conflicts again, a mock provider added in Settings,
+// AI features off and on, and the file resolved with AI: consent, the
+// proposal, Accept all high-confidence, Mark resolved and Continue. The
+// mock answers from scripted replies (`GITCROC_E2E_AI`); nothing calls a
+// real provider.
 //
 // No step waits for a time: each waits in the page for its result in the
 // DOM, up to a deadline that only ends a hung run.
@@ -34,8 +39,8 @@ function git(env: NodeJS.ProcessEnv, repo: string, args: string[]): string {
 
 /**
  * `lib`, in the workspace from the start, and `app`, added by the test:
- * `notes.txt` to stage and commit, and `main` and `feature` that both
- * changed `a.txt`.
+ * `notes.txt` to stage and commit, and `main`, `feature` and `topic` that
+ * each changed `a.txt`.
  */
 function fixture(dir: string, env: NodeJS.ProcessEnv) {
   const lib = join(dir, "lib");
@@ -56,6 +61,9 @@ function fixture(dir: string, env: NodeJS.ProcessEnv) {
   git(env, app, ["switch", "--quiet", "-c", "feature"]);
   writeFileSync(join(app, "a.txt"), "feature\n");
   git(env, app, ["commit", "--quiet", "-am", "Feature"]);
+  git(env, app, ["switch", "--quiet", "-c", "topic", "main"]);
+  writeFileSync(join(app, "a.txt"), "topic\n");
+  git(env, app, ["commit", "--quiet", "-am", "Topic"]);
   git(env, app, ["switch", "--quiet", "main"]);
   writeFileSync(join(app, "a.txt"), "main\n");
   git(env, app, ["commit", "--quiet", "-am", "Main"]);
@@ -73,7 +81,9 @@ function fixture(dir: string, env: NodeJS.ProcessEnv) {
  */
 const FIND = `
   const ROLES = {
+    alertdialog: '[role="alertdialog"]',
     button: 'button,[role="button"]',
+    checkbox: 'input[type="checkbox"],[role="checkbox"]',
     combobox: 'input[list],select,[role="combobox"]',
     dialog: '[role="dialog"],dialog',
     listbox: '[role="listbox"]',
@@ -282,6 +292,21 @@ class Session {
       ...[...chord].reverse().map((value) => ({ type: "keyUp", value })),
     ]);
     await wd("POST", `/session/${this.id}/actions`, { actions: [{ type: "key", id: "keyboard", actions }] });
+  }
+
+  /** Picks the option `value` of the select at `path`, with a click on the option as a user does. */
+  async select(path: Path, value: string) {
+    const select = await this.element(path);
+    const option = await this.until<Element>(
+      `option ${value}`,
+      `const el = find(args[0]);
+       return el === null ? null : [...el.options].find((option) => option.value === args[1]) ?? null;`,
+      path,
+      value,
+    );
+    await wd("POST", `/session/${this.id}/element/${select[ELEMENT]}/click`, {});
+    await wd("POST", `/session/${this.id}/element/${option[ELEMENT]}/click`, {});
+    await this.until(`${value} picked`, `return find(args[0])?.value === args[1];`, path, value);
   }
 
   async screenshot(path: string) {
@@ -564,6 +589,122 @@ async function groupFlow(session: Session, env: NodeJS.ProcessEnv, repos: { lib:
   }
 }
 
+/** The mock's one scripted reply: hunk 1 resolved with high confidence. */
+const AI_REPLY = JSON.stringify({
+  hunks: [
+    {
+      id: 1,
+      status: "resolved",
+      resolution: "feature and topic\n",
+      explanation: "Keeps the line of both sides.",
+      confidence: "high",
+    },
+  ],
+});
+
+const SETTINGS: Path = [["dialog", "Settings"]];
+
+/** Opens Settings, runs `steps` in it and closes it. */
+async function inSettings(session: Session, steps: () => Promise<void>) {
+  await session.click([["button", "Settings"]]);
+  await session.element(SETTINGS);
+  await steps();
+  await session.click([...SETTINGS, ["button", "Close"]]);
+  await session.gone(SETTINGS);
+}
+
+/**
+ * The AI flow (M4-12), in the second tab: `app`, on `feature` since the
+ * group checkout, merges `topic`, which conflicts in `a.txt`. A mock
+ * provider is added and made the default; with AI features off the editor
+ * has no Resolve with AI (AI-16); on again, Resolve with AI asks for
+ * consent (AI-6), the proposal is accepted (AI-11) and only Mark resolved
+ * and Continue write it (AI-12, D9).
+ */
+async function aiFlow(session: Session, env: NodeJS.ProcessEnv, app: string) {
+  log("merge a branch that conflicts again");
+  const appRow: Path = [...TREE, ["treeitem", "/^app/"]];
+  await session.click(appRow);
+  await session.until(
+    "app alone selected",
+    `const rows = [...document.querySelectorAll('[role="tree"] [role="treeitem"][aria-selected="true"]')];
+     return rows.length === 1 && rows[0] === find(args[0]);`,
+    appRow,
+  );
+  await session.click([
+    ["toolbar", "Main"],
+    ["button", "Merge"],
+  ]);
+  const dialog: Path = [["dialog", "Merge into feature in app"]];
+  await session.type([...dialog, ["textbox", "Branch, remote branch or tag"]], "topic");
+  await session.click([...dialog, ["option", "topic"]]);
+  await session.click([...dialog, ["button", "Merge"]]);
+  await session.element(BANNER);
+  await session.click([...HISTORY, ["option", "/Uncommitted changes/"]]);
+  const resolveWithAi: Path = [...CONFLICT, ["button", "Resolve with AI"]];
+  await session.element(resolveWithAi);
+
+  log("Settings, AI: add the mock provider and make it the default");
+  await inSettings(session, async () => {
+    await session.click([...SETTINGS, ["button", "Add provider…"]]);
+    await session.select([...SETTINGS, ["combobox", "/^Kind/"]], "mock");
+    // Lower case, as for the group: WebKitWebDriver typed "Mock" as "mock".
+    await session.type([...SETTINGS, ["textbox", "Name"]], "mock");
+    await session.click([...SETTINGS, ["button", "Save"]]);
+    await session.click([...SETTINGS, ["button", "Set mock as default"]]);
+    await session.until(
+      "mock as the default",
+      `return find(args[0])?.textContent.includes("mock (default)") ?? null;`,
+      SETTINGS,
+    );
+  });
+
+  log("AI features off: no Resolve with AI; on again");
+  await inSettings(session, () => session.click([...SETTINGS, ["checkbox", "AI features"]]));
+  await session.element([...CONFLICT, ["button", "Mark resolved"]]);
+  await session.gone(resolveWithAi);
+  await inSettings(session, () => session.click([...SETTINGS, ["checkbox", "AI features"]]));
+
+  log("Resolve with AI; the consent dialog; Allow");
+  await session.click(resolveWithAi);
+  const consent: Path = [["alertdialog", "Send to mock?"]];
+  await session.click([...consent, ["button", "Allow"]]);
+  await session.gone(consent);
+
+  log("the proposal shows; Accept all high-confidence");
+  await session.click([...CONFLICT, ["button", "Accept all high-confidence"]]);
+  await session.textIs('section[aria-label="Conflict"] .cm-content', ["feature and topic"]);
+  // Accepting changed the buffer only (AI-12): git still has the conflict.
+  if (!git(env, app, ["status", "--porcelain"]).includes("UU a.txt")) {
+    throw new Error("a.txt left the conflict before Mark resolved");
+  }
+
+  log("Mark resolved, Continue");
+  await session.click([...CONFLICT, ["button", "Mark resolved"]]);
+  await session.until(
+    "all conflicts resolved",
+    `const banner = find(args[0]);
+     return banner !== null && banner.textContent.includes("All conflicts are resolved and staged.");`,
+    BANNER,
+  );
+  await session.click([...BANNER, ["button", "Continue"]]);
+  await session.gone(BANNER);
+
+  log("git says the merge is done, and the file holds the proposed text");
+  await session.element([...HISTORY, ["option", "/Merge branch 'topic'/"]]);
+  if (existsSync(join(app, ".git", "MERGE_HEAD"))) {
+    throw new Error("the merge is still in progress");
+  }
+  const parents = git(env, app, ["rev-list", "--parents", "-n", "1", "HEAD"]).trim().split(" ").length - 1;
+  if (parents !== 2) {
+    throw new Error(`HEAD has ${parents} parents, not 2`);
+  }
+  const merged = readFileSync(join(app, "a.txt"), "utf8");
+  if (merged !== "feature and topic\n") {
+    throw new Error(`a.txt is ${JSON.stringify(merged)}`);
+  }
+}
+
 async function main() {
   checkDrivers();
   for (const binary of [APP, CLI]) {
@@ -587,18 +728,22 @@ async function main() {
   const repos = join(dir, "repos");
   mkdirSync(repos);
   const { lib, app } = fixture(repos, env);
+  const replies = join(dir, "ai-replies.json");
+  writeFileSync(replies, JSON.stringify([AI_REPLY]));
   execFileSync(CLI, ["workspace", "--config-dir", join(config, "gitcroc"), "add", lib], { env, stdio: "pipe" });
   log(`fixture in ${dir}`);
 
   // Add folder… picks the folder of both repos: the first workspace has lib
   // and gets app, the second gets both.
-  const driver = await startDriver({ ...env, GITCROC_E2E_PICK_FOLDER: repos });
+  // The mock provider kind answers from `replies` (M4-12).
+  const driver = await startDriver({ ...env, GITCROC_E2E_PICK_FOLDER: repos, GITCROC_E2E_AI: replies });
   let failed = false;
   try {
     const session = await Session.start(APP);
     try {
       await smoke(session, app, env);
       await groupFlow(session, env, { lib, app });
+      await aiFlow(session, env, app);
       log("smoke test passed");
     } catch (error) {
       failed = true;

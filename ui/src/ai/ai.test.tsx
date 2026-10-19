@@ -234,3 +234,27 @@ test("sec_1_key_field_never_shows_the_key", async () => {
   expect(JSON.stringify(payloads)).not.toContain(KEY);
   expect(JSON.stringify(payloads)).not.toContain("an older key");
 });
+
+test("ai_1_the_kind_list_is_the_cores", async () => {
+  fakeAi.kinds = ["anthropic", "openai", "claude_code", "codex", "mock"];
+  render(() => <App />);
+  fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+  const section = within(await screen.findByRole("group", { name: "AI" }));
+  fireEvent.click(section.getByRole("button", { name: "Add provider…" }));
+  const form = within(section.getByRole("form", { name: "New AI provider" }));
+  const kind = form.getByLabelText("Kind") as HTMLSelectElement;
+  expect([...kind.options].map((option) => option.textContent)).toEqual([
+    "Anthropic",
+    "OpenAI-compatible",
+    "Claude Code",
+    "Codex",
+    "Mock",
+  ]);
+
+  // The mock takes no key, base URL or program.
+  fireEvent.change(kind, { target: { value: "mock" } });
+  expect(form.queryByRole("group", { name: "API key" })).toBeNull();
+  expect(form.queryByLabelText("Base URL")).toBeNull();
+  expect(form.queryByLabelText("Program")).toBeNull();
+  expect(form.getByLabelText("Model (optional)")).toBeDefined();
+});

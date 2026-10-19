@@ -13,6 +13,7 @@ check-rust:
     just coverage M1
     just coverage M2
     just coverage M3
+    just coverage M4
 
 # The front-end half of `just check`.
 check-ui:
@@ -74,7 +75,8 @@ bench *flags:
     cargo run --quiet --release -p gitcroc-cli -- bench {{flags}}
 
 # End-to-end smoke test (section 12, M2-15) on the real app, Linux only:
-# add a repo, stage, commit, and resolve a merge conflict by hand. Builds the
+# add a repo, stage, commit, and resolve a merge conflict by hand; then the
+# group flow (M3-15) and the AI flow with a mock provider (M4-12). Builds the
 # app with the `e2e` feature into its own target dir and drives it through
 # tauri-driver and WebKitWebDriver. CI's Linux job runs it under xvfb-run.
 smoke:

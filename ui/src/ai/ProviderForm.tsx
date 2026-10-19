@@ -21,11 +21,13 @@ export const KIND_LABELS: Record<ProviderKind, string> = {
   openai: "OpenAI-compatible",
   claude_code: "Claude Code",
   codex: "Codex",
+  mock: "Mock",
 };
 
-const KINDS: ProviderKind[] = ["anthropic", "openai", "claude_code", "codex"];
-
 export const isCli = (kind: ProviderKind) => kind === "claude_code" || kind === "codex";
+
+/** The kinds that call an API, which may have a key and need a model; the CLI kinds and the mock take neither. */
+const isApi = (kind: ProviderKind) => kind === "anthropic" || kind === "openai";
 
 /** A self-test's state in words (AI-2). */
 export function selfTestText(test: SelfTest): string {
@@ -84,7 +86,7 @@ export default function ProviderForm(props: {
 
   /** What the core gets for the key: `null` keeps the stored one, `""` removes it. */
   const keyToSend = (): string | null => {
-    if (isCli(kind())) {
+    if (!isApi(kind())) {
       return null;
     }
     if (removeKey()) {
@@ -155,7 +157,7 @@ export default function ProviderForm(props: {
 
   const modelField = () => (
     <label class="field">
-      <span>{isCli(kind()) ? "Model (optional)" : "Model"}</span>
+      <span>{isApi(kind()) ? "Model" : "Model (optional)"}</span>
       <input
         type="text"
         autocomplete="off"
@@ -183,7 +185,9 @@ export default function ProviderForm(props: {
               setTestRequest(null);
             }}
           >
-            <For each={KINDS}>{(option) => <option value={option}>{KIND_LABELS[option]}</option>}</For>
+            <For each={props.ai.state.view?.kinds ?? []}>
+              {(option) => <option value={option}>{KIND_LABELS[option]}</option>}
+            </For>
           </select>
         </label>
       </Show>
@@ -207,7 +211,7 @@ export default function ProviderForm(props: {
           />
         </label>
       </Show>
-      <Show when={!isCli(kind())}>
+      <Show when={isApi(kind())}>
         <div class="provider-key" role="group" aria-label="API key">
           <Show
             when={hasKey() && !replacing()}
@@ -329,7 +333,7 @@ export default function ProviderForm(props: {
       </Show>
       <Show when={error()}>{(text) => <p role="alert">{text()}</p>}</Show>
       <div class="dialog-actions provider-actions">
-        <Show when={!isCli(kind())}>
+        <Show when={isApi(kind())}>
           <button type="button" disabled={sending()} onClick={() => void onFetchModels()}>
             Fetch models
           </button>

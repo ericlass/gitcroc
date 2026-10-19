@@ -881,6 +881,8 @@ export type AiView = {
 	offer: DetectedCli | null,
 	/**  Why the keychain could not be used, last time it was tried. */
 	keychain_error: string | null,
+	/**  The kinds a provider can be added as, in order. */
+	kinds: ProviderKind[],
 };
 
 /**  What the running build is and where it runs. */
@@ -2158,7 +2160,12 @@ export type ProviderId = string;
 /**  How a provider is called (D4, section 7 "Providers"). */
 export type ProviderKind = "anthropic" | 
 /**  OpenAI-compatible: OpenAI, OpenRouter, Ollama, LM Studio and similar. */
-"openai" | "claude_code" | "codex";
+"openai" | "claude_code" | "codex" | 
+/**
+ *  Scripted replies for the end-to-end smoke test (M4-12). Only the
+ *  `e2e` build offers and connects one; any other build refuses it.
+ */
+"mock";
 
 /**
  *  A configured provider as the UI sees it: its entry, without the file's

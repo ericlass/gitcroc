@@ -63,6 +63,7 @@ fn draft(name: &str, kind: ProviderKind) -> ProviderDraft {
         ProviderKind::ClaudeCode | ProviderKind::Codex => {
             draft.path = Some(PathBuf::from("/usr/local/bin/cli"));
         }
+        ProviderKind::Mock => {}
     }
     draft
 }
@@ -318,6 +319,24 @@ fn ai_1_validation_refuses_each_bad_field() {
     let mut https = draft("Remote", Openai);
     https.base_url = Some("HTTPS://api.example.com/v1/".to_owned());
     save(&store, https).unwrap();
+}
+
+#[test]
+fn ai_1_a_mock_provider_needs_no_model_and_takes_no_path() {
+    let store = SettingsStore::load(&TempConfig::new());
+    let saved = save(&store, draft("Mock", ProviderKind::Mock)).unwrap();
+    assert_eq!(saved.model, None);
+    assert!(!ProviderKind::Mock.takes_key());
+
+    let mut with_path = draft("Mock", ProviderKind::Mock);
+    with_path.path = Some(PathBuf::from("/bin/mock"));
+    assert!(matches!(
+        save(&store, with_path),
+        Err(SettingsError::Ai(AiSettingsError::NotForKind {
+            field: "path",
+            kind: ProviderKind::Mock
+        }))
+    ));
 }
 
 #[test]

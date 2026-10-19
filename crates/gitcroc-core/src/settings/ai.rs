@@ -45,12 +45,21 @@ pub enum ProviderKind {
     Openai,
     ClaudeCode,
     Codex,
+    /// Scripted replies for the end-to-end smoke test (M4-12). Only the
+    /// `e2e` build offers and connects one; any other build refuses it.
+    Mock,
 }
 
 impl ProviderKind {
     /// Whether it runs an installed program rather than calling an API.
     pub fn is_cli(self) -> bool {
         matches!(self, Self::ClaudeCode | Self::Codex)
+    }
+
+    /// Whether it may have an API key: the CLI kinds use their own login,
+    /// and the mock needs none.
+    pub fn takes_key(self) -> bool {
+        matches!(self, Self::Anthropic | Self::Openai)
     }
 }
 
@@ -61,6 +70,7 @@ impl fmt::Display for ProviderKind {
             Self::Openai => "OpenAI-compatible",
             Self::ClaudeCode => "Claude Code",
             Self::Codex => "Codex",
+            Self::Mock => "Mock",
         })
     }
 }
@@ -197,7 +207,7 @@ impl ProviderDraft {
     /// OpenAI-compatible provider, the path of a CLI one.
     pub fn check_connection(&self) -> Result<(), AiSettingsError> {
         match self.kind {
-            ProviderKind::Anthropic => Ok(()),
+            ProviderKind::Anthropic | ProviderKind::Mock => Ok(()),
             ProviderKind::Openai => match filled(self.base_url.clone()) {
                 None => Err(AiSettingsError::NoBaseUrl),
                 Some(url) if !is_http_url(&url) => Err(AiSettingsError::BaseUrl),
@@ -269,6 +279,11 @@ impl ProviderEntry {
                     .is_none_or(|path| path.as_os_str().is_empty())
                 {
                     return Err(AiSettingsError::NoPath(kind));
+                }
+            }
+            ProviderKind::Mock => {
+                if self.path.is_some() {
+                    return Err(not_for("path"));
                 }
             }
         }

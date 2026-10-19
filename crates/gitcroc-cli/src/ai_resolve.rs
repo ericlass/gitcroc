@@ -84,6 +84,12 @@ pub(crate) fn spec(entry: &ProviderEntry, key: Option<ApiKey>) -> Result<Provide
             path: path()?,
             model,
         },
+        ProviderKind::Mock => {
+            return Err(
+                "a Mock provider answers only in the app's e2e build; give the replies with --mock"
+                    .to_owned(),
+            );
+        }
     })
 }
 

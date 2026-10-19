@@ -156,6 +156,8 @@ pub struct AiView {
     pub offer: Option<DetectedCli>,
     /// Why the keychain could not be used, last time it was tried.
     pub keychain_error: Option<String>,
+    /// The kinds a provider can be added as, in order.
+    pub kinds: Vec<ProviderKind>,
 }
 
 /// What reaches the providers: the real ones in the app, a fake in tests.
@@ -175,7 +177,27 @@ pub trait AiBackend: Send + Sync + 'static {
 
     /// The provider `spec` describes, for a proposal job (M4-08).
     fn provider(&self, spec: ProviderSpec) -> Result<Box<dyn Provider>, String>;
+
+    /// The kinds a provider can be added as. The mock kind only in the
+    /// `e2e` build, when the smoke test gave it replies (M4-12).
+    fn kinds(&self) -> Vec<ProviderKind> {
+        REAL_KINDS.to_vec()
+    }
+
+    /// A provider of the mock kind, answering from the smoke test's
+    /// scripted replies.
+    fn mock(&self) -> Result<Box<dyn Provider>, String> {
+        Err(AiError::NotOffered(ProviderKind::Mock).to_string())
+    }
 }
+
+/// Every kind but the mock, in the order Settings lists them.
+const REAL_KINDS: [ProviderKind; 4] = [
+    ProviderKind::Anthropic,
+    ProviderKind::Openai,
+    ProviderKind::ClaudeCode,
+    ProviderKind::Codex,
+];
 
 /// Where the views and replies go: the window's events in the app.
 pub trait AiSink: Send + Sync + 'static {
@@ -197,8 +219,10 @@ pub enum AiError {
     Keychain(#[from] KeychainError),
     #[error("an Anthropic provider needs an API key")]
     NeedsKey,
-    #[error("{0} providers use their own login and take no API key")]
+    #[error("{0} providers take no API key")]
     TakesNoKey(ProviderKind),
+    #[error("{0} providers cannot be used in this build")]
+    NotOffered(ProviderKind),
     #[error("the provider no longer sends to {target}; look at what it sends again")]
     ConsentChanged { target: String },
 }
@@ -393,6 +417,7 @@ impl AiProviders {
             offer,
             detected: state.detected.clone(),
             keychain_error: state.keychain_error.clone(),
+            kinds: self.backend.kinds(),
             exclude: ai.exclude,
             debug_log: ai.debug_log,
         }
@@ -407,8 +432,9 @@ impl AiProviders {
         draft: ProviderDraft,
         key: Option<String>,
     ) -> Result<AiView, AiError> {
+        self.offered(draft.kind)?;
         let change = KeyChange::from(key);
-        if draft.kind.is_cli() && matches!(change, KeyChange::Set(_)) {
+        if !draft.kind.takes_key() && matches!(change, KeyChange::Set(_)) {
             return Err(AiError::TakesNoKey(draft.kind));
         }
         let entry = self
@@ -526,7 +552,7 @@ impl AiProviders {
         if let Some(request) = consent_request(&entry) {
             return Err(AiRefusal::ConsentNeeded(request));
         }
-        if entry.kind.is_cli() {
+        if !entry.kind.takes_key() {
             return Ok(ReadyProvider { entry, key: None });
         }
         let key = self
@@ -601,9 +627,10 @@ impl AiProviders {
         if !self.settings.ai().enabled {
             return Err(AiError::Off);
         }
+        self.offered(draft.kind)?;
         draft.check_connection()?;
         let key = match KeyChange::from(key) {
-            _ if draft.kind.is_cli() => None,
+            _ if !draft.kind.takes_key() => None,
             KeyChange::Set(key) => Some(ApiKey::new(key)),
             KeyChange::Remove => None,
             KeyChange::Keep => match &draft.id {
@@ -645,12 +672,12 @@ impl AiProviders {
                 self.keychain_call(|keychain| keychain.remove(&account))?;
                 false
             }
-            KeyChange::Keep if new || entry.kind.is_cli() => {
+            KeyChange::Keep if new || !entry.kind.takes_key() => {
                 if needs_key {
                     return Err(AiError::NeedsKey);
                 }
                 // A key left behind by a deleted provider with this id, or
-                // by this one before it became a CLI provider. The keychain
+                // by this one before it became a kind without one. The keychain
                 // reports its own state if it fails.
                 drop(self.keychain_call(|keychain| keychain.remove(&account)));
                 false
@@ -668,9 +695,9 @@ impl AiProviders {
     }
 
     /// Whether `entry` has a key, from memory or else from the keychain.
-    /// CLI providers never have one.
+    /// Kinds that take none never have one.
     fn has_key(&self, entry: &ProviderEntry) -> Result<bool, KeychainError> {
-        if entry.kind.is_cli() {
+        if !entry.kind.takes_key() {
             return Ok(false);
         }
         if let Some(known) = lock(&self.state).has_key.get(&entry.id) {
@@ -701,6 +728,16 @@ impl AiProviders {
             }
         }
         result
+    }
+
+    /// Refuses a kind this build does not offer: the mock outside the
+    /// `e2e` build (M4-12).
+    fn offered(&self, kind: ProviderKind) -> Result<(), AiError> {
+        if self.backend.kinds().contains(&kind) {
+            Ok(())
+        } else {
+            Err(AiError::NotOffered(kind))
+        }
     }
 
     /// Detects the CLIs and self-tests every CLI provider, in the
@@ -830,6 +867,7 @@ fn spec(entry: &ProviderEntry, key: Option<ApiKey>) -> Result<ProviderSpec, Stri
             path: path()?,
             model,
         },
+        ProviderKind::Mock => return Err(AiError::NotOffered(entry.kind).to_string()),
     })
 }
 
@@ -857,7 +895,10 @@ impl ProviderAccess for AiProviders {
                 AiRefusal::Unusable { reason } => reason,
                 other => other.to_string(),
             })?;
-        let provider = self.backend.provider(spec(&ready.entry, ready.key)?)?;
+        let provider = match ready.entry.kind {
+            ProviderKind::Mock => self.backend.mock()?,
+            _ => self.backend.provider(spec(&ready.entry, ready.key)?)?,
+        };
         let provider: Box<dyn Provider> = if debug_log {
             let log = self.log.clone();
             Box::new(Logged::new(provider, Arc::new(move |text| log.ai(text))))
@@ -896,7 +937,7 @@ impl AiBackend for ProviderCalls {
             let result = match kind {
                 ProviderKind::ClaudeCode => ClaudeCodeProvider::self_test(path).await,
                 ProviderKind::Codex => CodexProvider::self_test(path).await,
-                ProviderKind::Anthropic | ProviderKind::Openai => {
+                ProviderKind::Anthropic | ProviderKind::Openai | ProviderKind::Mock => {
                     return SelfTest::Failed {
                         reason: format!("{kind} providers run no program"),
                     };
@@ -942,7 +983,7 @@ impl AiBackend for ProviderCalls {
                         Err(error) => Err(error),
                     }
                 }
-                ProviderKind::ClaudeCode | ProviderKind::Codex => {
+                ProviderKind::ClaudeCode | ProviderKind::Codex | ProviderKind::Mock => {
                     return ModelsResult::NotOffered;
                 }
             };
@@ -959,4 +1000,33 @@ impl AiBackend for ProviderCalls {
     fn provider(&self, spec: ProviderSpec) -> Result<Box<dyn Provider>, String> {
         connect(spec).map_err(|error| error.to_string())
     }
+
+    #[cfg(feature = "e2e")]
+    fn kinds(&self) -> Vec<ProviderKind> {
+        let mut kinds = REAL_KINDS.to_vec();
+        if std::env::var_os(E2E_AI).is_some() {
+            kinds.push(ProviderKind::Mock);
+        }
+        kinds
+    }
+
+    #[cfg(feature = "e2e")]
+    fn mock(&self) -> Result<Box<dyn Provider>, String> {
+        let Some(file) = std::env::var_os(E2E_AI) else {
+            return Err(AiError::NotOffered(ProviderKind::Mock).to_string());
+        };
+        let file = PathBuf::from(file);
+        let text = std::fs::read_to_string(&file)
+            .map_err(|error| format!("cannot read {}: {error}", file.display()))?;
+        let replies: Vec<String> = serde_json::from_str(&text).map_err(|error| {
+            format!("{} is not a JSON array of replies: {error}", file.display())
+        })?;
+        Ok(Box::new(gitcroc_ai::MockProvider::texts(replies)))
+    }
 }
+
+/// The smoke test's scripted replies for the mock kind: the path of a JSON
+/// array of reply texts, which each file's proposal answers from the start
+/// (M4-12). Only the `e2e` build reads it.
+#[cfg(feature = "e2e")]
+const E2E_AI: &str = "GITCROC_E2E_AI";
