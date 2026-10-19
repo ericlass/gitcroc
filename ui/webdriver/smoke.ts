@@ -660,10 +660,19 @@ async function aiFlow(session: Session, env: NodeJS.ProcessEnv, app: string) {
   });
 
   log("AI features off: no Resolve with AI; on again");
-  await inSettings(session, () => session.click([...SETTINGS, ["checkbox", "AI features"]]));
+  // The AI section redraws once the core has the switch, which moves Close: wait for it before closing.
+  const aiFeatures: Path = [...SETTINGS, ["checkbox", "AI features"]];
+  const addProvider: Path = [...SETTINGS, ["button", "Add provider…"]];
+  await inSettings(session, async () => {
+    await session.click(aiFeatures);
+    await session.gone(addProvider);
+  });
   await session.element([...CONFLICT, ["button", "Mark resolved"]]);
   await session.gone(resolveWithAi);
-  await inSettings(session, () => session.click([...SETTINGS, ["checkbox", "AI features"]]));
+  await inSettings(session, async () => {
+    await session.click(aiFeatures);
+    await session.element(addProvider);
+  });
 
   log("Resolve with AI; the consent dialog; Allow");
   await session.click(resolveWithAi);
