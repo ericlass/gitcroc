@@ -1,13 +1,13 @@
 # M5-03 Tests for the decision log
 
 ## Goal
-Every row of the decision log that no test names yet has a test that proves it, so `just coverage spec` no longer lists D1, D2, D3, D5, D7, D8 or D13.
+Every row of the decision log that no test names yet has a test that proves it, so `just coverage spec` no longer lists D1, D2, D3, D5, D6, D7, D8, D13 or D14.
 
 ## Depends on
 M5-02
 
 ## Spec
-Implements: D1, D2, D3, D5, D7, D8, D13
+Implements: D1, D2, D3, D5, D6, D7, D8, D13, D14
 Respects: QA-2, QA-3, QA-4, ADR 0001, ADR 0003, section 4 "Stack" and "Crates" tables, section 9 "Reference data"
 
 ## In scope
@@ -20,14 +20,16 @@ Respects: QA-2, QA-3, QA-4, ADR 0001, ADR 0003, section 4 "Stack" and "Crates" t
   - `many-repos`: 200 repos in 10 groups, 2,000 commits and 20 branches each;
   - `big-tree`: 500,000 tracked files.
   - The README's "Sizes the spec leaves open" stays as it is.
+- D6 platforms: `d6_builds_and_tests_on_windows_macos_and_linux`. The CI test matrix and the build matrix in `.github/workflows/` each name a Windows, a macOS and a Linux runner, and `tauri.conf.json` sets the macOS `minimumSystemVersion` to `12.0`.
 - D7 group membership: `d7_a_repo_can_be_in_no_one_or_several_groups_and_groups_do_not_nest`, on the core's workspace model: a repo in none, one and three groups; a group cannot hold a group (the model has no way to express it, so the test reads a workspace file whose `repos` names a group id and expects it refused or ignored, as the M3-04 loader does today; if it does neither, stop and ask).
 - D8 group operation model: `grp_6_one_failure_does_not_stop_others` and the result report tests prove "independent, parallel, never atomic, no rollback, always a report" together; add the ID where they prove it. If no test shows that a repo that succeeded stays changed after another failed (no rollback), add `d8_no_rollback_after_a_failure`.
 - D13 git 2.40 or newer, not bundled: `d13_requires_git_2_40_or_newer`: `MIN_GIT` is `(2, 40, 0)`, 2.39.9 is too old and 2.40.0 is usable; and no bundle config in `crates/gitcroc-app/` lists a git binary as a resource or sidecar.
+- D14 MIT license: `d14_license_is_mit`. `LICENSE` is the MIT text, the workspace `Cargo.toml` sets `license = "MIT"` and every crate inherits it, and `ui/package.json` sets no other license.
 
 ## Out of scope
 - D12, D15, SEC-7 and PLAT-4: their own M5 tasks add their tests.
 - Changing any decision.
 
 ## Acceptance
-- `just coverage spec --report-only` no longer lists D1, D2, D3, D5, D7, D8 or D13 as missing.
+- `just coverage spec --report-only` no longer lists D1, D2, D3, D5, D6, D7, D8, D13 or D14 as missing.
 - The tests pass on all three platforms, and `just check` passes.

@@ -25,7 +25,7 @@ Respects: QA-1, QA-5, ADR 0001
   - `qa_3_spec_mode_counts_an_id_once`.
   - The existing milestone-mode tests keep passing unchanged.
 - This task may edit `docs/adr/` (DEV-3): `docs/adr/0003-dev-rules-need-no-test.md`. Context: section 13 asks that every requirement ID have a test, and DEV-1 to DEV-4 are rules for the people and agents who work on the project, not behaviour of the app. Decision: they are listed under "No test needed" with a reason, in this task file; every other ID, the decision-log rows included, needs a test. Consequences: `just coverage spec` reports them as *no test needed*, never as missing.
-- The pull request lists what `just coverage spec` reports at this commit. Expected missing, each with the M5 task that adds its test: D1, D2, D3, D5, D7, D8, D13 (M5-03), D15 (M5-06), PLAT-4 and D12 (M5-12), SEC-7 (M5-13). Any other missing ID is reported to Eric before this task is called done (DEV-2).
+- The pull request lists what `just coverage spec` reports at this commit. Expected missing, each with the M5 task that adds its test: D1, D2, D3, D5, D6, D7, D8, D13, D14 (M5-03), D15 (M5-06), PLAT-4 and D12 (M5-12), SEC-7 (M5-13). Any other missing ID is reported to Eric before this task is called done (DEV-2).
 
 ## Out of scope
 - Writing the missing tests (M5-03 onward).

@@ -160,7 +160,7 @@ platforms, and every requirement ID has a test (QA-3).
 | --- | --- | --- |
 | [M5-01](M5-01-app-identifier.md) | App identifier `dev.gitcroc.desktop`, ADR 0002, section 15 closed | M4 |
 | [M5-02](M5-02-spec-wide-coverage.md) | `just coverage spec` over every spec ID; DEV-1 to DEV-4 need no test (ADR 0003) | M4 |
-| [M5-03](M5-03-decision-tests.md) | Tests for D1, D2, D3, D5, D7, D8 and D13 | M5-02 |
+| [M5-03](M5-03-decision-tests.md) | Tests for D1, D2, D3, D5, D6, D7, D8, D13 and D14 | M5-02 |
 | [M5-04](M5-04-strings-shell-and-tree.md) | Strings module and its test; shell, Settings, tree and tabs converted | M4 |
 | [M5-05](M5-05-strings-panes.md) | History, changes, conflicts, AI and jobs converted | M5-04 |
 | [M5-06](M5-06-strings-dialogs.md) | Operation dialogs and stores converted; D15 complete | M5-05 |
