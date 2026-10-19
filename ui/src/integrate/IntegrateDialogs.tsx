@@ -4,7 +4,7 @@
 // abort that cannot be undone, and why the core refused a request.
 // The refs to pick from are filtered in the core as the user types. Names
 // are shown as text only (SEC-3).
-import { createEffect, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createSignal, For, on, Show, untrack } from "solid-js";
 import { Actions, ConfirmDialog, Frame, Refusal } from "../dialogs/parts";
 import { mergeTargets, type MergeFastForward, type RepoId, type WorkspaceId } from "../ipc";
 import type { IntegrateDialog, IntegrateStore } from "../stores/integrate";
@@ -30,7 +30,8 @@ function MergeDialog(props: DialogProps<"merge"> & { branch: string | null }) {
   const [targets, setTargets] = createSignal<string[]>([]);
   const [listError, setListError] = createSignal<string | null>(null);
   const [fastForward, setFastForward] = createSignal<MergeFastForward>("config");
-  const [rebase, setRebase] = createSignal(false);
+  // The dialog is made anew for each opening: what it opens with is read once.
+  const [rebase, setRebase] = createSignal(untrack(() => props.dialog.rebase === true));
   let request = 0;
   const close = () => props.integrate.close(props.workspace);
   const branch = () => props.branch ?? strings.integrate.theCurrentBranch;

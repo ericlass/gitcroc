@@ -12,6 +12,8 @@
 // entries act on every selected repo.
 // A name in a group's Branches node is checked out on the group by
 // double-click (UI-5), and group rows' menus run the group operations.
+// The palette's tree operations run the selected row's menu entries, by
+// the menu's rules, and its add menu's (UI-22).
 // Everything shown comes from the stores, which take it from the
 // core; this component only lays it out and forwards input.
 import { createVirtualizer } from "@tanstack/solid-virtual";
@@ -54,6 +56,14 @@ import {
   runGroupOp,
 } from "./groups";
 import { type MenuAction, type MenuEntry, menuFor } from "./menus";
+import {
+  type Command,
+  type CommandStore,
+  commandOf,
+  type OpsOf,
+  type Provider,
+  type Providers,
+} from "../palette/commands";
 import RepoRow, { AheadBehind } from "./RepoRow";
 import { flatten, type Row } from "./rows";
 import { strings } from "../strings/en";
@@ -70,6 +80,32 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 /** The accessible name of each kind of row's menu. */
 const MENU_NAMES: Partial<Record<TreeItem["kind"], string>> = strings.tree.menuNames;
+
+/**
+ * The menu entries each of the palette's tree operations runs, of the
+ * selected row's menu; the first the menu has is run. New group and the
+ * add menu's entries are always there.
+ */
+const PALETTE_ENTRIES = {
+  remove_repo: ["remove_repo"],
+  open_in_file_manager: ["open_file_manager"],
+  open_in_terminal: ["open_terminal"],
+  checkout: ["checkout", "group_checkout"],
+  rename_branch: ["rename"],
+  delete_branch: ["delete", "group_delete_branch"],
+  set_upstream: ["set_upstream"],
+  checkout_remote_branch: ["checkout_remote"],
+  stash_apply: ["stash_apply"],
+  stash_pop: ["stash_pop"],
+  stash_drop: ["stash_drop"],
+  create_tag: ["tag_create", "group_tag"],
+  delete_tag: ["tag_delete"],
+  push_tag: ["tag_push"],
+  add_remote: ["remote_add"],
+  rename_remote: ["remote_rename"],
+  remove_remote: ["remote_remove"],
+  edit_remote_url: ["remote_url"],
+} as const satisfies Record<Exclude<OpsOf<"tree">, "add_folder" | "clone" | "new_group">, MenuAction[]>;
 
 /** The group operation on a name X each menu action opens the dialog of (section 5). */
 const NAME_DIALOGS = {
@@ -546,6 +582,7 @@ export default function TreePane(props: {
   clone: CloneStore;
   share: ShareStore;
   groupOps: GroupOpStore;
+  commands: CommandStore;
 }) {
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [menu, setMenu] = createSignal<{ item: TreeItem; x: number; y: number } | null>(null);
@@ -821,6 +858,35 @@ export default function TreePane(props: {
         }
     }
   };
+
+  /** The palette's command for the first of `actions` `item`'s menu has, by the menu's rules. */
+  const menuCommand = (item: TreeItem | null, actions: readonly MenuAction[]): Command | null => {
+    const entries = item === null ? [] : menuFor(item, itemBlocked(item), groups(), itemMissing(item));
+    const entry = entries.find((candidate) => actions.includes(candidate.action));
+    if (item === null || entry === undefined) {
+      return null;
+    }
+    return entry.disabled ? commandOf(null) : { run: () => act(entry, item) };
+  };
+  const fromMenu =
+    (actions: readonly MenuAction[]): Provider =>
+    () =>
+      menuCommand(tree().selectedItem, actions);
+  const newGroup: MenuEntry = { action: "new_group", label: strings.treeMenu.newGroup, disabled: false };
+  /** New group as `item`'s menu has it, which takes a selected repo along, or as Ungrouped's. */
+  const newGroupCommand = (item: TreeItem | null): Command => ({
+    run: () => act(newGroup, item?.kind === "repo" ? item : { kind: "ungrouped" }),
+  });
+  const fromMenus = Object.fromEntries(
+    Object.entries(PALETTE_ENTRIES).map(([op, actions]) => [op, fromMenu(actions)]),
+  ) as Record<keyof typeof PALETTE_ENTRIES, Provider>;
+  const paletteCommands: Providers<"tree"> = {
+    ...fromMenus,
+    add_folder: () => commandOf(add),
+    clone: () => commandOf(clone),
+    new_group: () => newGroupCommand(tree().selectedItem),
+  };
+  createEffect(() => onCleanup(props.commands.provide(props.workspace, "tree", paletteCommands)));
 
   /** Opens `entry`'s submenu beside it, its first entry focused. */
   const openSubmenu = (entry: MenuEntry, button: HTMLElement) => {

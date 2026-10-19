@@ -16,7 +16,8 @@ import {
 } from "../ipc";
 
 export type IntegrateDialog =
-  | { kind: "merge"; repo: RepoId }
+  /** With `rebase`, the dialog opens with rebase chosen, as the palette's Rebase opens it. */
+  | { kind: "merge"; repo: RepoId; rebase?: boolean }
   /** The core asked which parent of merge commit `commit` a revert keeps. */
   | { kind: "mainline"; repo: RepoId; commit: string; parents: string[] }
   /** The core asked for the user's confirmation of `op`. */

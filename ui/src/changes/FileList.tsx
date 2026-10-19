@@ -4,11 +4,14 @@
 // controls; for a group or several repos each repo's part of a list has
 // them, except in a blocked repo (GRP-8). Ctrl/Cmd and Shift select several
 // files of one list of one repo, and a double-click moves a file to the
-// other list. Which files may be changed is the
-// core's to check; this only forwards what was clicked (ARCH-6).
+// other list. The palette's file operations run the selected file's
+// controls, and Stage all and Unstage all the lists' (UI-22). Which files
+// may be changed is the core's to check; this only forwards what was
+// clicked (ARCH-6).
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, For, Match, onMount, Show, Switch } from "solid-js";
-import type { ChangeAction, ChangesContent, FileListMode, FileStatus, RepoId, UnmergedKind } from "../ipc";
+import { createEffect, createMemo, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import type { ChangeAction, ChangesContent, FileListMode, FileStatus, RepoId, UnmergedKind, WorkspaceId } from "../ipc";
+import { type Command, type CommandStore, commandOf, type Provider, type Providers } from "../palette/commands";
 import { type FileEntry, type FileKey, type FileRow, fileRows, sameFile } from "./fileRows";
 import { strings } from "../strings/en";
 
@@ -105,6 +108,8 @@ export default function FileList(props: {
   /** Where the list was scrolled when it was last shown (UI-29). */
   scrollTop: number;
   onScroll: (scrollTop: number) => void;
+  /** Where the list provides the palette's file operations, for the workspace it shows (UI-22). */
+  commands?: { store: CommandStore; workspace: WorkspaceId };
 }) {
   let scroller: HTMLDivElement | undefined;
   const rows = createMemo(() => fileRows(props.content, props.mode, props.collapsed));
@@ -208,6 +213,54 @@ export default function FileList(props: {
     props.onAction !== undefined && (file.list === "staged" || file.list === "unstaged") && blocked(file.repo) === null
       ? file.list
       : null;
+
+  /** `action` on `file` and the files selected with it, as its row's control does it, when the row has it. */
+  const fileCommand = (file: FileKey, action: ChangeAction): Command => {
+    const list = changeable(file);
+    const controls = list === null ? [] : ROW_ACTIONS[list];
+    return controls.some((control) => control.action === action)
+      ? { run: () => act(action, targets(file)) }
+      : commandOf(null, blocked(file.repo) ?? undefined);
+  };
+  /** Moves `files` of `list` to the other list, as the list's button does. */
+  const listCommand = (list: "staged" | "unstaged", files: FileKey[]): Command =>
+    files.length > 0 ? { run: () => act(MOVE[list], files) } : commandOf(null);
+
+  /** The palette's `action` on the selected file, as its row's control does it, when the row has it. */
+  const onSelected =
+    (action: ChangeAction): Provider =>
+    () => {
+      const file = props.selected;
+      if (props.onAction === undefined || file === null) {
+        return null;
+      }
+      return fileCommand(file, action);
+    };
+  /** The palette's Stage all or Unstage all: the list's button of one repo's changes. */
+  const onList =
+    (list: "staged" | "unstaged"): Provider =>
+    () => {
+      if (props.onAction === undefined) {
+        return null;
+      }
+      if (props.content.kind === "merged") {
+        return { reason: strings.palette.oneRepo };
+      }
+      return listCommand(list, listFiles(list));
+    };
+  const paletteCommands: Providers<"files"> = {
+    stage_file: onSelected("stage"),
+    unstage_file: onSelected("unstage"),
+    discard_file: onSelected("discard"),
+    stage_all: onList("unstaged"),
+    unstage_all: onList("staged"),
+  };
+  createEffect(() => {
+    const commands = props.commands;
+    if (commands !== undefined) {
+      onCleanup(commands.store.provide(commands.workspace, "files", paletteCommands));
+    }
+  });
 
   const onKeyDown = (event: KeyboardEvent) => {
     const at = files().indexOf(selectedIndex());

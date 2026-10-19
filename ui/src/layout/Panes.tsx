@@ -8,6 +8,7 @@ import { Show } from "solid-js";
 import HistoryPane from "../history/HistoryPane";
 import TargetView from "../history/TargetView";
 import type { RepoId, WorkspaceId } from "../ipc";
+import type { CommandStore } from "../palette/commands";
 import type { AiStore } from "../stores/ai";
 import type { BranchStore } from "../stores/branch";
 import type { StashStore } from "../stores/stash";
@@ -54,6 +55,8 @@ export default function Panes(props: {
   settings: SettingsStore;
   ai: AiStore;
   resolveAll: ResolveAllStore;
+  /** What the palette's operations run (UI-22); each pane provides its own. */
+  commands: CommandStore;
   /** Opens Settings at its AI section (AI-3). */
   onAiSettings: () => void;
 }) {
@@ -112,6 +115,7 @@ export default function Panes(props: {
       tag={props.tag}
       reset={props.reset}
       resolveAll={{ store: props.resolveAll, ai: conflictAi() }}
+      commands={props.commands}
     />
   );
 
@@ -141,6 +145,7 @@ export default function Panes(props: {
       layout={props.layout}
       onSelectCommit={(hash) => props.history.selectCommit(props.workspace, hash)}
       ai={conflictAi()}
+      commands={props.commands}
     />
   );
 
@@ -159,6 +164,7 @@ export default function Panes(props: {
           clone={props.clone}
           share={props.share}
           groupOps={props.groupOps}
+          commands={props.commands}
         />
       </section>
       {splitter("tree", strings.panes.resizeTree)}

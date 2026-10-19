@@ -9,6 +9,7 @@ import { createConflictStore } from "../stores/conflicts";
 import { createLayoutStore } from "../stores/layout";
 import { createSettingsStore } from "../stores/settings";
 import ChangesPane from "./ChangesPane";
+import { createCommandStore } from "../palette/commands";
 
 // jsdom lays nothing out; give the file list a height so rows are rendered.
 beforeEach(() => {
@@ -58,6 +59,7 @@ async function setup() {
   render(() => (
     <ChangesPane
       workspace={id()}
+      commands={createCommandStore()}
       changes={changes}
       commit={commit}
       conflicts={createConflictStore(() => {})}

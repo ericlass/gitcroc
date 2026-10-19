@@ -39,6 +39,9 @@ import type {
   WorkspaceId,
 } from "./bindings";
 import type { Core } from "./core";
+
+/** The palette's operations as the core lists them (UI-22): for the fake core and the tests; the UI asks the core. */
+export { PALETTE_CATALOG } from "./bindings";
 import { fake } from "./fake";
 import { real } from "./core";
 
@@ -149,6 +152,10 @@ export type {
   PerfTrace,
   Person,
   Operation,
+  PaletteItem,
+  PaletteOp,
+  PaletteResult,
+  PaletteSubject,
   PreflightId,
   PreflightReady,
   PromptKind,
@@ -363,6 +370,10 @@ export const groupRetryFailed = (jobId: JobId) => unwrap(core.commands.groupRetr
 /** The repos of `target` as the workspace is now (GRP-5); refused for a group or repo that no longer exists. */
 export const targetRepos = (workspaceId: WorkspaceId, target: TargetSet) =>
   unwrap(core.commands.targetRepos(workspaceId, target));
+
+/** The palette's answer to `text` (UI-22); `null` when a newer query of the workspace superseded this one. */
+export const paletteQuery = (workspaceId: WorkspaceId, text: string) =>
+  unwrap(core.commands.paletteQuery(workspaceId, text));
 
 /** `null` when a newer filter of the workspace superseded this one. */
 export const treeFilter = (workspaceId: WorkspaceId, text: string) =>

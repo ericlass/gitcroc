@@ -14,6 +14,7 @@ import { createTreeStore, loadKey } from "../stores/tree";
 import { createWorkspaceStore } from "../stores/workspaces";
 import BranchDialogs from "./BranchDialogs";
 import TreePane from "./TreePane";
+import { createCommandStore } from "../palette/commands";
 
 // jsdom lays nothing out; give the tree a height so rows are rendered.
 beforeEach(() => {
@@ -63,6 +64,7 @@ async function setup(change: { busy?: boolean } = {}) {
     <>
       <TreePane
         workspace={id()}
+        commands={createCommandStore()}
         tree={tree}
         summaries={summaries}
         workspaces={createWorkspaceStore()}

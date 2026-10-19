@@ -216,8 +216,11 @@ export function goToHunk(view: EditorView, direction: 1 | -1): boolean {
   return true;
 }
 
+/** Whether the cursor is in a hunk, which Alt+1 to Alt+3 take a side of. */
+export const inHunk = (state: EditorState) => hunkAt(state.field(hunksField), state.selection.main.head) !== null;
+
 /** Takes `side` of the hunk the cursor is in. */
-const takeAtCursor = (side: Take) => (view: EditorView) => {
+export const takeAtCursor = (side: Take) => (view: EditorView) => {
   const hunk = hunkAt(view.state.field(hunksField), view.state.selection.main.head);
   return hunk !== null && take(view, hunk.id, side);
 };

@@ -11,6 +11,7 @@ import { ACTION_LIST, type ChangesStore, handleOf } from "../stores/changes";
 import type { CommitStore } from "../stores/commit";
 import type { ConflictStore } from "../stores/conflicts";
 import type { ConflictAi } from "../conflict/ConflictEditor";
+import type { CommandStore } from "../palette/commands";
 import ConflictView from "../conflict/ConflictView";
 import type { LayoutStore } from "../stores/layout";
 import type { SettingsStore } from "../stores/settings";
@@ -146,6 +147,8 @@ export default function ChangesPane(props: {
   onSelectCommit: (hash: string) => void;
   /** AI in the conflict editor; none without it. */
   ai?: ConflictAi;
+  /** What the palette's operations run (UI-22); the lists, commit box and conflict editor provide theirs. */
+  commands: CommandStore;
 }) {
   const changes = () => props.changes.changes(props.workspace);
   const view = () => props.settings.changes();
@@ -350,10 +353,12 @@ export default function ChangesPane(props: {
                   }}
                   scrollTop={changes().listScroll}
                   onScroll={(top) => props.changes.setScroll(props.workspace, "listScroll", top)}
+                  commands={{ store: props.commands, workspace: props.workspace }}
                 />
                 <Show when={committable()}>
                   {(target) => (
                     <CommitBox
+                      commands={{ store: props.commands, workspace: props.workspace }}
                       draft={props.commit.draft(props.workspace, target().repo)}
                       staged={target().content.staged.length > 0}
                       amendable={target().content.last_message !== null}
@@ -383,6 +388,7 @@ export default function ChangesPane(props: {
                       group().content.repos.filter((shown) => commits(shown, options().stage_all)).length;
                     return (
                       <CommitBox
+                        commands={{ store: props.commands, workspace: props.workspace }}
                         draft={props.commit.groupDraft(props.workspace, key())}
                         staged={repos() > 0}
                         amendable={false}
@@ -455,6 +461,7 @@ export default function ChangesPane(props: {
                               conflicts={props.conflicts}
                               wrap={view().wrap_lines}
                               ai={props.ai}
+                              commands={props.commands}
                             />
                           )}
                         </Match>

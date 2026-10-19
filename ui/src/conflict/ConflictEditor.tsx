@@ -6,12 +6,14 @@
 // With AI features on (AI-16), the header has Resolve with AI for the hunks
 // still untouched (AI-3), and a proposal shows under its hunks (AI-11) with
 // the token usage of each request (AI-14). Accepting one edits the buffer
-// only (AI-12).
+// only (AI-12). The palette's conflict operations run its toolbar's buttons
+// and the hunk keys, by their rules (UI-22).
 import { EditorState, StateEffect, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { applyLanguage, baseExtensions, newParts, wrapping } from "../changes/codemirror";
 import type { FileProposal, WorkspaceId } from "../ipc";
+import { type Command, type CommandStore, commandOf, type Providers } from "../palette/commands";
 import type { AiStore } from "../stores/ai";
 import type { AiAsk, ConflictStore, FileConflict, Start, ViewFile } from "../stores/conflicts";
 import { buildBuffer, normalize } from "./buffer";
@@ -21,9 +23,12 @@ import {
   goToHunk,
   highConfidence,
   hunkCount,
+  inHunk,
   showProposal,
+  takeAtCursor,
   untouchedHunks,
 } from "./editor";
+import type { Take } from "./buffer";
 import { strings } from "../strings/en";
 
 /** What the editor needs for AI; without it the editor has none. */
@@ -81,6 +86,7 @@ export default function ConflictEditor(props: {
   /** Called on closing, with whether the editor had the focus. */
   onClose: (focused: boolean) => void;
   ai?: ConflictAi;
+  commands: CommandStore;
 }) {
   let parent: HTMLDivElement | undefined;
   let view: EditorView | undefined;
@@ -221,6 +227,28 @@ export default function ConflictEditor(props: {
     void conflicts.resolveWithAi(workspace, props.target, untouchedHunks(view.state), aiAsk(ai));
   };
   const canResolve = () => aiBlocked() === null && !props.file.ai.starting && untouched().length > 0;
+
+  /** The palette's Take ours, theirs or both: what the hunk keys do, on the hunk the cursor is in. */
+  const takeSide = (side: Take) => (): Command =>
+    view !== undefined && inHunk(view.state)
+      ? { run: () => view !== undefined && takeAtCursor(side)(view) }
+      : { reason: strings.palette.noHunk };
+  const paletteCommands: Providers<"editor"> = {
+    mark_resolved: () => (props.file.sending ? commandOf(null) : { run: () => markResolved(false) }),
+    take_ours: takeSide("ours"),
+    take_theirs: takeSide("theirs"),
+    take_both: takeSide("both"),
+    // As the toolbar's button, shown while AI features are on and no request of the file runs.
+    resolve_with_ai: () =>
+      !aiOn()
+        ? null
+        : commandOf(props.file.ai.job === null && canResolve() ? resolveWithAi : null, aiBlocked() ?? undefined),
+    accept_high_confidence: () =>
+      aiOn() && props.file.ai.proposal !== null && high() > 0
+        ? { run: () => view !== undefined && acceptAllHigh(view) }
+        : commandOf(null),
+  };
+  createEffect(() => onCleanup(props.commands.provide(workspace, "editor", paletteCommands)));
 
   const go = (direction: 1 | -1) => {
     if (view !== undefined) {

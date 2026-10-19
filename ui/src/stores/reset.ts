@@ -7,8 +7,12 @@ import { createStore, produce } from "solid-js/store";
 import { opReset, type RepoId, type ResetMode, type WorkspaceId } from "../ipc";
 
 export type ResetDialog =
-  /** `commit` as the history shows it (`text`); `branch` is `null` when `HEAD` is detached. */
-  | { kind: "reset"; repo: RepoId; commit: string; text: string; branch: string | null }
+  /**
+   * `commit` as the history shows it (`text`); `branch` is `null` when `HEAD`
+   * is detached. `mode` is chosen when the dialog opens, mixed by default; the
+   * palette's three Reset entries choose theirs.
+   */
+  | { kind: "reset"; repo: RepoId; commit: string; text: string; branch: string | null; mode?: ResetMode }
   /** The core asked for the user's confirmation of a hard reset (GRP-9). */
   | { kind: "confirm"; repo: RepoId; commit: string; mode: ResetMode; repoName: string; actions: string[] };
 

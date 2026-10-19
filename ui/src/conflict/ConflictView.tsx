@@ -2,9 +2,11 @@
 // the conflict editor for text, the question first when the file was
 // edited outside the app, or a choice between the two versions. The core
 // reads the conflict and says which it is; labels and paths are repo text,
-// rendered as text (SEC-3).
-import { createEffect, Match, on, Show, Switch } from "solid-js";
+// rendered as text (SEC-3). The palette's Keep ours and Keep theirs run the
+// choice's buttons (UI-22).
+import { createEffect, Match, on, onCleanup, Show, Switch } from "solid-js";
 import type { ChoiceKind, ConflictChoice, SideHolds, WorkspaceId } from "../ipc";
+import { type Command, type CommandStore, commandOf, type Providers } from "../palette/commands";
 import type { ConflictStore, ViewFile } from "../stores/conflicts";
 import ConflictEditor, { type ConflictAi } from "./ConflictEditor";
 import { strings } from "../strings/en";
@@ -31,6 +33,7 @@ export default function ConflictView(props: {
   conflicts: ConflictStore;
   wrap: boolean;
   ai?: ConflictAi;
+  commands: CommandStore;
 }) {
   const file = () => props.conflicts.file(props.workspace, props.target.repo, props.target.path);
   /** The last editor closed with the focus, so the next one takes it: resolving file after file from the keyboard. */
@@ -56,6 +59,18 @@ export default function ConflictView(props: {
       : `${props.target.repo}\n${props.target.path}\n${current.start}`;
   };
   const choose = (side: ConflictChoice) => void props.conflicts.choose(props.workspace, props.target, side);
+
+  /** The palette's Keep ours or Keep theirs: the choice's button of `side`, for a file that has the choice. */
+  const keep = (side: ConflictChoice) => (): Command | null =>
+    file() === undefined
+      ? null
+      : choice() === null
+        ? { reason: strings.palette.notChoice }
+        : file()?.sending === true
+          ? commandOf(null)
+          : { run: () => choose(side) };
+  const paletteCommands: Providers<"choice"> = { keep_ours: keep("ours"), keep_theirs: keep("theirs") };
+  createEffect(() => onCleanup(props.commands.provide(props.workspace, "choice", paletteCommands)));
 
   return (
     <div class="conflict-view">
@@ -138,6 +153,7 @@ export default function ConflictView(props: {
                     focus={refocus}
                     onClose={(focused) => (refocus = focused)}
                     ai={props.ai}
+                    commands={props.commands}
                   />
                 )}
               </Show>
