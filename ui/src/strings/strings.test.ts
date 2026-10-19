@@ -212,7 +212,8 @@ test("d15_ui_text_comes_from_the_strings_module", () => {
 });
 
 test("d15_the_scan_finds_inline_text_and_lets_data_through", () => {
-  const path = join(src, "layout", "Example.tsx");
+  // The compiler asks its host for paths with `/`, on Windows too.
+  const path = join(src, "layout", "Example.tsx").split(sep).join("/");
   const code = `
     import { Show } from "solid-js";
     const strings = { save: "Save", files: (n: number) => \`\${n} files\` };
