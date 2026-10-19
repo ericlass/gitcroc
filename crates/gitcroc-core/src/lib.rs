@@ -16,6 +16,7 @@ mod history;
 mod integrate;
 mod job;
 mod log;
+mod palette;
 mod ref_name;
 mod remote;
 mod reset;
@@ -98,6 +99,10 @@ pub use job::{
     SubJobSpec, TrackedJob, Worker, WorkspaceId, WriteJob,
 };
 pub use log::{AppLog, LOG_FILE, LOG_FILE_SIZE, LOG_FILES, LogDir, PlatformLogDir};
+pub use palette::{
+    MAX_PALETTE_ITEMS, PaletteEntry, PaletteItem, PaletteOp, PaletteRequest, PaletteResult,
+    PaletteSubject, Palettes, palette_catalog, palette_query,
+};
 pub use ref_name::RefNameError;
 pub use remote::{
     RemoteError, RemoteOp, RemoteRequest, RemoteStart, RemoteUrlsView, op_remote,

@@ -2306,6 +2306,13 @@ export const fake: Core = {
       }
       return Promise.resolve({ status: "ok", data: filterTree(workspace, fakeState.refs, text, fakeState.summaries) });
     },
+    // Nothing matches yet: the palette's window and the fake's matching come with M5-08.
+    paletteQuery: (workspaceId) => {
+      if (openWorkspace(workspaceId) === undefined) {
+        return notFound(`no open workspace has the id ${workspaceId}`);
+      }
+      return Promise.resolve({ status: "ok", data: { items: [], total: 0 } });
+    },
     historyGet: async (workspaceId, repoId, target, text) => {
       const workspace = openWorkspace(workspaceId);
       const named = (id: RepoId) => workspace?.repos.find((candidate) => candidate.id === id);

@@ -20,6 +20,7 @@ mod groups;
 mod history;
 mod integrate;
 mod jobs;
+mod palette;
 mod remote;
 mod reset;
 mod settings;
