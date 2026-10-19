@@ -99,7 +99,7 @@ The p95 of `select-commit`, `switch-repo` and `input-latency-group-job` is over 
 
 ## Keychain (Linux, by hand)
 
-- [ ] Eric, in the app with the OS keychain (`just dev`, not the `e2e` build): add an Anthropic provider with a key, then check that the key is in the Secret Service (for example `secret-tool search --all service gitcroc`) and nowhere in `settings.toml` or the log; remove the provider and check that the key is gone. Date: pending.
+- [x] Eric, in the app with the OS keychain (`just dev`, not the `e2e` build): add an Anthropic provider with a key, then check that the key is in the Secret Service (for example `secret-tool search --all service gitcroc`) and nowhere in `settings.toml` or the log; remove the provider and check that the key is gone. The key was made-up text, and nothing was sent. Result: as expected. Date: 2026-10-19.
 
 ## Windows (deferred)
 
