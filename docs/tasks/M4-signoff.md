@@ -13,31 +13,41 @@ Linux is verified below. Windows and macOS are deferred, as decided for M0 on 20
 
 ## Fixture runs (AI-15)
 
-`just ai-eval` on the 36 fixtures of `crates/gitcroc-ai/fixtures/conflicts/`, by hand on the developer's machine with Eric's accounts. Keys come from an environment variable Eric set; no agent typed one, and none is in the repo (SEC-1). A hunk *matches* when its proposal equals its part of an accepted resolution; a file is *right* when every hunk matches or is correctly left unresolved.
+`just ai-eval` on the 36 fixtures of `crates/gitcroc-ai/fixtures/conflicts/`, by hand on the developer's machine. Neither run needed a key: Claude Code uses Eric's login, and the API run is a local model. No key is in the repo (SEC-1). A hunk *matches* when its proposal equals its part of an accepted resolution; a file is *right* when every hunk matches or is correctly left unresolved.
 
 | | API provider | CLI provider |
 | --- | --- | --- |
-| Date | deferred | 2026-10-19 |
-| Commit | deferred | 2f31e99 (branch `m4-11-prompt-fixtures`, merged as 0d5a6cc) |
-| Command | deferred | `just ai-eval --kind claude_code --path "$(which claude)"` |
-| Provider | deferred | Claude Code CLI |
-| Model | deferred | Claude Code's default model (none given) |
+| Date | 2026-10-19 | 2026-10-19 |
+| Commit | c0bd331 (branch `m4-12-signoff`) | 2f31e99 (branch `m4-11-prompt-fixtures`, merged as 0d5a6cc) |
+| Command | `just ai-eval --kind openai --base-url http://localhost:11434/v1 --model gemma4:latest` | `just ai-eval --kind claude_code --path "$(which claude)"` |
+| Provider | OpenAI-compatible: Ollama 0.34.4 on this machine, context length 16,384 | Claude Code CLI |
+| Model | `gemma4:latest` | Claude Code's default model (none given) |
 | Prompt version | v1 | v1 |
-| Fixtures right | deferred | 36 of 36 |
-| Hunks | deferred | 38 |
-| Matches | deferred | 30 |
-| Correct unresolved | deferred | 8 |
-| Unexpected unresolved | deferred | 0 |
-| Differs | deferred | 0 |
-| AI failed | deferred | 0 |
-| Requests | deferred | 36 |
-| Tokens in / out | deferred | 159,053 / 6,242 |
+| Fixtures right | 17 of 36 | 36 of 36 |
+| Hunks | 38 | 38 |
+| Matches | 21 | 30 |
+| Correct unresolved | 4 | 8 |
+| Unexpected unresolved | 0 | 0 |
+| Differs | 10 | 0 |
+| AI failed | 3 | 0 |
+| Requests | 39 | 36 |
+| Tokens in / out | 51,393 / 41,784 | 159,053 / 6,242 |
 
-The API provider run is deferred by Eric's decision on 2026-10-19: no provider key yet, and no paid usage only to test. It runs when a key is at hand. A local OpenAI-compatible model needs none: `just ai-eval --kind openai --base-url http://localhost:11434/v1 --model <model>`. Until then M4's exit criterion of one API provider run is open.
+The API provider is a local model, so no key was needed (Eric's choice, 2026-10-19). Ollama's context length was raised from its default of 4,096 to 16,384 tokens before the run, because Ollama cuts longer prompts without an error. The longest fixture prompts would otherwise have been cut.
 
 Confidence against score, CLI run: high, 29 matches and 7 correct unresolved; medium, 1 match (32) and 1 correct unresolved (33); low, none.
 
-A perfect score leaves no room on this provider to show a better prompt. Whether to add harder fixtures or a prompt version is Eric's call, as a follow-up task.
+Confidence against score, API run: high, 21 matches and 10 differs; medium, 1 correct unresolved (25); low, 3 correct unresolved (08, 18, 36). Every *differs* came with high confidence.
+
+What the API run shows:
+
+- **AI failed on 20, 21 and 34, all Go**, with the same error: *control character found while parsing a string*. The model wrote Go's tab indentation as raw tabs inside the JSON strings, which JSON forbids, and did it again on the retry. Validation is right to refuse such a reply (AI-9).
+- **Contradictory changes resolved anyway.** 04, 12, 21 and 33 expect *unresolved*. 21 failed. The model resolved the other three, with high confidence.
+- **Import blocks and ordered lists differ.** 05, 09, 13 and 19 are import blocks, 30 is the sorted lock file, and 27 should keep ours. In 32 the model chose a side and dropped the edit to the function that stays.
+
+Whether to add a prompt version is Eric's call, as a follow-up task. Candidates: tell the model to escape tabs and other control characters in JSON strings, ask for *unresolved* when the two sides contradict each other, and spell out that imports and sorted lists keep both sides' entries. `just ai-eval --compare v1,v2` against this model would show the effect.
+
+The CLI run's perfect score leaves no room on that provider to show a better prompt; the API run, on a smaller model, does.
 
 ## End-to-end run (Linux)
 
