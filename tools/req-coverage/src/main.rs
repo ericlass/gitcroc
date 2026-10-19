@@ -1,14 +1,16 @@
-//! `req-coverage <milestone> [--report-only] [--root <dir>]`
+//! `req-coverage <milestone>|spec [--report-only] [--root <dir>]`
 //!
 //! Lists the requirement IDs on the "Implements:" lines of
 //! `docs/tasks/<milestone>-*.md` that no test under `crates/` or `ui/`
-//! mentions (QA-3). Exits 1 if there are any, unless `--report-only` is given,
-//! and 2 on a usage or read error.
+//! mentions (QA-3). With `spec` instead of a milestone, lists every ID defined
+//! in `docs/spec/` that no test mentions and no task marks "No test needed:".
+//! Exits 1 if there are any, unless `--report-only` is given, and 2 on a usage
+//! or read error.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: req-coverage <milestone> [--report-only] [--root <dir>]";
+const USAGE: &str = "usage: req-coverage <milestone>|spec [--report-only] [--root <dir>]";
 
 struct Args {
     milestone: String,
@@ -40,7 +42,12 @@ fn main() -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    let report = match req_coverage::run(&args.root, &args.milestone) {
+    let result = if args.milestone == "spec" {
+        req_coverage::run_spec(&args.root)
+    } else {
+        req_coverage::run(&args.root, &args.milestone)
+    };
+    let report = match result {
         Ok(report) => report,
         Err(err) => {
             eprintln!("req-coverage: {err}");

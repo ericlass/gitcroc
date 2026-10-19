@@ -14,6 +14,7 @@ check-rust:
     just coverage M2
     just coverage M3
     just coverage M4
+    just coverage spec --report-only
 
 # The front-end half of `just check`.
 check-ui:
@@ -37,7 +38,8 @@ ipc:
 fmt:
     cargo fmt
 
-# List the requirement IDs of a milestone (e.g. M0) that have no test (QA-3).
+# List the requirement IDs of a milestone (e.g. M0), or with `spec` of the
+# whole spec, that have no test (QA-3).
 coverage milestone *flags:
     cargo run --quiet -p req-coverage -- {{milestone}} {{flags}}
 
