@@ -149,6 +149,43 @@ M4-03 and M4-04 can run in parallel after M4-01, and M4-11 beside M4-08 to
 M4-10. M4-08 is the core of the milestone: it joins the core and `gitcroc-ai`
 and carries D9.
 
+## M5 Release
+
+Milestone goal (docs/spec/13-milestones.md): installers, the updater, the
+complete command palette, an accessibility and keyboard pass, user docs, and a
+website or README. Done when v1.0.0 installs and updates on all three
+platforms, and every requirement ID has a test (QA-3).
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| [M5-01](M5-01-app-identifier.md) | App identifier `dev.gitcroc.desktop`, ADR 0002, section 15 closed | M4 |
+| [M5-02](M5-02-spec-wide-coverage.md) | `just coverage spec` over every spec ID; DEV-1 to DEV-4 need no test (ADR 0003) | M4 |
+| [M5-03](M5-03-decision-tests.md) | Tests for D1, D2, D3, D5, D7, D8 and D13 | M5-02 |
+| [M5-04](M5-04-strings-shell-and-tree.md) | Strings module and its test; shell, Settings, tree and tabs converted | M4 |
+| [M5-05](M5-05-strings-panes.md) | History, changes, conflicts, AI and jobs converted | M5-04 |
+| [M5-06](M5-06-strings-dialogs.md) | Operation dialogs and stores converted; D15 complete | M5-05 |
+| [M5-07](M5-07-palette-core.md) | Palette catalog, matching and ranking in the core | M4 |
+| [M5-08](M5-08-palette-ui.md) | Palette window: Ctrl/Cmd+K, run an operation, select a repo, group or branch | M5-06, M5-07 |
+| [M5-09](M5-09-keyboard-pass.md) | Keymap, every operation reachable without a mouse from its own place | M5-08 |
+| [M5-10](M5-10-accessibility-pass.md) | axe checks in both themes, app theme contrast, focus, live region, motion | M5-09 |
+| [M5-11](M5-11-git-path-setting.md) | Git path in Settings and on the setup screen | M5-06 |
+| [M5-12](M5-12-updater.md) | Update check, notice, install and restart or download page; setting | M5-01, M5-10, M5-11 |
+| [M5-13](M5-13-release-workflow.md) | Tag-triggered release workflow, signed update packages, `latest.json`, draft release | M5-12 |
+| [M5-14](M5-14-install-tests.md) | Every package installed and started on its CI runner | M5-13 |
+| [M5-15](M5-15-update-tests.md) | Update, bad signature and notify-only tested on the CI runners | M5-14 |
+| [M5-16](M5-16-windows-smoke-and-keychains.md) | Smoke test on Windows; OS keychain test on Windows and macOS | M4 |
+| [M5-17](M5-17-idle-memory.md) | Idle memory within 400 MB, one and two tabs | M5-08 to M5-12 |
+| [M5-18](M5-18-user-docs.md) | User documentation in `docs/user/`, link test | M5-09, M5-11, M5-12, M5-13 |
+| [M5-19](M5-19-readme.md) | README as front page and download page | M5-18 |
+| [M5-20](M5-20-release-candidate.md) | 1.0.0-rc.1, coverage enforcing over the whole spec, M5 sign-off | M5-01 to M5-19 |
+| [M5-30](M5-30-v1-0-0.md) | v1.0.0 released; the release candidate updates to it | M5-20 and its follow-ups |
+
+M5-01, M5-02, M5-04, M5-07 and M5-16 need nothing from other M5 tasks and can
+start together; M5-01 goes first among them, before anything is released. The
+string tasks (M5-04 to M5-06) touch every UI area, so the other UI tasks wait
+for them. M5-11 can run beside M5-07 to M5-10, and M5-12 follows it, since both change Settings. Follow-ups found by the release
+candidate are numbered M5-21 to M5-29, so they come before M5-30 in file order.
+
 ## Choices made in these tasks that the spec does not cover
 
 Each is a default so the tasks have no gaps. Veto any of them before the first
@@ -325,3 +362,22 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Fixture format | One folder per fixture with `meta.toml`, `base`, `ours`, `theirs` and `accept/*.txt` (whole-file resolutions, or `UNRESOLVED`); written for this repo and reviewed by Eric | M4-11 |
 | Eval score | *Match* when the resolved file equals an accepted resolution after normalizing line endings and trimming trailing whitespace | M4-11 |
 | AI in the smoke test | A mock provider kind in the `e2e` build, chosen by `GITCROC_E2E_AI` | M4-12 |
+| What M5 completes | UI-22, PLAT-4, SEC-7, D12 and D15 in full; tests for D1, D2, D3, D5, D7, D8 and D13; `just coverage spec` empty, with DEV-1 to DEV-4 as no test needed (ADR 0003) | M5-01 to M5-20 |
+| Windows and macOS proof | Installing and updating on Windows and macOS is proven by CI jobs on GitHub's hosted runners (`windows-latest`, `macos-latest` on Apple silicon), as is the smoke test on Windows and the OS keychain on both. Budgets, screen readers and by-hand checks there stay deferred (Eric, 2026-10-19) | M5-14, M5-15, M5-16, M5-20 |
+| D15 in the core | D15's "all strings externalized" is met by one strings module for the UI. Text the core sends (errors, skip and block reasons, palette labels, git's output) stays English built in Rust, one place per type, and is shown as it arrives; translating it is LATER with translations (section 2) | M5-04 to M5-07 |
+| Strings module | `ui/src/strings/en.ts`, one `const` object by area; a text with values is a function, which also holds the plural rule. No translation library | M5-04 |
+| Palette matching | Case-insensitive; every word of the query must occur, in any order. Ranked: whole name, name prefix, word prefix, anywhere; ties by kind (operation, repo, group, branch), then catalog or tree order. At most 100 items with the total; an empty query lists the operations. Branches are local and remote, not tags or stashes | M5-07 |
+| Palette contents | The catalog of operations lives in the core with its labels; the UI only maps each id to the handler its toolbar, menu or pane entry uses, and disables entries by the same rules. AI entries are absent while AI is off (AI-16) | M5-07, M5-08 |
+| Keyboard shortcuts | Ctrl/Cmd+K palette; F6 and Shift+F6 between regions; Ctrl/Cmd+, Settings; Ctrl/Cmd+PageDown and PageUp between tabs; F7 and Shift+F7 between hunks. All in `ui/src/keys.ts`; none shadows a CodeMirror key | M5-09 |
+| Accessibility target | WCAG 2.2 A and AA as axe-core checks them, in both app themes; app theme text 4.5:1 and focus, borders and selection 3:1; reduced motion and forced colors respected; a by-hand Orca pass on Linux | M5-10, M5-20 |
+| Settings keys in M5 | `git_path` (optional OS path) and `update_check` (default on), optional top-level keys of `settings.toml`, schema unchanged | M5-11, M5-12 |
+| Missing chosen git | A chosen git path with no executable falls through to M0-06's search, and Settings says so; a chosen git that exists but is too old is reported | M5-11 |
+| Update check | Release bundles only, never debug, `e2e` or `perf-trace` builds. First after the active workspace's startup refresh, then every 24 hours while running; nothing about checks is saved. A failed check shows only in Settings and the log | M5-12 |
+| Updates by package | Windows installer, macOS app and AppImage install and restart; `.deb`, `.rpm` and the Windows portable zip only notify and open the fixed releases page. Installing is a job, refused while another job runs; unsaved conflict editor state asks first | M5-12 |
+| Update endpoint | `https://github.com/ericlass/gitcroc/releases/latest/download/latest.json`; pre-releases are not offered, since `releases/latest` ignores them | M5-12, M5-13 |
+| Updater key | Eric generates the key pair and stores the private key and its password as repository secrets; agents only ever see the public key. CI update tests use a throwaway key pair made inside the job | M5-12, M5-13, M5-15 |
+| Releases | A pushed tag `v<version>` builds a draft GitHub release with every package, `.sig` files, `SHA256SUMS` and `latest.json`; notes from `CHANGELOG.md`. Eric pushes tags and publishes; an agent never does | M5-13 |
+| Release candidate | `1.0.0-rc.1` before `1.0.0`, published as a pre-release; if a package format orders it wrongly, the scheme is asked about, not invented | M5-20 |
+| Start line in the log | `gitcroc <version> started (<os> <arch>, <package>)` at each start, no paths; the install and update tests wait for it | M5-14 |
+| Website and screenshots | No website in v1: the README is the front page and GitHub Releases the download page. No screenshots | M5-18, M5-19 |
+| User docs | Markdown in `docs/user/`; `docs/install-unsigned.md` moves to `docs/user/install.md` | M5-18 |
