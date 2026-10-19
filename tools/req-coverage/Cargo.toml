@@ -1,6 +1,6 @@
 [package]
 name = "req-coverage"
-description = "Lists requirement IDs of a milestone that have no test (QA-3)."
+description = "Lists requirement IDs of a milestone or of the whole spec that have no test (QA-3)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

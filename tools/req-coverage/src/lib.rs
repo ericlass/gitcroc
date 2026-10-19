@@ -1,7 +1,8 @@
 //! Requirement coverage (QA-3): finds the requirement IDs a milestone's task
-//! files implement and reports those that no test mentions.
+//! files implement, or that the whole spec defines, and reports those that no
+//! test mentions.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// Errors returned by `req-coverage`.
@@ -259,28 +260,79 @@ fn report(tasks: &[Task], test_code: &[String]) -> Report {
     out
 }
 
-/// Reads `docs/tasks/<milestone>-*.md` and the test code under `crates/` and
-/// `ui/` of the repository at `root`, and reports the milestone's coverage.
-pub fn run(root: &Path, milestone: &str) -> Result<Report, Error> {
-    let tasks_dir = root.join("docs/tasks");
+/// The requirement IDs the text of a spec file defines, in order of first
+/// appearance: every bold `**ID**`, and the first cell of every table row that
+/// is `D<n>` (the decision log). Bold words that are not IDs are ignored.
+fn parse_spec(text: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut push = |id: &str| {
+        if !ids.iter().any(|known| known == id) {
+            ids.push(id.to_owned());
+        }
+    };
+    for line in text.lines().map(str::trim) {
+        if let Some(cell) = line
+            .strip_prefix('|')
+            .and_then(|row| row.split('|').next())
+            .map(str::trim)
+            .filter(|cell| cell.starts_with('D') && is_id(cell) && !cell.contains('-'))
+        {
+            push(cell);
+        }
+        let mut parts = line.split("**");
+        parts.next();
+        while let (Some(bold), Some(_)) = (parts.next(), parts.next()) {
+            if is_id(bold) {
+                push(bold);
+            }
+        }
+    }
+    ids
+}
+
+/// Sorts each spec ID into covered (a test mentions it), no test needed (a
+/// task says so; the first such task in file order is named) or missing.
+fn spec_report(spec_ids: &[String], tasks: &[Task], test_code: &[String]) -> Report {
+    let ids: BTreeSet<&String> = spec_ids.iter().collect();
+    let mut out = Report::default();
+    for id in ids {
+        if test_code.iter().any(|code| mentions(code, id)) {
+            out.covered.push(id.clone());
+        } else if let Some((name, reason)) = tasks.iter().find_map(|(name, task)| {
+            task.no_test_needed
+                .iter()
+                .find(|(exempt, _)| exempt == id)
+                .map(|(_, reason)| (name, reason))
+        }) {
+            out.no_test_needed
+                .push((id.clone(), name.clone(), reason.clone()));
+        } else {
+            out.missing.push(id.clone());
+        }
+    }
+    out
+}
+
+/// The `.md` files of `dir` whose name (without `.md`) passes `keep`, sorted
+/// by name, with their text.
+fn read_markdown(dir: &Path, keep: impl Fn(&str) -> bool) -> Result<Vec<(String, String)>, Error> {
     let io = |source| Error::Io {
-        path: tasks_dir.clone(),
+        path: dir.to_owned(),
         source,
     };
-    let prefix = format!("{milestone}-");
-    let mut tasks = Vec::new();
-    let mut entries = std::fs::read_dir(&tasks_dir)
+    let mut entries = std::fs::read_dir(dir)
         .map_err(io)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(io)?;
     entries.sort_by_key(|e| e.file_name());
+    let mut files = Vec::new();
     for entry in entries {
         let path = entry.path();
         let Some(name) = path
             .file_name()
             .and_then(|n| n.to_str())
             .and_then(|n| n.strip_suffix(".md"))
-            .filter(|n| n.starts_with(&prefix))
+            .filter(|n| keep(n))
         else {
             continue;
         };
@@ -288,15 +340,50 @@ pub fn run(root: &Path, milestone: &str) -> Result<Report, Error> {
             path: path.clone(),
             source,
         })?;
-        tasks.push((name.to_owned(), parse_task(name, &text)?));
+        files.push((name.to_owned(), text));
     }
+    Ok(files)
+}
+
+/// The task files in `docs/tasks` whose name passes `keep`.
+fn read_tasks(root: &Path, keep: impl Fn(&str) -> bool) -> Result<Vec<Task>, Error> {
+    read_markdown(&root.join("docs/tasks"), keep)?
+        .into_iter()
+        .map(|(name, text)| {
+            let ids = parse_task(&name, &text)?;
+            Ok((name, ids))
+        })
+        .collect()
+}
+
+/// The test code under `crates/` and `ui/`.
+fn all_test_code(root: &Path) -> Result<Vec<String>, Error> {
+    let mut code = collect_test_code(&root.join("crates"))?;
+    code.extend(collect_test_code(&root.join("ui"))?);
+    Ok(code)
+}
+
+/// Reads `docs/tasks/<milestone>-*.md` and the test code under `crates/` and
+/// `ui/` of the repository at `root`, and reports the milestone's coverage.
+pub fn run(root: &Path, milestone: &str) -> Result<Report, Error> {
+    let prefix = format!("{milestone}-");
+    let tasks = read_tasks(root, |name| name.starts_with(&prefix))?;
     if tasks.is_empty() {
         return Err(Error::NoTasks(milestone.to_owned()));
     }
+    Ok(report(&tasks, &all_test_code(root)?))
+}
 
-    let mut code = collect_test_code(&root.join("crates"))?;
-    code.extend(collect_test_code(&root.join("ui"))?);
-    Ok(report(&tasks, &code))
+/// Reads every requirement ID defined in `docs/spec/*.md`, the "No test
+/// needed:" lines of every task file in `docs/tasks/` and the test code, and
+/// reports the coverage of the whole spec.
+pub fn run_spec(root: &Path) -> Result<Report, Error> {
+    let mut ids = Vec::new();
+    for (_, text) in read_markdown(&root.join("docs/spec"), |_| true)? {
+        ids.extend(parse_spec(&text));
+    }
+    let tasks = read_tasks(root, |name| name != "README")?;
+    Ok(spec_report(&ids, &tasks, &all_test_code(root)?))
 }
 
 #[cfg(test)]
@@ -406,6 +493,81 @@ Respects: D6, section 4 \"Crates\" table
         assert_eq!(
             test_code(Path::new("gitcroc-core/src/main.rs"), "// GRP-1"),
             None
+        );
+    }
+
+    const SPEC: &str = "\
+# 4. Architecture
+
+- **ARCH-1** All repo writes go through the git CLI runner.
+* **UI-34** The group commit dialog.
+- **Mark resolved** is a button, not a requirement.
+
+| ID | Topic | Decision | Source |
+| --- | --- | --- | --- |
+| D1 | Core language | Rust | Eric |
+| D14 | License | MIT, see **ARCH-1** | Eric |
+";
+
+    #[test]
+    fn qa_3_spec_mode_reads_bold_definitions_and_decision_rows() {
+        assert_eq!(parse_spec(SPEC), ["ARCH-1", "UI-34", "D1", "D14"]);
+    }
+
+    #[test]
+    fn qa_3_spec_mode_reports_missing_and_covered() {
+        let code = vec!["fn arch_5_x() {}\n// UI-34 and d1_rust".to_owned()];
+        let report = spec_report(&parse_spec(SPEC), &[], &code);
+        assert_eq!(report.covered, ["D1", "UI-34"]);
+        assert_eq!(report.missing, ["ARCH-1", "D14"]);
+        assert!(report.no_test_needed.is_empty());
+    }
+
+    #[test]
+    fn qa_3_spec_mode_takes_no_test_needed_from_any_task() {
+        let tasks = vec![
+            (
+                "M2-04".to_owned(),
+                parse_task("M2-04", "Implements: UI-34").unwrap(),
+            ),
+            (
+                "M5-02".to_owned(),
+                parse_task("M5-02", "No test needed: D14 (kept by review)").unwrap(),
+            ),
+        ];
+        let report = spec_report(&parse_spec(SPEC), &tasks, &[]);
+        assert_eq!(report.missing, ["ARCH-1", "D1", "UI-34"]);
+        assert_eq!(
+            report.no_test_needed,
+            [(
+                "D14".to_owned(),
+                "M5-02".to_owned(),
+                "kept by review".to_owned()
+            )]
+        );
+    }
+
+    #[test]
+    fn qa_3_spec_mode_counts_an_id_once() {
+        let spec = format!("{SPEC}\n- **ARCH-1** again\n| D1 | again | x | y |\n");
+        assert_eq!(parse_spec(&spec), ["ARCH-1", "UI-34", "D1", "D14"]);
+
+        let tasks = vec![
+            (
+                "M5-02".to_owned(),
+                parse_task("M5-02", "No test needed: D1 (first)").unwrap(),
+            ),
+            (
+                "M5-03".to_owned(),
+                parse_task("M5-03", "No test needed: D1 (second)").unwrap(),
+            ),
+        ];
+        let report = spec_report(&parse_spec(&spec), &tasks, &["// ARCH-1 ARCH-1".to_owned()]);
+        assert_eq!(report.covered, ["ARCH-1"]);
+        assert_eq!(report.missing, ["D14", "UI-34"]);
+        assert_eq!(
+            report.no_test_needed,
+            [("D1".to_owned(), "M5-02".to_owned(), "first".to_owned())]
         );
     }
 
