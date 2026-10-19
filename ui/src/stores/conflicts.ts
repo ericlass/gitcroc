@@ -35,6 +35,7 @@ import {
   type WorkspaceId,
 } from "../ipc";
 import type { AiStore } from "./ai";
+import { strings } from "../strings/en";
 
 /** What the editor starts from: the conflict's hunks, or the file as it is on disk (OPS-8). */
 export type Start = "conflict" | "disk";
@@ -90,22 +91,22 @@ export interface AiAsk {
 export function refusalText(refused: AiRefused): string {
   switch (refused.kind) {
     case "ai_off":
-      return "AI features are off.";
+      return strings.conflict.refused.aiOff;
     case "ai_disabled":
-      return "AI is off for this workspace.";
+      return strings.conflict.aiOffHere;
     case "no_provider":
-      return "No AI provider is the default.";
+      return strings.conflict.refused.noProvider;
     case "provider_unusable":
-      return `The AI provider cannot be used: ${refused.reason}`;
+      return strings.conflict.refused.providerUnusable(refused.reason);
     case "ineligible":
-      return `Not sent to AI: ${refused.message}`;
+      return strings.conflict.refused.ineligible(refused.message);
     case "consent_needed":
-      return "Not sent: the provider was not allowed.";
+      return strings.conflict.refused.consentNeeded;
   }
 }
 
 /** The reason of a failed job's message, without the prefix the editor shows itself. */
-const failure = (message: string | null) => (message ?? "the job failed").replace(/^AI failed: /, "");
+const failure = (message: string | null) => (message ?? strings.conflict.jobFailed).replace(/^AI failed: /, "");
 
 export interface FileConflict {
   conflict: Conflict;
@@ -465,7 +466,7 @@ export function createConflictStore(onResolvedElsewhere: (id: WorkspaceId) => vo
     } catch (failure) {
       updateAi(id, repo, path, (ai) => {
         ai.ready = false;
-        ai.refusal = `Cannot read the proposal: ${message(failure)}`;
+        ai.refusal = strings.conflict.cannotReadProposal(message(failure));
       });
     }
   };

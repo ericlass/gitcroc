@@ -21,36 +21,23 @@ import {
 } from "../ipc";
 import { Actions, createNameCheck, Frame, NameField } from "../dialogs/parts";
 import type { GroupNameDialog as Dialog } from "../stores/groupOps";
+import { strings } from "../strings/en";
 
 const MISSING: { missing: MissingBranch; label: string }[] = [
-  { missing: "skip", label: "Skip the repository" },
-  { missing: "default_branch", label: "Switch to its default branch" },
-  { missing: "create", label: "Create the branch from HEAD" },
+  { missing: "skip", label: strings.groupOps.missing.skip },
+  { missing: "default_branch", label: strings.groupOps.missing.defaultBranch },
+  { missing: "create", label: strings.groupOps.missing.create },
 ];
 
 const FAST_FORWARD: { fastForward: MergeFastForward; label: string }[] = [
-  { fastForward: "config", label: "As git config says" },
-  { fastForward: "ff_only", label: "Fast-forward only" },
-  { fastForward: "no_ff", label: "Always create a merge commit" },
+  { fastForward: "config", label: strings.groupOps.fastForwards.config },
+  { fastForward: "ff_only", label: strings.groupOps.fastForwards.ffOnly },
+  { fastForward: "no_ff", label: strings.groupOps.fastForwards.noFf },
 ];
 
-const TITLES: Record<Dialog["kind"], string> = {
-  checkout: "Check out a branch in",
-  create: "New branch in",
-  delete: "Delete a branch in",
-  merge: "Merge into the current branch in",
-  rebase: "Rebase the current branch in",
-  tag: "New tag in",
-};
+const TITLES = strings.groupOps.titles;
 
-const SUBMIT: Record<Dialog["kind"], string> = {
-  checkout: "Check out",
-  create: "Create",
-  delete: "Delete",
-  merge: "Merge",
-  rebase: "Rebase",
-  tag: "Create",
-};
+const SUBMIT = strings.groupOps.submit;
 
 /** Every branch name under `nodes`, a group's **Branches** node's children. */
 function namesOf(nodes: TreeNode[]): string[] {
@@ -62,7 +49,7 @@ function namesOf(nodes: TreeNode[]): string[] {
 
 /** A ref to merge or rebase onto: anything git would not read as an option. */
 const refCheck = (name: string) =>
-  Promise.resolve(name.trim() === "" || name.startsWith("-") ? "Name a branch, tag or commit" : null);
+  Promise.resolve(name.trim() === "" || name.startsWith("-") ? strings.groupOps.nameARef : null);
 
 export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: GroupOp) => void; onClose: () => void }) {
   const dialog = untrack(() => props.dialog);
@@ -120,10 +107,11 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
         };
     }
   };
-  const label = () => (dialog.kind === "tag" ? "Tag" : integrating() ? "Branch, tag or commit" : "Branch");
+  const label = () =>
+    dialog.kind === "tag" ? strings.groupOps.tag : integrating() ? strings.groupOps.ref : strings.groupOps.branch;
 
   return (
-    <Frame id="group-name" title={`${TITLES[kind()]} ${dialog.targetName}`} onClose={() => props.onClose()}>
+    <Frame id="group-name" title={TITLES[kind()](dialog.targetName)} onClose={() => props.onClose()}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -134,7 +122,7 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
       >
         <Show when={integrating()}>
           <fieldset>
-            <legend>Operation</legend>
+            <legend>{strings.groupOps.operation}</legend>
             <label class="choice">
               <input
                 type="radio"
@@ -142,7 +130,7 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
                 checked={kind() === "merge"}
                 onChange={() => setKind("merge")}
               />{" "}
-              Merge it into the current branch
+              {strings.groupOps.mergeIt}
             </label>
             <label class="choice">
               <input
@@ -151,7 +139,7 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
                 checked={kind() === "rebase"}
                 onChange={() => setKind("rebase")}
               />{" "}
-              Rebase the current branch onto it
+              {strings.groupOps.rebaseOnto}
             </label>
           </fieldset>
         </Show>
@@ -168,7 +156,7 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
         <Switch>
           <Match when={kind() === "checkout"}>
             <fieldset>
-              <legend>Where the branch does not exist</legend>
+              <legend>{strings.groupOps.whereMissing}</legend>
               <For each={MISSING}>
                 {(choice) => (
                   <label class="choice">
@@ -186,10 +174,10 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
           </Match>
           <Match when={kind() === "create"}>
             <fieldset>
-              <legend>Start point</legend>
+              <legend>{strings.branches.startPoint}</legend>
               <label class="choice">
                 <input type="radio" name="start" checked={start() === "head"} onChange={() => setStart("head")} />{" "}
-                Current HEAD
+                {strings.branches.currentHead}
               </label>
               <label class="choice">
                 <input
@@ -198,7 +186,7 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
                   checked={start() === "default_branch"}
                   onChange={() => setStart("default_branch")}
                 />{" "}
-                Default branch
+                {strings.branches.defaultBranch}
               </label>
               <label class="choice">
                 <input
@@ -207,12 +195,12 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
                   checked={start() === "revision"}
                   onChange={() => setStart("revision")}
                 />{" "}
-                Branch, tag or commit:
+                {strings.branches.revision}
               </label>
               <input
                 type="text"
                 class="start-revision"
-                aria-label="Branch, tag or commit"
+                aria-label={strings.branches.revisionLabel}
                 autocomplete="off"
                 spellcheck={false}
                 value={revision()}
@@ -223,14 +211,14 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
                 }}
               />
             </fieldset>
-            <p class="hint">A repository where the branch exists already, or the start point does not, is skipped.</p>
+            <p class="hint">{strings.groupOps.createSkips}</p>
             <label class="choice">
               <input
                 type="checkbox"
                 checked={checkout()}
                 onChange={(event) => setCheckout(event.currentTarget.checked)}
               />{" "}
-              Check out the new branch
+              {strings.branches.checkOutNew}
             </label>
           </Match>
           <Match when={kind() === "delete"}>
@@ -240,7 +228,7 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
                 checked={force()}
                 onChange={(event) => setForce(event.currentTarget.checked)}
               />{" "}
-              Force: delete it even if it is not merged
+              {strings.groupOps.force}
             </label>
             <label class="choice">
               <input
@@ -248,12 +236,12 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
                 checked={onRemote()}
                 onChange={(event) => setOnRemote(event.currentTarget.checked)}
               />{" "}
-              Also delete it on the remote of its upstream, else on origin
+              {strings.groupOps.onRemote}
             </label>
           </Match>
           <Match when={kind() === "merge"}>
             <fieldset>
-              <legend>Fast-forward</legend>
+              <legend>{strings.groupOps.fastForward}</legend>
               <For each={FAST_FORWARD}>
                 {(choice) => (
                   <label class="choice">
@@ -271,18 +259,18 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
           </Match>
           <Match when={kind() === "tag"}>
             <fieldset>
-              <legend>Kind</legend>
+              <legend>{strings.tag.kind}</legend>
               <label class="choice">
                 <input type="radio" name="tag-kind" checked={annotated()} onChange={() => setAnnotated(true)} />{" "}
-                Annotated, with a message
+                {strings.tag.annotated}
               </label>
               <label class="choice">
                 <input type="radio" name="tag-kind" checked={!annotated()} onChange={() => setAnnotated(false)} />{" "}
-                Lightweight
+                {strings.tag.lightweight}
               </label>
             </fieldset>
             <label class="field">
-              <span>Message</span>
+              <span>{strings.tag.message}</span>
               <textarea
                 rows={4}
                 spellcheck={false}
@@ -291,20 +279,18 @@ export default function GroupNameDialog(props: { dialog: Dialog; onRun: (op: Gro
                 onInput={(event) => setMessage(event.currentTarget.value)}
               />
             </label>
-            <p class="hint">Each repository is tagged at its own HEAD; one where the tag exists already is skipped.</p>
+            <p class="hint">{strings.groupOps.tagSkips}</p>
             <label class="choice">
-              <input type="checkbox" checked={push()} onChange={(event) => setPush(event.currentTarget.checked)} /> Push
-              the tag after creating it
+              <input type="checkbox" checked={push()} onChange={(event) => setPush(event.currentTarget.checked)} />{" "}
+              {strings.tag.push}
             </label>
           </Match>
         </Switch>
         <Show when={integrating()}>
-          <p class="hint">
-            The preflight predicts conflicts; a repository where git stops in conflicts is resolved on its own.
-          </p>
+          <p class="hint">{strings.groupOps.predictsConflicts}</p>
         </Show>
         <Show when={names.error as unknown}>
-          <p role="alert">Cannot read the group's branches</p>
+          <p role="alert">{strings.groupOps.cannotReadBranches}</p>
         </Show>
         <Actions submit={SUBMIT[kind()]} disabled={!ready()} onCancel={() => props.onClose()} />
       </form>

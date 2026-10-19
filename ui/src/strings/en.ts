@@ -6,6 +6,18 @@
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
+/** A step of an operation, such as a rebase's `3 of 7`. */
+interface Step {
+  current: number;
+  total: number;
+}
+
+/** `: merging topic into main`, or nothing when the core read nothing of what is applied. */
+const applyingWhat = (verb: string, joint: string, applying: string | null, onto: string | null) =>
+  applying === null ? "" : `: ${verb} ${applying}${onto === null ? "" : ` ${joint} ${onto}`}`;
+
+const unmergedCount = (paths: number) => (paths === 1 ? "1 path is unmerged" : `${paths} paths are unmerged`);
+
 export const strings = {
   common: {
     cancel: "Cancel",
@@ -170,6 +182,17 @@ export const strings = {
     closeDialog: (workspace: string) => `Close ${workspace}?`,
     closeTab: "Close tab",
     unsavedLost: "The unsaved conflict edits of these files are lost:",
+    cannotExport: (error: string) => `Cannot export the workspace: ${error}`,
+    cannotImport: (error: string) => `Cannot import a workspace: ${error}`,
+    exportFailed: "the export failed",
+    importFailed: "the import failed",
+    /** The export's report; `absolute` are the repos no relative path reaches. */
+    exported: (path: string, absolute: string[]) =>
+      `Exported the workspace to ${path}.${
+        absolute.length === 0
+          ? ""
+          : ` No relative path reaches these repos, so they stay absolute: ${absolute.join(", ")}.`
+      }`,
   },
 
   tree: {
@@ -393,6 +416,8 @@ export const strings = {
       plural(count, "file with uncommitted changes", "files with uncommitted changes"),
     cannotShow: (error: string) => `Cannot show the selection: ${error}`,
     noRepos: "This group has no repositories.",
+    cannotWriteCommitGraph: (error: string) => `Cannot write the commit-graph file: ${error}`,
+    cannotKeepAnswer: (error: string) => `Cannot keep the answer: ${error}`,
   },
 
   changes: {
@@ -516,6 +541,12 @@ export const strings = {
     untrackedFolder: "An untracked folder. Its files are not read.",
     submoduleBefore: "Submodule commit before",
     submoduleAfter: "Submodule commit after",
+    fileChanged: "The file changed; showing it again.",
+    listChanged: "The list changed; showing it again.",
+    cannotTurnOn: (error: string) => `Cannot turn the settings on: ${error}`,
+    cannotKeepAnswer: (error: string) => `Cannot keep the answer: ${error}`,
+    commitFailed: "The commit failed. The job list shows what git said.",
+    groupCommitFailed: "Not every repository committed. The job's report says why.",
   },
 
   conflict: {
@@ -636,6 +667,16 @@ export const strings = {
     allEdited: "Not sent: every conflict is already edited",
     cancelled: "Cancelled",
     files: "Files",
+    /** Why Resolve with AI was refused (AI-3). */
+    refused: {
+      aiOff: "AI features are off.",
+      noProvider: "No AI provider is the default.",
+      providerUnusable: (reason: string) => `The AI provider cannot be used: ${reason}`,
+      ineligible: (why: string) => `Not sent to AI: ${why}`,
+      consentNeeded: "Not sent: the provider was not allowed.",
+    },
+    jobFailed: "the job failed",
+    cannotReadProposal: (error: string) => `Cannot read the proposal: ${error}`,
   },
 
   ai: {
@@ -714,5 +755,256 @@ export const strings = {
       askedAgain: "You are asked again if the provider's host or program changes.",
       allow: "Allow",
     },
+  },
+
+  clone: {
+    title: "Clone a repository",
+    url: "URL",
+    intoFolder: "Into folder",
+    noFolder: "No folder chosen",
+    choose: "Choose…",
+    folderName: "Folder name",
+    clonesInto: (path: string) => `Clones into ${path}`,
+    addToGroup: "Add to group",
+    noGroup: "None",
+    newGroup: "New group…",
+    groupName: "Group name",
+    clone: "Clone",
+    missing: {
+      title: "Missing repositories",
+      looking: "Looking for missing repositories…",
+      none: "No repository of this workspace is missing.",
+      intro: "These repositories are not on this computer. Clone them from their remotes:",
+      noRemote: "No remote to clone from",
+      chooseFolder: (repo: string) => `Choose the folder for ${repo}`,
+      folderName: (repo: string) => `Folder name for ${repo}`,
+      cloning: "Cloning…",
+      cloned: "Cloned",
+      failed: (why: string) => `Failed: ${why}`,
+      cloneFailed: "the clone failed",
+      cloneSelected: "Clone selected",
+    },
+  },
+
+  groupOps: {
+    missing: {
+      skip: "Skip the repository",
+      defaultBranch: "Switch to its default branch",
+      create: "Create the branch from HEAD",
+    },
+    fastForwards: {
+      config: "As git config says",
+      ffOnly: "Fast-forward only",
+      noFf: "Always create a merge commit",
+    },
+    /** The group operation dialog's title, with what it runs on. */
+    titles: {
+      checkout: (target: string) => `Check out a branch in ${target}`,
+      create: (target: string) => `New branch in ${target}`,
+      delete: (target: string) => `Delete a branch in ${target}`,
+      merge: (target: string) => `Merge into the current branch in ${target}`,
+      rebase: (target: string) => `Rebase the current branch in ${target}`,
+      tag: (target: string) => `New tag in ${target}`,
+    },
+    submit: {
+      checkout: "Check out",
+      create: "Create",
+      delete: "Delete",
+      merge: "Merge",
+      rebase: "Rebase",
+      tag: "Create",
+    },
+    nameARef: "Name a branch, tag or commit",
+    tag: "Tag",
+    ref: "Branch, tag or commit",
+    branch: "Branch",
+    operation: "Operation",
+    mergeIt: "Merge it into the current branch",
+    rebaseOnto: "Rebase the current branch onto it",
+    whereMissing: "Where the branch does not exist",
+    createSkips: "A repository where the branch exists already, or the start point does not, is skipped.",
+    force: "Force: delete it even if it is not merged",
+    onRemote: "Also delete it on the remote of its upstream, else on origin",
+    fastForward: "Fast-forward",
+    tagSkips: "Each repository is tagged at its own HEAD; one where the tag exists already is skipped.",
+    predictsConflicts:
+      "The preflight predicts conflicts; a repository where git stops in conflicts is resolved on its own.",
+    cannotReadBranches: "Cannot read the group's branches",
+    prunes: {
+      config: "As git config says",
+      prune: "Remove remote-tracking branches gone from the remote",
+      noPrune: "Keep them",
+    },
+    syncNames: { fetch: "Fetch", pull: "Pull", push: "Push" },
+    syncTitle: (operation: string, target: string) => `${operation} ${target}`,
+    prune: "Prune",
+    pullsOwnBranch: "Each repository pulls its own current branch.",
+    setUpstream: "Set upstream to origin/<branch> where a branch has none",
+    preflight: {
+      classes: {
+        will_run: "Will run",
+        needs_attention: "Needs attention",
+        will_skip: "Will skip",
+        blocked: "Blocked",
+      },
+      /** The run button of a destructive operation, with the core's action. */
+      actionIn: (action: string, count: number) => `${action} in ${plural(count, "repo", "repos")}`,
+      runOn: (count: number) => `Run on ${plural(count, "repo", "repos")}`,
+      title: "Group operation",
+      checking: "Checking the repos…",
+      cannotBeUndoneIn: (count: number) => `Cannot be undone in ${plural(count, "repo", "repos")}:`,
+      inTheseRepos: "In these repos:",
+      repos: "Repos",
+      stagedFiles: (count: number) => plural(count, "staged file", "staged files"),
+      leaveOut: "To leave a repo out, change the selection in the tree and start again.",
+    },
+  },
+
+  integrate: {
+    operations: {
+      merge: "Merge",
+      rebase: "Rebase",
+      apply_mailbox: "Patch application",
+      cherry_pick: "Cherry-pick",
+      revert: "Revert",
+      stash_apply: "Stash apply",
+    },
+    /** The conflict banner's line, with what the core read of the operation, `null` where it read nothing. */
+    inProgress: {
+      merge: (applying: string | null, onto: string | null) =>
+        `Merge in progress${applyingWhat("merging", "into", applying, onto)}`,
+      rebase: (applying: string | null, onto: string | null, step: Step | null) =>
+        `Rebase in progress${applyingWhat("rebasing", "onto", applying, onto)}${
+          step === null ? "" : `, step ${step.current} of ${step.total}`
+        }`,
+      cherryPick: (applying: string | null, onto: string | null) =>
+        `Cherry-pick in progress${applyingWhat("applying", "onto", applying, onto)}`,
+      revert: (applying: string | null, onto: string | null) =>
+        `Revert in progress${applyingWhat("reverting", "on", applying, onto)}`,
+      applyMailbox: (step: Step | null) =>
+        `Patch application in progress${step === null ? "" : `: patch ${step.current} of ${step.total}`}`,
+      stashApply: (onto: string | null) => `Stash apply stopped with conflicts${onto === null ? "" : ` on ${onto}`}`,
+    },
+    allResolved: "All conflicts are resolved and staged.",
+    markResolved: (paths: number) =>
+      `${unmergedCount(paths)}: mark ${paths === 1 ? "it" : "them"} resolved, and the stash apply ends.`,
+    resolveAndStage: (paths: number) =>
+      `${unmergedCount(paths)}: resolve and stage ${paths === 1 ? "it" : "them"}, then Continue.`,
+    abortStashApply: "Put the files the stash apply changed back to HEAD; the stash and other local changes are kept",
+    abortTitle: (operation: string) => `Abort the ${operation} and go back to where it started`,
+    conflictState: "Conflict state",
+    cannotRead: (error: string) => `Cannot read the operation: ${error}`,
+    aiOffTitle: "AI is off for this workspace",
+    resolveAllTitle: "Ask AI to propose resolutions for every file",
+    resolveAll: "Resolve all with AI",
+    abort: "Abort",
+    stashApplyEnds: "A stash apply ends when its last path is marked resolved",
+    resolveFirst: "Resolve and stage every unmerged path first",
+    continue: "Continue",
+    fastForwards: {
+      config: "As git config says (fast-forward when possible)",
+      ffOnly: "Fast-forward only",
+      noFf: "Always create a merge commit",
+    },
+    theCurrentBranch: "the current branch",
+    mergeTitle: (branch: string, repo: string) => `Merge into ${branch} in ${repo}`,
+    mergeRef: "Branch, remote branch or tag",
+    typeToFilter: "Type to filter",
+    refs: "Refs",
+    noRefMatches: "No ref matches.",
+    cannotListRefs: (error: string) => `Cannot list the refs: ${error}`,
+    fastForward: "Fast-forward",
+    rebaseInstead: (branch: string) => `Rebase ${branch} onto it instead`,
+    rebase: "Rebase",
+    merge: "Merge",
+    revertMergeTitle: (repo: string) => `Revert a merge commit in ${repo}`,
+    keepParent: "Keep the side of parent",
+    revert: "Revert",
+  },
+
+  remote: {
+    addTitle: (repo: string) => `Add a remote to ${repo}`,
+    name: "Name",
+    url: "URL",
+    fetchAfter: "Fetch it after adding it",
+    add: "Add",
+    renameTitle: (remote: string, repo: string) => `Rename remote ${remote} in ${repo}`,
+    newName: "New name",
+    renameMoves: "Its remote-tracking branches and the upstreams on it move to the new name.",
+    rename: "Rename",
+    fetchUrl: "Fetch URL",
+    pushUrl: "Push URL",
+    save: "Save",
+    urlTitle: (remote: string, repo: string) => `URL of remote ${remote} in ${repo}`,
+    readingUrls: "Reading the URLs…",
+    remove: "Remove",
+  },
+
+  reset: {
+    modes: {
+      soft: "Soft: keep the index and the working tree",
+      mixed: "Mixed: reset the index, keep the working tree",
+      hard: "Hard: reset the index and the working tree; uncommitted changes are lost",
+    },
+    /** `branch` is the branch's name, or HEAD when it is detached. */
+    title: (branch: string, repo: string, commit: string) => `Reset ${branch} in ${repo} to ${commit}`,
+    detached: "HEAD is detached: HEAD is reset, not a branch.",
+    mode: "Mode",
+    resetHardAsk: "Reset hard…",
+    reset: "Reset",
+    resetHard: "Reset hard",
+  },
+
+  stash: {
+    pushTitle: (repo: string) => `Stash changes in ${repo}`,
+    message: "Message (optional)",
+    includeUntracked: "Include untracked files",
+    stash: "Stash",
+    drop: "Drop",
+    kept: "Stash kept",
+    popKept: (stash: string, message: string, repo: string) =>
+      `The pop of ${stash} (${message}) in ${repo} stopped with conflicts, so git kept the stash. Drop it now?`,
+    dropStash: "Drop stash…",
+    keepIt: "Keep it",
+  },
+
+  sync: {
+    strategies: {
+      config: "As git config says (fast-forward only when unset)",
+      ffOnly: "Fast-forward only",
+      merge: "Merge",
+      rebase: "Rebase",
+    },
+    pullTitle: (repo: string) => `Pull ${repo}`,
+    strategy: "Strategy",
+    pull: "Pull",
+    pushTitle: (repo: string) => `Push ${repo}`,
+    noUpstream: (branch: string) => `${branch} has no upstream.`,
+    remote: "Remote",
+    chooseRemote: "Choose a remote",
+    setUpstream: "Set upstream",
+    pushes: (branch: string, upstream: string) => `Pushes ${branch} to ${upstream}.`,
+    forceWithLease: "Force with lease (replaces the remote branch)",
+    cannotReadRemotes: (error: string) => `Cannot read the remotes: ${error}`,
+    push: "Push",
+    forcePush: "Force push",
+  },
+
+  tag: {
+    createTitle: (at: string, repo: string) => `New tag at ${at} in ${repo}`,
+    name: "Name",
+    kind: "Kind",
+    annotated: "Annotated, with a message",
+    lightweight: "Lightweight",
+    message: "Message",
+    push: "Push the tag after creating it",
+    create: "Create",
+    deleteTitle: (tag: string, repo: string) => `Delete tag ${tag} in ${repo}?`,
+    onRemote: "Also delete it on the remote",
+    delete: "Delete",
+    deleteOnWhich: (tag: string) => `Delete tag ${tag} on which remote?`,
+    pushToWhich: (tag: string) => `Push tag ${tag} to which remote?`,
+    remote: "Remote",
+    pushIt: "Push",
   },
 };

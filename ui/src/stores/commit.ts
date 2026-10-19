@@ -20,6 +20,7 @@ import {
   type WorkspaceId,
 } from "../ipc";
 import { LIST_CHANGED } from "./changes";
+import { strings } from "../strings/en";
 
 /** A commit or amend the core is running. */
 interface Pending {
@@ -84,10 +85,10 @@ const same = (a: CommitMessage, b: CommitMessage) => a.subject === b.subject && 
 export const isBlank = (draft: CommitMessage) => draft.subject.trim() === "" && draft.body.trim() === "";
 
 /** What the box says when the commit's job failed; its output is in the job list. */
-export const COMMIT_FAILED = "The commit failed. The job list shows what git said.";
+export const COMMIT_FAILED = strings.changes.commitFailed;
 
 /** What the box says when a repo of a group commit did not commit; the report says why. */
-export const GROUP_COMMIT_FAILED = "Not every repository committed. The job's report says why.";
+export const GROUP_COMMIT_FAILED = strings.changes.groupCommitFailed;
 
 /** Runs a group operation through the preflight (section 5); `started` gets its job's id. */
 export type RunGroup = (id: WorkspaceId, target: TargetSet, op: GroupOp, started: (job: JobId) => void) => void;

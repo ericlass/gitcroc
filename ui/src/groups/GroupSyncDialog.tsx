@@ -7,14 +7,15 @@ import { Actions, Frame } from "../dialogs/parts";
 import type { GroupOp, Prune, PullStrategy } from "../ipc";
 import type { SyncKind } from "../stores/groupOps";
 import { STRATEGIES } from "../sync/SyncDialogs";
+import { strings } from "../strings/en";
 
 const PRUNES: { prune: Prune; label: string }[] = [
-  { prune: "config", label: "As git config says" },
-  { prune: "prune", label: "Remove remote-tracking branches gone from the remote" },
-  { prune: "no_prune", label: "Keep them" },
+  { prune: "config", label: strings.groupOps.prunes.config },
+  { prune: "prune", label: strings.groupOps.prunes.prune },
+  { prune: "no_prune", label: strings.groupOps.prunes.noPrune },
 ];
 
-const NAMES: Record<SyncKind, string> = { fetch: "Fetch", pull: "Pull", push: "Push" };
+const NAMES: Record<SyncKind, string> = strings.groupOps.syncNames;
 
 export default function GroupSyncDialog(props: {
   kind: SyncKind;
@@ -38,7 +39,11 @@ export default function GroupSyncDialog(props: {
     }
   };
   return (
-    <Frame id="group-sync" title={`${NAMES[props.kind]} ${props.targetName}`} onClose={() => props.onClose()}>
+    <Frame
+      id="group-sync"
+      title={strings.groupOps.syncTitle(NAMES[props.kind], props.targetName)}
+      onClose={() => props.onClose()}
+    >
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -48,7 +53,7 @@ export default function GroupSyncDialog(props: {
         <Switch>
           <Match when={props.kind === "fetch"}>
             <fieldset>
-              <legend>Prune</legend>
+              <legend>{strings.groupOps.prune}</legend>
               <For each={PRUNES}>
                 {(choice) => (
                   <label class="choice">
@@ -66,7 +71,7 @@ export default function GroupSyncDialog(props: {
           </Match>
           <Match when={props.kind === "pull"}>
             <fieldset>
-              <legend>Strategy</legend>
+              <legend>{strings.sync.strategy}</legend>
               <For each={STRATEGIES}>
                 {(choice) => (
                   <label class="choice">
@@ -81,7 +86,7 @@ export default function GroupSyncDialog(props: {
                 )}
               </For>
             </fieldset>
-            <p class="hint">Each repository pulls its own current branch.</p>
+            <p class="hint">{strings.groupOps.pullsOwnBranch}</p>
           </Match>
           <Match when={props.kind === "push"}>
             <label class="choice">
@@ -90,7 +95,7 @@ export default function GroupSyncDialog(props: {
                 checked={setUpstream()}
                 onChange={(event) => setSetUpstream(event.currentTarget.checked)}
               />{" "}
-              Set upstream to {"origin/<branch>"} where a branch has none
+              {strings.groupOps.setUpstream}
             </label>
             <label class="choice">
               <input
@@ -98,7 +103,7 @@ export default function GroupSyncDialog(props: {
                 checked={force()}
                 onChange={(event) => setForce(event.currentTarget.checked)}
               />{" "}
-              Force with lease (replaces the remote branch)
+              {strings.sync.forceWithLease}
             </label>
           </Match>
         </Switch>

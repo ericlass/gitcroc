@@ -9,6 +9,7 @@ import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { Actions, Frame, NameField, Refusal } from "../dialogs/parts";
 import { type CloneGroup, cloneDefaultName, cloneTargetCheck, type GroupView, type WorkspaceId } from "../ipc";
 import type { CloneStore } from "../stores/clone";
+import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -75,7 +76,7 @@ export default function CloneDialog(props: { workspace: WorkspaceId; clone: Clon
     !props.clone.sending(props.workspace);
 
   return (
-    <Frame id="clone" title="Clone a repository" onClose={close}>
+    <Frame id="clone" title={strings.clone.title} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -85,7 +86,7 @@ export default function CloneDialog(props: { workspace: WorkspaceId; clone: Clon
         }}
       >
         <label class="field">
-          <span>URL</span>
+          <span>{strings.clone.url}</span>
           <input
             type="text"
             autocomplete="off"
@@ -95,18 +96,18 @@ export default function CloneDialog(props: { workspace: WorkspaceId; clone: Clon
           />
         </label>
         <div class="field">
-          <span id="clone-parent-label">Into folder</span>
+          <span id="clone-parent-label">{strings.clone.intoFolder}</span>
           <div class="clone-parent">
             <span class="clone-path" aria-labelledby="clone-parent-label">
-              {parent() ?? "No folder chosen"}
+              {parent() ?? strings.clone.noFolder}
             </span>
             <button type="button" onClick={() => props.clone.pickParent(props.workspace)}>
-              Choose…
+              {strings.clone.choose}
             </button>
           </div>
         </div>
         <NameField
-          label="Folder name"
+          label={strings.clone.folderName}
           value={name()}
           error={name() === "" ? null : (verdict()?.error ?? null)}
           onInput={(value) => {
@@ -115,19 +116,19 @@ export default function CloneDialog(props: { workspace: WorkspaceId; clone: Clon
           }}
         />
         <Show when={parent() !== null && name() !== ""}>
-          <p class="clone-target">Clones into {`${parent()}/${name()}`}</p>
+          <p class="clone-target">{strings.clone.clonesInto(`${parent()}/${name()}`)}</p>
         </Show>
         <label class="field">
-          <span>Add to group</span>
+          <span>{strings.clone.addToGroup}</span>
           <select value={groupChoice()} onChange={(event) => setGroupChoice(event.currentTarget.value)}>
-            <option value="">None</option>
+            <option value="">{strings.clone.noGroup}</option>
             <For each={props.groups}>{(known) => <option value={known.id}>{known.name}</option>}</For>
-            <option value={NEW_GROUP}>New group…</option>
+            <option value={NEW_GROUP}>{strings.clone.newGroup}</option>
           </select>
         </label>
         <Show when={groupChoice() === NEW_GROUP}>
           <label class="field">
-            <span>Group name</span>
+            <span>{strings.clone.groupName}</span>
             <input
               type="text"
               autocomplete="off"
@@ -138,7 +139,7 @@ export default function CloneDialog(props: { workspace: WorkspaceId; clone: Clon
           </label>
         </Show>
         <Refusal error={props.clone.error(props.workspace)} />
-        <Actions submit="Clone" disabled={!ready()} onCancel={close} />
+        <Actions submit={strings.clone.clone} disabled={!ready()} onCancel={close} />
       </form>
     </Frame>
   );

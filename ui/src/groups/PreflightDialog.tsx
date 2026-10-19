@@ -8,18 +8,12 @@
 import { createEffect, createMemo, For, on, Show } from "solid-js";
 import type { Class, RepoClass } from "../ipc";
 import type { GroupOpStore, PendingPreflight } from "../stores/groupOps";
+import { strings } from "../strings/en";
 
-const CLASS_TEXT: Record<Class["kind"], string> = {
-  will_run: "Will run",
-  needs_attention: "Needs attention",
-  will_skip: "Will skip",
-  blocked: "Blocked",
-};
+const CLASS_TEXT: Record<Class["kind"], string> = strings.groupOps.preflight.classes;
 
 /** Rows first by how much they need a look; within a class, target-set order. */
 const CLASS_ORDER: Class["kind"][] = ["needs_attention", "blocked", "will_skip", "will_run"];
-
-const repos = (n: number) => (n === 1 ? "1 repo" : `${n} repos`);
 
 const reasonOf = (type: Class) => (type.kind === "will_run" ? null : type.reason);
 
@@ -44,7 +38,9 @@ export default function PreflightDialog(props: { pending: PendingPreflight; grou
   const submit = () => {
     const shown = ready();
     const n = running().length;
-    return shown !== null && destructive() ? `${shown.action} in ${repos(n)}` : `Run on ${repos(n)}`;
+    return shown !== null && destructive()
+      ? strings.groupOps.preflight.actionIn(shown.action, n)
+      : strings.groupOps.preflight.runOn(n);
   };
 
   // Cancel has the focus while the preflight runs and where something cannot
@@ -73,13 +69,13 @@ export default function PreflightDialog(props: { pending: PendingPreflight; grou
           }
         }}
       >
-        <h2 id="preflight-title">{ready()?.label ?? "Group operation"}</h2>
+        <h2 id="preflight-title">{ready()?.label ?? strings.groupOps.preflight.title}</h2>
         <Show
           when={ready()}
           fallback={
             <Show when={props.pending.error === null}>
               <p role="status" class="preflight-progress">
-                <span class="spinner" aria-hidden="true" /> Checking the repos…
+                <span class="spinner" aria-hidden="true" /> {strings.groupOps.preflight.checking}
               </p>
             </Show>
           }
@@ -89,17 +85,17 @@ export default function PreflightDialog(props: { pending: PendingPreflight; grou
               <p class="preflight-counts">{counts()}</p>
               <Show when={destructive()}>
                 <div class="preflight-destructive">
-                  <p>Cannot be undone in {repos(running().length)}:</p>
+                  <p>{strings.groupOps.preflight.cannotBeUndoneIn(running().length)}</p>
                   <ul class="op-actions">
                     <For each={shown().destructive}>{(action) => <li>{action}</li>}</For>
                   </ul>
-                  <p>In these repos:</p>
+                  <p>{strings.groupOps.preflight.inTheseRepos}</p>
                   <ul class="preflight-affected">
                     <For each={running()}>{(repo) => <li>{repo.repo_name}</li>}</For>
                   </ul>
                 </div>
               </Show>
-              <ul class="preflight-repos" aria-label="Repos">
+              <ul class="preflight-repos" aria-label={strings.groupOps.preflight.repos}>
                 <For each={rows()}>
                   {(repo) => (
                     <li class={`preflight-repo preflight-${repo.class.kind.replaceAll("_", "-")}`}>
@@ -108,9 +104,7 @@ export default function PreflightDialog(props: { pending: PendingPreflight; grou
                       <span class="preflight-detail">
                         <Show when={repo.staged_files}>
                           {(files) => (
-                            <span class="preflight-files">
-                              {files()} staged {files() === 1 ? "file" : "files"}
-                            </span>
+                            <span class="preflight-files">{strings.groupOps.preflight.stagedFiles(files())}</span>
                           )}
                         </Show>
                         <Show when={reasonOf(repo.class)}>
@@ -121,14 +115,14 @@ export default function PreflightDialog(props: { pending: PendingPreflight; grou
                   )}
                 </For>
               </ul>
-              <p class="hint">To leave a repo out, change the selection in the tree and start again.</p>
+              <p class="hint">{strings.groupOps.preflight.leaveOut}</p>
             </>
           )}
         </Show>
         <Show when={props.pending.error}>{(error) => <p role="alert">{error()}</p>}</Show>
         <div class="dialog-actions">
           <button type="button" class="cancel" onClick={() => props.groupOps.cancel()}>
-            Cancel
+            {strings.common.cancel}
           </button>
           <Show when={ready()}>
             <button

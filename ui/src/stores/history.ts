@@ -20,6 +20,7 @@ import {
   type WorkspaceId,
 } from "../ipc";
 import type { SelectionStore } from "./selection";
+import { strings } from "../strings/en";
 
 /** The id of the "Uncommitted changes" row; commit rows use their hash. */
 export const UNCOMMITTED_ID = "uncommitted";
@@ -533,7 +534,7 @@ export function createHistoryStore(selection: SelectionStore) {
     try {
       await commitGraphWrite(id, repo);
     } catch (error) {
-      update(id, (h) => (h.offerErrors[repo] = `Cannot write the commit-graph file: ${message(error)}`));
+      update(id, (h) => (h.offerErrors[repo] = strings.history.cannotWriteCommitGraph(message(error))));
     }
   };
 
@@ -543,7 +544,7 @@ export function createHistoryStore(selection: SelectionStore) {
     try {
       await commitGraphDecline(id, repo);
     } catch (error) {
-      update(id, (h) => (h.offerErrors[repo] = `Cannot keep the answer: ${message(error)}`));
+      update(id, (h) => (h.offerErrors[repo] = strings.history.cannotKeepAnswer(message(error))));
     }
   };
 
@@ -584,7 +585,7 @@ export function createHistoryStore(selection: SelectionStore) {
       const { workspace_id, repo_id, error, git_stderr } = event.payload;
       if (workspace_id === id && error !== null) {
         const detail = git_stderr ? `${error}\n${git_stderr}` : error;
-        update(id, (h) => (h.offerErrors[repo_id] = `Cannot write the commit-graph file: ${detail}`));
+        update(id, (h) => (h.offerErrors[repo_id] = strings.history.cannotWriteCommitGraph(detail)));
       }
     });
     const summaries = await core.events.repoSummary.listen((event) => {

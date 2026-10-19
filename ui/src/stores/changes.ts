@@ -27,6 +27,7 @@ import {
 } from "../ipc";
 import { entryOf, type FileKey, firstFile, sameFile } from "../changes/fileRows";
 import type { CommitSelection } from "./selection";
+import { strings } from "../strings/en";
 
 export interface WorkspaceChanges {
   /** What is shown; `null` for nothing. */
@@ -146,10 +147,10 @@ export const ACTION_LIST: Record<ChangeAction, "staged" | "unstaged"> = {
 };
 
 /** The message shown when the core refused a hunk because its file changed. */
-export const FILE_CHANGED = "The file changed; showing it again.";
+export const FILE_CHANGED = strings.changes.fileChanged;
 
 /** The message shown when a newer read of the list replaced the one the user acted on. */
-export const LIST_CHANGED = "The list changed; showing it again.";
+export const LIST_CHANGED = strings.changes.listChanged;
 
 export function createChangesStore(settings: () => ChangesSettings) {
   const [state, setState] = createStore<{ byWorkspace: Record<WorkspaceId, WorkspaceChanges> }>({ byWorkspace: {} });
@@ -454,8 +455,8 @@ export function createChangesStore(settings: () => ChangesSettings) {
     try {
       await (accept ? fsmonitorEnable(id, repo) : fsmonitorDecline(id, repo));
     } catch (error) {
-      const what = accept ? "Cannot turn the settings on" : "Cannot keep the answer";
-      update(id, (c) => (c.offerError = `${what}: ${message(error)}`));
+      const what = accept ? strings.changes.cannotTurnOn : strings.changes.cannotKeepAnswer;
+      update(id, (c) => (c.offerError = what(message(error))));
     }
   };
 

@@ -30,20 +30,6 @@ const TEXT_NAMES = new Set([
 /** JSX attributes whose string is shown: what `Show` and `Switch` render while their condition is false. */
 const JSX_TEXT_NAMES = new Set([...TEXT_NAMES, "fallback"]);
 
-/** Areas not converted yet; M5-06 empties this list. */
-const NOT_CONVERTED = [
-  // M5-06
-  "clone/",
-  "groups/",
-  "integrate/",
-  "remote/",
-  "reset/",
-  "stash/",
-  "stores/",
-  "sync/",
-  "tag/",
-];
-
 /** Inline text that stays inline, each with the reason; an entry without `text` holds for its whole file. */
 const ALLOWED: { file: string; text?: string; reason: string }[] = [
   { file: "theme/CodeThemePreview.tsx", reason: "it shows sample code, hidden from screen readers, not text" },
@@ -196,11 +182,7 @@ function scan(paths: string[], host: ts.CompilerHost = ts.createCompilerHost(opt
 }
 
 test("d15_ui_text_comes_from_the_strings_module", () => {
-  const paths = sources(src).filter((path) => {
-    const name = relative(src, path).split(sep).join("/");
-    return !NOT_CONVERTED.some((area) => name.startsWith(area));
-  });
-  const found = scan(paths).filter(
+  const found = scan(sources(src)).filter(
     (text) => !ALLOWED.some((allowed) => allowed.file === text.file && (allowed.text ?? text.text) === text.text),
   );
   expect(found.map((text) => `${text.file}:${text.line} ${JSON.stringify(text.text)}`)).toEqual([]);

@@ -8,6 +8,7 @@ import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { Actions, ConfirmDialog, Frame, Refusal } from "../dialogs/parts";
 import { mergeTargets, type MergeFastForward, type RepoId, type WorkspaceId } from "../ipc";
 import type { IntegrateDialog, IntegrateStore } from "../stores/integrate";
+import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -19,9 +20,9 @@ interface DialogProps<K extends IntegrateDialog["kind"]> {
 }
 
 const FAST_FORWARDS: { value: MergeFastForward; label: string }[] = [
-  { value: "config", label: "As git config says (fast-forward when possible)" },
-  { value: "ff_only", label: "Fast-forward only" },
-  { value: "no_ff", label: "Always create a merge commit" },
+  { value: "config", label: strings.integrate.fastForwards.config },
+  { value: "ff_only", label: strings.integrate.fastForwards.ffOnly },
+  { value: "no_ff", label: strings.integrate.fastForwards.noFf },
 ];
 
 function MergeDialog(props: DialogProps<"merge"> & { branch: string | null }) {
@@ -32,7 +33,7 @@ function MergeDialog(props: DialogProps<"merge"> & { branch: string | null }) {
   const [rebase, setRebase] = createSignal(false);
   let request = 0;
   const close = () => props.integrate.close(props.workspace);
-  const branch = () => props.branch ?? "the current branch";
+  const branch = () => props.branch ?? strings.integrate.theCurrentBranch;
 
   // The refs matching what is typed, filtered by the core; the latest wins.
   createEffect(
@@ -56,7 +57,7 @@ function MergeDialog(props: DialogProps<"merge"> & { branch: string | null }) {
 
   const ready = () => text().trim() !== "" && !props.integrate.sending(props.workspace);
   return (
-    <Frame id="integrate-merge" title={`Merge into ${branch()} in ${props.repoName}`} onClose={close}>
+    <Frame id="integrate-merge" title={strings.integrate.mergeTitle(branch(), props.repoName)} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -72,17 +73,17 @@ function MergeDialog(props: DialogProps<"merge"> & { branch: string | null }) {
         }}
       >
         <label class="field">
-          <span>Branch, remote branch or tag</span>
+          <span>{strings.integrate.mergeRef}</span>
           <input
             type="text"
             value={text()}
-            placeholder="Type to filter"
+            placeholder={strings.integrate.typeToFilter}
             spellcheck={false}
             autocomplete="off"
             onInput={(event) => setText(event.currentTarget.value)}
           />
         </label>
-        <div class="merge-targets" role="listbox" aria-label="Refs">
+        <div class="merge-targets" role="listbox" aria-label={strings.integrate.refs}>
           <For each={targets()}>
             {(name) => (
               <button
@@ -97,12 +98,12 @@ function MergeDialog(props: DialogProps<"merge"> & { branch: string | null }) {
             )}
           </For>
           <Show when={targets().length === 0 && listError() === null}>
-            <p class="placeholder">No ref matches.</p>
+            <p class="placeholder">{strings.integrate.noRefMatches}</p>
           </Show>
         </div>
-        <Show when={listError()}>{(error) => <p role="alert">Cannot list the refs: {error()}</p>}</Show>
+        <Show when={listError()}>{(error) => <p role="alert">{strings.integrate.cannotListRefs(error())}</p>}</Show>
         <fieldset disabled={rebase()}>
-          <legend>Fast-forward</legend>
+          <legend>{strings.integrate.fastForward}</legend>
           <For each={FAST_FORWARDS}>
             {(choice) => (
               <label class="choice">
@@ -119,10 +120,14 @@ function MergeDialog(props: DialogProps<"merge"> & { branch: string | null }) {
         </fieldset>
         <label class="choice">
           <input type="checkbox" checked={rebase()} onChange={(event) => setRebase(event.currentTarget.checked)} />{" "}
-          Rebase {branch()} onto it instead
+          {strings.integrate.rebaseInstead(branch())}
         </label>
         <Refusal error={props.integrate.error(props.workspace)} />
-        <Actions submit={rebase() ? "Rebase" : "Merge"} disabled={!ready()} onCancel={close} />
+        <Actions
+          submit={rebase() ? strings.integrate.rebase : strings.integrate.merge}
+          disabled={!ready()}
+          onCancel={close}
+        />
       </form>
     </Frame>
   );
@@ -133,7 +138,7 @@ function MainlineDialog(props: DialogProps<"mainline">) {
   const [mainline, setMainline] = createSignal(1);
   const close = () => props.integrate.close(props.workspace);
   return (
-    <Frame id="integrate-mainline" title={`Revert a merge commit in ${props.repoName}`} onClose={close}>
+    <Frame id="integrate-mainline" title={strings.integrate.revertMergeTitle(props.repoName)} onClose={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -145,7 +150,7 @@ function MainlineDialog(props: DialogProps<"mainline">) {
         }}
       >
         <fieldset>
-          <legend>Keep the side of parent</legend>
+          <legend>{strings.integrate.keepParent}</legend>
           <For each={props.dialog.parents}>
             {(parent, index) => (
               <label class="choice">
@@ -161,7 +166,11 @@ function MainlineDialog(props: DialogProps<"mainline">) {
           </For>
         </fieldset>
         <Refusal error={props.integrate.error(props.workspace)} />
-        <Actions submit="Revert" disabled={props.integrate.sending(props.workspace)} onCancel={close} />
+        <Actions
+          submit={strings.integrate.revert}
+          disabled={props.integrate.sending(props.workspace)}
+          onCancel={close}
+        />
       </form>
     </Frame>
   );
@@ -173,7 +182,7 @@ function IntegrateConfirm(props: DialogProps<"confirm">) {
     <ConfirmDialog
       repoName={props.dialog.repoName}
       actions={props.dialog.actions}
-      submit="Abort"
+      submit={strings.integrate.abort}
       error={props.integrate.error(props.workspace)}
       sending={props.integrate.sending(props.workspace)}
       onConfirm={() => void props.integrate.run(props.workspace, props.dialog.repo, props.dialog.op, true)}
@@ -190,7 +199,7 @@ export function IntegrateRefusal(props: { workspace: WorkspaceId; integrate: Int
         <div role="alert" class="history-offer error">
           <p>{error()}</p>
           <button type="button" onClick={() => props.integrate.dismissError(props.workspace)}>
-            Dismiss
+            {strings.common.dismiss}
           </button>
         </div>
       )}
