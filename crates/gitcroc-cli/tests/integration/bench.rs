@@ -149,3 +149,45 @@ fn perf_8_harness_without_data_explains_how_to_build_it() {
         "{stderr}"
     );
 }
+
+/// D5: the gating `target-project` and the stretch sets have the sizes of
+/// section 9. Reads the set specs only; nothing is generated. Here,
+/// beside the harness that measures on them, so requirement coverage sees it.
+#[test]
+fn d5_reference_data_matches_the_scale_target() {
+    let target = repo_gen::target_project();
+    assert_eq!(target.repos.len(), 20);
+    assert_eq!(target.groups.len(), 4);
+    let files: u64 = target.repos.iter().map(|r| u64::from(r.files)).sum();
+    let lines: u64 = target.repos.iter().map(|r| r.lines).sum();
+    assert_eq!((files, lines), (200_000, 2_000_000));
+    assert_eq!(target.repos.iter().map(|r| r.files).max(), Some(60_000));
+    assert_eq!(target.repos.iter().filter(|r| r.files == 60_000).count(), 1);
+    let mut grouped: Vec<&str> = target
+        .groups
+        .iter()
+        .flat_map(|group| group.repos.iter().map(String::as_str))
+        .collect();
+    grouped.sort_unstable();
+    let mut names: Vec<&str> = target.repos.iter().map(|r| r.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(grouped, names, "every repo is in one of the 4 groups");
+    assert!(
+        target
+            .repos
+            .iter()
+            .all(|r| r.commits == 5_000 && r.branches == 30)
+    );
+
+    let big = repo_gen::big_tree();
+    assert_eq!(big.repos.len(), 1);
+    assert_eq!(big.repos[0].files, 500_000);
+
+    let many = repo_gen::many_repos();
+    assert_eq!((many.repos.len(), many.groups.len()), (200, 10));
+    assert!(
+        many.repos
+            .iter()
+            .all(|r| r.commits == 2_000 && r.branches == 20)
+    );
+}

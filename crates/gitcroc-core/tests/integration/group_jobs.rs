@@ -477,6 +477,9 @@ const BUSY: &str = "another operation is running on the repo";
 const MISSING: &str = "the repo's folder is missing";
 const IN_CONFLICT: &str = "the repo is in conflict state; continue or abort first";
 
+/// D8: each repo runs on its own and the group is never atomic. A failed
+/// repo stops no other, those that succeeded stay changed (no rollback), and
+/// the job ends with a report line for every repo.
 #[tokio::test]
 async fn grp_6_one_failure_does_not_stop_others() {
     let setup = Setup::new(&["a", "b", "c"]).await;
@@ -506,6 +509,7 @@ async fn grp_6_one_failure_does_not_stop_others() {
     assert!(line.message.is_some());
 }
 
+/// D8: always a per-repo result report, whatever each repo's outcome.
 #[tokio::test]
 async fn grp_7_every_repo_gets_exactly_one_outcome() {
     let names = ["ok", "same", "skip", "bad", "clash", "gone"];
@@ -709,6 +713,7 @@ async fn grp_10_cancel_skips_queued_kills_fetch_and_lets_others_finish() {
     assert_eq!(ran, ["a", "b"]);
 }
 
+/// D8: the sub-jobs run in parallel, as many at once as the setting allows.
 #[tokio::test]
 async fn group_parallelism_bounds_running_sub_jobs() {
     let names = ["a", "b", "c", "d", "e"];

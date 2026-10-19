@@ -79,6 +79,28 @@ fn plat_3_version_parsing() {
     assert!(parse_version("git version 2.40.0").unwrap() >= MIN_GIT);
 }
 
+/// D13: git 2.40 or newer is required. The detection itself refuses an
+/// older one; that the app bundles no git is
+/// `d13_git_is_not_bundled` in the app's build tests.
+#[tokio::test]
+async fn d13_requires_git_2_40_or_newer() {
+    assert_eq!(MIN_GIT, (2, 40, 0));
+    let old = tempfile::tempdir().unwrap();
+    let git = fake_git(old.path(), "git version 2.39.9");
+    assert_eq!(
+        detect(Some(&git), &empty_env()).await,
+        Err(DetectError::TooOld {
+            path: git,
+            found: (2, 39, 9),
+            required: MIN_GIT,
+        })
+    );
+    let new = tempfile::tempdir().unwrap();
+    let git = fake_git(new.path(), "git version 2.40.0");
+    let found = detect(Some(&git), &empty_env()).await.unwrap();
+    assert_eq!((found.path, found.version), (git, (2, 40, 0)));
+}
+
 #[tokio::test]
 async fn plat_3_detects_git_on_path() {
     let env = SearchEnv::from_process();

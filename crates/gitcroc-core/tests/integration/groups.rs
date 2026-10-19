@@ -429,3 +429,100 @@ fn data_1_a_workspace_file_with_groups_keeps_the_section_10_format() {
         format!("{M2_FILE}\n[[group]]\nname = \"Frontend\"\nrepos = [\"r2\"]\n")
     );
 }
+
+/// A workspace file whose groups name groups as members: a group's id, a
+/// group's name and the built-in "Ungrouped", beside one real repo.
+const NESTED_FILE: &str = r#"schema = 1
+name = "Platform"
+
+[[repo]]
+id = "r1"
+path = "/home/eric/src/platform/api"
+
+[[repo]]
+id = "r2"
+path = "/home/eric/src/platform/web"
+
+[[group]]
+name = "Backend"
+repos = ["r1"]
+
+[[group]]
+name = "Outer"
+repos = ["g1", "Backend", "r2", "Ungrouped"]
+"#;
+
+#[tokio::test]
+async fn d7_a_repo_can_be_in_no_one_or_several_groups_and_groups_do_not_nest() {
+    let run = Run::with(&["api", "web", "cli"]).await;
+    let store = &run.workspaces;
+    let [api, web, cli] = [run.repo("api"), run.repo("web"), run.repo("cli")];
+    let backend = store
+        .create_group(&run.id, "Backend", std::slice::from_ref(&api))
+        .unwrap();
+    let front = store
+        .create_group(&run.id, "Front", std::slice::from_ref(&web))
+        .unwrap();
+    let all = store
+        .create_group(&run.id, "All", &[web.clone(), api.clone()])
+        .unwrap();
+    store
+        .add_to_group(&run.id, &front, std::slice::from_ref(&api), None)
+        .unwrap();
+
+    let groups_of = |repo: &RepoId| -> Vec<String> {
+        let groups = store.groups(&run.id).unwrap();
+        let holding = groups
+            .into_iter()
+            .filter(|group| group.repos.contains(repo));
+        holding.map(|group| group.name).collect()
+    };
+    assert_eq!(groups_of(&cli), Vec::<String>::new());
+    assert_eq!(groups_of(&web), ["Front", "All"]);
+    assert_eq!(groups_of(&api), ["Backend", "Front", "All"]);
+    let resolve = |group: &GroupId| {
+        let target = TargetSet::Group {
+            group_id: group.clone(),
+        };
+        target_repos(store, &run.id, &target).unwrap()
+    };
+    assert_eq!(resolve(&backend), std::slice::from_ref(&api));
+    assert_eq!(resolve(&all), [web.clone(), api.clone()]);
+
+    // A group holds repos only: a group as a member is refused.
+    let as_repo = RepoId(backend.0.clone());
+    let refused = store.create_group(&run.id, "Outer", std::slice::from_ref(&as_repo));
+    assert!(matches!(refused, Err(WorkspaceError::UnknownRepo(repo)) if repo == as_repo));
+    let refused = store.add_to_group(&run.id, &all, std::slice::from_ref(&as_repo), None);
+    assert!(matches!(refused, Err(WorkspaceError::UnknownRepo(repo)) if repo == as_repo));
+
+    // A file that names a group as a member loads with the group ignored.
+    let dirs = Dirs {
+        root: tempfile::tempdir().unwrap(),
+    };
+    let folder = dirs.root.path().join("config").join("workspaces");
+    fs::create_dir_all(&folder).unwrap();
+    let file = folder.join("6f1c1d1e-0000-4000-8000-000000000002.toml");
+    fs::write(&file, NESTED_FILE).unwrap();
+    let store = Workspaces::load(&dirs);
+    let id = store.active().unwrap();
+    let view = store.view(&id).unwrap();
+    assert_eq!(view.warning, None);
+    assert!(!view.read_only);
+    let members: Vec<(&str, Vec<&str>)> = view
+        .groups
+        .iter()
+        .map(|group| {
+            let repos = group.repos.iter().map(|repo| repo.0.as_str()).collect();
+            (group.name.as_str(), repos)
+        })
+        .collect();
+    assert_eq!(members, [("Backend", vec!["r1"]), ("Outer", vec!["r2"])]);
+    let outer = TargetSet::Group {
+        group_id: GroupId("g2".to_owned()),
+    };
+    assert_eq!(
+        target_repos(&store, &id, &outer).unwrap(),
+        [RepoId("r2".to_owned())]
+    );
+}

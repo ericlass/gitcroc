@@ -253,6 +253,8 @@ fn git_calls(sources: &[Source]) -> Vec<Call> {
     calls
 }
 
+/// D3, the write half: every write and every network operation runs the
+/// git CLI through the runner. The read half is `arch_2_status_matches_git`.
 #[test]
 fn arch_1_writes_go_through_the_runner() {
     let sources = sources();
