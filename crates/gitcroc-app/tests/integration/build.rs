@@ -1,5 +1,6 @@
 //! Build configuration (M0-08): one version number for the whole app, no
-//! updater until auto-update arrives in M5, and the app identifier (ADR 0002).
+//! updater until auto-update arrives in M5, the app identifier (ADR 0002) and
+//! no bundled git (D13).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -107,6 +108,64 @@ fn the_identifier_is_dev_gitcroc_desktop() {
             path.display()
         );
     }
+}
+
+/// D13: git is not bundled. No Tauri config of the app lists a git binary
+/// anywhere in `bundle`, as a resource, a sidecar (`externalBin`) or a file
+/// of a package. The version half is `d13_requires_git_2_40_or_newer`.
+#[test]
+fn d13_git_is_not_bundled() {
+    let configs = std::iter::once(app_dir().join("tauri.conf.json")).chain(overlay_configs());
+    for path in configs {
+        let config = if path.extension().is_some_and(|ext| ext == "toml") {
+            let table: toml::Table = toml::from_str(&read(&path))
+                .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+            serde_json::to_value(table).expect("a TOML table is JSON")
+        } else {
+            read_json(&path)
+        };
+        let mut named = Vec::new();
+        if let Some(bundle) = config.get("bundle") {
+            names_in(bundle, &mut named);
+        }
+        let git: Vec<&String> = named.iter().filter(|name| names_git(name)).collect();
+        assert!(git.is_empty(), "{} bundles git: {git:?}", path.display());
+    }
+    assert!(names_git("binaries/git"));
+    assert!(names_git("bin\\git.exe"));
+    assert!(names_git("git-x86_64-pc-windows-msvc.exe"));
+    assert!(names_git("vendor/MinGit/cmd"));
+    assert!(!names_git("icons/icon.ico"));
+    assert!(!names_git("gitcroc-askpass"));
+}
+
+/// Every string in `value`, and every key of its objects.
+fn names_in(value: &Value, names: &mut Vec<String>) {
+    match value {
+        Value::String(text) => names.push(text.clone()),
+        Value::Array(items) => items.iter().for_each(|item| names_in(item, names)),
+        Value::Object(map) => {
+            for (key, item) in map {
+                names.push(key.clone());
+                names_in(item, names);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether a bundle entry is git or a folder of it: a path component named
+/// `git` with any extension, a sidecar `git-<target triple>`, or a MinGit
+/// or PortableGit folder.
+fn names_git(entry: &str) -> bool {
+    entry.split(['/', '\\']).any(|component| {
+        let lower = component.to_ascii_lowercase();
+        let stem = lower.split('.').next().unwrap_or_default();
+        stem == "git"
+            || (stem.starts_with("git-") && stem.matches('-').count() >= 3)
+            || stem == "mingit"
+            || stem == "portablegit"
+    })
 }
 
 /// The Tauri configs in the app crate other than `tauri.conf.json`:

@@ -896,8 +896,21 @@ fn restore(dir: &Path, session: &Session) -> Tabs {
 /// Workspace `id` from its file at `path`, read-only when the file cannot
 /// be used (DATA-1).
 fn load_file(id: WorkspaceId, path: PathBuf) -> Workspace {
-    let loaded = config_file::load(&path, MIGRATIONS, decode);
+    let mut loaded = config_file::load(&path, MIGRATIONS, decode);
+    drop_unknown_members(&mut loaded.value);
     Workspace::new(id, Some(path), loaded.value, loaded.warning)
+}
+
+/// Ignores a group member that is not a repo of the workspace, such as a
+/// group named in a hand-edited file: groups hold repos and do not nest
+/// (D7). The file keeps it until the next change rewrites it.
+fn drop_unknown_members(file: &mut WorkspaceFile) {
+    let WorkspaceFile { repos, groups, .. } = file;
+    for group in groups {
+        group
+            .repos
+            .retain(|member| repos.iter().any(|entry| entry.id == *member));
+    }
 }
 
 /// The last component of `path`, for display.

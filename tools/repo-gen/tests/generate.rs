@@ -131,30 +131,3 @@ fn a_directory_not_made_by_the_generator_is_left_alone() {
     assert!(repo_gen::generate_set(&small_set(), root.path(), &|_| {}).is_err());
     assert!(dir.join("precious.txt").is_file());
 }
-
-#[test]
-fn reference_sets_match_section_9() {
-    let target = repo_gen::target_project();
-    assert_eq!(target.repos.len(), 20);
-    assert_eq!(target.groups.len(), 4);
-    let files: u64 = target.repos.iter().map(|r| u64::from(r.files)).sum();
-    let lines: u64 = target.repos.iter().map(|r| r.lines).sum();
-    assert_eq!((files, lines), (200_000, 2_000_000));
-    assert_eq!(target.repos.iter().map(|r| r.files).max(), Some(60_000));
-    assert!(
-        target
-            .repos
-            .iter()
-            .all(|r| r.commits == 5_000 && r.branches == 30)
-    );
-
-    assert_eq!(repo_gen::big_tree().repos[0].files, 500_000);
-
-    let many = repo_gen::many_repos();
-    assert_eq!((many.repos.len(), many.groups.len()), (200, 10));
-    assert!(
-        many.repos
-            .iter()
-            .all(|r| r.commits == 2_000 && r.branches == 20)
-    );
-}

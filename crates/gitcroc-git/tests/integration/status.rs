@@ -86,6 +86,8 @@ fn busy_repo(fixture: &Fixture, name: &str) -> Repo {
     git
 }
 
+/// D3, the read half: status is read with `gix`, and gives git's answer.
+/// The write half is `arch_1_writes_go_through_the_runner`.
 #[test]
 fn arch_2_status_matches_git() {
     let fixture = Fixture::new().unwrap();
