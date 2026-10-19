@@ -1,0 +1,6 @@
+path = "site/settings.py"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/search"
+ours_commits = ["Add the audit log app"]
+theirs_commits = ["Add full-text search"]

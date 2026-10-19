@@ -1,0 +1,6 @@
+path = "ui/src/panes/HistoryPane.tsx"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/blame"
+ours_commits = ["Show the commit's tags in the history"]
+theirs_commits = ["Open blame from the history's context menu"]

@@ -1,0 +1,7 @@
+pub fn line(name: &str, count: usize) -> String {
+    format!("{} {count}", title(name, 20))
+}
+
+fn title(name: &str, width: usize) -> String {
+    format!("{:<width$}", name)
+}

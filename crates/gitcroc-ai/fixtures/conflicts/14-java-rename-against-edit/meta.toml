@@ -1,0 +1,6 @@
+path = "src/main/java/com/example/users/UserController.java"
+operation = "cherry-pick"
+ours_label = "release/2.3"
+theirs_label = "9e0f1a7 (Return 404 for unknown users)"
+ours_commits = ["Rename findUser to lookupUser"]
+theirs_commits = ["Return 404 for unknown users"]

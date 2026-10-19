@@ -1,0 +1,14 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use tokio::sync::Mutex;
+use metrics::counter;
+use tracing::warn;
+
+use crate::remote::Remote;
+
+pub struct Worker {
+    remotes: Vec<Arc<Remote>>,
+    root: PathBuf,
+    busy: Mutex<bool>,
+}

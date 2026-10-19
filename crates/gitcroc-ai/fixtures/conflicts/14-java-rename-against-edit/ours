@@ -1,0 +1,14 @@
+package com.example.users;
+
+public class UserController {
+    private final UserStore store;
+
+    public UserController(UserStore store) {
+        this.store = store;
+    }
+
+    public Response get(String id) {
+        User user = store.lookupUser(id);
+        return Response.ok(user);
+    }
+}

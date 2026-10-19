@@ -45,6 +45,14 @@ coverage milestone *flags:
 timing:
     cargo test --workspace -- --ignored
 
+# Run the prompt fixture set (AI-15) against a real provider and score each
+# hunk, for example `just ai-eval --provider p1 --key-env ANTHROPIC_API_KEY`
+# or `just ai-eval --kind claude_code --path /usr/local/bin/claude --compare
+# v1,v2`. The key is read only from the named variable (SEC-1). Never part of
+# `just check` or CI.
+ai-eval *args:
+    cargo run --quiet -p gitcroc-cli -- ai eval {{args}}
+
 # Run the app.
 dev:
     TAURI_APP_PATH="{{justfile_directory()}}/crates/gitcroc-app" pnpm --dir ui exec tauri dev

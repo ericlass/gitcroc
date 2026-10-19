@@ -1,0 +1,3 @@
+pub fn normalize(path: &str) -> String {
+    path.replace('\\', "/").trim_end_matches('/').to_owned()
+}

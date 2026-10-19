@@ -1,0 +1,6 @@
+path = "internal/server/routes.go"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/pprof"
+ours_commits = ["Time each request"]
+theirs_commits = ["Serve pprof on the admin port"]

@@ -1,0 +1,6 @@
+path = "config/defaults.json"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/locale"
+ours_commits = ["Make the page size configurable"]
+theirs_commits = ["Add a default locale"]

@@ -1,0 +1,6 @@
+path = "app/auth/tokens.py"
+operation = "merge"
+ours_label = "main"
+theirs_label = "fix/expiry"
+ours_commits = ["Indent with four spaces, as the style guide says"]
+theirs_commits = ["Treat a token that expires this second as expired"]

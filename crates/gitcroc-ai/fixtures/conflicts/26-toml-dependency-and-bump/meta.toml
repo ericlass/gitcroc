@@ -1,0 +1,6 @@
+path = "Cargo.toml"
+operation = "merge"
+ours_label = "main"
+theirs_label = "deps/tokio"
+ours_commits = ["Read the config as JSON too"]
+theirs_commits = ["Update tokio to 1.41"]

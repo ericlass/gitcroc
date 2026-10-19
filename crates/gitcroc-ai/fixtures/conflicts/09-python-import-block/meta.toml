@@ -1,0 +1,6 @@
+path = "app/reports/export.py"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/xlsx"
+ours_commits = ["Write exports atomically through a temporary file"]
+theirs_commits = ["Export reports as XLSX too"]

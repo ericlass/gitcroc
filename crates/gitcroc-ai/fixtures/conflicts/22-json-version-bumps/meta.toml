@@ -1,0 +1,6 @@
+path = "package.json"
+operation = "merge"
+ours_label = "main"
+theirs_label = "deps/vite"
+ours_commits = ["Update solid-js to 1.9.3"]
+theirs_commits = ["Update vite to 6.0.7"]

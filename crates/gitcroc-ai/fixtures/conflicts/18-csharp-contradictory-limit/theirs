@@ -1,0 +1,7 @@
+namespace Uploads
+{
+    public static class Limits
+    {
+        public const long MaxUploadBytes = 100L * 1024 * 1024;
+    }
+}

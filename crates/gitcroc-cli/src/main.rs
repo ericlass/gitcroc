@@ -9,6 +9,7 @@ mod ai_resolve;
 mod bench;
 mod conflict;
 mod diff;
+mod eval;
 mod gate;
 mod group;
 mod group_run;
@@ -20,7 +21,7 @@ mod workspace;
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}",
+        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}",
         history::USAGE,
         diff::USAGE,
         conflict::USAGE,
@@ -33,7 +34,8 @@ fn usage() -> ExitCode {
         bench::USAGE,
         gate::COMPARE_USAGE,
         gate::BASELINE_USAGE,
-        ai::USAGE
+        ai::PROVIDERS_USAGE,
+        eval::USAGE
     );
     ExitCode::from(2)
 }
@@ -82,6 +84,12 @@ fn main() -> ExitCode {
             Some(options) => summaries::run(options),
             None => usage(),
         },
+        [command, eval, rest @ ..] if command == "ai" && eval == "eval" => {
+            match eval::parse_args(rest) {
+                Some(options) => eval::run(&options),
+                None => usage(),
+            }
+        }
         [command, rest @ ..] if command == "ai" => match ai::parse_args(rest) {
             Some(options) => ai::run(&options),
             None => usage(),

@@ -1,0 +1,10 @@
+import time
+
+
+def is_expired(token):
+    now = int(time.time())
+    return token.expires_at < now
+
+
+def remaining(token):
+    return max(0, token.expires_at - int(time.time()))

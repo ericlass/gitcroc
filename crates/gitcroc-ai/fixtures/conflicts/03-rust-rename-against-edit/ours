@@ -1,0 +1,14 @@
+use crate::model::Record;
+
+pub fn import(text: &str) -> Vec<Record> {
+    let mut records = Vec::new();
+    for line in text.lines() {
+        records.push(parse_record(line));
+    }
+    records
+}
+
+fn parse_record(line: &str) -> Record {
+    let fields: Vec<&str> = line.split(',').collect();
+    Record::from_fields(&fields)
+}

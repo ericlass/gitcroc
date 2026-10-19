@@ -1,0 +1,5 @@
+def required(config, key):
+    value = config.get(key)
+    if value is None:
+        return DEFAULTS[key]
+    return value

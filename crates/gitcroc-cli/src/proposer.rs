@@ -49,7 +49,7 @@ fn operation(operation: AiOperation) -> Operation {
     }
 }
 
-fn file_request(context: AiFileContext) -> FileRequest {
+pub(crate) fn file_request(context: AiFileContext) -> FileRequest {
     FileRequest {
         path: context.path,
         operation: operation(context.operation),

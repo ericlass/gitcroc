@@ -1,0 +1,14 @@
+import csv
+import io
+import tempfile
+from datetime import date
+
+from app.reports.model import Report
+
+
+def export_csv(report: Report) -> str:
+    out = io.StringIO()
+    writer = csv.writer(out)
+    for row in report.rows:
+        writer.writerow(row)
+    return out.getvalue()

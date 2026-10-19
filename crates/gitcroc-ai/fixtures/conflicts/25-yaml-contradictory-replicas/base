@@ -1,0 +1,11 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 4
+  template:
+    spec:
+      containers:
+        - name: api
+          image: registry.example/api:1.12

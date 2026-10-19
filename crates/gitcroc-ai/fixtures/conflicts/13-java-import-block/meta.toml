@@ -1,0 +1,6 @@
+path = "src/main/java/com/example/billing/InvoiceService.java"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/pdf"
+ours_commits = ["Cache invoice totals"]
+theirs_commits = ["Render invoices as PDF"]

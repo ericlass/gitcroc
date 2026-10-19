@@ -1,0 +1,17 @@
+import { createMemo, For, Show } from "solid-js";
+import type { CommitRow } from "../ipc";
+import { formatDate } from "../format";
+import { openBlame } from "../blame/open";
+import { TagList } from "../tags/TagList";
+import { CommitLine } from "./CommitLine";
+
+export function HistoryPane(props: { rows: CommitRow[] }) {
+  const count = createMemo(() => props.rows.length);
+  return (
+    <section aria-label="History">
+      <Show when={count() > 0} fallback={<p>No commits</p>}>
+        <For each={props.rows}>{(row) => <CommitLine row={row} date={formatDate(row.time)} />}</For>
+      </Show>
+    </section>
+  );
+}

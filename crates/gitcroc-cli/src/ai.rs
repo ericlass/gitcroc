@@ -1,7 +1,7 @@
 //! `gitcroc-cli ai providers`: the AI providers of `settings.toml` as JSON,
 //! for tests and the prompt eval (M4-05, M4-11). A key is read only from
 //! the environment variable `--key-env` names, never from an argument or
-//! the keychain, and is never printed (SEC-1).
+//! the keychain, and is never printed (SEC-1). `ai eval` is in [`crate::eval`].
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -11,7 +11,7 @@ use gitcroc_core::{AiSettings, PlatformConfigDir, SettingsStore};
 
 use crate::workspace::GivenConfigDir;
 
-pub const USAGE: &str = "ai providers [--config-dir <dir>] [--key-env <NAME>]";
+pub const PROVIDERS_USAGE: &str = "ai providers [--config-dir <dir>] [--key-env <NAME>]";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {

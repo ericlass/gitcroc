@@ -1,0 +1,9 @@
+# Changelog
+
+## Unreleased
+
+- Faster start on large workspaces.
+
+## 1.2.0
+
+- Tabs for workspaces.

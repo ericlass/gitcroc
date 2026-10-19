@@ -1,0 +1,6 @@
+path = "src/main/java/com/example/shipping/Carrier.java"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/dhl"
+ours_commits = ["Support UPS"]
+theirs_commits = ["Support DHL"]

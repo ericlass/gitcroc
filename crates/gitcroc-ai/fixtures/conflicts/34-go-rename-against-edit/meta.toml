@@ -1,0 +1,6 @@
+path = "internal/cache/lru.go"
+operation = "rebase"
+ours_label = "main"
+theirs_label = "c3a9f04 (Count evictions)"
+ours_commits = ["Rename cap to capacity: cap shadows the builtin"]
+theirs_commits = ["Count evictions"]

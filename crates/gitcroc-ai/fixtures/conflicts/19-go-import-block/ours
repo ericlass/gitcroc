@@ -1,0 +1,11 @@
+package server
+
+import (
+	"encoding/json"
+	"net/http"
+	"time"
+)
+
+func health(w http.ResponseWriter, r *http.Request) {
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}

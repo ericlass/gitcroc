@@ -1,0 +1,3 @@
+def required(config, key):
+    value = config.get(key)
+    return value

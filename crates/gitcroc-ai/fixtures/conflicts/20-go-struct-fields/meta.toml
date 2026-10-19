@@ -1,0 +1,6 @@
+path = "internal/config/config.go"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/tls"
+ours_commits = ["Make the read timeout configurable"]
+theirs_commits = ["Serve TLS when a certificate is configured"]

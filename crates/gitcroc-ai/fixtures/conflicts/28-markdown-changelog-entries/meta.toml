@@ -1,0 +1,6 @@
+path = "CHANGELOG.md"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/export"
+ours_commits = ["Fix the crash when a repo has no commits"]
+theirs_commits = ["Export the history as CSV"]

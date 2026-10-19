@@ -12,6 +12,9 @@ gitcroc-core.workspace = true
 # in the release bundle.
 gitcroc-ai = { workspace = true, features = ["mock"] }
 serde_json.workspace = true
+# The prompt eval's report and its fixtures' `meta.toml` (M4-11).
+serde.workspace = true
+toml.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 # The bench's throwaway config and cache dirs.
 tempfile.workspace = true
@@ -19,7 +22,6 @@ tempfile.workspace = true
 [dev-dependencies]
 repo-gen.workspace = true
 cargo_metadata.workspace = true
-toml.workspace = true
 
 [lints]
 workspace = true

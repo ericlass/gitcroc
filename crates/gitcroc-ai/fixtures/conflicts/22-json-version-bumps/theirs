@@ -1,0 +1,8 @@
+{
+  "name": "web",
+  "private": true,
+  "dependencies": {
+    "solid-js": "1.9.1",
+    "vite": "6.0.7"
+  }
+}

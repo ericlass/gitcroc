@@ -1,0 +1,6 @@
+path = "docs/shortcuts.md"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/stash-keys"
+ours_commits = ["Document the fetch shortcut"]
+theirs_commits = ["Document the stash shortcut"]

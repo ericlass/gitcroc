@@ -1,0 +1,9 @@
+services:
+  web:
+    image: shop/web:latest
+    environment:
+      DATABASE_URL: postgres://db/shop
+      LOG_LEVEL: info
+      SENTRY_DSN: ${SENTRY_DSN}
+    ports:
+      - "8080:8080"

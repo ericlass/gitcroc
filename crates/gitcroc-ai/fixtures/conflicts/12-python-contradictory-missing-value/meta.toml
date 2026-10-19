@@ -1,0 +1,6 @@
+path = "app/config/load.py"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/lenient-config"
+ours_commits = ["Fail at start-up when a required setting is missing"]
+theirs_commits = ["Start with defaults when a setting is missing, so old config files still work"]

@@ -1,0 +1,10 @@
+# Changelog
+
+## Unreleased
+
+- Faster start on large workspaces.
+- Fix a crash when a repo has no commits.
+
+## 1.2.0
+
+- Tabs for workspaces.

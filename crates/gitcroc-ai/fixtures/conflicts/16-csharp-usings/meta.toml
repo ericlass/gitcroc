@@ -1,0 +1,6 @@
+path = "src/Inventory/StockService.cs"
+operation = "merge"
+ours_label = "main"
+theirs_label = "feature/json-export"
+ours_commits = ["Log stock changes"]
+theirs_commits = ["Export stock as JSON"]

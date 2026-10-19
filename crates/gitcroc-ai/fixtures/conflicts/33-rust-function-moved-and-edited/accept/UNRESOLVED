@@ -1,0 +1,1 @@
+Ours moved title() below line() and gave it a width; theirs fixed empty titles in the old place. The fix belongs in the moved function, which is outside this hunk, so keeping either side here loses a change: the user has to port the fix.
