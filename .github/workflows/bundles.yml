@@ -1,0 +1,197 @@
+# The installable bundles of section 11 (D6), shared by build.yml and
+# release.yml so both build them on the same runners with the same steps.
+# Windows and macOS are unsigned and not notarized (SEC-7); macOS is ad-hoc
+# signed through its identity `-` in tauri.conf.json.
+#
+# `signing` picks the updater key. `none`, the default, builds as build.yml
+# always has, with no update packages. Otherwise the release config
+# (tauri.release.conf.json) adds the update packages and their `.sig` files:
+# `project` signs with the project's key from the caller's secrets, a tagged
+# release only; `throwaway` signs with a key made inside the build step and
+# gone when it ends, so a dry run never sees the project's key.
+name: Bundles
+
+on:
+  workflow_call:
+    inputs:
+      signing:
+        description: "none, throwaway or project"
+        type: string
+        required: false
+        default: none
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            os: windows-latest
+            bundles: nsis
+            target: ""
+          - platform: macos-universal
+            os: macos-latest
+            # The app bundle too: the updater's .app.tar.gz is made from it.
+            bundles: app,dmg
+            target: universal-apple-darwin
+          # ubuntu-22.04 has glibc 2.35, the Linux floor of D6.
+          - platform: linux-x86_64
+            os: ubuntu-22.04
+            bundles: appimage,deb,rpm
+            target: ""
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Check the signing input
+        shell: bash
+        env:
+          SIGNING: ${{ inputs.signing }}
+        run: |
+          case "$SIGNING" in
+            none | throwaway | project) ;;
+            *) echo "::error::signing is none, throwaway or project, not '$SIGNING'"; exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v4
+
+      # Installs the version pinned in rust-toolchain.toml.
+      - name: Install Rust toolchain
+        shell: bash
+        run: rustup toolchain install
+
+      - name: Add both macOS targets for the universal binary
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just@1.58.0
+
+      # WebKitGTK 4.1 to build, patchelf and librsvg for the AppImage.
+      - name: Install Linux build packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libdbus-1-dev librsvg2-dev patchelf
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: build-${{ matrix.platform }}
+
+      # Installs the pnpm version in ui/package.json's packageManager field.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: ui/package.json
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - name: Install front-end packages
+        run: pnpm --dir ui install --frozen-lockfile
+
+      # The version lives in the workspace Cargo.toml only.
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          id=$(cargo pkgid --locked -p gitcroc-app)
+          version=${id##*[#@]}
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "gitcroc $version"
+
+      # The project's key exists only in this step's environment, and only
+      # when the caller signs with it.
+      - name: Build bundles
+        shell: bash
+        env:
+          SIGNING: ${{ inputs.signing }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.signing == 'project' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.signing == 'project' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: |
+          args=(--bundles "${{ matrix.bundles }}")
+          if [ -n "${{ matrix.target }}" ]; then
+            args+=(--target "${{ matrix.target }}")
+          fi
+          case "$SIGNING" in
+            project)
+              if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+                echo "::error::the secret TAURI_SIGNING_PRIVATE_KEY is not set"
+                exit 1
+              fi
+              ;;
+            throwaway)
+              key_dir=$(mktemp -d)
+              pnpm --dir ui exec tauri signer generate --ci --write-keys "$key_dir/updater.key" > /dev/null
+              TAURI_SIGNING_PRIVATE_KEY=$(cat "$key_dir/updater.key")
+              TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+              rm -r "$key_dir"
+              export TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+              ;;
+          esac
+          if [ "$SIGNING" != none ]; then
+            # Relative to ui/, where `just bundle` runs Tauri; an absolute
+            # Windows path would lose its backslashes in just's shell.
+            args+=(--config ../crates/gitcroc-app/tauri.release.conf.json)
+          fi
+          just bundle "${args[@]}"
+
+      - name: Collect files
+        shell: bash
+        env:
+          SIGNING: ${{ inputs.signing }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir dist
+          bundle=target/${{ matrix.target }}/release/bundle
+          case "${{ matrix.platform }}" in
+            windows-x64)
+              cp "$bundle"/nsis/*-setup.exe dist/
+              portable="gitcroc-$VERSION-windows-x64-portable"
+              mkdir "$portable"
+              cp target/release/gitcroc.exe "$portable/"
+              7z a "dist/$portable.zip" "$portable"
+              ;;
+            macos-universal)
+              cp "$bundle"/dmg/*.dmg dist/
+              ;;
+            linux-x86_64)
+              cp "$bundle"/appimage/*.AppImage "$bundle"/deb/*.deb "$bundle"/rpm/*.rpm dist/
+              ;;
+          esac
+          # The update packages and their signatures (PLAT-4): the installer
+          # and the AppImage update themselves; macOS has its own archive.
+          if [ "$SIGNING" != none ]; then
+            case "${{ matrix.platform }}" in
+              windows-x64) cp "$bundle"/nsis/*-setup.exe.sig dist/ ;;
+              macos-universal) cp "$bundle"/macos/*.app.tar.gz "$bundle"/macos/*.app.tar.gz.sig dist/ ;;
+              linux-x86_64) cp "$bundle"/appimage/*.AppImage.sig dist/ ;;
+            esac
+          fi
+          ls -l dist
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitcroc-${{ steps.version.outputs.version }}-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
