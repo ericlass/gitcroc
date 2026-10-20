@@ -7,6 +7,7 @@ members = [
     "crates/gitcroc-app",
     "crates/gitcroc-cli",
     "tools/req-coverage",
+    "tools/release-manifest",
     "tools/repo-gen",
 ]
 

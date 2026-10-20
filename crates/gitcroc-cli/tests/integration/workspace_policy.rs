@@ -20,7 +20,7 @@ const MEMBERS: [&str; 5] = [
 /// Developer tools in the workspace. They depend on no workspace crate, and
 /// workspace crates may use them as dev-dependencies only (the test fixtures
 /// of `repo-gen`, QA-2).
-const TOOLS: [&str; 2] = ["req-coverage", "repo-gen"];
+const TOOLS: [&str; 3] = ["req-coverage", "release-manifest", "repo-gen"];
 
 /// Internal dependency edges allowed by the Crates table in spec section 4.
 const ALLOWED_EDGES: [(&str, &str); 6] = [
@@ -515,7 +515,7 @@ fn d6_builds_and_tests_on_windows_macos_and_linux() {
     let root = workspace_root();
     let workflows = root.join(".github/workflows");
     let ci = read_text(&workflows.join("ci.yml"));
-    let build = read_text(&workflows.join("build.yml"));
+    let build = read_text(&workflows.join("bundles.yml"));
     let platforms = |runners: &[String]| -> BTreeSet<&'static str> {
         runners
             .iter()
@@ -536,7 +536,7 @@ fn d6_builds_and_tests_on_windows_macos_and_linux() {
     for (file, text, job) in [
         ("ci.yml", &ci, "rust"),
         ("ci.yml", &ci, "ui"),
-        ("build.yml", &build, "build"),
+        ("bundles.yml", &build, "build"),
     ] {
         let runners = job_runners(text, job);
         assert_eq!(

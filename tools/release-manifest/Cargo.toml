@@ -1,0 +1,18 @@
+[package]
+name = "release-manifest"
+description = "Writes the updater's latest.json and the release notes of a tagged version (SEC-7, PLAT-4)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

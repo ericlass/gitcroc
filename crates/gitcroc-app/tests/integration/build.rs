@@ -271,3 +271,180 @@ fn overlay_configs() -> Vec<PathBuf> {
     overlays.sort();
     overlays
 }
+
+fn workflow(name: &str) -> String {
+    read(&repo_dir().join(".github/workflows").join(name))
+}
+
+/// The workflow files and the justfile: everything that builds the bundles.
+fn build_scripts() -> Vec<(String, String)> {
+    let dir = repo_dir().join(".github/workflows");
+    let entries = fs::read_dir(&dir).unwrap_or_else(|e| panic!("read {}: {e}", dir.display()));
+    let mut scripts: Vec<(String, String)> = entries
+        .map(|entry| entry.expect("directory entry").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "yml"))
+        .map(|path| {
+            let name = path
+                .file_name()
+                .expect("a file name")
+                .to_string_lossy()
+                .into_owned();
+            (name, read(&path))
+        })
+        .collect();
+    scripts.push(("justfile".to_owned(), read(&repo_dir().join("justfile"))));
+    scripts.sort();
+    scripts
+}
+
+/// SEC-7: Windows and macOS builds are not code-signed or notarized in v1,
+/// and macOS builds are ad-hoc signed. No Tauri config sets a Windows
+/// certificate or sign command, a macOS identity other than `-` or a
+/// notarization provider, and no workflow or recipe passes signing or
+/// notarization credentials to the build.
+#[test]
+fn sec_7_builds_are_unsigned_and_macos_is_ad_hoc_signed() {
+    let config = read_json(&app_dir().join("tauri.conf.json"));
+    assert_eq!(
+        config.pointer("/bundle/macOS/signingIdentity"),
+        Some(&Value::from("-")),
+        "macOS builds are ad-hoc signed"
+    );
+    for path in std::iter::once(app_dir().join("tauri.conf.json")).chain(overlay_configs()) {
+        if path.extension().is_some_and(|ext| ext == "toml") {
+            panic!("{}: the app's configs are JSON", path.display());
+        }
+        let config = read_json(&path);
+        for pointer in [
+            "/bundle/windows/certificateThumbprint",
+            "/bundle/windows/signCommand",
+            "/bundle/windows/timestampUrl",
+            "/bundle/macOS/providerShortName",
+        ] {
+            let value = config.pointer(pointer);
+            assert!(
+                value.is_none_or(Value::is_null),
+                "{} sets {pointer}: {value:?}",
+                path.display()
+            );
+        }
+        let identity = config.pointer("/bundle/macOS/signingIdentity");
+        assert!(
+            identity.is_none_or(|identity| identity == "-"),
+            "{} signs macOS with {identity:?}",
+            path.display()
+        );
+    }
+
+    let credentials = [
+        "APPLE_CERTIFICATE",
+        "APPLE_SIGNING_IDENTITY",
+        "APPLE_ID",
+        "APPLE_PASSWORD",
+        "APPLE_TEAM_ID",
+        "APPLE_API_ISSUER",
+        "APPLE_API_KEY",
+        "notarytool",
+        "signtool",
+        "certificateThumbprint",
+        "signCommand",
+        "signingIdentity",
+    ];
+    for (name, text) in build_scripts() {
+        for credential in credentials {
+            assert!(!text.contains(credential), "{name} mentions {credential}");
+        }
+    }
+}
+
+/// SEC-7: only the release workflow makes update packages. The release
+/// config, merged with `--config`, sets `createUpdaterArtifacts` and nothing
+/// else; only the shared bundle workflow passes it, and only when it signs.
+/// `build.yml` builds without a key. A tag build signs with the project's
+/// key, a dry run with a key made for the run.
+#[test]
+fn sec_7_only_the_release_config_creates_update_packages() {
+    let release = read_json(&app_dir().join("tauri.release.conf.json"));
+    assert_eq!(
+        release,
+        serde_json::json!({
+            "$schema": "https://schema.tauri.app/config/2",
+            "bundle": { "createUpdaterArtifacts": true }
+        })
+    );
+    let config = read_json(&app_dir().join("tauri.conf.json"));
+    assert!(config.pointer("/bundle/createUpdaterArtifacts").is_none());
+    for path in overlay_configs() {
+        if path.ends_with("tauri.release.conf.json") {
+            continue;
+        }
+        assert!(
+            read_json(&path)
+                .pointer("/bundle/createUpdaterArtifacts")
+                .is_none(),
+            "{} creates update packages",
+            path.display()
+        );
+    }
+
+    for (name, text) in build_scripts() {
+        let passes_release_config = text
+            .lines()
+            .any(|line| line.contains("--config") && line.contains("tauri.release.conf.json"));
+        assert_eq!(
+            passes_release_config,
+            name == "bundles.yml",
+            "{name}: only bundles.yml passes the release config"
+        );
+        let names_key = text.contains("TAURI_SIGNING_PRIVATE_KEY");
+        assert_eq!(
+            names_key,
+            name == "bundles.yml" || name == "release.yml",
+            "{name}: only the release workflow and bundles.yml see the updater key"
+        );
+    }
+
+    let bundles = workflow("bundles.yml");
+    assert!(
+        bundles.contains("        default: none\n"),
+        "bundles.yml signs nothing by default"
+    );
+    let build = workflow("build.yml");
+    assert!(build.contains("uses: ./.github/workflows/bundles.yml"));
+    assert!(
+        !build.contains("signing:") && !build.contains("secrets"),
+        "build.yml builds without the updater key"
+    );
+    let release = workflow("release.yml");
+    assert!(
+        release.contains("signing: ${{ github.event_name == 'push' && 'project' || 'throwaway' }}"),
+        "only a pushed tag signs with the project's key"
+    );
+}
+
+/// Only the job that creates the draft release may write to the repository;
+/// every workflow reads by default.
+#[test]
+fn only_the_draft_release_job_writes() {
+    for (name, text) in build_scripts() {
+        if name == "justfile" {
+            continue;
+        }
+        assert!(
+            text.contains("\npermissions:\n  contents: read\n"),
+            "{name} reads by default"
+        );
+        let writes = text.matches("contents: write").count();
+        let expected = usize::from(name == "release.yml");
+        assert_eq!(writes, expected, "{name} has {writes} jobs that write");
+    }
+    let release = workflow("release.yml");
+    let mut lines = release.lines().skip_while(|line| *line != "  draft:");
+    assert!(lines.next().is_some(), "release.yml has a draft job");
+    let draft: String = lines
+        .take_while(|line| !line.starts_with("  ") || line.starts_with("   "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(draft.contains("contents: write"), "the draft job writes");
+    assert!(draft.contains("--draft"), "the release is a draft");
+}

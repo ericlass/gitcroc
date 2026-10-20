@@ -1,6 +1,7 @@
-# M0-08: installable builds for the platforms of section 11 (D6). Windows and
-# macOS are unsigned and not notarized (SEC-7); macOS is ad-hoc signed through
-# bundle.macOS.signingIdentity in tauri.conf.json. No updater (PLAT-4 is M5).
+# M0-08: installable builds for the platforms of section 11 (D6), from every
+# push to main. The steps are in bundles.yml, which release.yml shares. These
+# builds have no updater key and make no update packages; only a tagged
+# release does (SEC-7, M5-13).
 name: Build
 
 on:
@@ -11,6 +12,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/build.yml
+      - .github/workflows/bundles.yml
       - crates/gitcroc-app/tauri.conf.json
       - justfile
 
@@ -21,120 +23,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  build:
-    name: build (${{ matrix.platform }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: windows-x64
-            os: windows-latest
-            bundles: nsis
-            target: ""
-          - platform: macos-universal
-            os: macos-latest
-            bundles: dmg
-            target: universal-apple-darwin
-          # ubuntu-22.04 has glibc 2.35, the Linux floor of D6.
-          - platform: linux-x86_64
-            os: ubuntu-22.04
-            bundles: appimage,deb,rpm
-            target: ""
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-
-      # Installs the version pinned in rust-toolchain.toml.
-      - name: Install Rust toolchain
-        shell: bash
-        run: rustup toolchain install
-
-      - name: Add both macOS targets for the universal binary
-        if: runner.os == 'macOS'
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-
-      - name: Install just
-        uses: taiki-e/install-action@v2
-        with:
-          tool: just@1.58.0
-
-      # WebKitGTK 4.1 to build, patchelf and librsvg for the AppImage.
-      - name: Install Linux build packages
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libdbus-1-dev librsvg2-dev patchelf
-
-      - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: build-${{ matrix.platform }}
-
-      # Installs the pnpm version in ui/package.json's packageManager field.
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          package_json_file: ui/package.json
-
-      - name: Install Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-          cache-dependency-path: ui/pnpm-lock.yaml
-
-      - name: Install front-end packages
-        run: pnpm --dir ui install --frozen-lockfile
-
-      # The version lives in the workspace Cargo.toml only.
-      - name: Read version
-        id: version
-        shell: bash
-        run: |
-          id=$(cargo pkgid --locked -p gitcroc-app)
-          version=${id##*[#@]}
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "gitcroc $version"
-
-      - name: Build bundles
-        shell: bash
-        run: |
-          args=(--bundles "${{ matrix.bundles }}")
-          if [ -n "${{ matrix.target }}" ]; then
-            args+=(--target "${{ matrix.target }}")
-          fi
-          just bundle "${args[@]}"
-
-      - name: Collect files
-        shell: bash
-        run: |
-          mkdir dist
-          case "${{ matrix.platform }}" in
-            windows-x64)
-              cp target/release/bundle/nsis/*-setup.exe dist/
-              portable="gitcroc-${{ steps.version.outputs.version }}-windows-x64-portable"
-              mkdir "$portable"
-              cp target/release/gitcroc.exe "$portable/"
-              7z a "dist/$portable.zip" "$portable"
-              ;;
-            macos-universal)
-              cp target/universal-apple-darwin/release/bundle/dmg/*.dmg dist/
-              ;;
-            linux-x86_64)
-              cp target/release/bundle/appimage/*.AppImage target/release/bundle/deb/*.deb \
-                target/release/bundle/rpm/*.rpm dist/
-              ;;
-          esac
-          ls -l dist
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: gitcroc-${{ steps.version.outputs.version }}-${{ matrix.platform }}
-          path: dist/*
-          if-no-files-found: error
+  bundles:
+    uses: ./.github/workflows/bundles.yml
