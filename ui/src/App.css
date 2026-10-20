@@ -900,6 +900,8 @@ main:not(.main) {
 .backdrop {
   position: fixed;
   inset: 0;
+  /* Dialogs must cover positioned history rows and the context menus. */
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: center;

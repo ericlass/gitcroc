@@ -165,7 +165,9 @@ test("UI-7 repos are dragged between groups and groups reordered", async ({ page
   ]);
 });
 
-test("UI-6 UI-7 a group of a multi-selection, from a menu drawn over the history", async ({ page }) => {
+test("UI-6 UI-7 PLAT-1 a group dialog and its menu stay above the history", async ({ page }) => {
+  // Windows' 125% scaling leaves about 1024 CSS pixels in the 1280px app window.
+  await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto("/?fake=groups");
   // The merged history of a selection draws its rows under the menu's place.
   await item(page, /^api/).click();
@@ -178,6 +180,12 @@ test("UI-6 UI-7 a group of a multi-selection, from a menu drawn over the history
   await page.getByRole("menu", { name: "Add to group" }).getByRole("menuitem", { name: "New group…" }).click();
   const dialog = page.getByRole("dialog", { name: "New group" });
   await dialog.getByRole("textbox", { name: /^Name/ }).fill("Pair");
-  await dialog.getByRole("button", { name: "Create" }).click();
+  const create = dialog.getByRole("button", { name: "Create" });
+  expect(await create.evaluate((button) => {
+    const rect = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    return hit !== null && button.contains(hit);
+  })).toBe(true);
+  await create.click();
   await expect(item(page, /^Pair/).locator(".tree-count")).toHaveText("2");
 });
