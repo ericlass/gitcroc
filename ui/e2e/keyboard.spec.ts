@@ -404,7 +404,12 @@ const OPERATIONS = {
     setup: editorOn,
     entry: (page) => press(page, button(page, "Mark resolved")),
   },
-  take_ours: { fake: "conflict", label: "Take ours", setup: inHunk, entry: (page) => page.keyboard.press("Enter") },
+  take_ours: {
+    fake: "conflict",
+    label: "Take ours",
+    setup: inHunk,
+    entry: (page) => press(page, page.getByRole("button", { name: /^Take ours in conflict 1/ })),
+  },
   take_theirs: {
     fake: "conflict",
     label: "Take theirs",
