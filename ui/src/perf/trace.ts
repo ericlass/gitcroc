@@ -54,7 +54,7 @@ let armedList: HTMLElement | null = null;
 const treeRepos = () => [...document.querySelectorAll<HTMLElement>('[role="tree"] .tree-repo')];
 
 /** What a measured action waits for, checked once a frame. */
-const conditions = {
+export const conditions = {
   /** The tree shows repos with their cached summaries. */
   tree: () => document.querySelector('[role="tree"] .tree-repo .tree-head') !== null,
   /** The history shows a top row other than `before`. */
@@ -76,7 +76,7 @@ const conditions = {
   /** The changes pane shows commit `hash`, its file list and its first file's diff. */
   commit: (hash: string) =>
     document.querySelector(".commit-header .commit-hash")?.textContent === hash &&
-    document.querySelector(".file-list [role='option']") !== null &&
+    document.querySelector(".file-list .file-row-file[role='row']") !== null &&
     document.querySelector(".changes-diff .cm-line, .changes-diff .diff-special") !== null,
   /** The focused input holds `value`. */
   input: (value: string) => (document.activeElement as HTMLInputElement | null)?.value === value,
@@ -110,7 +110,7 @@ function snapshot(): string {
     selected: document.querySelector(".history-row[aria-selected='true'] .history-hash")?.textContent ?? null,
     active: document.activeElement?.className ?? null,
     commit: text(".commit-header .commit-hash"),
-    files: document.querySelectorAll(".file-list [role='option']").length,
+    files: document.querySelectorAll(".file-list .file-row-file[role='row']").length,
     diff: text(".changes-diff"),
   });
 }

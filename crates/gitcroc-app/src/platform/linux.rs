@@ -12,6 +12,12 @@ use gitcroc_core::Package;
 use super::{DesktopFontSource, FileManager, Installation, Launch, Terminal, WebBrowser};
 use crate::ipc::DesktopFonts;
 
+// gix's temporary Rust allocations must not remain in glibc's per-thread
+// arenas after a refresh. Purge them asynchronously while the app is idle
+// (section 9, M5-17). GTK and WebKit keep their system allocators.
+#[global_allocator]
+static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 /// Reads the fonts from GTK's settings and GNOME's schema.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct GtkFonts;
@@ -89,5 +95,13 @@ impl Terminal for Terminals {
             .into_iter()
             .map(|program| Launch::new(program, [], path.to_owned()))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn d2_app_allocator_purges_freed_arenas_in_the_background() {
+        assert!(tikv_jemalloc_ctl::background_thread::read().unwrap());
     }
 }
