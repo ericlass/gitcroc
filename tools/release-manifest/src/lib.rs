@@ -185,6 +185,29 @@ pub fn download_url(version: &str, file: &str) -> String {
     format!("{RELEASES}/v{version}/{file}")
 }
 
+/// One platform's local CI update proof. Reads the actual bundle's signature;
+/// the caller rewrites its URL to the job's loopback server (M5-15).
+pub fn local_manifest(
+    dir: &Path,
+    version: &str,
+    notes: &str,
+    pub_date: &str,
+    platform: &str,
+    package: &str,
+) -> Result<Value, Error> {
+    check_version(version)?;
+    check_date(pub_date)?;
+    let path = dir.join(format!("{package}.sig"));
+    let signature = fs::read_to_string(&path).map_err(|source| Error::Io { path, source })?;
+    if signature.trim().is_empty() {
+        return Err(Error::NoSignature(package.to_owned()));
+    }
+    Ok(
+        json!({ "version": version, "notes": notes, "pub_date": pub_date,
+        "platforms": { platform: { "url": download_url(version, package), "signature": signature.trim() } } }),
+    )
+}
+
 /// Tauri's `latest.json`: the packages that update themselves, each with the
 /// content of its `.sig` file (PLAT-4). Both macOS keys name the universal
 /// app. The `.deb`, the `.rpm` and the portable zip only notify, so they are
@@ -328,6 +351,42 @@ All notable changes to gitcroc are documented in this file.
 ";
 
     const VERSION: &str = "1.0.0";
+
+    #[test]
+    fn plat_4_sec_7_local_manifest_keeps_the_real_package_signature() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("update.AppImage.sig"), "signed-package\n").unwrap();
+        let value = local_manifest(
+            dir.path(),
+            VERSION,
+            "notes",
+            "2026-10-20T12:00:00Z",
+            "linux-x86_64",
+            "update.AppImage",
+        )
+        .unwrap();
+        assert_eq!(value["platforms"].as_object().unwrap().len(), 1);
+        assert_eq!(
+            value["platforms"]["linux-x86_64"]["signature"],
+            "signed-package"
+        );
+        assert_eq!(
+            value["platforms"]["linux-x86_64"]["url"],
+            download_url(VERSION, "update.AppImage")
+        );
+        fs::remove_file(dir.path().join("update.AppImage.sig")).unwrap();
+        assert!(
+            local_manifest(
+                dir.path(),
+                VERSION,
+                "",
+                "2026-10-20T12:00:00Z",
+                "linux-x86_64",
+                "update.AppImage"
+            )
+            .is_err()
+        );
+    }
 
     fn names() -> Vec<String> {
         [

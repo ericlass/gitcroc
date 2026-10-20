@@ -46,6 +46,8 @@ toml.workspace = true
 repo-gen.workspace = true
 
 [features]
+# M5-15: local updater proof on hosted runners, never a release bundle.
+update-test = []
 # M1-12: the UI-side measurements of `just bench-ui`. Never in a release
 # bundle; `just bench-ui` builds with it into its own target dir.
 perf-trace = []
