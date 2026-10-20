@@ -4,6 +4,7 @@ import { PALETTE_CATALOG, type PaletteItem, type WorkspaceView } from "../ipc";
 import { fakeState, reset } from "../ipc/fake";
 import { fakePaletteQuery, MAX_PALETTE_ITEMS } from "../ipc/fakePalette";
 import { fakeAi } from "../ipc/fakeAi";
+import { setMac } from "../keys";
 import { createCommandStore, type Providers } from "./commands";
 import Palette, { PALETTE_ROW_HEIGHT } from "./Palette";
 
@@ -214,4 +215,19 @@ test("AI-16 the palette shows no AI entry while AI features are off", async () =
   await settle();
   const shown = within(palette.list()).queryAllByRole("option").map((option) => option.textContent ?? "");
   expect(shown.filter((text) => ai.some((label) => text.includes(label)))).toEqual([]);
+});
+
+test("UI-22 an operation with a shortcut shows its keys from keys.ts", async () => {
+  const palette = setup();
+  palette.type("settings");
+  await settle();
+  expect(palette.highlighted()?.textContent).toContain("Settings");
+  expect(palette.highlighted()?.querySelector("kbd")?.textContent).toBe("Ctrl+,");
+  setMac(true);
+  expect(palette.highlighted()?.querySelector("kbd")?.textContent).toBe("Cmd+,");
+  setMac(false);
+  // One without a shortcut has none.
+  palette.type("fetch");
+  await settle();
+  expect(palette.highlighted()?.querySelector("kbd")).toBeNull();
 });

@@ -8,7 +8,7 @@ import { createEffect, Match, on, onCleanup, Show, Switch } from "solid-js";
 import type { ChoiceKind, ConflictChoice, SideHolds, WorkspaceId } from "../ipc";
 import { type Command, type CommandStore, commandOf, type Providers } from "../palette/commands";
 import type { ConflictStore, ViewFile } from "../stores/conflicts";
-import ConflictEditor, { type ConflictAi } from "./ConflictEditor";
+import ConflictEditor, { type ConflictAi, type EditorFocus } from "./ConflictEditor";
 import { strings } from "../strings/en";
 
 const REASONS: Record<ChoiceKind, string> = strings.conflict.reasons;
@@ -37,7 +37,7 @@ export default function ConflictView(props: {
 }) {
   const file = () => props.conflicts.file(props.workspace, props.target.repo, props.target.path);
   /** The last editor closed with the focus, so the next one takes it: resolving file after file from the keyboard. */
-  let refocus = false;
+  let refocus: EditorFocus = null;
 
   // Reads the file unless its state is kept (OPS-9).
   createEffect(

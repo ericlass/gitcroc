@@ -13,6 +13,7 @@ import { createEffect, createMemo, For, Match, onCleanup, onMount, Show, Switch 
 import type { ChangeAction, ChangesContent, FileListMode, FileStatus, RepoId, UnmergedKind, WorkspaceId } from "../ipc";
 import { type Command, type CommandStore, commandOf, type Provider, type Providers } from "../palette/commands";
 import { type FileEntry, type FileKey, type FileRow, fileRows, sameFile } from "./fileRows";
+import { isMac } from "../keys";
 import { strings } from "../strings/en";
 
 /** Height of one row in CSS pixels; `.file-row` in App.css sets it, as `.history-row` does. */
@@ -263,6 +264,10 @@ export default function FileList(props: {
   });
 
   const onKeyDown = (event: KeyboardEvent) => {
+    // A key on a button in a row, as Stage all, is the button's (UI-22).
+    if (event.target !== event.currentTarget) {
+      return;
+    }
     const at = files().indexOf(selectedIndex());
     const go = (position: number) => selectAt(files()[Math.max(0, Math.min(files().length - 1, position))] ?? -1);
     switch (event.key) {
@@ -287,7 +292,12 @@ export default function FileList(props: {
         act(MOVE[list], targets(props.selected));
         break;
       }
+      // Delete asks to discard the file (GRP-9); on macOS the key marked delete is Backspace.
+      case "Backspace":
       case "Delete": {
+        if (event.key === "Backspace" && !isMac()) {
+          return;
+        }
         const list = props.selected === null ? null : changeable(props.selected);
         if (list !== "unstaged" || props.selected === null) {
           return;

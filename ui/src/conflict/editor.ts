@@ -10,7 +10,7 @@
 // text only (SEC-3).
 import { defaultKeymap, history, historyKeymap, invertedEffects } from "@codemirror/commands";
 import { type EditorState, type Extension, Facet, Prec, type Range, StateEffect, StateField } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "@codemirror/view";
+import { Decoration, type DecorationSet, EditorView, type KeyBinding, keymap, WidgetType } from "@codemirror/view";
 import type { ConflictLabels, ProposalConfidence, ProposedHunk } from "../ipc";
 import type { HunkView } from "../stores/conflicts";
 import { type BufferHunk, hunkAt, hunkTarget, nextHunk, normalize, type Take, takenText, untouched } from "./buffer";
@@ -216,6 +216,41 @@ export function goToHunk(view: EditorView, direction: 1 | -1): boolean {
   return true;
 }
 
+/**
+ * F7 and Shift+F7 (UI-22): moves the cursor to the next or previous hunk
+ * and gives its first button, Take ours, the focus once the editor has
+ * drawn it. Enter or Space on it takes ours, Tab goes on to the others,
+ * Escape goes back to the text.
+ */
+export function goToHunkControl(view: EditorView, direction: 1 | -1): boolean {
+  if (!goToHunk(view, direction)) {
+    return false;
+  }
+  focusHunkControl(view);
+  return true;
+}
+
+/** Gives Take ours of the hunk at the cursor the focus, once the editor has drawn it. */
+export function focusHunkControl(view: EditorView) {
+  const hunk = hunkAt(view.state.field(hunksField), view.state.selection.main.head);
+  if (hunk === null) {
+    return;
+  }
+  // The editor draws what scrolls into view in a later frame.
+  let frames = 0;
+  const focus = () => {
+    const control = view.dom.querySelector<HTMLElement>(
+      `.cm-conflict-head-ours[data-hunk="${hunk.id}"] button:not(:disabled)`,
+    );
+    if (control) {
+      control.focus();
+    } else if (frames++ < 10) {
+      requestAnimationFrame(focus);
+    }
+  };
+  focus();
+}
+
 /** Whether the cursor is in a hunk, which Alt+1 to Alt+3 take a side of. */
 export const inHunk = (state: EditorState) => hunkAt(state.field(hunksField), state.selection.main.head) !== null;
 
@@ -233,7 +268,22 @@ const button = (text: string, label: string, onClick: () => void, disabled = fal
   element.title = title;
   element.setAttribute("aria-label", label);
   element.addEventListener("mousedown", (event) => event.preventDefault());
-  element.addEventListener("click", onClick);
+  // Escape goes back to the text, where the hunk keys work (UI-22).
+  element.addEventListener("keydown", (event) => {
+    const editor = element.closest<HTMLElement>(".cm-editor");
+    if (event.key === "Escape" && editor !== null) {
+      event.preventDefault();
+      EditorView.findFromDOM(editor)?.focus();
+    }
+  });
+  element.addEventListener("click", () => {
+    const editor = element.closest<HTMLElement>(".cm-editor");
+    onClick();
+    // A button its own click took away, with its hunk, leaves the focus nowhere: the editor takes it (UI-22).
+    if (!element.isConnected && editor !== null && document.activeElement === document.body) {
+      EditorView.findFromDOM(editor)?.focus();
+    }
+  });
   return element;
 };
 
@@ -259,6 +309,7 @@ class SideHeader extends WidgetType {
   override toDOM(view: EditorView) {
     const element = document.createElement("span");
     element.className = `cm-conflict-head cm-conflict-head-${this.side}`;
+    element.dataset.hunk = String(this.hunk.id);
     const text = document.createElement("span");
     // Labels are repo text: set as text (SEC-3).
     text.textContent =
@@ -577,6 +628,31 @@ const theme = EditorView.theme({
   ".cm-proposal-actions": { marginLeft: "0" },
 });
 
+/** The conflict editor's own keys (OPS-3, AI-11), above CodeMirror's. */
+export const conflictKeys: KeyBinding[] = [
+  { key: "Alt-ArrowDown", run: (view) => goToHunk(view, 1) },
+  { key: "Alt-ArrowUp", run: (view) => goToHunk(view, -1) },
+  { key: "Alt-1", run: takeAtCursor("ours") },
+  { key: "Alt-2", run: takeAtCursor("theirs") },
+  { key: "Alt-3", run: takeAtCursor("both") },
+  { key: "Alt-4", run: atCursor((view, hunk) => accept(view, hunk.id)) },
+  {
+    key: "Alt-5",
+    run: atCursor((view, _hunk, proposed) => {
+      view.state.facet(conflictActions).reject(proposed.id);
+      return true;
+    }),
+  },
+  { key: "Alt-6", run: atCursor(editProposal) },
+  {
+    key: "Mod-Enter",
+    run: (view) => {
+      view.state.facet(conflictActions).markResolved();
+      return true;
+    },
+  },
+];
+
 /** The conflict editor's own extensions; `hunks` seeds a new buffer, `null` keeps a restored one's. */
 export function conflictExtensions(actions: ConflictActions, hunks: BufferHunk[] | null): Extension[] {
   return [
@@ -596,31 +672,7 @@ export function conflictExtensions(actions: ConflictActions, hunks: BufferHunk[]
       (state) => decorations(state).all,
     ),
     EditorView.atomicRanges.of((view) => decorations(view.state).atomic),
-    Prec.high(
-      keymap.of([
-        { key: "Alt-ArrowDown", run: (view) => goToHunk(view, 1) },
-        { key: "Alt-ArrowUp", run: (view) => goToHunk(view, -1) },
-        { key: "Alt-1", run: takeAtCursor("ours") },
-        { key: "Alt-2", run: takeAtCursor("theirs") },
-        { key: "Alt-3", run: takeAtCursor("both") },
-        { key: "Alt-4", run: atCursor((view, hunk) => accept(view, hunk.id)) },
-        {
-          key: "Alt-5",
-          run: atCursor((view, _hunk, proposed) => {
-            view.state.facet(conflictActions).reject(proposed.id);
-            return true;
-          }),
-        },
-        { key: "Alt-6", run: atCursor(editProposal) },
-        {
-          key: "Mod-Enter",
-          run: (view) => {
-            view.state.facet(conflictActions).markResolved();
-            return true;
-          },
-        },
-      ]),
-    ),
+    Prec.high(keymap.of(conflictKeys)),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     theme,
   ];

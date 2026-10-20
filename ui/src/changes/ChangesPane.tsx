@@ -476,6 +476,8 @@ export default function ChangesPane(props: {
                               controls={controls()}
                               scrollTop={changes().diffScroll}
                               onScroll={(top) => props.changes.setScroll(props.workspace, "diffScroll", top)}
+                              hunk={changes().diffHunk}
+                              onHunk={(hunk) => props.changes.setDiffHunk(props.workspace, hunk)}
                             />
                           )}
                         </Match>
