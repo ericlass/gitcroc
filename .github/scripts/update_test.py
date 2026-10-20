@@ -125,8 +125,11 @@ def exercise():
         def start_line(version, kind=package):
             return f"gitcroc {version} started ({rust_os} {arch}, {kind})"
 
+        old_binary = hashlib.sha256(app.read_bytes()).digest()
         start()
-        wait(log, lambda text: installed(text, b, start_line(b)))
+        text = wait(log, lambda text: installed(text, b, start_line(b)))
+        assert start_line(a) in text and text.index(start_line(a)) < text.index(f"update: installed {b}")
+        assert hashlib.sha256(app.read_bytes()).digest() != old_binary, "A's executable was not replaced"
         shutil.copy2(log, logs / "installed.log")
         stop(system)
         print(f"PASS: installed {b} and restarted as {b}", flush=True)
