@@ -11,6 +11,7 @@ const toolbar = (page: Page) => page.getByRole("toolbar", { name: "Main" });
 const palette = (page: Page) => page.getByRole("dialog", { name: "Command palette" });
 const box = (page: Page) => palette(page).getByRole("combobox", { name: "Command palette" });
 const options = (page: Page) => palette(page).getByRole("listbox", { name: "Matches" }).getByRole("option");
+const diffText = (page: Page) => page.locator(".diff-editor");
 const button = (page: Page, name: string) => page.getByRole("button", { name, exact: true });
 const banner = (page: Page) => page.getByRole("region", { name: "Conflict state" });
 
@@ -537,13 +538,16 @@ const OPERATIONS = {
 const hunkRequest = (action: string, hunk: number) =>
   new RegExp(`"action":"${action}","target":\\{"kind":"hunk","file":\\{[^}]*\\},"hunk":${hunk}\\}`);
 
-/** A hunk's control (UI-15) by F7 and Tab: the palette has no hunk entries, so the row names what must happen. */
-const hunkCase = (control: string, path: string, expected: RegExp): Case => ({
+/**
+ * A hunk's control (UI-15) by F7 and Tab: the palette has no hunk entries, so the row names what must happen.
+ * `line` is in the file's diff only, as a diff passed on the way may still be shown.
+ */
+const hunkCase = (control: string, path: string, line: string, expected: RegExp): Case => ({
   label: control,
   expected,
   setup: async (page) => {
     await uncommitted(page, path);
-    await expect(page.locator(".cm-diff-hunk").first()).toBeVisible();
+    await expect(diffText(page)).toContainText(line);
   },
   entry: async (page) => {
     for (let presses = 0; presses < Number(control.at(-1)); presses++) {
@@ -556,10 +560,10 @@ const hunkCase = (control: string, path: string, expected: RegExp): Case => ({
 
 /** Operations the palette does not list, and other keyboard ways to the same operation. */
 const MORE: Record<string, Case> = {
-  stage_hunk: hunkCase("Stage hunk 2", "src/main.rs", hunkRequest("stage", 1)),
-  unstage_hunk: hunkCase("Unstage hunk 1", "src/app.ts", hunkRequest("unstage", 0)),
+  stage_hunk: hunkCase("Stage hunk 2", "src/main.rs", "line three", hunkRequest("stage", 1)),
+  unstage_hunk: hunkCase("Unstage hunk 1", "src/app.ts", "staged line", hunkRequest("unstage", 0)),
   // GRP-9: a discard asks first.
-  discard_hunk: hunkCase("Discard hunk 2", "src/main.rs", /"name":"Discard[^"]*"/),
+  discard_hunk: hunkCase("Discard hunk 2", "src/main.rs", "line three", /"name":"Discard[^"]*"/),
   checkout_by_enter: {
     label: "Check out branch…",
     setup: login,
@@ -711,7 +715,8 @@ test("ui_22_f7_moves_between_hunks", async ({ page }) => {
   // (GRP-9).
   await page.goto("/?fake=tree");
   await uncommitted(page, "src/main.rs");
-  await expect(page.locator(".cm-diff-hunk").first()).toBeVisible();
+  // Its diff, not one of a file passed on the way.
+  await expect(diffText(page)).toContainText("line three");
   await page.keyboard.press("F7");
   await expect(button(page, "Discard hunk 1")).toBeFocused();
   // Tab goes on to the hunk's other controls.
