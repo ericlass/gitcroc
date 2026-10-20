@@ -191,12 +191,14 @@ jobs:
         if: runner.os == 'Windows'
         run: just smoke
 
-      - name: Upload the smoke test's failure screenshot
+      - name: Upload the smoke test's failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-failure-${{ matrix.os }}
-          path: target/e2e/failure.png
+          path: |
+            target/e2e/failure.png
+            target/e2e/app.log
           if-no-files-found: ignore
 
   # The checks the main branch's ruleset requires, one per platform. Each

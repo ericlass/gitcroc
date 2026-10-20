@@ -3,6 +3,30 @@ import { posix, win32 } from "node:path";
 
 const paths = (platform: NodeJS.Platform) => platform === "win32" ? win32 : posix;
 
+export const DEBUGGER = "127.0.0.1:9222";
+
+/** Microsoft's documented attach mode avoids the current WebView2 launch regression. */
+export function sessionCapabilities(app: string, platform: NodeJS.Platform) {
+  return {
+    alwaysMatch: platform === "win32"
+      ? {
+          browserName: "webview2",
+          "ms:edgeChromium": true,
+          "ms:edgeOptions": { debuggerAddress: DEBUGGER },
+        }
+      : { "tauri:options": { application: app } },
+  };
+}
+
+export function webviewEnvironment(dir: string, base: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
+  return {
+    ...base,
+    WEBVIEW2_USER_DATA_FOLDER: paths(platform).join(dir, "webview"),
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1",
+    TAURI_WEBVIEW_AUTOMATION: "true",
+  };
+}
+
 export function smokePaths(root: string, platform: NodeJS.Platform) {
   const path = paths(platform);
   const suffix = platform === "win32" ? ".exe" : "";
@@ -12,7 +36,7 @@ export function smokePaths(root: string, platform: NodeJS.Platform) {
   };
 }
 
-export function smokeEnvironment(dir: string, base: NodeJS.ProcessEnv, platform: NodeJS.Platform) {
+export function smokeEnvironment(dir: string, base: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
   const path = paths(platform);
   const home = path.join(dir, "home");
   const config = path.join(dir, "config");
@@ -21,9 +45,6 @@ export function smokeEnvironment(dir: string, base: NodeJS.ProcessEnv, platform:
     ...base,
     GITCROC_E2E_DIR: dir,
     HOME: home,
-    USERPROFILE: home,
-    APPDATA: config,
-    LOCALAPPDATA: cache,
     XDG_CONFIG_HOME: config,
     XDG_CACHE_HOME: cache,
     GIT_CONFIG_GLOBAL: path.join(home, ".gitconfig"),

@@ -18,12 +18,12 @@
 //
 // Node runs this file directly (type stripping), so it uses no TypeScript
 // syntax that needs compiling, and no packages.
-import { execFileSync } from "node:child_process";
+import { type ChildProcess, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { checkDrivers, ELEMENT, type Element, log, startDriver, wd } from "./client.ts";
-import { smokeEnvironment, smokePaths } from "./platform.ts";
+import { checkDrivers, ELEMENT, type Element, log, startDriver, startWebview, stopProcess, wd } from "./client.ts";
+import { sessionCapabilities, smokeEnvironment, smokePaths, webviewEnvironment } from "./platform.ts";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const { app: APP, cli: CLI } = smokePaths(ROOT, process.platform);
@@ -146,7 +146,7 @@ class Session {
 
   static async start(app: string): Promise<Session> {
     const value = (await wd("POST", "/session", {
-      capabilities: { alwaysMatch: { "tauri:options": { application: app } } },
+      capabilities: sessionCapabilities(app, process.platform),
     })) as { sessionId: string };
     const session = new Session(value.sessionId);
     await wd("POST", `/session/${session.id}/timeouts`, { script: DEADLINE_MS + 10_000 });
@@ -740,15 +740,26 @@ async function main() {
   // Add folder… picks the folder of both repos: the first workspace has lib
   // and gets app, the second gets both.
   // The mock provider kind answers from `replies` (M4-12).
-  const driver = await startDriver({ ...env, GITCROC_E2E_PICK_FOLDER: repos, GITCROC_E2E_AI: replies });
-  let failed = false;
+  const appEnv = { ...env, GITCROC_E2E_PICK_FOLDER: repos, GITCROC_E2E_AI: replies };
+  let driver: ChildProcess | undefined;
+  let appProcess: ChildProcess | undefined;
+  let failed = true;
   try {
+    if (process.platform === "win32") {
+      appProcess = await startWebview(
+        APP,
+        webviewEnvironment(dir, appEnv, process.platform),
+        join(ROOT, "target", "e2e", "app.log"),
+      );
+    }
+    driver = await startDriver(appEnv);
     const session = await Session.start(APP);
     try {
       await smoke(session, app, env);
       await groupFlow(session, env, { lib, app });
       await aiFlow(session, env, app);
       log("smoke test passed");
+      failed = false;
     } catch (error) {
       failed = true;
       const path = join(ROOT, "target", "e2e", "failure.png");
@@ -761,7 +772,8 @@ async function main() {
       await session.end().catch(() => {});
     }
   } finally {
-    driver.kill();
+    if (driver !== undefined) stopProcess(driver);
+    if (appProcess !== undefined) stopProcess(appProcess);
     if (!failed) {
       rmSync(dir, { recursive: true, force: true });
     }

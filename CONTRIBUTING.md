@@ -106,7 +106,11 @@ On Linux it needs the same drivers as `just bench-ui` (below); run it under
 the installed WebView2 runtime. CI's `.github/scripts/install-edge-driver.ps1`
 selects a runtime, downloads the exact driver version from Microsoft, and pins
 `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` to that runtime; its job summary records the
-Windows, WebView2 and driver versions. Both smoke jobs feed the required checks.
+Windows, WebView2 and driver versions. The Windows runner starts the app itself,
+waits for its loopback debugging endpoint, then attaches Edge WebDriver through
+tauri-driver (Microsoft's documented WebView2 attach mode). This avoids the
+current WebView2 launch regression without changing the runtime or smoke flows.
+The WebView2 profile also lives in the fixture. Both smoke jobs feed the required checks.
 
 CI also runs the ignored `d11_os_keychain_round_trip` test on Windows and macOS:
 `cargo test -p gitcroc-app --test integration keychain::d11_os_keychain_round_trip -- --ignored --exact`.

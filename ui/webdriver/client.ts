@@ -4,8 +4,9 @@
 // Node runs this file directly (type stripping), so it uses no TypeScript
 // syntax that needs compiling, and no packages.
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { closeSync, openSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
-import { driverPrograms } from "./platform.ts";
+import { DEBUGGER, driverPrograms } from "./platform.ts";
 
 export const DRIVER = "http://127.0.0.1:4444";
 
@@ -73,4 +74,45 @@ export async function startDriver(env: NodeJS.ProcessEnv): Promise<ChildProcess>
     await sleep(100);
   }
   return driver;
+}
+
+/** Windows attach mode: start the app first, then wait for its real WebView2 endpoint. */
+export async function startWebview(app: string, env: NodeJS.ProcessEnv, logPath: string): Promise<ChildProcess> {
+  const output = openSync(logPath, "w");
+  const child = spawn(app, [], { env, stdio: ["ignore", output, output] });
+  closeSync(output);
+  let launchError: Error | undefined;
+  child.on("error", (error) => { launchError = error; });
+  try {
+    const deadline = Date.now() + 60_000;
+    for (;;) {
+      if (launchError !== undefined) throw launchError;
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error(`the app exited before WebView2 was ready; see ${logPath}`);
+      }
+      const ready = await fetch(`http://${DEBUGGER}/json/version`, { signal: AbortSignal.timeout(1000) })
+        .then(async (response) => response.ok && !!((await response.json()) as { webSocketDebuggerUrl?: string })
+          .webSocketDebuggerUrl)
+        .catch(() => false);
+      if (ready) return child;
+      if (Date.now() >= deadline) throw new Error(`WebView2 did not start; see ${logPath}`);
+      await sleep(100);
+    }
+  } catch (error) {
+    stopProcess(child);
+    throw error;
+  }
+}
+
+/** Include native-driver and WebView2 children when stopping Windows processes. */
+export function stopProcess(child: ChildProcess) {
+  if (process.platform === "win32" && child.pid !== undefined) {
+    try {
+      execFileSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {
+      // It may already have exited after the session ended.
+    }
+  } else {
+    child.kill();
+  }
 }
