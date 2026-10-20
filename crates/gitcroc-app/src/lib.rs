@@ -6,6 +6,8 @@ pub mod ipc;
 pub mod platform;
 pub mod proposer;
 pub mod update;
+#[cfg(any(feature = "update-test", test))]
+mod update_test;
 
 use std::sync::Arc;
 
@@ -30,7 +32,6 @@ pub fn run() -> Result<(), Error> {
     let ipc = ipc::builder();
     // Every git process the app runs goes to `gitcroc.log` (section 10).
     let log = Arc::new(AppLog::open(&PlatformLogDir));
-    log.started(env!("CARGO_PKG_VERSION"), PlatformInstallation::package());
     let command_log = log.clone();
     gitcroc_core::log_commands_to(move |record| command_log.command(record));
     // Small files, read once before the window shows, so the first paint
@@ -97,6 +98,13 @@ pub fn run() -> Result<(), Error> {
             ipc.mount_events(app);
             // The watchers report through the app, so they start with it.
             app.manage(Arc::new(ipc::watchers(app.handle())));
+            let log = app.state::<Arc<AppLog>>();
+            #[cfg(feature = "update-test")]
+            update_test::resumed(app.handle(), &log);
+            log.started(
+                &app.package_info().version.to_string(),
+                PlatformInstallation::package(),
+            );
             let jobs = ipc::jobs(app.handle());
             // Network writes ask through the window (D10). Without the
             // socket they run without, and git fails as it would.
@@ -114,8 +122,11 @@ pub fn run() -> Result<(), Error> {
             app.manage(ipc::group_ops(app.handle()));
             // Checks only in release bundles, after the startup refresh (D12).
             let updates = update::updates(app.handle());
+            #[cfg(not(feature = "update-test"))]
             tauri::async_runtime::spawn(updates.clone().run_schedule());
             app.manage(updates);
+            #[cfg(feature = "update-test")]
+            update_test::start(app.handle().clone());
             // AI providers (M4-05): their keys in the OS keychain, or in
             // memory for the `e2e` build. With AI on, the CLI providers are
             // detected and self-tested in the background (AI-2, AI-16).

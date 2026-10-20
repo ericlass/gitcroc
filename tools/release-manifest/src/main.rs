@@ -1,5 +1,6 @@
 //! `release-manifest section --version <v> [--changelog <file>] [--dry-run]`
 //! `release-manifest assemble --version <v> --pub-date <date> --dir <dir> [--changelog <file>] [--dry-run]`
+//! `release-manifest local --version <v> --pub-date <date> --dir <dir> --platform <key> --package <file>`
 //!
 //! `section` prints the version's section of the changelog (default
 //! `CHANGELOG.md`). `assemble` reads the packages and `.sig` files in `<dir>`,
@@ -11,11 +12,21 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 const USAGE: &str = "usage: release-manifest section --version <v> [--changelog <file>] [--dry-run]\n       \
-release-manifest assemble --version <v> --pub-date <date> --dir <dir> [--changelog <file>] [--dry-run]";
+release-manifest assemble --version <v> --pub-date <date> --dir <dir> [--changelog <file>] [--dry-run]\n       \
+release-manifest local --version <v> --pub-date <date> --dir <dir> --platform <key> --package <file>";
 
 enum Command {
     Section,
-    Assemble { pub_date: String, dir: PathBuf },
+    Assemble {
+        pub_date: String,
+        dir: PathBuf,
+    },
+    Local {
+        pub_date: String,
+        dir: PathBuf,
+        platform: String,
+        package: String,
+    },
 }
 
 struct Args {
@@ -32,6 +43,8 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Option<Args> {
     let mut dir = None;
     let mut changelog = PathBuf::from("CHANGELOG.md");
     let mut dry_run = false;
+    let mut platform = None;
+    let mut package = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--version" => version = Some(args.next()?),
@@ -39,6 +52,8 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Option<Args> {
             "--dir" => dir = Some(PathBuf::from(args.next()?)),
             "--changelog" => changelog = PathBuf::from(args.next()?),
             "--dry-run" => dry_run = true,
+            "--platform" => platform = Some(args.next()?),
+            "--package" => package = Some(args.next()?),
             _ => return None,
         }
     }
@@ -47,6 +62,12 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Option<Args> {
         "assemble" => Command::Assemble {
             pub_date: pub_date?,
             dir: dir?,
+        },
+        "local" => Command::Local {
+            pub_date: pub_date?,
+            dir: dir?,
+            platform: platform?,
+            package: package?,
         },
         _ => return None,
     };
@@ -74,6 +95,24 @@ fn run(args: &Args) -> Result<(), release_manifest::Error> {
             let assembled =
                 release_manifest::assemble(dir, &changelog, &args.version, pub_date, args.dry_run)?;
             (assembled.notes, assembled.unreleased)
+        }
+        Command::Local {
+            pub_date,
+            dir,
+            platform,
+            package,
+        } => {
+            let section = release_manifest::release_section(&changelog, &args.version, true)?;
+            let value = release_manifest::local_manifest(
+                dir,
+                &args.version,
+                &section.text,
+                pub_date,
+                platform,
+                package,
+            )?;
+            println!("{value}");
+            return Ok(());
         }
     };
     if unreleased {

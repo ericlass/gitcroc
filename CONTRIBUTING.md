@@ -144,6 +144,12 @@ macOS checks the dmg's ad-hoc signature and both architectures; Linux starts the
 installed deb, and installs the rpm in Fedora without starting it. Failure logs are uploaded.
 These install jobs are additional checks, outside QA-1's required checks.
 
+`update-test.yml` proves installed updates on the same three runners. It builds A and B with
+the opt-in `update-test` feature, a loopback endpoint and a key generated inside each job.
+It checks that A installs and restarts as B, B refuses a tampered package without changing,
+and Linux's deb only notifies. Generated keys and overlays are deleted; only failure logs
+are uploaded. Release workflows never enable the feature.
+
 ## Test naming (QA-3)
 
 A test for requirement X carries X in its name or in a comment. For example, `grp_6_one_failure_does_not_stop_others` tests GRP-6. The coverage script accepts both `GRP-6` and `grp_6`. It searches test code under `crates/` and `ui/`, which means:

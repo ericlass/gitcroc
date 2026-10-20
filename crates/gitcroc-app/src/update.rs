@@ -33,10 +33,7 @@ pub const RELEASES_PAGE: &str = "https://github.com/ericlass/gitcroc/releases/la
 /// The updater of the app, started with it. Needs the job engine managed.
 pub fn updates(app: &AppHandle) -> Arc<Updates> {
     Updates::new(UpdateSetup {
-        source: Arc::new(PluginSource {
-            app: app.clone(),
-            found: Mutex::new(None),
-        }),
+        source: Arc::new(source(app)),
         clock: Arc::new(SystemClock),
         settings: app.state::<Arc<SettingsStore>>().inner().clone(),
         events: Arc::new(AppUpdateEvents { app: app.clone() }),
@@ -44,6 +41,13 @@ pub fn updates(app: &AppHandle) -> Arc<Updates> {
         checks: CHECKS,
         current_version: app.package_info().version.to_string(),
     })
+}
+
+pub(super) fn source(app: &AppHandle) -> impl UpdateSource + use<> {
+    PluginSource {
+        app: app.clone(),
+        found: Mutex::new(None),
+    }
 }
 
 /// Tauri's updater plugin.
