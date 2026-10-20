@@ -136,6 +136,14 @@ The Release workflow (`.github/workflows/release.yml`) runs on a pushed tag `v<v
 
 The version number lives only in the workspace `Cargo.toml`. Tauri reads it from there, and a test fails if `tauri.conf.json` sets its own or `ui/package.json` disagrees.
 
+The Build workflow also installs those artifacts on each platform (M5-14), on `main`, by hand,
+and on pull requests touching the build configuration or `.github/scripts/`. The installed
+app must log its version and detected package and successfully run `git --version` with
+updates disabled first. Windows checks NSIS installation and removal and the portable zip;
+macOS checks the dmg's ad-hoc signature and both architectures; Linux starts the AppImage and
+installed deb, and installs the rpm in Fedora without starting it. Failure logs are uploaded.
+These install jobs are additional checks, outside QA-1's required checks.
+
 ## Test naming (QA-3)
 
 A test for requirement X carries X in its name or in a comment. For example, `grp_6_one_failure_does_not_stop_others` tests GRP-6. The coverage script accepts both `GRP-6` and `grp_6`. It searches test code under `crates/` and `ui/`, which means:
