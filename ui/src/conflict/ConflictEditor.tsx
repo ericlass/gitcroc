@@ -7,7 +7,8 @@
 // still untouched (AI-3), and a proposal shows under its hunks (AI-11) with
 // the token usage of each request (AI-14). Accepting one edits the buffer
 // only (AI-12). The palette's conflict operations run its toolbar's buttons
-// and the hunk keys, by their rules (UI-22).
+// and the hunk keys, by their rules, and F7 and Shift+F7 go to a hunk's
+// buttons (UI-22).
 import { EditorState, StateEffect, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
@@ -21,6 +22,8 @@ import {
   acceptAllHigh,
   conflictExtensions,
   goToHunk,
+  focusHunkControl,
+  goToHunkControl,
   highConfidence,
   hunkCount,
   inHunk,
@@ -29,6 +32,7 @@ import {
   untouchedHunks,
 } from "./editor";
 import type { Take } from "./buffer";
+import { matches, modalOpen } from "../keys";
 import { strings } from "../strings/en";
 
 /** What the editor needs for AI; without it the editor has none. */
@@ -74,6 +78,9 @@ function startBuffer(file: FileConflict, start: Start) {
   return buildBuffer(content.chunks, file.conflict.labels);
 }
 
+/** What of the editor has the focus: the text, a hunk's button, or nothing. */
+export type EditorFocus = "text" | "control" | null;
+
 export default function ConflictEditor(props: {
   workspace: WorkspaceId;
   target: ViewFile;
@@ -81,10 +88,14 @@ export default function ConflictEditor(props: {
   start: Start;
   conflicts: ConflictStore;
   wrap: boolean;
-  /** Takes the focus when shown, as when the file before it was resolved from the keyboard. */
-  focus: boolean;
-  /** Called on closing, with whether the editor had the focus. */
-  onClose: (focused: boolean) => void;
+  /**
+   * Takes the focus when shown, as when the file before it was resolved
+   * from the keyboard: its text, or Take ours of the hunk at the cursor
+   * when a hunk's button had it, as when shown again after a refresh.
+   */
+  focus: EditorFocus;
+  /** Called on closing, with what of the editor had the focus. */
+  onClose: (focused: EditorFocus) => void;
   ai?: ConflictAi;
   commands: CommandStore;
 }) {
@@ -152,12 +163,17 @@ export default function ConflictEditor(props: {
       view.dispatch({ effects: saved.scroll });
     }
     void applyLanguage(parts, path, [view]);
-    if (props.focus) {
+    if (props.focus === "control") {
+      focusHunkControl(view);
+    } else if (props.focus === "text") {
       view.focus();
     }
     const opened = view;
     onCleanup(() => {
-      props.onClose(opened.hasFocus);
+      const active = document.activeElement;
+      props.onClose(
+        opened.hasFocus ? "text" : active instanceof HTMLButtonElement && opened.dom.contains(active) ? "control" : null,
+      );
       conflicts.keep(workspace, repo, path, {
         state: opened.state,
         initial,
@@ -249,6 +265,20 @@ export default function ConflictEditor(props: {
         : commandOf(null),
   };
   createEffect(() => onCleanup(props.commands.provide(workspace, "editor", paletteCommands)));
+
+  // F7 and Shift+F7, wherever the focus is, while this editor is shown and no dialog is open (UI-22).
+  const onWindowKey = (event: KeyboardEvent) => {
+    const step = matches("nextHunk", event) ? 1 : matches("previousHunk", event) ? -1 : 0;
+    if (step === 0 || view === undefined || parent === undefined || parent.getClientRects().length === 0) {
+      return;
+    }
+    if (!modalOpen()) {
+      event.preventDefault();
+      goToHunkControl(view, step);
+    }
+  };
+  window.addEventListener("keydown", onWindowKey);
+  onCleanup(() => window.removeEventListener("keydown", onWindowKey));
 
   const go = (direction: 1 | -1) => {
     if (view !== undefined) {

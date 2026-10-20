@@ -6,6 +6,7 @@ import { createEffect, createResource, For, type JSX, on, onCleanup, Show } from
 import type { ConfigWarning, WorkspaceListItem } from "../ipc";
 import type { WorkspaceStore } from "../stores/workspaces";
 import type { WorkspaceDialogs } from "./WorkspaceDialogs";
+import { onMenuKey } from "../keys";
 import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -164,6 +165,7 @@ export default function WorkspaceMenu(props: MenuProps & { at: { right: number; 
         style={{ right: `${props.at.right}px`, top: `${props.at.top}px` }}
         ref={(element) => (menu = element)}
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={onMenuKey}
       >
         {entries("menuitem")}
       </div>

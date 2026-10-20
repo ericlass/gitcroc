@@ -3,6 +3,7 @@
 // applies, and only to commits of one repo, and a blocked repo (GRP-8) has
 // every write disabled; the core refuses them as well.
 import { For, onCleanup } from "solid-js";
+import { onMenuKey } from "../keys";
 import { strings } from "../strings/en";
 
 export type CommitAction = "checkout" | "create_branch" | "create_tag" | "cherry_pick" | "revert" | "reset" | "copy_hash";
@@ -59,6 +60,7 @@ export default function CommitMenu(props: {
           queueMicrotask(() => element.querySelector<HTMLElement>("[role=menuitem]:not(:disabled)")?.focus())
         }
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={onMenuKey}
       >
         <For each={props.entries}>
           {(entry) => (

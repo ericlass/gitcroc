@@ -195,7 +195,9 @@ export default function JobList(props: {
                 <Switch
                   fallback={
                     <Show when={shown().output} fallback={<p class="placeholder">{strings.jobs.noOutput}</p>}>
-                      <pre class="job-output">{shown().output}</pre>
+                      <pre class="job-output" tabindex="0">
+                        {shown().output}
+                      </pre>
                     </Show>
                   }
                 >
@@ -221,7 +223,9 @@ export default function JobList(props: {
                       }
                     />
                     <Show when={shown().output}>
-                      <pre class="job-output">{shown().output}</pre>
+                      <pre class="job-output" tabindex="0">
+                        {shown().output}
+                      </pre>
                     </Show>
                   </Match>
                 </Switch>

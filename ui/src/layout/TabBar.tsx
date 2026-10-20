@@ -1,7 +1,7 @@
 // The workspace tabs (UI-27, UI-28): one tab per open workspace in the
 // core's order. A click activates a tab; tabs reorder by dragging and with
-// Ctrl/Cmd+Shift+PageUp/PageDown (UI-22), and the arrow keys move between
-// them. Each tab has a close button and a context menu with Rename,
+// Ctrl/Cmd+Shift+PageUp/PageDown (UI-22), and the arrow keys and
+// Ctrl/Cmd+PageUp/PageDown move between them. Each tab has a close button and a context menu with Rename,
 // Export workspace (DATA-2), AI for this workspace (AI-6), shown only
 // while AI features are on (AI-16), and Close. "+" lists the workspace files and offers New and Import. A tab
 // shows how many of its jobs run or wait, and a marker for a failed or
@@ -10,6 +10,7 @@
 // this sends what the user did.
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { WorkspaceId } from "../ipc";
+import { matches, modalOpen, onMenuKey } from "../keys";
 import { type Command, type CommandStore, type Providers } from "../palette/commands";
 import type { AiStore } from "../stores/ai";
 import type { JobStore } from "../stores/jobs";
@@ -37,6 +38,7 @@ export default function TabBar(props: {
   /** The tab being dragged. */
   const [dragged, setDragged] = createSignal<WorkspaceId | null>(null);
   let list: HTMLDivElement | undefined;
+  let plusButton: HTMLButtonElement | undefined;
 
   const views = () => props.workspaces.state.views ?? [];
   const active = () => props.workspaces.state.active;
@@ -55,25 +57,34 @@ export default function TabBar(props: {
     send(props.workspaces.move(id, step).then(() => focusTab(id)));
   };
 
-  // Ctrl/Cmd+Shift+PageUp/PageDown moves the active tab wherever the focus is.
-  const onWindowKey = (event: KeyboardEvent) => {
-    const id = active();
-    if (id === null || !(event.ctrlKey || event.metaKey) || !event.shiftKey) {
-      return;
-    }
-    if (event.key === "PageUp" || event.key === "PageDown") {
-      event.preventDefault();
-      move(id, event.key === "PageUp" ? -1 : 1);
-    }
-  };
-  window.addEventListener("keydown", onWindowKey);
-  onCleanup(() => window.removeEventListener("keydown", onWindowKey));
-
   /** The tab `step` places from `id`, if there is one. */
   const beside = (id: WorkspaceId, step: 1 | -1): WorkspaceId | undefined => {
     const order = views().map((view) => view.id);
     return order[order.indexOf(id) + step];
   };
+
+  // Ctrl/Cmd+PageDown and PageUp activate the next and previous tab, with Shift they move the active tab,
+  // wherever the focus is: caught before the lists and editors see them. Not while a dialog is open.
+  const onWindowKey = (event: KeyboardEvent) => {
+    const id = active();
+    const moving = matches("moveTabRight", event) ? 1 : matches("moveTabLeft", event) ? -1 : null;
+    const going = matches("nextTab", event) ? 1 : matches("previousTab", event) ? -1 : null;
+    if (id === null || (moving === null && going === null) || modalOpen()) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (moving !== null) {
+      move(id, moving);
+      return;
+    }
+    const next = going === null ? undefined : beside(id, going);
+    if (next !== undefined) {
+      activate(next);
+    }
+  };
+  window.addEventListener("keydown", onWindowKey, true);
+  onCleanup(() => window.removeEventListener("keydown", onWindowKey, true));
 
   /** Activates `id`, the focus on its tab. */
   const activate = (id: WorkspaceId) => send(props.workspaces.activate(id).then(() => focusTab(id)));
@@ -131,9 +142,18 @@ export default function TabBar(props: {
     setTabMenu({ id, name, x: x ?? box.left, y: y ?? box.bottom });
   };
 
+  /** Closes the tab menu; the focus goes back to its tab, before a dialog an entry opens takes it. */
+  const closeTabMenu = () => {
+    const open = tabMenu();
+    setTabMenu(null);
+    if (open !== null) {
+      list?.querySelector<HTMLElement>(`[role=tab][data-id="${CSS.escape(open.id)}"]`)?.focus();
+    }
+  };
+
   const closeOnEscape = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
-      setTabMenu(null);
+      closeTabMenu();
     }
   };
   document.addEventListener("keydown", closeOnEscape);
@@ -231,6 +251,7 @@ export default function TabBar(props: {
         <button
           type="button"
           class="tab-add"
+          ref={(element) => (plusButton = element)}
           aria-label={strings.tabs.open}
           title={strings.tabs.openTitle}
           aria-haspopup="menu"
@@ -259,7 +280,10 @@ export default function TabBar(props: {
             workspaces={props.workspaces}
             dialogs={props.dialogs}
             at={at()}
-            onClose={() => setPlusMenu(null)}
+            onClose={() => {
+              setPlusMenu(null);
+              plusButton?.focus();
+            }}
             onError={setError}
             onImport={() => props.share.importWorkspace()}
           />
@@ -267,7 +291,7 @@ export default function TabBar(props: {
       </Show>
       <Show when={tabMenu()}>
         {(open) => (
-          <div class="menu-backdrop" onClick={() => setTabMenu(null)} onContextMenu={(event) => event.preventDefault()}>
+          <div class="menu-backdrop" onClick={closeTabMenu} onContextMenu={(event) => event.preventDefault()}>
             <div
               class="menu"
               role="menu"
@@ -275,13 +299,14 @@ export default function TabBar(props: {
               style={{ left: `${open().x}px`, top: `${open().y}px` }}
               ref={(element) => queueMicrotask(() => element.querySelector<HTMLElement>("[role=menuitem]")?.focus())}
               onClick={(event) => event.stopPropagation()}
+              onKeyDown={onMenuKey}
             >
               <button
                 type="button"
                 role="menuitem"
                 onClick={() => {
                   const { id, name } = open();
-                  setTabMenu(null);
+                  closeTabMenu();
                   props.dialogs.open({ kind: "rename", id, name });
                 }}
               >
@@ -292,7 +317,7 @@ export default function TabBar(props: {
                 role="menuitem"
                 onClick={() => {
                   const { id } = open();
-                  setTabMenu(null);
+                  closeTabMenu();
                   props.share.exportWorkspace(id);
                 }}
               >
@@ -307,7 +332,7 @@ export default function TabBar(props: {
                     disabled={view().read_only}
                     onClick={() => {
                       const { id, ai } = view();
-                      setTabMenu(null);
+                      closeTabMenu();
                       send(props.workspaces.setAi(id, !ai));
                     }}
                   >

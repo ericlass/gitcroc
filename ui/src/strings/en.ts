@@ -182,6 +182,32 @@ export const strings = {
     firstTab: "There is no tab before this one",
   },
 
+  /** The app-wide shortcuts of src/keys.ts (UI-22): what each does, and how its keys are written. */
+  keys: {
+    shortcuts: {
+      palette: "Open or close the command palette",
+      nextRegion: "Move the focus to the next region",
+      previousRegion: "Move the focus to the previous region",
+      settings: "Open Settings",
+      nextTab: "Next tab",
+      previousTab: "Previous tab",
+      moveTabRight: "Move the tab to the right",
+      moveTabLeft: "Move the tab to the left",
+      nextHunk: "Next hunk in the diff or the conflict editor",
+      previousHunk: "Previous hunk in the diff or the conflict editor",
+    },
+    /** Modifiers, as each platform writes them. */
+    ctrl: "Ctrl",
+    cmd: "Cmd",
+    shift: "Shift",
+    alt: "Alt",
+    option: "Option",
+    /** Keys whose name is not the character they type. */
+    names: { PageDown: "Page Down", PageUp: "Page Up", ",": "," } as Partial<Record<string, string>>,
+    /** Keys and modifiers joined, as "Ctrl+Shift+Page Down". */
+    join: (parts: string[]) => parts.join("+"),
+  },
+
   tabs: {
     label: "Workspaces",
     jobs: (count: number) => plural(count, "job", "jobs"),

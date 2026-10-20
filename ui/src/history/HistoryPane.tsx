@@ -37,6 +37,7 @@ import { isBlocked, type SummaryStore } from "../stores/summaries";
 import CommitMenu, { type CommitAction, commitMenu } from "./CommitMenu";
 import Graph from "./Graph";
 import { formatDate, formatFullDate, historyRows, type ListRow } from "./rows";
+import { isMac } from "../keys";
 import { strings } from "../strings/en";
 
 /**
@@ -266,8 +267,51 @@ function HistoryList(props: {
     virtualizer.scrollToIndex(index, { align: "auto" });
   };
 
-  /** Where a Shift-click's range starts: the row last clicked without Shift. */
+  /** Where a Shift-click's or Shift+arrow's range starts: the row last selected without Shift. */
   let anchor: string | null = null;
+
+  /** Adds commit row `index` to the commits selected for a cherry-pick or takes it out; it becomes the anchor. */
+  const toggleMark = (index: number) => {
+    const row = rows().at(index);
+    if (row?.kind !== "commit") {
+      return;
+    }
+    const marked = history().marked;
+    anchor = row.id;
+    props.history.mark(
+      props.workspace,
+      row.id,
+      marked.includes(row.id) ? marked.filter((hash) => hash !== row.id) : [...marked, row.id],
+    );
+  };
+
+  /** Selects commit row `index` with the commits from the anchor to it (UI-13); `false` without an anchor. */
+  const extendTo = (index: number) => {
+    const row = rows().at(index);
+    const from = anchor === null ? -1 : rows().indexOf(anchor);
+    if (row?.kind !== "commit" || from < 0) {
+      return false;
+    }
+    const hashes: string[] = [];
+    for (let at = Math.min(from, index); at <= Math.max(from, index); at++) {
+      const inRange = rows().at(at);
+      if (inRange?.kind === "commit") {
+        hashes.push(inRange.id);
+      }
+    }
+    props.history.mark(props.workspace, row.id, hashes);
+    virtualizer.scrollToIndex(index, { align: "auto" });
+    return true;
+  };
+
+  /** Selects commit row `index`, keeping the commits selected for a cherry-pick. */
+  const moveTo = (index: number) => {
+    const row = rows().at(index);
+    if (row?.kind === "commit") {
+      props.history.mark(props.workspace, row.id, history().marked);
+      virtualizer.scrollToIndex(index, { align: "auto" });
+    }
+  };
 
   /** A click: Ctrl/Cmd adds or removes a commit, Shift selects the commits from the anchor (UI-13). */
   const click = (index: number, event: MouseEvent) => {
@@ -277,25 +321,10 @@ function HistoryList(props: {
       return;
     }
     if (event.ctrlKey || event.metaKey) {
-      const marked = history().marked;
-      anchor = row.id;
-      props.history.mark(
-        props.workspace,
-        row.id,
-        marked.includes(row.id) ? marked.filter((hash) => hash !== row.id) : [...marked, row.id],
-      );
+      toggleMark(index);
       return;
     }
-    const from = anchor === null ? -1 : rows().indexOf(anchor);
-    if (event.shiftKey && from >= 0) {
-      const hashes: string[] = [];
-      for (let at = Math.min(from, index); at <= Math.max(from, index); at++) {
-        const inRange = rows().at(at);
-        if (inRange?.kind === "commit") {
-          hashes.push(inRange.id);
-        }
-      }
-      props.history.mark(props.workspace, row.id, hashes);
+    if (event.shiftKey && extendTo(index)) {
       return;
     }
     select(index);
@@ -303,6 +332,13 @@ function HistoryList(props: {
 
   /** `text` names the row the menu was opened on, as `1a2b3c4 Subject`. */
   const [menu, setMenu] = createSignal<{ x: number; y: number; commits: string[]; text: string } | null>(null);
+  /** Closes the menu; the list has the focus back, before a dialog the entry opens takes it. */
+  const closeMenu = () => {
+    if (menu() !== null) {
+      setMenu(null);
+      scroller?.focus();
+    }
+  };
 
   /** Opens the menu of commit row `index`: for the multi-selection when the row is in it, else for the row alone. */
   const openMenu = (index: number, x: number, y: number) => {
@@ -342,7 +378,7 @@ function HistoryList(props: {
 
   /** `mode` is the reset mode the dialog opens with. */
   const act = (action: CommitAction, rowIds: string[], text: string, mode?: ResetMode) => {
-    setMenu(null);
+    closeMenu();
     const { repo: shown, hashes: commits } = commitsOf(rowIds);
     const [hash] = commits;
     if (shown === null || hash === undefined) {
@@ -412,10 +448,35 @@ function HistoryList(props: {
   createEffect(() => onCleanup(props.commands.provide(props.workspace, "history", paletteCommands)));
 
   const onKeyDown = (event: KeyboardEvent) => {
+    // A key on a control in a row is the control's (UI-22).
+    if (event.target !== event.currentTarget) {
+      return;
+    }
     const index = selectedIndex();
     const page = Math.max(1, Math.floor((scroller?.clientHeight ?? ROW_HEIGHT) / ROW_HEIGHT) - 1);
-    const go = (target: number) => select(Math.max(0, Math.min(rows().loaded - 1, target)));
+    // Shift extends the commits selected for a cherry-pick from the anchor, Ctrl/Cmd moves without changing them,
+    // Ctrl/Cmd+Space adds or removes the selected commit (UI-13), as the clicks do.
+    const mod = isMac() ? event.metaKey : event.ctrlKey;
+    const go = (target: number) => {
+      const index = Math.max(0, Math.min(rows().loaded - 1, target));
+      if (event.shiftKey) {
+        anchor ??= rows().at(selectedIndex())?.id ?? null;
+        if (!extendTo(index)) {
+          select(index);
+        }
+      } else if (mod) {
+        moveTo(index);
+      } else {
+        select(index);
+      }
+    };
     switch (event.key) {
+      case " ":
+        if (!mod || event.shiftKey || event.altKey) {
+          return;
+        }
+        toggleMark(index);
+        break;
       case "ArrowDown":
         go(index + 1);
         break;
@@ -518,7 +579,7 @@ function HistoryList(props: {
           y={open().y}
           entries={entries(open().commits)}
           onAction={(action) => act(action, open().commits, open().text)}
-          onClose={() => setMenu(null)}
+          onClose={closeMenu}
         />
       )}
     </Show>

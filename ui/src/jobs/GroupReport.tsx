@@ -135,7 +135,9 @@ export function GroupReport(props: {
                 </Show>
                 <Show when={expanded()}>
                   <Show when={line.output} fallback={<p class="placeholder report-output">{strings.jobs.noOutput}</p>}>
-                    <pre class="job-output report-output">{line.output}</pre>
+                    <pre class="job-output report-output" tabindex="0">
+                      {line.output}
+                    </pre>
                   </Show>
                 </Show>
               </li>

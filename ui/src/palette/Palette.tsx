@@ -10,7 +10,8 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { Frame } from "../dialogs/parts";
-import { paletteQuery, type PaletteItem, type PaletteOp, type PaletteResult, type WorkspaceId } from "../ipc";
+import { paletteQuery, type PaletteItem, type PaletteResult, type WorkspaceId } from "../ipc";
+import { PALETTE_SHORTCUTS, shortcutLabel } from "../keys";
 import { strings } from "../strings/en";
 import { type Command, type CommandStore, missingSubject } from "./commands";
 
@@ -19,9 +20,6 @@ export const PALETTE_ROW_HEIGHT = 28;
 
 /** Rows rendered beyond each edge of the visible ones. */
 export const PALETTE_OVERSCAN = 6;
-
-/** The keyboard shortcut of each operation that has one; M5-09 adds the keymap. */
-export const SHORTCUTS: Partial<Record<PaletteOp, string>> = {};
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -209,7 +207,8 @@ export default function Palette(props: {
                 {(item) => {
                   const shortcut = () => {
                     const shown = item();
-                    return shown.kind === "operation" ? SHORTCUTS[shown.op] : undefined;
+                    const id = shown.kind === "operation" ? PALETTE_SHORTCUTS[shown.op] : undefined;
+                    return id === undefined ? undefined : shortcutLabel(id);
                   };
                   return (
                     <div

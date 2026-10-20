@@ -19,7 +19,9 @@ import PreflightDialog from "./groups/PreflightDialog";
 import { appInfo, type GroupOp, type JobId, type PaletteItem, type TargetSet, type WorkspaceId } from "./ipc";
 import { needsLook } from "./jobs/GroupReport";
 import JobList from "./jobs/JobList";
+import { matches, modalOpen, setMac } from "./keys";
 import Panes from "./layout/Panes";
+import { moveToRegion } from "./layout/regions";
 import { commandOf, createCommandStore } from "./palette/commands";
 import Palette from "./palette/Palette";
 import StatusBar from "./layout/StatusBar";
@@ -363,23 +365,36 @@ export default function App() {
     void tree.reveal(id, place).then(() => document.querySelector<HTMLElement>("[role=tree]")?.focus());
   };
 
-  // Ctrl+K, or Cmd+K on macOS, opens and closes the palette wherever the focus is, also in the
-  // diff and conflict editors: it is caught before them.
-  const onPaletteKey = (event: KeyboardEvent) => {
-    const mod = info()?.os === "macos" ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-    if (!mod || event.altKey || event.shiftKey || event.key.toLowerCase() !== "k") {
+  // The app-wide shortcuts of keys.ts, caught before the lists and editors see them. Ctrl+K, or Cmd+K on macOS,
+  // opens and closes the palette wherever the focus is, also in the diff and conflict editors; the others wait
+  // while a dialog is open. The tabs' keys are the tab bar's, the hunks' the diff's and the conflict editor's.
+  const onAppKey = (event: KeyboardEvent) => {
+    if (matches("palette", event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (palette() === null) {
+        openPalette();
+      } else {
+        closePalette();
+      }
+      return;
+    }
+    const step = matches("nextRegion", event) ? 1 : matches("previousRegion", event) ? -1 : null;
+    const settings = matches("settings", event);
+    if ((step === null && !settings) || modalOpen()) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
-    if (palette() === null) {
-      openPalette();
+    if (step !== null) {
+      moveToRegion(step);
     } else {
-      closePalette();
+      setSettingsOpen("top");
     }
   };
-  window.addEventListener("keydown", onPaletteKey, true);
-  onCleanup(() => window.removeEventListener("keydown", onPaletteKey, true));
+  window.addEventListener("keydown", onAppKey, true);
+  onCleanup(() => window.removeEventListener("keydown", onAppKey, true));
+  createEffect(() => setMac(info()?.os === "macos"));
 
   // The toolbar's operations and the window's own, as their controls run them (UI-22).
   commands.provide(null, "app", {

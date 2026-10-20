@@ -29,6 +29,12 @@ import { entryOf, type FileKey, firstFile, sameFile } from "../changes/fileRows"
 import type { CommitSelection } from "./selection";
 import { strings } from "../strings/en";
 
+/** A diff's hunk for F7 and whether one of its controls has the focus (UI-22). */
+export interface DiffHunk {
+  index: number;
+  focused: boolean;
+}
+
 export interface WorkspaceChanges {
   /** What is shown; `null` for nothing. */
   selection: CommitSelection | null;
@@ -59,6 +65,12 @@ export interface WorkspaceChanges {
   /** Where the file list and the diff were scrolled, for when they are shown again (UI-29). */
   listScroll: number;
   diffScroll: number;
+  /**
+   * The diff's hunk F7 last went to or whose control last had the focus,
+   * -1 for none, and whether the focus is still there: a diff shown again,
+   * as after a refresh, goes on from it (UI-22).
+   */
+  diffHunk: DiffHunk;
   /**
    * The tab went to the background and the view and diff were let go
    * (UI-31): the file to select again when they are read on return.
@@ -92,6 +104,7 @@ const empty = (): WorkspaceChanges => ({
   offerError: null,
   listScroll: 0,
   diffScroll: 0,
+  diffHunk: { index: -1, focused: false },
   released: false,
 });
 
@@ -318,6 +331,7 @@ export function createChangesStore(settings: () => ChangesSettings) {
         c.notice = null;
         c.listScroll = 0;
         c.diffScroll = 0;
+        c.diffHunk = { index: -1, focused: false };
       });
       return load(id, null);
     });
@@ -341,6 +355,7 @@ export function createChangesStore(settings: () => ChangesSettings) {
       c.file = file;
       c.loadAnyway = false;
       c.diffScroll = 0;
+      c.diffHunk = { index: -1, focused: false };
     });
     return loadDiff(id);
   };
@@ -485,6 +500,8 @@ export function createChangesStore(settings: () => ChangesSettings) {
   const setScroll = (id: WorkspaceId, which: "listScroll" | "diffScroll", scrollTop: number) =>
     update(id, (c) => (c[which] = scrollTop));
 
+  const setDiffHunk = (id: WorkspaceId, hunk: DiffHunk) => update(id, (c) => (c.diffHunk = hunk));
+
   return {
     state,
     changes,
@@ -503,6 +520,7 @@ export function createChangesStore(settings: () => ChangesSettings) {
     answerOffer,
     dismissOfferError,
     setScroll,
+    setDiffHunk,
   };
 }
 

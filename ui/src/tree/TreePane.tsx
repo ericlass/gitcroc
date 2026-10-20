@@ -55,6 +55,7 @@ import {
   moveMember,
   runGroupOp,
 } from "./groups";
+import { onMenuKey } from "../keys";
 import { type MenuAction, type MenuEntry, menuFor } from "./menus";
 import {
   type Command,
@@ -323,6 +324,10 @@ function TreeList(props: {
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
+    // A key on a control in a row is the control's (UI-22).
+    if (event.target !== event.currentTarget) {
+      return;
+    }
     const index = selectedIndex();
     const row = rows()[index];
     switch (event.key) {
@@ -356,6 +361,21 @@ function TreeList(props: {
           select(rows().findIndex((candidate) => candidate.id === parent));
         }
         break;
+      case "Enter": {
+        // What a double-click does (UI-7): a local branch is checked out, a group's branch name on the group;
+        // other rows open or close.
+        const target = row?.kind === "node" ? row.node.item : undefined;
+        if (target?.kind === "branch") {
+          props.onCheckout(target.repo_id, target.name);
+        } else if (target?.kind === "group_branch") {
+          props.onGroupCheckout(target.group_id, target.name);
+        } else if (row?.kind === "node" && row.expandable) {
+          toggle(row);
+        } else {
+          return;
+        }
+        break;
+      }
       case "Home":
         select(nextNode(-1, 1));
         break;
@@ -1005,6 +1025,7 @@ export default function TreePane(props: {
               style={{ left: `${open().x}px`, top: `${open().y}px` }}
               ref={(element) => queueMicrotask(() => element.querySelector<HTMLElement>("[role=menuitem]")?.focus())}
               onClick={(event) => event.stopPropagation()}
+              onKeyDown={onMenuKey}
             >
               <button type="button" role="menuitem" onClick={add}>
                 {strings.tree.addFolder}
@@ -1028,6 +1049,7 @@ export default function TreePane(props: {
                 queueMicrotask(() => element.querySelector<HTMLElement>("[role=menuitem]:not(:disabled)")?.focus())
               }
               onClick={(event) => event.stopPropagation()}
+              onKeyDown={onMenuKey}
             >
               <For each={menuFor(open().item, itemBlocked(open().item), groups(), itemMissing(open().item))}>
                 {(entry) => (
@@ -1080,6 +1102,8 @@ export default function TreePane(props: {
                       event.preventDefault();
                       setSubmenu(null);
                       beside().from.focus();
+                    } else {
+                      onMenuKey(event);
                     }
                   }}
                 >
