@@ -1,10 +1,12 @@
-// Plain W3C WebDriver over HTTP to tauri-driver and WebKitWebDriver, Linux
-// only, for `just bench-ui` (M1-12) and `just smoke` (M2-15).
+// Plain W3C WebDriver over loopback HTTP to tauri-driver and the native
+// driver: Linux for `just bench-ui`, Linux and Windows for `just smoke`.
 //
 // Node runs this file directly (type stripping), so it uses no TypeScript
 // syntax that needs compiling, and no packages.
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { closeSync, openSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
+import { DEBUGGER, driverPrograms } from "./platform.ts";
 
 export const DRIVER = "http://127.0.0.1:4444";
 
@@ -39,22 +41,16 @@ async function driverUp(): Promise<boolean> {
 
 function which(program: string): boolean {
   try {
-    execFileSync("which", [program], { stdio: "ignore" });
+    execFileSync(process.platform === "win32" ? "where.exe" : "which", [program], { stdio: "ignore" });
     return true;
   } catch {
     return false;
   }
 }
 
-/** Fails naming how to install tauri-driver or WebKitWebDriver when one is missing. */
+/** Fails naming how to install tauri-driver or its native driver when one is missing. */
 export function checkDrivers() {
-  if (process.platform !== "linux") {
-    throw new Error("this runs on Linux only (WebKitWebDriver)");
-  }
-  for (const [program, install] of [
-    ["tauri-driver", "cargo install tauri-driver --locked"],
-    ["WebKitWebDriver", "sudo apt install webkit2gtk-driver (Debian, Ubuntu)"],
-  ] as const) {
+  for (const [program, install] of driverPrograms(process.platform)) {
     if (!which(program)) {
       throw new Error(`${program} is not on PATH; install it with \`${install}\``);
     }
@@ -63,7 +59,8 @@ export function checkDrivers() {
 
 /** Starts tauri-driver with `env` for the app, and waits until it answers. */
 export async function startDriver(env: NodeJS.ProcessEnv): Promise<ChildProcess> {
-  const driver = spawn("tauri-driver", [], { env, stdio: ["ignore", "ignore", "inherit"] });
+  const [[program]] = driverPrograms(process.platform);
+  const driver = spawn(program, [], { env, stdio: ["ignore", "ignore", "inherit"] });
   driver.on("error", (error) => {
     log(`cannot start tauri-driver: ${error.message}; install it with \`cargo install tauri-driver --locked\``);
     process.exit(2);
@@ -77,4 +74,45 @@ export async function startDriver(env: NodeJS.ProcessEnv): Promise<ChildProcess>
     await sleep(100);
   }
   return driver;
+}
+
+/** Windows attach mode: start the app first, then wait for its real WebView2 endpoint. */
+export async function startWebview(app: string, env: NodeJS.ProcessEnv, logPath: string): Promise<ChildProcess> {
+  const output = openSync(logPath, "w");
+  const child = spawn(app, [], { env, stdio: ["ignore", output, output] });
+  closeSync(output);
+  let launchError: Error | undefined;
+  child.on("error", (error) => { launchError = error; });
+  try {
+    const deadline = Date.now() + 60_000;
+    for (;;) {
+      if (launchError !== undefined) throw launchError;
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error(`the app exited before WebView2 was ready; see ${logPath}`);
+      }
+      const ready = await fetch(`http://${DEBUGGER}/json/version`, { signal: AbortSignal.timeout(1000) })
+        .then(async (response) => response.ok && !!((await response.json()) as { webSocketDebuggerUrl?: string })
+          .webSocketDebuggerUrl)
+        .catch(() => false);
+      if (ready) return child;
+      if (Date.now() >= deadline) throw new Error(`WebView2 did not start; see ${logPath}`);
+      await sleep(100);
+    }
+  } catch (error) {
+    stopProcess(child);
+    throw error;
+  }
+}
+
+/** Include native-driver and WebView2 children when stopping Windows processes. */
+export function stopProcess(child: ChildProcess) {
+  if (process.platform === "win32" && child.pid !== undefined) {
+    try {
+      execFileSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {
+      // It may already have exited after the session ended.
+    }
+  } else {
+    child.kill();
+  }
 }

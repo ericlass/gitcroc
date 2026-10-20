@@ -5,6 +5,8 @@ pub mod askpass;
 pub mod ipc;
 pub mod platform;
 pub mod proposer;
+#[cfg(any(feature = "e2e", test))]
+mod smoke_dirs;
 pub mod update;
 #[cfg(any(feature = "update-test", test))]
 mod update_test;
@@ -30,20 +32,35 @@ pub fn run() -> Result<(), Error> {
     #[cfg(any(debug_assertions, feature = "perf-trace"))]
     ipc::debug::mark_process_start();
     let ipc = ipc::builder();
+    let config: &dyn gitcroc_core::ConfigDir = &PlatformConfigDir;
+    let cache: &dyn gitcroc_core::CacheDir = &PlatformCacheDir;
+    let logs: &dyn gitcroc_core::LogDir = &PlatformLogDir;
+    // Windows Known Folders do not follow APPDATA. Only a smoke build
+    // accepts the fixture override, for config, cache and logs together.
+    #[cfg(feature = "e2e")]
+    let fixture_dirs = smoke_dirs::FixtureDirs::from_env();
+    #[cfg(feature = "e2e")]
+    let (config, cache, logs) = fixture_dirs
+        .as_ref()
+        .map_or((config, cache, logs), |dirs| (dirs, dirs, dirs));
+    let context = tauri::generate_context!();
+    #[cfg(feature = "e2e")]
+    let context = {
+        let mut context = context;
+        smoke_dirs::configure(context.config_mut(), fixture_dirs.as_ref());
+        context
+    };
     // Every git process the app runs goes to `gitcroc.log` (section 10).
-    let log = Arc::new(AppLog::open(&PlatformLogDir));
+    let log = Arc::new(AppLog::open(logs));
     let command_log = log.clone();
     gitcroc_core::log_commands_to(move |record| command_log.command(record));
     // Small files, read once before the window shows, so the first paint
     // already has the saved theme and the workspaces of the saved tabs.
-    let settings = Arc::new(SettingsStore::load(&PlatformConfigDir));
-    let workspaces = Arc::new(Workspaces::load_with(&PlatformConfigDir, settings.clone()));
+    let settings = Arc::new(SettingsStore::load(config));
+    let workspaces = Arc::new(Workspaces::load_with(config, settings.clone()));
     // The cached summaries, read once so the first paint shows every repo
     // before git is read (PERF-3); the refresh starts after git detection.
-    let summaries = Arc::new(Summaries::load(
-        SummaryCache::open(&PlatformCacheDir),
-        &workspaces,
-    ));
+    let summaries = Arc::new(Summaries::load(SummaryCache::open(cache), &workspaces));
     // The pool jobs and the refresh share has as many places as group
     // operations run sub-jobs at once (PERF-4).
     let parallelism = settings.view().settings.groups.group_parallelism;
@@ -153,6 +170,6 @@ pub fn run() -> Result<(), Error> {
             ipc::perf_mark("setup done");
             Ok(())
         })
-        .run(tauri::generate_context!())?;
+        .run(context)?;
     Ok(())
 }

@@ -1,6 +1,6 @@
 // `just smoke` (section 12 "End to end smoke", M2-15): the real app, built
 // with the `e2e` feature, on a fixture workspace through tauri-driver and
-// WebKitWebDriver, Linux only. It adds a repo, stages a file, commits,
+// WebKitWebDriver on Linux or Edge WebDriver on Windows. It adds a repo, stages a file, commits,
 // merges a branch that conflicts, resolves the file in the conflict editor
 // with Take theirs and an edit, marks it resolved and continues; the
 // history then shows the merge commit and the repo is clean. Then the group
@@ -18,15 +18,15 @@
 //
 // Node runs this file directly (type stripping), so it uses no TypeScript
 // syntax that needs compiling, and no packages.
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { type ChildProcess, execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { checkDrivers, ELEMENT, type Element, log, startDriver, wd } from "./client.ts";
+import { checkDrivers, ELEMENT, type Element, log, startDriver, startWebview, stopProcess, wd } from "./client.ts";
+import { sessionCapabilities, smokeEnvironment, smokePaths } from "./platform.ts";
 
 const ROOT = resolve(import.meta.dirname, "../..");
-const APP = join(ROOT, "target/e2e/debug/gitcroc");
-const CLI = join(ROOT, "target/e2e/debug/gitcroc-cli");
+const { app: APP, cli: CLI } = smokePaths(ROOT, process.platform);
 /** Ends a step that never sees its result; no step is expected to come near it. */
 const DEADLINE_MS = 60_000;
 
@@ -50,6 +50,7 @@ function fixture(dir: string, env: NodeJS.ProcessEnv) {
     git(env, repo, ["init", "--quiet", "--initial-branch=main"]);
     git(env, repo, ["config", "user.name", "Smoke Test"]);
     git(env, repo, ["config", "user.email", "smoke@example.com"]);
+    git(env, repo, ["config", "core.autocrlf", "false"]);
   }
   writeFileSync(join(lib, "lib.txt"), "lib\n");
   git(env, lib, ["add", "lib.txt"]);
@@ -145,7 +146,7 @@ class Session {
 
   static async start(app: string): Promise<Session> {
     const value = (await wd("POST", "/session", {
-      capabilities: { alwaysMatch: { "tauri:options": { application: app } } },
+      capabilities: sessionCapabilities(app, process.platform),
     })) as { sessionId: string };
     const session = new Session(value.sessionId);
     await wd("POST", `/session/${session.id}/timeouts`, { script: DEADLINE_MS + 10_000 });
@@ -727,13 +728,7 @@ async function main() {
   const home = join(dir, "home");
   const config = join(dir, "config");
   mkdirSync(home);
-  const env = {
-    ...process.env,
-    HOME: home,
-    XDG_CONFIG_HOME: config,
-    XDG_CACHE_HOME: join(dir, "cache"),
-    GIT_CONFIG_NOSYSTEM: "1",
-  };
+  const env = smokeEnvironment(dir, process.env, process.platform);
   const repos = join(dir, "repos");
   mkdirSync(repos);
   const { lib, app } = fixture(repos, env);
@@ -745,18 +740,29 @@ async function main() {
   // Add folder… picks the folder of both repos: the first workspace has lib
   // and gets app, the second gets both.
   // The mock provider kind answers from `replies` (M4-12).
-  const driver = await startDriver({ ...env, GITCROC_E2E_PICK_FOLDER: repos, GITCROC_E2E_AI: replies });
-  let failed = false;
+  const appEnv = { ...env, GITCROC_E2E_PICK_FOLDER: repos, GITCROC_E2E_AI: replies };
+  let driver: ChildProcess | undefined;
+  let appProcess: ChildProcess | undefined;
+  let failed = true;
   try {
+    if (process.platform === "win32") {
+      appProcess = await startWebview(
+        APP,
+        { ...appEnv, TAURI_WEBVIEW_AUTOMATION: "true" },
+        join(ROOT, "target", "e2e", "app.log"),
+      );
+    }
+    driver = await startDriver(appEnv);
     const session = await Session.start(APP);
     try {
       await smoke(session, app, env);
       await groupFlow(session, env, { lib, app });
       await aiFlow(session, env, app);
       log("smoke test passed");
+      failed = false;
     } catch (error) {
       failed = true;
-      const path = join(ROOT, "target/e2e/failure.png");
+      const path = join(ROOT, "target", "e2e", "failure.png");
       await session.screenshot(path).then(
         () => log(`the window at the failure: ${path}`),
         () => {},
@@ -766,7 +772,10 @@ async function main() {
       await session.end().catch(() => {});
     }
   } finally {
-    driver.kill();
+    if (driver !== undefined) stopProcess(driver);
+    if (appProcess !== undefined) stopProcess(appProcess);
+    const appLog = join(dir, "logs", "gitcroc", "gitcroc.log");
+    if (failed && existsSync(appLog)) copyFileSync(appLog, join(ROOT, "target", "e2e", "gitcroc.log"));
     if (!failed) {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -76,11 +76,11 @@ bench-data set:
 bench *flags:
     cargo run --quiet --release -p gitcroc-cli -- bench {{flags}}
 
-# End-to-end smoke test (section 12, M2-15) on the real app, Linux only:
+# End-to-end smoke test (section 12, M5-16) on the real app, Linux and Windows:
 # add a repo, stage, commit, and resolve a merge conflict by hand; then the
 # group flow (M3-15) and the AI flow with a mock provider (M4-12). Builds the
 # app with the `e2e` feature into its own target dir and drives it through
-# tauri-driver and WebKitWebDriver. CI's Linux job runs it under xvfb-run.
+# tauri-driver and the native WebDriver. CI's Linux job uses xvfb-run.
 smoke:
     CARGO_TARGET_DIR="{{justfile_directory()}}/target/e2e" TAURI_APP_PATH="{{justfile_directory()}}/crates/gitcroc-app" pnpm --dir ui exec tauri build --debug --no-bundle --features e2e >&2
     CARGO_TARGET_DIR="{{justfile_directory()}}/target/e2e" cargo build --quiet -p gitcroc-cli
