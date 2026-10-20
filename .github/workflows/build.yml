@@ -1,52 +1,14 @@
-# M0-08: installable builds for the platforms of section 11 (D6), from every
-# push to main. The steps are in bundles.yml, which release.yml shares. These
-# builds have no updater key and make no update packages; only a tagged
-# release does (SEC-7, M5-13).
+# Throwaway M5-14 proof only. This commit must never be merged.
 name: Build
-
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-  # Pull requests that change how the bundles are built prove they still build.
-  pull_request:
-    paths:
-      - .github/workflows/build.yml
-      - .github/workflows/bundles.yml
-      - crates/gitcroc-app/tauri.conf.json
-      - .github/scripts/**
-      - crates/gitcroc-app/src/lib.rs
-      - crates/gitcroc-core/src/log.rs
-      - justfile
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
-
+  actions: read
 jobs:
-  bundles:
-    uses: ./.github/workflows/bundles.yml
-
-  # M5-14: install the artifacts of this run, never rebuilt substitutes.
-  # These outcome checks are additional proof, not QA-1 required checks.
-  install:
-    name: install (${{ matrix.platform }})
-    needs: bundles
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: windows-x64
-            os: windows-latest
-          - platform: macos-universal
-            os: macos-latest
-          - platform: linux-x86_64
-            os: ubuntu-22.04
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+  broken-portable:
+    runs-on: windows-latest
+    timeout-minutes: 10
     env:
       INSTALL_LOGS: ${{ github.workspace }}/install-logs
     steps:
@@ -54,37 +16,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Test the outcome checker without starting an app
-        run: python .github/scripts/test-install.py
-      - name: Record the runner version
-        shell: bash
-        run: |
-          echo "Runner: $RUNNER_OS $RUNNER_ARCH; image $ImageOS $ImageVersion" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/download-artifact@v4
         with:
-          pattern: gitcroc-*-${{ matrix.platform }}
+          name: gitcroc-0.1.0-windows-x64
+          run-id: 39423982049
+          github-token: ${{ github.token }}
           path: artifacts
-          merge-multiple: true
-      - name: Read package version
-        id: version
+      - name: Deliberately remove the binary from the portable zip
         shell: bash
         run: |
-          version=$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Install and start on Windows
-        if: runner.os == 'Windows'
+          python - <<'PYTHON'
+          from pathlib import Path
+          from zipfile import ZipFile
+          archive = next(Path("artifacts").glob("*-portable.zip"))
+          with ZipFile(archive) as source:
+              kept = [(item, source.read(item)) for item in source.infolist() if not item.filename.endswith("/gitcroc.exe")]
+          with ZipFile(archive, "w") as target:
+              for item, data in kept:
+                  target.writestr(item, data)
+          print("Intentionally broken portable zip: gitcroc.exe removed")
+          PYTHON
+      - name: Install and start; the missing portable binary must fail this job
         shell: pwsh
-        run: .github/scripts/install-windows.ps1 -Artifacts "$pwd/artifacts" -Version '${{ steps.version.outputs.version }}'
-      - name: Install and start on macOS
-        if: runner.os == 'macOS'
-        run: bash .github/scripts/install-macos.sh "$PWD/artifacts" '${{ steps.version.outputs.version }}'
-      - name: Install and start on Linux
-        if: runner.os == 'Linux'
-        run: bash .github/scripts/install-linux.sh "$PWD/artifacts" '${{ steps.version.outputs.version }}'
-      - name: Upload install logs on failure
+        run: .github/scripts/install-windows.ps1 -Artifacts "$pwd/artifacts" -Version '0.1.0'
+      - name: Upload evidence
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: install-logs-${{ matrix.platform }}
+          name: broken-portable-install-logs
           path: ${{ env.INSTALL_LOGS }}
-          if-no-files-found: warn
