@@ -19,6 +19,7 @@ export function smokeEnvironment(dir: string, base: NodeJS.ProcessEnv, platform:
   const cache = path.join(dir, "cache");
   return {
     ...base,
+    GITCROC_E2E_DIR: dir,
     HOME: home,
     USERPROFILE: home,
     APPDATA: config,

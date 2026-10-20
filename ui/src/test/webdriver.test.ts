@@ -19,6 +19,7 @@ describe("PLAT-1 PLAT-2 ARCH-3 smoke driver platform setup", () => {
   it("isolates Windows and Linux app config, cache and git config in the fixture", () => {
     const base = { APPDATA: "real config", LOCALAPPDATA: "real cache", GIT_CONFIG_GLOBAL: "real git config" };
     const windows = smokeEnvironment("C:\\fixture", base, "win32");
+    expect(windows.GITCROC_E2E_DIR).toBe("C:\\fixture");
     expect(windows.APPDATA).toBe("C:\\fixture\\config");
     expect(windows.LOCALAPPDATA).toBe("C:\\fixture\\cache");
     expect(windows.USERPROFILE).toBe("C:\\fixture\\home");
