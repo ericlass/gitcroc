@@ -120,7 +120,8 @@ def exercise():
 
         def start():
             log.unlink(missing_ok=True)
-            subprocess.Popen([str(app)], cwd=os.environ["RUNNER_TEMP"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            with (logs / "launcher.log").open("ab") as output:
+                subprocess.Popen([str(app)], cwd=os.environ["RUNNER_TEMP"], stdout=output, stderr=subprocess.STDOUT)
 
         def start_line(version, kind=package):
             return f"gitcroc {version} started ({rust_os} {arch}, {kind})"
