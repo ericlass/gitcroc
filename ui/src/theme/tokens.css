@@ -36,14 +36,20 @@
   --text-primary: #1f2328;
   --text-secondary: #59636e;
   --text-disabled: #9ba3ad;
+  /* Pane and row borders; an input's border must stand out from its background (WCAG 1.4.11). */
   --border: #d1d9e0;
-  --accent: #0969da;
+  --border-input: #787f88;
+  /* Text colors keep 4.5:1 on each background and the selection (src/theme/tokens.test.ts). */
+  --accent: #0964cf;
   --accent-text: #ffffff;
-  --danger: #cf222e;
-  --warning: #9a6700;
+  --danger: #c9212d;
+  --warning: #8e5f00;
   --warning-bg: #fff8c5;
-  --success: #1a7f37;
-  --focus-ring: #0969da;
+  --success: #187734;
+  --focus-ring: #0964cf;
+  /* A selected row: its background and the mark at its edge, which alone keeps 3:1. */
+  --selection-bg: #e8eaee;
+  --selection-mark: #0964cf;
   --backdrop: rgb(31 35 40 / 40%);
   /* History graph lines (UI-9), by the core's color index modulo 8. */
   --graph-0: #0969da;
@@ -55,11 +61,11 @@
   --graph-6: #cf222e;
   --graph-7: #9a6700;
   /* Job outcomes (GRP-7, UI-21). */
-  --outcome-succeeded: #1a7f37;
+  --outcome-succeeded: #187734;
   --outcome-nothing-to-do: #59636e;
-  --outcome-skipped: #9a6700;
-  --outcome-failed: #cf222e;
-  --outcome-conflict: #bc4c00;
+  --outcome-skipped: #8e5f00;
+  --outcome-failed: #c9212d;
+  --outcome-conflict: #b14700;
 }
 
 :root[data-theme="dark"] {
@@ -71,13 +77,16 @@
   --text-secondary: #9198a1;
   --text-disabled: #5c646d;
   --border: #3d444d;
+  --border-input: #6e7681;
   --accent: #4493f8;
   --accent-text: #0d1117;
-  --danger: #f85149;
+  --danger: #f85850;
   --warning: #d29922;
   --warning-bg: #2e2410;
   --success: #3fb950;
   --focus-ring: #4493f8;
+  --selection-bg: #212830;
+  --selection-mark: #4493f8;
   --backdrop: rgb(1 4 9 / 60%);
   --graph-0: #4493f8;
   --graph-1: #3fb950;
@@ -90,6 +99,6 @@
   --outcome-succeeded: #3fb950;
   --outcome-nothing-to-do: #9198a1;
   --outcome-skipped: #d29922;
-  --outcome-failed: #f85149;
+  --outcome-failed: #f85850;
   --outcome-conflict: #f0883e;
 }

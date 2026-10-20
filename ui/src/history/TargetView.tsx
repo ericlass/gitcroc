@@ -13,7 +13,7 @@ import { AheadBehind } from "../tree/RepoRow";
 import { strings } from "../strings/en";
 
 /** Height of one strip line in CSS pixels; `.strip-line` in App.css sets it. */
-export const LINE_HEIGHT = 22;
+export const LINE_HEIGHT = 24;
 
 /** Lines shown before the strip scrolls. */
 export const STRIP_LINES = 8;

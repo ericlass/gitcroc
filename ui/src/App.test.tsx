@@ -48,7 +48,7 @@ test("UI-20 layout: tab bar, toolbar, three panes and status bar", async () => {
     expect(await screen.findByRole("region", { name: pane })).toBeDefined();
   }
   expect(await screen.findAllByRole("separator")).toHaveLength(2);
-  expect(screen.getByRole("status").textContent).toBe("No jobs running");
+  expect(screen.getByRole("button", { description: "Show the job list" }).textContent).toBe("No jobs running");
 });
 
 test("ARCH-9 the workspace id comes from the core's workspace file", async () => {
@@ -56,7 +56,7 @@ test("ARCH-9 the workspace id comes from the core's workspace file", async () =>
   fakeState.tabs = ["0b7c6f2e-uuid"];
   fakeState.active = "0b7c6f2e-uuid";
   render(() => <App />);
-  const status = await screen.findByRole("status");
+  const status = await screen.findByRole("button", { description: "Show the job list" });
   expect(screen.getByRole("tab", { name: "Platform" })).toBeDefined();
   const running = { state: "running" as const, outcome: null, done: 1, total: 2 };
   emitJobProgress(fakeJob({ id: "fake-workspace", name: "Old" }, { job_id: 1, label: "Old id", ...running }));

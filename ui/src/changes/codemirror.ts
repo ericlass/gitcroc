@@ -46,7 +46,8 @@ const theme = EditorView.theme({
     color: "var(--code-gutter-text)",
     borderRight: "1px solid var(--border)",
   },
-  "&.cm-focused": { outline: "none" },
+  // The focus ring as everywhere (M5-10), inside the editor's edge so the pane does not cut it.
+  "&.cm-focused": { outline: "2px solid var(--focus-ring)", outlineOffset: "-2px" },
   ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "var(--code-selection)" },
   // Inline mode.
   ".cm-diff-added": { backgroundColor: "var(--diff-added-bg)" },

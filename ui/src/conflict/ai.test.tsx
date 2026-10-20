@@ -172,7 +172,7 @@ async function setup() {
   return { ai, changes, conflicts, openSettings, setWorkspaceOn, stops };
 }
 
-const files = () => screen.getByRole("listbox", { name: "Changed files" });
+const files = () => screen.getByRole("treegrid", { name: "Changed files" });
 const pane = () => within(screen.getByRole("region", { name: "Conflict" }));
 const toolbar = () => within(pane().getByRole("toolbar", { name: "Conflict" }));
 

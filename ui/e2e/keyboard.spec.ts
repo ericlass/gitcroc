@@ -6,7 +6,7 @@ import type { PaletteOp } from "../src/ipc";
 
 const tree = (page: Page) => page.getByRole("tree", { name: "Repositories" });
 const history = (page: Page) => page.getByRole("listbox", { name: "History" });
-const files = (page: Page) => page.getByRole("listbox", { name: "Changed files" });
+const files = (page: Page) => page.getByRole("treegrid", { name: "Changed files" });
 const toolbar = (page: Page) => page.getByRole("toolbar", { name: "Main" });
 const palette = (page: Page) => page.getByRole("dialog", { name: "Command palette" });
 const box = (page: Page) => palette(page).getByRole("combobox", { name: "Command palette" });
@@ -137,7 +137,7 @@ async function fileTo(page: Page, path: string, nth = 0) {
   await toRegion(page, ".pane-changes");
   await expect(files(page)).toBeFocused();
   await page.keyboard.press("Home");
-  const want = files(page).getByRole("option", { name: new RegExp(escape(path)) }).nth(nth);
+  const want = files(page).getByRole("row", { name: new RegExp(escape(path)) }).nth(nth);
   await expect(want).toBeVisible();
   for (let presses = 0; (await want.getAttribute("aria-selected")) !== "true"; presses++) {
     expect(presses, `file ${path}`).toBeLessThan(40);
@@ -168,7 +168,10 @@ async function secondTab(page: Page) {
   const dialog = page.getByRole("dialog", { name: "New workspace" });
   await typeInto(page, dialog.getByLabel("Name"), "Second");
   await press(page, dialog.getByRole("button", { name: "Create" }));
-  await expect(page.getByRole("tab", { name: "Second", selected: true })).toBeVisible();
+  // The dialog gives the focus back to "+"; the new tab is before it.
+  await expect(button(page, "Open workspace")).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("tab", { name: "Second", selected: true })).toBeFocused();
 }
 
 /** Opens the palette by its key, types `text` and waits for `first` to lead the list. */
@@ -508,8 +511,10 @@ const OPERATIONS = {
   close_tab: {
     label: "Close tab",
     entry: async (page) => {
+      // Delete on the tab: its × is the mouse's.
       await toRegion(page, ".tab-bar");
-      await press(page, button(page, "Close My workspace"));
+      await expect(page.getByRole("tab", { name: "My workspace" })).toBeFocused();
+      await page.keyboard.press("Delete");
     },
   },
   next_tab: {
@@ -686,7 +691,7 @@ test("ui_22_f6_cycles_the_regions", async ({ page }) => {
   // From the history: the changes, the status bar, the tab bar, the toolbar, the tree, the history again.
   const stops: [string, Locator][] = [
     [".pane-changes", files(page)],
-    [".status-bar", page.getByRole("button", { name: "Show the job list" })],
+    [".status-bar", page.getByRole("button", { description: "Show the job list" })],
     [".tab-bar", page.getByRole("tab", { name: "My workspace" })],
     [".toolbar", toolbar(page).getByRole("button", { name: "Fetch", exact: true })],
     [".pane-tree", tree(page)],

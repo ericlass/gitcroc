@@ -2,7 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 const tree = (page: Page) => page.getByRole("tree", { name: "Repositories" });
 const history = (page: Page) => page.getByRole("listbox", { name: "History" });
-const files = (page: Page) => page.getByRole("listbox", { name: "Changed files" });
+const files = (page: Page) => page.getByRole("treegrid", { name: "Changed files" });
 const conflict = (page: Page) => page.getByRole("region", { name: "Conflict" });
 const editor = (page: Page) => conflict(page).locator(".cm-content");
 
@@ -14,7 +14,7 @@ test("OPS-3 resolve two files of a merge with the keyboard only; Continue become
   const banner = page.getByRole("region", { name: "Conflict state" });
   await expect(banner.getByRole("button", { name: "Continue" })).toBeDisabled();
   await expect(files(page).locator(".file-section")).toHaveText(["Unmerged (2)", "Staged (0)", "Unstaged (0)"]);
-  await expect(files(page).getByRole("option", { selected: true })).toContainText("README.md");
+  await expect(files(page).getByRole("row", { selected: true })).toContainText("README.md");
   await expect(conflict(page).getByText("Theirs: feature/login")).toBeVisible();
 
   // From here on, the keyboard only: from the file list to Next conflict.
@@ -26,12 +26,14 @@ test("OPS-3 resolve two files of a merge with the keyboard only; Continue become
   await expect(editor(page)).toBeFocused();
   await page.keyboard.press("Alt+2");
   await expect(editor(page)).toHaveText("firsttheirslast");
-  await expect(files(page).getByRole("option", { name: /README\.md/ }).getByRole("img", { name: "unsaved edits" })).toBeVisible();
+  await expect(
+    files(page).getByRole("row", { name: /README\.md/ }).getByRole("img", { name: "unsaved edits" }),
+  ).toBeVisible();
   await page.keyboard.press("ControlOrMeta+Enter");
 
   // The file leaves the list; the next one opens, with the focus.
   await expect(files(page).locator(".file-section")).toHaveText(["Unmerged (1)", "Staged (0)", "Unstaged (0)"]);
-  await expect(files(page).getByRole("option", { selected: true })).toContainText("src/app.ts");
+  await expect(files(page).getByRole("row", { selected: true })).toContainText("src/app.ts");
   await expect(editor(page)).toBeFocused();
   await expect(banner.getByRole("button", { name: "Continue" })).toBeDisabled();
   await page.keyboard.press("Alt+ArrowDown");
@@ -54,7 +56,7 @@ test("AI-12 Resolve with AI, accept both hunks, Mark resolved; Continue becomes 
   await history(page).getByRole("option", { name: /Uncommitted changes/ }).click();
   const banner = page.getByRole("region", { name: "Conflict state" });
   await expect(banner.getByRole("button", { name: "Continue" })).toBeDisabled();
-  await expect(files(page).getByRole("option", { selected: true })).toContainText("README.md");
+  await expect(files(page).getByRole("row", { selected: true })).toContainText("README.md");
 
   await conflict(page).getByRole("button", { name: "Resolve with AI" }).click();
   const first = conflict(page).getByRole("group", { name: "Proposal for conflict 1" });
@@ -75,7 +77,7 @@ test("AI-12 Resolve with AI, accept both hunks, Mark resolved; Continue becomes 
   await expect(editor(page)).toHaveText("# apiRun it with just.## LoginSign in with a token.");
   await expect(conflict(page).getByRole("group", { name: /^Proposal for/ })).toHaveCount(0);
   // Nothing is written yet: the file is still unmerged, with unsaved edits.
-  const readme = files(page).getByRole("option", { name: /README\.md/ });
+  const readme = files(page).getByRole("row", { name: /README\.md/ });
   await expect(readme.getByRole("img", { name: "unsaved edits" })).toBeVisible();
 
   await conflict(page).getByRole("button", { name: "Mark resolved" }).click();
@@ -111,7 +113,7 @@ test("AI-13 Resolve all with AI on three files, one ineligible; open one with it
 
   // Opened from the list with its proposal; nothing is accepted for the user (D9).
   await run.getByRole("button", { name: "src/app.ts" }).click();
-  await expect(files(page).getByRole("option", { selected: true })).toContainText("src/app.ts");
+  await expect(files(page).getByRole("row", { selected: true })).toContainText("src/app.ts");
   const proposal = conflict(page).getByRole("group", { name: "Proposal for conflict 1" });
   await expect(proposal).toContainText("Only theirs changed the line.");
   await proposal.getByRole("button", { name: "Accept the proposal for conflict 1" }).click();

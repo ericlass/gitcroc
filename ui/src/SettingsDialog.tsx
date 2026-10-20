@@ -3,6 +3,7 @@
 // and git are running.
 import { For, onMount, Show } from "solid-js";
 import AiSection from "./ai/AiSection";
+import { Modal } from "./dialogs/parts";
 import type { Appearance, AppInfo, CodeTheme, GitStatus, Theme } from "./ipc";
 import type { AiStore } from "./stores/ai";
 import { FONT_SIZE_LIMITS, PARALLELISM_LIMITS, type SettingsStore } from "./stores/settings";
@@ -78,134 +79,124 @@ export default function SettingsDialog(props: {
     (ai ?? dialog)?.querySelector<HTMLElement>("input:checked, input, button")?.focus();
   });
 
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      props.onClose();
-    }
-  };
-
   return (
-    <div class="backdrop" onClick={(event) => event.target === event.currentTarget && props.onClose()}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-title"
-        class="dialog"
-        ref={(element) => (dialog = element)}
-        onKeyDown={onKeyDown}
-      >
-        <h2 id="settings-title">{strings.settings.title}</h2>
-        <fieldset disabled={readOnly()}>
-          <legend>{strings.settings.theme}</legend>
-          <For each={THEMES}>
-            {(theme) => (
-              <label class="choice">
-                <input
-                  type="radio"
-                  name="theme"
-                  value={theme.value}
-                  checked={props.settings.theme() === theme.value}
-                  onChange={() => void props.settings.setTheme(theme.value)}
-                />
-                {theme.label}
-              </label>
-            )}
-          </For>
-        </fieldset>
-        <fieldset disabled={readOnly()}>
-          <legend>{strings.settings.codeThemes}</legend>
-          <For each={CODE_THEME_CHOICES}>
-            {(choice) => (
-              <div class="setting">
-                <label>
-                  {choice.label}{" "}
-                  <select
-                    value={appearance()[choice.key]}
-                    onChange={(event) =>
-                      void props.settings.setAppearance({ [choice.key]: event.currentTarget.value as CodeTheme })
-                    }
-                  >
-                    <For each={CODE_THEME_NAMES}>
-                      {(name) => <option value={name}>{CODE_THEMES[name].label}</option>}
-                    </For>
-                  </select>
-                </label>
-                <CodeThemePreview theme={appearance()[choice.key]} />
-              </div>
-            )}
-          </For>
-        </fieldset>
-        <fieldset disabled={readOnly()}>
-          <legend>{strings.settings.fonts}</legend>
-          <For each={FONTS}>
-            {(font) => (
-              <div class="setting setting-font">
-                <label>
-                  {font.label}{" "}
-                  <input
-                    type="text"
-                    placeholder={font.placeholder}
-                    value={appearance()[font.font] ?? ""}
-                    onChange={(event) => void props.settings.setAppearance({ [font.font]: event.currentTarget.value })}
-                  />
-                </label>
-                <label>
-                  {strings.settings.fontSize(font.label)}{" "}
-                  <input
-                    type="number"
-                    min={FONT_SIZE_LIMITS.min}
-                    max={FONT_SIZE_LIMITS.max}
-                    value={appearance()[font.size]}
-                    onChange={(event) => setSize(font.size, event.currentTarget)}
-                  />{" "}
-                  <span aria-hidden="true">{strings.settings.pixels}</span>
-                </label>
-              </div>
-            )}
-          </For>
-        </fieldset>
-        <fieldset disabled={readOnly()}>
-          <legend>{strings.settings.groupOperations}</legend>
-          <div class="setting">
-            <label>
-              {strings.settings.reposAtOnce}{" "}
+    <Modal
+      labelledby="settings-title"
+      class="dialog"
+      ref={(element) => (dialog = element)}
+      onEscape={props.onClose}
+      onBackdrop={props.onClose}
+    >
+      <h2 id="settings-title">{strings.settings.title}</h2>
+      <fieldset disabled={readOnly()}>
+        <legend>{strings.settings.theme}</legend>
+        <For each={THEMES}>
+          {(theme) => (
+            <label class="choice">
               <input
-                type="number"
-                min={PARALLELISM_LIMITS.min}
-                max={PARALLELISM_LIMITS.max}
-                value={props.settings.groups().group_parallelism}
-                onChange={(event) => void setParallelism(event.currentTarget)}
+                type="radio"
+                name="theme"
+                value={theme.value}
+                checked={props.settings.theme() === theme.value}
+                onChange={() => void props.settings.setTheme(theme.value)}
               />
+              {theme.label}
             </label>
-          </div>
-          <label class="choice">
+          )}
+        </For>
+      </fieldset>
+      <fieldset disabled={readOnly()}>
+        <legend>{strings.settings.codeThemes}</legend>
+        <For each={CODE_THEME_CHOICES}>
+          {(choice) => (
+            <div class="setting">
+              <label>
+                {choice.label}{" "}
+                <select
+                  value={appearance()[choice.key]}
+                  onChange={(event) =>
+                    void props.settings.setAppearance({ [choice.key]: event.currentTarget.value as CodeTheme })
+                  }
+                >
+                  <For each={CODE_THEME_NAMES}>
+                    {(name) => <option value={name}>{CODE_THEMES[name].label}</option>}
+                  </For>
+                </select>
+              </label>
+              <CodeThemePreview theme={appearance()[choice.key]} />
+            </div>
+          )}
+        </For>
+      </fieldset>
+      <fieldset disabled={readOnly()}>
+        <legend>{strings.settings.fonts}</legend>
+        <For each={FONTS}>
+          {(font) => (
+            <div class="setting setting-font">
+              <label>
+                {font.label}{" "}
+                <input
+                  type="text"
+                  placeholder={font.placeholder}
+                  value={appearance()[font.font] ?? ""}
+                  onChange={(event) => void props.settings.setAppearance({ [font.font]: event.currentTarget.value })}
+                />
+              </label>
+              <label>
+                {strings.settings.fontSize(font.label)}{" "}
+                <input
+                  type="number"
+                  min={FONT_SIZE_LIMITS.min}
+                  max={FONT_SIZE_LIMITS.max}
+                  value={appearance()[font.size]}
+                  onChange={(event) => setSize(font.size, event.currentTarget)}
+                />{" "}
+                <span aria-hidden="true">{strings.settings.pixels}</span>
+              </label>
+            </div>
+          )}
+        </For>
+      </fieldset>
+      <fieldset disabled={readOnly()}>
+        <legend>{strings.settings.groupOperations}</legend>
+        <div class="setting">
+          <label>
+            {strings.settings.reposAtOnce}{" "}
             <input
-              type="checkbox"
-              checked={props.settings.groups().always_show_preflight}
-              onChange={(event) => void props.settings.setGroups({ always_show_preflight: event.currentTarget.checked })}
+              type="number"
+              min={PARALLELISM_LIMITS.min}
+              max={PARALLELISM_LIMITS.max}
+              value={props.settings.groups().group_parallelism}
+              onChange={(event) => void setParallelism(event.currentTarget)}
             />
-            {strings.settings.alwaysShowPreflight}
           </label>
-        </fieldset>
-        <AiSection ai={props.ai} readOnly={readOnly()} />
-        <Show when={props.settings.state.error}>{(error) => <p role="alert">{error()}</p>}</Show>
-        <Show when={props.info}>
-          {(info) => (
-            <p class="about">{strings.settings.about(info().name, info().version, info().os, info().arch)}</p>
-          )}
-        </Show>
-        <Show when={props.git?.kind === "usable" && props.git}>
-          {(git) => (
-            <p class="about">{strings.settings.git(git().version, git().path)}</p>
-          )}
-        </Show>
-        <div class="dialog-actions">
-          <button type="button" onClick={() => props.onClose()}>
-            {strings.common.close}
-          </button>
         </div>
+        <label class="choice">
+          <input
+            type="checkbox"
+            checked={props.settings.groups().always_show_preflight}
+            onChange={(event) => void props.settings.setGroups({ always_show_preflight: event.currentTarget.checked })}
+          />
+          {strings.settings.alwaysShowPreflight}
+        </label>
+      </fieldset>
+      <AiSection ai={props.ai} readOnly={readOnly()} />
+      <Show when={props.settings.state.error}>{(error) => <p role="alert">{error()}</p>}</Show>
+      <Show when={props.info}>
+        {(info) => (
+          <p class="about">{strings.settings.about(info().name, info().version, info().os, info().arch)}</p>
+        )}
+      </Show>
+      <Show when={props.git?.kind === "usable" && props.git}>
+        {(git) => (
+          <p class="about">{strings.settings.git(git().version, git().path)}</p>
+        )}
+      </Show>
+      <div class="dialog-actions">
+        <button type="button" onClick={() => props.onClose()}>
+          {strings.common.close}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

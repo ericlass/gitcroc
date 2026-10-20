@@ -8,6 +8,7 @@
 import { createEffect, createMemo, For, on, Show } from "solid-js";
 import type { Class, RepoClass } from "../ipc";
 import type { GroupOpStore, PendingPreflight } from "../stores/groupOps";
+import { Modal } from "../dialogs/parts";
 import { strings } from "../strings/en";
 
 const CLASS_TEXT: Record<Class["kind"], string> = strings.groupOps.preflight.classes;
@@ -53,89 +54,79 @@ export default function PreflightDialog(props: { pending: PendingPreflight; grou
   );
 
   return (
-    <div class="backdrop">
-      <div
-        role={destructive() ? "alertdialog" : "dialog"}
-        aria-modal="true"
-        aria-labelledby="preflight-title"
-        class="dialog op-dialog preflight"
-        ref={(element) => {
-          dialog = element;
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            props.groupOps.cancel();
-          }
-        }}
-      >
-        <h2 id="preflight-title">{ready()?.label ?? strings.groupOps.preflight.title}</h2>
-        <Show
-          when={ready()}
-          fallback={
-            <Show when={props.pending.error === null}>
-              <p role="status" class="preflight-progress">
-                <span class="spinner" aria-hidden="true" /> {strings.groupOps.preflight.checking}
-              </p>
-            </Show>
-          }
-        >
-          {(shown) => (
-            <>
-              <p class="preflight-counts">{counts()}</p>
-              <Show when={destructive()}>
-                <div class="preflight-destructive">
-                  <p>{strings.groupOps.preflight.cannotBeUndoneIn(running().length)}</p>
-                  <ul class="op-actions">
-                    <For each={shown().destructive}>{(action) => <li>{action}</li>}</For>
-                  </ul>
-                  <p>{strings.groupOps.preflight.inTheseRepos}</p>
-                  <ul class="preflight-affected">
-                    <For each={running()}>{(repo) => <li>{repo.repo_name}</li>}</For>
-                  </ul>
-                </div>
-              </Show>
-              <ul class="preflight-repos" aria-label={strings.groupOps.preflight.repos}>
-                <For each={rows()}>
-                  {(repo) => (
-                    <li class={`preflight-repo preflight-${repo.class.kind.replaceAll("_", "-")}`}>
-                      <span class="preflight-name">{repo.repo_name}</span>
-                      <span class="preflight-class">{CLASS_TEXT[repo.class.kind]}</span>
-                      <span class="preflight-detail">
-                        <Show when={repo.staged_files}>
-                          {(files) => (
-                            <span class="preflight-files">{strings.groupOps.preflight.stagedFiles(files())}</span>
-                          )}
-                        </Show>
-                        <Show when={reasonOf(repo.class)}>
-                          {(reason) => <span class="preflight-reason">{reason()}</span>}
-                        </Show>
-                      </span>
-                    </li>
-                  )}
-                </For>
-              </ul>
-              <p class="hint">{strings.groupOps.preflight.leaveOut}</p>
-            </>
-          )}
-        </Show>
-        <Show when={props.pending.error}>{(error) => <p role="alert">{error()}</p>}</Show>
-        <div class="dialog-actions">
-          <button type="button" class="cancel" onClick={() => props.groupOps.cancel()}>
-            {strings.common.cancel}
-          </button>
-          <Show when={ready()}>
-            <button
-              type="button"
-              class={destructive() ? "run danger" : "run primary"}
-              disabled={running().length === 0 || props.pending.starting}
-              onClick={() => void props.groupOps.confirm()}
-            >
-              {submit()}
-            </button>
+    <Modal
+      role={destructive() ? "alertdialog" : "dialog"}
+      labelledby="preflight-title"
+      class="dialog op-dialog preflight"
+      ref={(element) => (dialog = element)}
+      onEscape={() => props.groupOps.cancel()}
+    >
+      <h2 id="preflight-title">{ready()?.label ?? strings.groupOps.preflight.title}</h2>
+      <Show
+        when={ready()}
+        fallback={
+          <Show when={props.pending.error === null}>
+            <p role="status" class="preflight-progress">
+              <span class="spinner" aria-hidden="true" /> {strings.groupOps.preflight.checking}
+            </p>
           </Show>
-        </div>
+        }
+      >
+        {(shown) => (
+          <>
+            <p class="preflight-counts">{counts()}</p>
+            <Show when={destructive()}>
+              <div class="preflight-destructive">
+                <p>{strings.groupOps.preflight.cannotBeUndoneIn(running().length)}</p>
+                <ul class="op-actions">
+                  <For each={shown().destructive}>{(action) => <li>{action}</li>}</For>
+                </ul>
+                <p>{strings.groupOps.preflight.inTheseRepos}</p>
+                <ul class="preflight-affected">
+                  <For each={running()}>{(repo) => <li>{repo.repo_name}</li>}</For>
+                </ul>
+              </div>
+            </Show>
+            <ul class="preflight-repos" aria-label={strings.groupOps.preflight.repos}>
+              <For each={rows()}>
+                {(repo) => (
+                  <li class={`preflight-repo preflight-${repo.class.kind.replaceAll("_", "-")}`}>
+                    <span class="preflight-name">{repo.repo_name}</span>
+                    <span class="preflight-class">{CLASS_TEXT[repo.class.kind]}</span>
+                    <span class="preflight-detail">
+                      <Show when={repo.staged_files}>
+                        {(files) => (
+                          <span class="preflight-files">{strings.groupOps.preflight.stagedFiles(files())}</span>
+                        )}
+                      </Show>
+                      <Show when={reasonOf(repo.class)}>
+                        {(reason) => <span class="preflight-reason">{reason()}</span>}
+                      </Show>
+                    </span>
+                  </li>
+                )}
+              </For>
+            </ul>
+            <p class="hint">{strings.groupOps.preflight.leaveOut}</p>
+          </>
+        )}
+      </Show>
+      <Show when={props.pending.error}>{(error) => <p role="alert">{error()}</p>}</Show>
+      <div class="dialog-actions">
+        <button type="button" class="cancel" onClick={() => props.groupOps.cancel()}>
+          {strings.common.cancel}
+        </button>
+        <Show when={ready()}>
+          <button
+            type="button"
+            class={destructive() ? "run danger" : "run primary"}
+            disabled={running().length === 0 || props.pending.starting}
+            onClick={() => void props.groupOps.confirm()}
+          >
+            {submit()}
+          </button>
+        </Show>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -1,9 +1,11 @@
-// The parts the operation dialogs share (branches, sync, tags, reset,
-// remotes): a modal frame, a name field the core checks as the user types
-// (SEC-4), the Cancel and submit buttons, the core's refusal, and the
+// The parts the dialogs share. Every dialog is a Modal (M5-10): it takes the
+// focus, keeps Tab inside, closes on Escape where it may, and gives the focus
+// back to what had it. The operation dialogs (branches, sync, tags, reset,
+// remotes) also share a frame, a name field the core checks as the user
+// types (SEC-4), the Cancel and submit buttons, the core's refusal, and the
 // confirmation the core asks for before a destructive operation (GRP-9).
 // Names are shown as text only (SEC-3).
-import { createEffect, createSignal, For, type JSX, on, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, on, onCleanup, onMount, Show } from "solid-js";
 import { strings } from "../strings/en";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -69,6 +71,95 @@ export function NameField(props: {
   );
 }
 
+const TABBABLE =
+  "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], " +
+  "[tabindex], [contenteditable=true]";
+
+/** The elements of `root` that Tab stops at, in order. */
+function tabbables(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(TABBABLE)].filter(
+    (element) => element.tabIndex >= 0 && element.getClientRects().length > 0,
+  );
+}
+
+/** Where the focus goes back to from each open dialog, when what opened it is gone. */
+const openers = new WeakMap<Element, Element | null>();
+
+/**
+ * A modal dialog over the window. It takes the focus unless its content already did, on its first field or
+ * else its first button; Tab and Shift+Tab go around inside it; Escape calls `onEscape`, where the dialog may be
+ * closed so; and when it closes the focus goes back to what had it when it opened, unless closing moved it on.
+ */
+export function Modal(props: {
+  role?: "dialog" | "alertdialog";
+  labelledby: string;
+  describedby?: string;
+  class: string;
+  onEscape?: () => void;
+  /** A click on the backdrop. */
+  onBackdrop?: () => void;
+  ref?: (element: HTMLDivElement) => void;
+  children: JSX.Element;
+}) {
+  let dialog: HTMLDivElement | undefined;
+  // Taken before the content's own onMount moves the focus in. A dialog opened from another that closes, as a
+  // confirmation from its question, gives the focus back to what opened the first.
+  const opener = document.activeElement;
+  const from = opener?.closest("[aria-modal=true]");
+  const fallback = from != null && openers.has(from) ? (openers.get(from) ?? null) : opener;
+  onMount(() => {
+    if (dialog !== undefined && !dialog.contains(document.activeElement)) {
+      dialog.querySelector<HTMLElement>("input:not([type=radio]), select, textarea, button")?.focus();
+    }
+  });
+  onCleanup(() => {
+    const focused = document.activeElement;
+    const lost = focused === null || focused === document.body || dialog?.contains(focused) === true;
+    const back = opener?.isConnected === true ? opener : fallback;
+    if (lost && back instanceof HTMLElement && back.isConnected) {
+      back.focus();
+    }
+  });
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape" && props.onEscape !== undefined) {
+      event.preventDefault();
+      props.onEscape();
+    } else if (event.key === "Tab" && dialog !== undefined) {
+      const stops = tabbables(dialog);
+      const [first, last] = [stops[0], stops[stops.length - 1]];
+      const at = document.activeElement;
+      if (first === undefined || last === undefined) {
+        event.preventDefault();
+      } else if (event.shiftKey && (at === first || !dialog.contains(at))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (at === last || !dialog.contains(at))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+  };
+  return (
+    <div class="backdrop" onClick={(event) => event.target === event.currentTarget && props.onBackdrop?.()}>
+      <div
+        role={props.role ?? "dialog"}
+        aria-modal="true"
+        aria-labelledby={props.labelledby}
+        aria-describedby={props.describedby}
+        class={props.class}
+        ref={(element) => {
+          dialog = element;
+          openers.set(element, fallback);
+          props.ref?.(element);
+        }}
+        onKeyDown={onKeyDown}
+      >
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
 /** A dialog's frame: title, Escape closes it, the first field has the focus. */
 export function Frame(props: {
   id: string;
@@ -77,27 +168,11 @@ export function Frame(props: {
   onClose: () => void;
   children: JSX.Element;
 }) {
-  let dialog: HTMLDivElement | undefined;
-  onMount(() => dialog?.querySelector<HTMLElement>("input:not([type=radio]), select, button")?.focus());
   return (
-    <div class="backdrop">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={`${props.id}-title`}
-        class={`dialog op-dialog ${props.class ?? ""}`}
-        ref={(element) => (dialog = element)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            props.onClose();
-          }
-        }}
-      >
-        <h2 id={`${props.id}-title`}>{props.title}</h2>
-        {props.children}
-      </div>
-    </div>
+    <Modal labelledby={`${props.id}-title`} class={`dialog op-dialog ${props.class ?? ""}`} onEscape={props.onClose}>
+      <h2 id={`${props.id}-title`}>{props.title}</h2>
+      {props.children}
+    </Modal>
   );
 }
 
@@ -133,36 +208,28 @@ export function ConfirmDialog(props: {
   let cancel: HTMLButtonElement | undefined;
   onMount(() => cancel?.focus());
   return (
-    <div class="backdrop">
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="op-confirm-title"
-        aria-describedby="op-confirm-text"
-        class="dialog op-dialog"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            props.onClose();
-          }
-        }}
-      >
-        <h2 id="op-confirm-title">{strings.dialogs.cannotBeUndoneIn(props.repoName)}</h2>
-        <p id="op-confirm-text">{strings.dialogs.thisWill}</p>
-        <ul class="op-actions">
-          <For each={props.actions}>{(action) => <li>{action}</li>}</For>
-        </ul>
-        <Refusal error={props.error} />
-        <div class="dialog-actions">
-          <button type="button" ref={(element) => (cancel = element)} onClick={() => props.onClose()}>
-            {strings.common.cancel}
-          </button>
-          <button type="button" class="danger" disabled={props.sending} onClick={() => props.onConfirm()}>
-            {props.submit}
-          </button>
-        </div>
+    <Modal
+      role="alertdialog"
+      labelledby="op-confirm-title"
+      describedby="op-confirm-text"
+      class="dialog op-dialog"
+      onEscape={props.onClose}
+    >
+      <h2 id="op-confirm-title">{strings.dialogs.cannotBeUndoneIn(props.repoName)}</h2>
+      <p id="op-confirm-text">{strings.dialogs.thisWill}</p>
+      <ul class="op-actions">
+        <For each={props.actions}>{(action) => <li>{action}</li>}</For>
+      </ul>
+      <Refusal error={props.error} />
+      <div class="dialog-actions">
+        <button type="button" ref={(element) => (cancel = element)} onClick={() => props.onClose()}>
+          {strings.common.cancel}
+        </button>
+        <button type="button" class="danger" disabled={props.sending} onClick={() => props.onConfirm()}>
+          {props.submit}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -220,33 +287,25 @@ export function Question(props: {
   let cancel: HTMLButtonElement | undefined;
   onMount(() => cancel?.focus());
   return (
-    <div class="backdrop">
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="question-title"
-        aria-describedby="question-text"
-        class="dialog op-dialog"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            props.onClose();
-          }
-        }}
-      >
-        <h2 id="question-title">{props.title}</h2>
-        <div id="question-text">{props.children}</div>
-        <Refusal error={props.error} />
-        <div class="dialog-actions">
-          <button type="button" ref={(element) => (cancel = element)} onClick={() => props.onClose()}>
-            {strings.common.cancel}
-          </button>
-          <button type="button" class="danger" disabled={props.sending} onClick={() => props.onConfirm()}>
-            {props.submit}
-          </button>
-        </div>
+    <Modal
+      role="alertdialog"
+      labelledby="question-title"
+      describedby="question-text"
+      class="dialog op-dialog"
+      onEscape={props.onClose}
+    >
+      <h2 id="question-title">{props.title}</h2>
+      <div id="question-text">{props.children}</div>
+      <Refusal error={props.error} />
+      <div class="dialog-actions">
+        <button type="button" ref={(element) => (cancel = element)} onClick={() => props.onClose()}>
+          {strings.common.cancel}
+        </button>
+        <button type="button" class="danger" disabled={props.sending} onClick={() => props.onConfirm()}>
+          {props.submit}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 

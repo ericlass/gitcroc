@@ -1,9 +1,10 @@
 // The workspace tabs (UI-27, UI-28): one tab per open workspace in the
 // core's order. A click activates a tab; tabs reorder by dragging and with
 // Ctrl/Cmd+Shift+PageUp/PageDown (UI-22), and the arrow keys and
-// Ctrl/Cmd+PageUp/PageDown move between them. Each tab has a close button and a context menu with Rename,
-// Export workspace (DATA-2), AI for this workspace (AI-6), shown only
-// while AI features are on (AI-16), and Close. "+" lists the workspace files and offers New and Import. A tab
+// Ctrl/Cmd+PageUp/PageDown move between them. Each tab has a close button,
+// which Delete stands for, and a context menu with Rename, Export workspace
+// (DATA-2), AI for this workspace (AI-6), shown only while AI features are on
+// (AI-16), and Close. "+" lists the workspace files and offers New and Import. A tab
 // shows how many of its jobs run or wait, and a marker for a failed or
 // conflicted job the user has not seen (UI-32). The palette's next and
 // previous tab do what the arrow keys do (UI-22). The core keeps the tabs;
@@ -120,6 +121,11 @@ export default function TabBar(props: {
       case "End":
         next = order[order.length - 1];
         break;
+      // Closes the tab, as its × does; the × is the mouse's, outside the tab order (UI-28).
+      case "Delete":
+        event.preventDefault();
+        props.onClose(id);
+        return;
       case "ContextMenu":
       case "F10":
         if (event.key === "F10" && !event.shiftKey) {
@@ -235,10 +241,13 @@ export default function TabBar(props: {
                     </span>
                   </Show>
                 </button>
+                {/* A tablist holds only tabs: the × is hidden from assistive technology, and Delete or the tab's
+                    menu closes the tab from the keyboard. */}
                 <button
                   type="button"
                   class="tab-close"
-                  aria-label={strings.tabs.close(view.name)}
+                  tabindex="-1"
+                  aria-hidden="true"
                   title={strings.tabs.close(view.name)}
                   onClick={() => props.onClose(view.id)}
                 >

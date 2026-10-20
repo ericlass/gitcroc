@@ -9,7 +9,7 @@ const REGIONS: { region: string; list?: string }[] = [
   { region: ".toolbar" },
   { region: ".pane-tree", list: "[role=tree]" },
   { region: ".pane-history", list: "[role=listbox]" },
-  { region: ".pane-changes", list: "[role=listbox]" },
+  { region: ".pane-changes", list: "[role=treegrid]" },
   { region: ".status-bar" },
 ];
 

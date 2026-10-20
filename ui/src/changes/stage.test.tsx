@@ -73,10 +73,10 @@ async function setup() {
   return { settings, changes, unsubscribe };
 }
 
-const files = () => screen.getByRole("listbox", { name: "Changed files" });
+const files = () => screen.getByRole("treegrid", { name: "Changed files" });
 const row = (path: string) => {
   const found = within(files())
-    .getAllByRole("option")
+    .getAllByRole("row")
     .find((option) => option.querySelector(".file-name")?.firstChild?.textContent === path);
   if (!found) {
     throw new Error(`no row ${path}`);
@@ -102,7 +102,7 @@ test("UI-15 a file's controls stage, unstage and discard it", async () => {
   // The fake moved it, and the job's end read the lists again.
   expect(listOf("staged")).toEqual(["b.txt", "c.txt"]);
   expect(row("c.txt").closest(".file-row")).not.toBeNull();
-  expect(within(files()).getAllByRole("option").map((option) => option.textContent)).toContain("Mc.txt+1 −0−");
+  expect(within(files()).getAllByRole("row").map((option) => option.textContent)).toContain("Mc.txt+1 −0−");
 
   fireEvent.click(screen.getByRole("button", { name: "Unstage b.txt" }));
   await settleAll();
@@ -143,15 +143,15 @@ test("UI-15 several files: Ctrl and Shift select, a row's control acts on all of
   fireEvent.click(row("a.txt"));
   fireEvent.click(row("new.txt"), { shiftKey: true });
   await settleAll();
-  expect(within(files()).getAllByRole("option", { selected: true })).toHaveLength(3);
+  expect(within(files()).getAllByRole("row", { selected: true })).toHaveLength(3);
   // Ctrl takes one out again.
   fireEvent.click(row("c.txt"), { ctrlKey: true });
   await settleAll();
-  expect(within(files()).getAllByRole("option", { selected: true })).toHaveLength(2);
+  expect(within(files()).getAllByRole("row", { selected: true })).toHaveLength(2);
   // A staged file does not join an unstaged selection.
   fireEvent.click(row("b.txt"), { ctrlKey: true });
   await settleAll();
-  expect(within(files()).getAllByRole("option", { selected: true })).toHaveLength(1);
+  expect(within(files()).getAllByRole("row", { selected: true })).toHaveLength(1);
 
   fireEvent.click(row("a.txt"));
   fireEvent.click(row("c.txt"), { ctrlKey: true });
@@ -175,7 +175,7 @@ test("UI-15 double-click moves a row to the other list and the selection stays o
   await settleAll();
   expect(lastRequest()).toMatchObject({ action: "stage", target: { kind: "files", files: [{ list: "unstaged", id: 1 }] } });
   // Read again: c.txt is staged now, and still selected.
-  const selected = within(files()).getByRole("option", { selected: true });
+  const selected = within(files()).getByRole("row", { selected: true });
   expect(selected.textContent).toContain("c.txt");
   const diffs = fakeState.changesCalls.filter((call) => call.command === "diff");
   expect(diffs.at(-1)).toMatchObject({ file: { list: "staged", id: 1 } });
@@ -290,7 +290,7 @@ test("UI-15 a hunk of a file changed since its diff was read is shown again", as
   expect(screen.getByRole("status").textContent).toBe(FILE_CHANGED);
   // The view and the diff were read again, the same file selected.
   expect(fakeState.changesCalls.filter((call) => call.command === "changes").length).toBe(views + 1);
-  expect(within(files()).getByRole("option", { selected: true }).textContent).toContain("a.txt");
+  expect(within(files()).getByRole("row", { selected: true }).textContent).toContain("a.txt");
   expect(listOf("staged")).toEqual(["b.txt"]);
 });
 

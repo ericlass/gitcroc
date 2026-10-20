@@ -1,5 +1,15 @@
 /* Layout of section 8. Colors come only from src/theme/tokens.css (UI-23). */
 
+/* Read by screen readers, not shown: the live region (M5-10). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 *,
 *::before,
 *::after {
@@ -35,6 +45,14 @@ button:hover:not(:disabled) {
 
 button:disabled {
   color: var(--text-disabled);
+}
+
+/* An input's border keeps 3:1 against its background (WCAG 1.4.11). */
+input:not([type="checkbox"], [type="radio"], [type="range"]),
+select,
+textarea {
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
 }
 
 :focus-visible {
@@ -95,7 +113,8 @@ main:not(.main) {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  max-width: 220px;
+  /* In em, so a larger UI font does not cut the name (UI-26). */
+  max-width: 17em;
   border: none;
   border-radius: 0;
   padding: 6px 4px 6px 16px;
@@ -133,6 +152,8 @@ main:not(.main) {
 }
 
 .tab-close {
+  /* Targets are at least 24 px (WCAG 2.5.8). */
+  min-width: 24px;
   border: none;
   border-radius: 0;
   padding: 0 8px;
@@ -218,6 +239,7 @@ main:not(.main) {
 }
 
 .split-arrow {
+  min-width: 24px;
   padding-inline: 4px;
   border-left-width: 0;
   border-top-left-radius: 0;
@@ -317,7 +339,7 @@ main:not(.main) {
   font: inherit;
   color: var(--text-primary);
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-input);
   border-radius: var(--radius);
   padding: 2px 6px;
 }
@@ -384,8 +406,8 @@ main:not(.main) {
 }
 
 .tree-row.selected {
-  background: var(--bg-3);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--selection-bg);
+  box-shadow: inset 2px 0 0 var(--selection-mark);
 }
 
 /* The row the keyboard is on while repo rows are multi-selected (UI-6). */
@@ -486,7 +508,7 @@ main:not(.main) {
 }
 
 .strip-line {
-  height: 22px;
+  height: 24px;
   width: 100%;
   display: flex;
   align-items: center;
@@ -543,27 +565,6 @@ main:not(.main) {
   color: var(--danger);
 }
 
-.spinner {
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation-duration: 3s;
-  }
-}
-
 /* Context menu */
 
 /* Above the panes, whose positioned rows come later in the page and would
@@ -611,16 +612,12 @@ main:not(.main) {
 .status-jobs {
   flex: 1;
   display: flex;
+  gap: 12px;
   padding: 0 4px;
   border-color: transparent;
   background: transparent;
   color: inherit;
   text-align: left;
-}
-
-.status-jobs [role="status"] {
-  display: flex;
-  gap: 12px;
 }
 
 .status-job {
@@ -697,12 +694,6 @@ main:not(.main) {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation: none;
-  }
-}
-
 .job-waiting {
   color: var(--text-secondary);
 }
@@ -772,7 +763,8 @@ main:not(.main) {
 }
 
 .job-row.selected {
-  background: var(--bg-3);
+  background: var(--selection-bg);
+  box-shadow: inset 2px 0 0 var(--selection-mark);
 }
 
 .job-detail {
@@ -850,6 +842,8 @@ main:not(.main) {
 }
 
 .report-toggle {
+  min-width: 24px;
+  min-height: 24px;
   padding: 0 4px;
   border: none;
   background: none;
@@ -858,6 +852,7 @@ main:not(.main) {
 
 .report-name {
   min-width: 8em;
+  min-height: 24px;
   overflow-wrap: anywhere;
 }
 
@@ -922,7 +917,7 @@ main:not(.main) {
   font: inherit;
   color: var(--text-primary);
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-input);
   border-radius: var(--radius);
 }
 
@@ -1062,7 +1057,7 @@ main:not(.main) {
   font-family: var(--font-code);
   color: var(--text-primary);
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-input);
   border-radius: var(--radius);
 }
 
@@ -1179,7 +1174,8 @@ button.danger:hover:not(:disabled) {
 }
 
 .palette-row.highlighted {
-  background: var(--bg-3);
+  background: var(--selection-bg);
+  box-shadow: inset 2px 0 0 var(--selection-mark);
 }
 
 .palette-row.disabled .palette-text {
@@ -1246,7 +1242,7 @@ button.danger:hover:not(:disabled) {
   font: inherit;
   color: var(--text-primary);
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-input);
   border-radius: var(--radius);
 }
 
@@ -1452,7 +1448,7 @@ button.danger:hover:not(:disabled) {
   font: inherit;
   color: var(--text-primary);
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-input);
   border-radius: var(--radius);
   padding: 2px 6px;
 }
@@ -1657,8 +1653,8 @@ button.danger:hover:not(:disabled) {
 }
 
 .history-row.selected {
-  background: var(--bg-3);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--selection-bg);
+  box-shadow: inset 2px 0 0 var(--selection-mark);
 }
 
 .history-uncommitted {
@@ -1804,7 +1800,7 @@ button.danger:hover:not(:disabled) {
   font: inherit;
   color: var(--text-primary);
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-input);
   border-radius: var(--radius);
 }
 
@@ -1970,7 +1966,7 @@ button.link:hover:not(:disabled) {
   font: inherit;
   color: var(--text-primary);
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-input);
   border-radius: var(--radius);
   padding: 3px 6px;
 }
@@ -2021,11 +2017,18 @@ button.primary:disabled {
   left: 0;
   right: 0;
   display: flex;
-  align-items: center;
-  gap: 6px;
   padding-right: 8px;
   white-space: nowrap;
   cursor: default;
+}
+
+/* A row's one cell holds what the row shows (a treegrid row needs a cell). */
+.file-cell {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .file-row-file:hover,
@@ -2034,8 +2037,8 @@ button.primary:disabled {
 }
 
 .file-row.selected {
-  background: var(--bg-3);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--selection-bg);
+  box-shadow: inset 2px 0 0 var(--selection-mark);
 }
 
 .file-section {
@@ -2100,7 +2103,8 @@ button.primary:disabled {
 
 /* Several files selected together (UI-15). */
 .file-row.marked {
-  background: var(--bg-3);
+  background: var(--selection-bg);
+  box-shadow: inset 2px 0 0 var(--selection-mark);
 }
 
 /* A row's stage, unstage and discard buttons: shown on hover and on the
@@ -2125,8 +2129,8 @@ button.primary:disabled {
   line-height: 1;
 }
 
-.file-row-section,
-.file-row-repo {
+.file-row-section .file-cell,
+.file-row-repo .file-cell {
   justify-content: space-between;
 }
 
@@ -2288,9 +2292,13 @@ button.primary:disabled {
   overflow-wrap: anywhere;
 }
 
-.merge-target:hover,
-.merge-target[aria-selected="true"] {
+.merge-target:hover {
   background: var(--bg-3);
+}
+
+.merge-target[aria-selected="true"] {
+  background: var(--selection-bg);
+  box-shadow: inset 2px 0 0 var(--selection-mark);
 }
 
 .merge-targets .placeholder {
@@ -2436,4 +2444,37 @@ button.primary:disabled {
 
 .file-unsaved {
   margin-left: 4px;
+}
+
+/* Reduced motion (WCAG 2.3.3): nothing animates or moves on its own. A spinner (UI-3) stands still, a ring with
+   one colored quarter, and keeps its text alternative. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Forced colors (Windows high contrast) drop backgrounds and shadows: the selected row, the active tab and a
+   pressed toggle keep an outline in the system's highlight color, and the focus ring stays. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight;
+  }
+
+  .tree-row.selected,
+  .history-row.selected,
+  .file-row.selected,
+  .file-row.marked,
+  .job-row.selected,
+  .palette-row.highlighted,
+  .merge-target[aria-selected="true"],
+  .tab-item:has(.tab[aria-selected="true"]),
+  .segmented button[aria-pressed="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }

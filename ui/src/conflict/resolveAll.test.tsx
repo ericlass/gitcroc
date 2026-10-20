@@ -271,7 +271,7 @@ test("ai_13_buffers_send_only_their_untouched_hunks", async () => {
     ["a.txt", "ours 1"],
     ["b.txt", "ours 1"],
   ] as const) {
-    fireEvent.click(within(screen.getByRole("listbox", { name: "Changed files" })).getByText(path));
+    fireEvent.click(within(screen.getByRole("treegrid", { name: "Changed files" })).getByText(path));
     await settleAll();
     const view = editor();
     const from = view.state.doc.toString().indexOf(at);

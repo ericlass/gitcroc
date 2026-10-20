@@ -33,7 +33,7 @@ test("splitters resize panes, keep the minimum width and reset on double-click",
   const changes = page.getByRole("region", { name: "Changes" });
   const treeSplitter = page.getByRole("separator", { name: "Resize Tree" });
   const historySplitter = page.getByRole("separator", { name: "Resize History" });
-  await expect(page.getByRole("status")).toHaveText("No jobs running");
+  await expect(page.getByRole("button", { description: "Show the job list" })).toHaveText("No jobs running");
 
   const start = await width(tree);
   await drag(page, treeSplitter, 100);

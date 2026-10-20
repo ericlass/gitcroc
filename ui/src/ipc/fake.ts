@@ -1580,6 +1580,15 @@ if (choice) {
     },
   };
 }
+// `no-git`: no git found, so the window shows the git setup screen (M5-10).
+if (picked === "no-git") {
+  fakeState.gitStatus = { kind: "not_found", searched: ["/usr/bin/git", "/usr/local/bin/git"] };
+}
+// `no-tabs`: no workspace open, so the window shows its empty state (M5-10).
+if (picked === "no-tabs") {
+  fakeState.tabs = [];
+  fakeState.active = null;
+}
 // Playwright reads what reached the fake core, to tell which handler ran (UI-22).
 if (picked !== null && typeof window !== "undefined") {
   Object.assign(window, { fakeCore: { state: fakeState, groups: fakeGroups } });
