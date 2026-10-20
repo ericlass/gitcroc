@@ -13,7 +13,7 @@ use gitcroc_core::{
     AppLog, Changes, GitSetup, Histories, Palettes, PlatformCacheDir, PlatformConfigDir,
     PlatformLogDir, SettingsStore, Summaries, SummaryCache, Trees, Workspaces,
 };
-use platform::DesktopFontSource;
+use platform::{DesktopFontSource, Installation, PlatformInstallation};
 use tauri::Manager;
 
 /// Errors returned by `gitcroc-app`.
@@ -30,6 +30,7 @@ pub fn run() -> Result<(), Error> {
     let ipc = ipc::builder();
     // Every git process the app runs goes to `gitcroc.log` (section 10).
     let log = Arc::new(AppLog::open(&PlatformLogDir));
+    log.started(env!("CARGO_PKG_VERSION"), PlatformInstallation::package());
     let command_log = log.clone();
     gitcroc_core::log_commands_to(move |record| command_log.command(record));
     // Small files, read once before the window shows, so the first paint

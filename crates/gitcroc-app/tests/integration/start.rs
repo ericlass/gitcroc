@@ -16,6 +16,18 @@ fn read(path: &Path) -> String {
 }
 
 #[test]
+fn plat_3_plat_4_start_is_logged_once_before_git_detection() {
+    let source = read(&app_dir().join("src/lib.rs"));
+    assert_eq!(source.matches("log.started(").count(), 1);
+    let start = source.find("log.started(").expect("startup line");
+    let detect = source
+        .find("ipc::spawn_git_detection(")
+        .expect("git detection");
+    assert!(start < detect);
+    assert!(source[start..].contains("PlatformInstallation::package()"));
+}
+
+#[test]
 fn perf_3_the_window_is_shown_once_its_page_loads() {
     let path = app_dir().join("tauri.conf.json");
     let config: Value = serde_json::from_str(&read(&path))

@@ -14,6 +14,9 @@ on:
       - .github/workflows/build.yml
       - .github/workflows/bundles.yml
       - crates/gitcroc-app/tauri.conf.json
+      - .github/scripts/**
+      - crates/gitcroc-app/src/lib.rs
+      - crates/gitcroc-core/src/log.rs
       - justfile
 
 concurrency:
@@ -26,3 +29,62 @@ permissions:
 jobs:
   bundles:
     uses: ./.github/workflows/bundles.yml
+
+  # M5-14: install the artifacts of this run, never rebuilt substitutes.
+  # These outcome checks are additional proof, not QA-1 required checks.
+  install:
+    name: install (${{ matrix.platform }})
+    needs: bundles
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            os: windows-latest
+          - platform: macos-universal
+            os: macos-latest
+          - platform: linux-x86_64
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      INSTALL_LOGS: ${{ github.workspace }}/install-logs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test the outcome checker without starting an app
+        run: python .github/scripts/test-install.py
+      - name: Record the runner version
+        shell: bash
+        run: |
+          echo "Runner: $RUNNER_OS $RUNNER_ARCH; image $ImageOS $ImageVersion" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gitcroc-*-${{ matrix.platform }}
+          path: artifacts
+          merge-multiple: true
+      - name: Read package version
+        id: version
+        shell: bash
+        run: |
+          version=$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Install and start on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .github/scripts/install-windows.ps1 -Artifacts "$pwd/artifacts" -Version '${{ steps.version.outputs.version }}'
+      - name: Install and start on macOS
+        if: runner.os == 'macOS'
+        run: bash .github/scripts/install-macos.sh "$PWD/artifacts" '${{ steps.version.outputs.version }}'
+      - name: Install and start on Linux
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/install-linux.sh "$PWD/artifacts" '${{ steps.version.outputs.version }}'
+      - name: Upload install logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-logs-${{ matrix.platform }}
+          path: ${{ env.INSTALL_LOGS }}
+          if-no-files-found: warn

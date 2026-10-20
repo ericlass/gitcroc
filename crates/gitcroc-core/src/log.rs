@@ -91,6 +91,27 @@ impl AppLog {
         self.line(&command_line(record));
     }
 
+    /// The startup marker used by install and update tests (M5-14). Only
+    /// build metadata and the detected package, never paths or file content.
+    pub fn started(&self, version: &str, package: crate::Package) {
+        use crate::Package;
+        let package = match package {
+            Package::WindowsInstaller => "installer",
+            Package::WindowsPortable => "portable",
+            Package::MacApp => "app",
+            Package::AppImage => "AppImage",
+            Package::Deb => "deb",
+            Package::Rpm => "rpm",
+            Package::Unknown => "unknown",
+        };
+        self.line(&format!(
+            "gitcroc {} started ({} {}, {package})",
+            one_line(version),
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ));
+    }
+
     /// Logs a warning, such as a file watch that failed.
     pub fn warn(&self, message: &str) {
         self.line(&format!("warning: {}", one_line(message)));
@@ -249,6 +270,37 @@ mod tests {
             cwd: Some(cwd),
             duration: Duration::from_millis(12),
             exit: Exit::Code(1),
+        }
+    }
+
+    #[test]
+    fn data_3_plat_4_start_line_has_version_platform_and_package_without_paths() {
+        use crate::Package;
+
+        for (package, label) in [
+            (Package::WindowsInstaller, "installer"),
+            (Package::WindowsPortable, "portable"),
+            (Package::MacApp, "app"),
+            (Package::AppImage, "AppImage"),
+            (Package::Deb, "deb"),
+            (Package::Rpm, "rpm"),
+            (Package::Unknown, "unknown"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let log = AppLog::open(&Dir(dir.path().to_owned()));
+            log.started("1.0.0-rc.1", package);
+            let text = std::fs::read_to_string(dir.path().join(LOG_FILE)).unwrap();
+            let lines: Vec<_> = text.lines().collect();
+            assert_eq!(lines.len(), 1);
+            let (_, message) = lines[0].split_once(' ').unwrap();
+            assert_eq!(
+                message,
+                format!(
+                    "gitcroc 1.0.0-rc.1 started ({} {}, {label})",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH
+                )
+            );
         }
     }
 
