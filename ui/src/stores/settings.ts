@@ -10,6 +10,7 @@ import {
   settingsSetChanges,
   settingsSetGroups,
   settingsSetTheme,
+  settingsSetUpdateCheck,
   type SettingsView,
   type Theme,
 } from "../ipc";
@@ -82,7 +83,11 @@ export function createSettingsStore() {
     appearance: (): Appearance => (state.view ? appearanceOf(state.view.settings) : DEFAULT_APPEARANCE),
     /** The group operations' settings: the saved ones, or the defaults until read. */
     groups: (): GroupSettings => (state.view ? groupsOf(state.view.settings) : DEFAULT_GROUP_SETTINGS),
+    /** The app checks for updates by itself (D12): the saved choice, or on until read. */
+    updateCheck: (): boolean => state.view?.update_check ?? true,
     load: () => track(settingsGet()),
+    /** Turns the automatic update check on or off; the core saves it. */
+    setUpdateCheck: (enabled: boolean) => track(settingsSetUpdateCheck(enabled)),
     setTheme: (theme: Theme) => track(settingsSetTheme(theme)),
     /** Changes some of the changes pane's settings; the core saves them. */
     setChanges: (change: Partial<ChangesSettings>) =>

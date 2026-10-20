@@ -167,6 +167,20 @@ fn arch_3_open_commands_take_the_path_as_one_argument() {
 }
 
 #[test]
+fn arch_3_the_download_page_is_one_argument() {
+    use gitcroc_app::platform::{PlatformBrowser, WebBrowser};
+
+    let url = gitcroc_app::update::RELEASES_PAGE;
+    let launch = PlatformBrowser::open(url);
+    assert!(
+        ["xdg-open", "open", "explorer"].contains(&launch.program.to_string_lossy().as_ref()),
+        "{launch:?}"
+    );
+    assert_eq!(launch.args, [std::ffi::OsString::from(url)], "{launch:?}");
+    assert!(launch.cwd.is_dir(), "{launch:?}");
+}
+
+#[test]
 fn plat_1_a_missing_terminal_names_what_was_tried() {
     use gitcroc_app::platform::{Launch, LaunchError, start};
 

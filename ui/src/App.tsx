@@ -64,9 +64,12 @@ import { createResetStore } from "./stores/reset";
 import { createSummaryStore, isBlocked } from "./stores/summaries";
 import { canFetch, canPullOrPush, createSyncStore, DEFAULT_OPS } from "./stores/sync";
 import { createTreeStore } from "./stores/tree";
+import { noticeOf, createUpdateStore } from "./stores/update";
 import { createWatchStore } from "./stores/watch";
 import { createWorkspaceStore } from "./stores/workspaces";
 import { followAppearance, followDesktopFonts, followTheme } from "./theme/theme";
+import UpdateDialog from "./update/UpdateDialog";
+import UpdateNotice from "./update/UpdateNotice";
 import WorkspaceDialogsView, { createWorkspaceDialogs } from "./workspaces/WorkspaceDialogs";
 import { WorkspaceStart } from "./workspaces/WorkspaceMenu";
 import { strings } from "./strings/en";
@@ -126,11 +129,14 @@ export default function App() {
   // An aborted stash apply leaves nothing to offer dropping.
   const integrate = createIntegrateStore((id, repo) => stash.forget(id, repo));
   const watch = createWatchStore();
+  const update = createUpdateStore();
   const workspaceDialogs = createWorkspaceDialogs();
   // What the palette's operations run, provided by the places that have them (UI-22).
   const commands = createCommandStore();
-  /** Settings is open, at its top or at its AI section (AI-3). */
-  const [settingsOpen, setSettingsOpen] = createSignal<"top" | "ai" | null>(null);
+  /** Settings is open, at its top, at its AI section (AI-3) or at its Updates section. */
+  const [settingsOpen, setSettingsOpen] = createSignal<"top" | "ai" | "updates" | null>(null);
+  /** The update dialog is open (PLAT-4). */
+  const [updateOpen, setUpdateOpen] = createSignal(false);
   /** The options dialog of Fetch, Pull or Push: what it is for, and what runs the picked options. */
   const [syncOptions, setSyncOptions] = createSignal<{
     kind: SyncKind;
@@ -336,6 +342,23 @@ export default function App() {
     return Promise.resolve();
   };
 
+  /** The files with unsaved conflict edits in every tab, which a restart into an update loses (OPS-9). */
+  const unsavedEverywhere = () =>
+    (workspaces.state.views ?? []).flatMap((view) => {
+      const name = (repo: string) => view.repos.find((known) => known.id === repo)?.name ?? repo;
+      return conflicts.unsavedFiles(view.id).map((file) => `${view.name}: ${name(file.repo)}: ${file.path}`);
+    });
+
+  /** Check for updates (PLAT-4): the dialog of a version on offer, else a check, with its result in Settings. */
+  const checkForUpdates = () => {
+    if (update.state.view?.status.kind === "available") {
+      setUpdateOpen(true);
+    } else {
+      void update.checkNow();
+      setSettingsOpen("updates");
+    }
+  };
+
   /** Closes a tab; the unsaved conflict edits it held are dropped with it. */
   const closeConfirmed = async (id: WorkspaceId) => {
     await workspaces.close(id);
@@ -417,6 +440,7 @@ export default function App() {
     stash: () => (target() === null ? null : commandOf(stashAction(), disabledWhy().stash)),
     settings: () => commandOf(() => setSettingsOpen("top")),
     job_list: () => commandOf(() => setJobsOpen({})),
+    check_for_updates: () => commandOf(checkForUpdates),
     new_workspace: () => commandOf(() => workspaceDialogs.open({ kind: "new" })),
     import_workspace: () => commandOf(() => share.importWorkspace()),
     export_workspace: () => {
@@ -528,6 +552,7 @@ export default function App() {
       clone.subscribe(),
       share.subscribe(),
       ai.subscribe(),
+      update.subscribe(),
     ];
     onCleanup(() => {
       for (const pending of unlisten) {
@@ -535,6 +560,21 @@ export default function App() {
       }
     });
   });
+
+  // A new version on offer is said once, as it first appears; the daily check finding it again says nothing
+  // (PLAT-4, M5-10).
+  let announced: string | null = null;
+  createEffect(
+    on(
+      () => noticeOf(update.state.view),
+      (version) => {
+        if (version !== null && version !== announced) {
+          announced = version;
+          announcer.announce(strings.update.notice(version));
+        }
+      },
+    ),
+  );
 
   // Not `usable` and not still looking: the setup screen replaces the app.
   const gitProblem = () => {
@@ -708,7 +748,9 @@ export default function App() {
                   </Show>
                   <ResetDialogs workspace={id} reset={reset} repoName={repoName} />
                   <IntegrateDialogs workspace={id} integrate={integrate} repoName={repoName} branchOf={branchOf} />
-                  <StatusBar workspace={id} jobs={jobs} onOpenJobs={() => setJobsOpen({})} />
+                  <StatusBar workspace={id} jobs={jobs} onOpenJobs={() => setJobsOpen({})}>
+                    <UpdateNotice update={update} onOpen={() => setUpdateOpen(true)} />
+                  </StatusBar>
                 </>
               )}
             </Show>
@@ -777,6 +819,7 @@ export default function App() {
                   ai={ai}
                   info={info()}
                   git={git}
+                  update={update}
                   at={at}
                   onClose={() => setSettingsOpen(null)}
                 />
@@ -791,6 +834,16 @@ export default function App() {
                   onSelect={(item) => selectFromPalette(open.workspace, item)}
                 />
               )}
+            </Show>
+            <Show when={updateOpen()}>
+              <UpdateDialog
+                update={update}
+                unsaved={unsavedEverywhere}
+                onClose={() => {
+                  update.clearError();
+                  setUpdateOpen(false);
+                }}
+              />
             </Show>
             <ConsentDialog ai={ai} />
           </div>

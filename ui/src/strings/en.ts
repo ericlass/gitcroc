@@ -99,6 +99,17 @@ export const strings = {
     gitSection: "Git",
     git: (version: string, path: string) => `git version ${version} at ${path}`,
     chosenMissing: (chosen: string, path: string) => `The chosen git was not found at ${chosen}; using ${path}.`,
+    updatesSection: "Updates",
+    checkAutomatically: "Check for updates automatically",
+    checkNow: "Check now",
+    neverChecked: "Not checked yet.",
+    checking: "Checking for updates…",
+    upToDate: (version: string, at: string) => `gitcroc ${version} is up to date (checked ${at}).`,
+    updateAvailable: (version: string, at: string) => `gitcroc ${version} is available (checked ${at}).`,
+    updateFailed: (reason: string, at: string) => `The last check failed at ${at}: ${reason}`,
+    downloading: (version: string) => `Downloading gitcroc ${version}…`,
+    readyToRestart: (version: string) => `gitcroc ${version} is installed; restarting…`,
+    noChecks: "This build does not check for updates; only release builds do.",
     newerSchema: (path: string, found: number, supported: number) =>
       `The settings file ${path} is from a newer gitcroc (schema ${found}; this version knows schema ${supported}). ` +
       "It is used read-only, so changes are not saved.",
@@ -126,6 +137,22 @@ export const strings = {
   statusBar: {
     showJobs: "Show the job list",
     noJobs: "No jobs running",
+  },
+
+  update: {
+    notice: (version: string) => `gitcroc ${version} is available`,
+    title: "Update gitcroc",
+    versions: (current: string, next: string) => `You have gitcroc ${current}; gitcroc ${next} is available.`,
+    published: (date: string) => `Published ${date}.`,
+    notes: "Release notes",
+    noNotes: "This release has no notes.",
+    install: "Install and restart",
+    openDownloadPage: "Open download page",
+    later: "Later",
+    notifyOnly: "This package does not update itself. Download the new version from the release page.",
+    unsavedTitle: "Update and restart?",
+    unsavedLost: "Restarting loses the unsaved conflict edits of these files:",
+    updateAnyway: "Install and restart",
   },
 
   toolbar: {

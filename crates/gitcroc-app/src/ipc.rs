@@ -25,9 +25,10 @@ use gitcroc_core::{
     ResetError, ResetRequest, ResetStart, ResolveRequest, SettingsError, SettingsStore,
     SettingsView, StashError, StashRequest, StashStart, StatusError, StatusReadError, Summaries,
     SummaryView, SyncError, SyncRequest, SyncStart, TabSwitch, TagError, TagRequest, TagStart,
-    TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees, WatchWarning, Watchers,
-    WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces,
-    add_path, group_summaries, palette_catalog, refresh_summaries, refresh_workspace, tree_refs,
+    TargetSet, Theme, TrackedJob, TreeError, TreeNode, Trees, UpdateError, UpdateView, Updates,
+    WatchWarning, Watchers, WorkspaceError, WorkspaceId, WorkspaceListItem, WorkspaceTabs,
+    WorkspaceView, Workspaces, add_path, group_summaries, palette_catalog, refresh_summaries,
+    refresh_workspace, tree_refs,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -39,7 +40,10 @@ use crate::ai::{
     AiError, AiModelsReply, AiProviders, AiRequestId, AiSelfTestReply, AiSink, AiView,
 };
 use crate::askpass::{AskpassPrompt, WindowAskpassUi};
-use crate::platform::{FileManager, LaunchError, PlatformFileManager, PlatformTerminal, Terminal};
+use crate::platform::{
+    FileManager, LaunchError, PlatformBrowser, PlatformFileManager, PlatformTerminal, Terminal,
+    WebBrowser,
+};
 use tauri_plugin_dialog::DialogExt;
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
 
@@ -278,6 +282,20 @@ impl From<CloneError> for IpcError {
     }
 }
 
+impl From<UpdateError> for IpcError {
+    fn from(error: UpdateError) -> Self {
+        match error {
+            UpdateError::Job(JobError::Workspace(error)) => error.into(),
+            UpdateError::Job(JobError::NoRepo) => Self::internal(error.to_string()),
+            UpdateError::NoUpdate | UpdateError::OnlyNotifies | UpdateError::JobsRunning => Self {
+                code: IpcErrorCode::Refused,
+                message: error.to_string(),
+                git_stderr: None,
+            },
+        }
+    }
+}
+
 impl From<LaunchError> for IpcError {
     fn from(error: LaunchError) -> Self {
         Self::internal(error.to_string())
@@ -347,6 +365,12 @@ pub struct JobEndedEvent(pub JobView);
 #[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
 #[tauri_specta(event_name = "git_status")]
 pub struct GitStatusEvent(pub GitStatus);
+
+/// The updater's view changed: a check began or ended, an update is
+/// downloading or ready, or its notice was put off (PLAT-4).
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Event)]
+#[tauri_specta(event_name = "update_status_changed")]
+pub struct UpdateStatusChangedEvent(pub UpdateView);
 
 /// A group's row after a member's summary changed, sent as event
 /// `group_summary` (GRP-4, UI-4).
@@ -551,6 +575,84 @@ pub async fn settings_set_theme(app: AppHandle, theme: Theme) -> Result<Settings
     })
     .await?;
     Ok(saved?)
+}
+
+/// Turns the automatic update check on or off (D12, SEC-7) and saves the
+/// settings.
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_set_update_check(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<SettingsView, IpcError> {
+    let saved = tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Arc<SettingsStore>>().set_update_check(enabled)
+    })
+    .await?;
+    Ok(saved?)
+}
+
+/// Where the update check and install are (PLAT-4); each change also
+/// arrives as `update_status_changed`.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_status(updates: State<'_, Arc<Updates>>) -> Result<UpdateView, IpcError> {
+    Ok(updates.view())
+}
+
+/// Checks for an update at once, also while automatic checks are off, and
+/// returns at once; the result arrives as `update_status_changed`. A build
+/// that does not check does nothing (D12).
+#[tauri::command]
+#[specta::specta]
+pub async fn update_check_now(updates: State<'_, Arc<Updates>>) -> Result<(), IpcError> {
+    let updates = updates.inner().clone();
+    tauri::async_runtime::spawn(async move { updates.check_now().await });
+    Ok(())
+}
+
+/// Puts off the available update's notice until the next start or a newer
+/// version.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_later(updates: State<'_, Arc<Updates>>) -> Result<(), IpcError> {
+    updates.later();
+    Ok(())
+}
+
+/// Installs the available update as a job of the active workspace, refused
+/// while another job runs, and restarts into it once it is verified and
+/// installed (PLAT-4, SEC-7). The UI asks first when a tab holds unsaved
+/// conflict edits (OPS-9).
+#[tauri::command]
+#[specta::specta]
+pub async fn update_install(app: AppHandle) -> Result<JobId, IpcError> {
+    let workspace = app
+        .state::<Arc<Workspaces>>()
+        .active()
+        .ok_or_else(|| IpcError {
+            code: IpcErrorCode::Refused,
+            message: "open a workspace to update from".to_owned(),
+            git_stderr: None,
+        })?;
+    let jobs = app.state::<Arc<Jobs>>().inner().clone();
+    let install = app.state::<Arc<Updates>>().install(&jobs, &workspace)?;
+    tauri::async_runtime::spawn(async move {
+        if install.installed.await == Ok(true) {
+            app.restart();
+        }
+    });
+    Ok(install.job_id)
+}
+
+/// Opens the releases page in the browser, for the packages that do not
+/// install updates (PLAT-4). The page is fixed in the app.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_open_download_page() -> Result<(), IpcError> {
+    let launch = PlatformBrowser::open(crate::update::RELEASES_PAGE);
+    tauri::async_runtime::spawn_blocking(move || crate::platform::start(&[launch])).await??;
+    Ok(())
 }
 
 /// The open workspaces in tab order, the active one, and the saved tabs
@@ -2581,7 +2683,8 @@ pub fn perf_mark(_name: &str) {
 /// Detects git in the background (ARCH-7), sending `git_status` events when it
 /// starts and when it is done. Window creation never waits for it. With a
 /// usable git, every repo's summary is then read again (PERF-3); until
-/// then the cached summaries stand.
+/// then the cached summaries stand. When that refresh has ended, or there
+/// was none, the updater may check (M5-12).
 pub fn spawn_git_detection(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let setup = app.state::<GitSetup>();
@@ -2592,18 +2695,22 @@ pub fn spawn_git_detection(app: AppHandle) {
         let status = setup.detect_chosen(chosen.as_deref()).await;
         perf_mark("git detected");
         let _ = GitStatusEvent(status).emit(&app);
-        let Some(git) = setup.git().await.map(|git| GitRunner::new(git.path)) else {
-            return;
-        };
-        // The active tab only; the others are read when they become
-        // active (UI-30).
-        let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
-        let active = workspaces
-            .active()
-            .and_then(|active| workspaces.view(&active).ok());
-        if let Some(workspace) = active {
-            let repos = workspace.repos.into_iter().map(|repo| repo.id).collect();
-            tauri::async_runtime::spawn(refresh(app.clone(), workspace.id, repos, git));
+        if let Some(git) = setup.git().await.map(|git| GitRunner::new(git.path)) {
+            // The active tab only; the others are read when they become
+            // active (UI-30).
+            let workspaces = app.state::<Arc<Workspaces>>().inner().clone();
+            let active = workspaces
+                .active()
+                .and_then(|active| workspaces.view(&active).ok());
+            if let Some(workspace) = active {
+                let repos = workspace.repos.into_iter().map(|repo| repo.id).collect();
+                refresh(app.clone(), workspace.id, repos, git).await;
+            }
+        }
+        // The first update check waits for the startup refresh, so it never
+        // delays the cold start (section 9, D12).
+        if let Some(updates) = app.try_state::<Arc<Updates>>() {
+            updates.startup_ended();
         }
     });
 }
@@ -2797,6 +2904,12 @@ macro_rules! with_commands {
                 settings_set_git_path,
                 settings_get,
                 settings_set_theme,
+                settings_set_update_check,
+                update_status,
+                update_check_now,
+                update_later,
+                update_install,
+                update_open_download_page,
                 workspace_get,
                 workspace_list,
                 workspace_create,
@@ -2903,6 +3016,12 @@ macro_rules! with_commands {
                 settings_set_git_path,
                 settings_get,
                 settings_set_theme,
+                settings_set_update_check,
+                update_status,
+                update_check_now,
+                update_later,
+                update_install,
+                update_open_download_page,
                 workspace_get,
                 workspace_list,
                 workspace_create,
@@ -3029,7 +3148,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             AiChangedEvent,
             AiModelsEvent,
             AiSelfTestEvent,
-            AiProposalReadyEvent
+            AiProposalReadyEvent,
+            UpdateStatusChangedEvent
         ])
 }
 

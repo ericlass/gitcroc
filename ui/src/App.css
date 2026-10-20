@@ -634,6 +634,27 @@ main:not(.main) {
   gap: 4px;
 }
 
+/* The notice of a new version (PLAT-4) */
+
+.status-update {
+  padding: 0 6px;
+  font-weight: 600;
+}
+
+.update-dialog {
+  width: min(560px, 90vw);
+}
+
+.update-notes {
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-1);
+  white-space: pre-wrap;
+}
+
 /* Job outcomes, progress and the job list (UI-21) */
 
 .outcome {

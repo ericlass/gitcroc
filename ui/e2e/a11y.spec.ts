@@ -142,6 +142,32 @@ const VIEWS: { name: string; fake: string; open: (page: Page) => Promise<void>; 
     },
   },
   {
+    name: "the update dialog of a package that installs",
+    fake: "update",
+    open: async (page) => {
+      await page.getByRole("button", { name: "gitcroc 0.2.0 is available" }).click();
+      await expect(page.getByRole("dialog", { name: "Update gitcroc" })).toContainText("Release notes");
+    },
+  },
+  {
+    name: "the update dialog of a package that only notifies",
+    fake: "update-deb",
+    open: async (page) => {
+      await page.getByRole("button", { name: "gitcroc 0.2.0 is available" }).click();
+      await expect(page.getByRole("button", { name: "Open download page" })).toBeVisible();
+    },
+  },
+  {
+    name: "Settings' Updates section",
+    fake: "update",
+    open: async (page) => {
+      await toolbar(page).getByRole("button", { name: "Settings" }).click();
+      const section = page.getByRole("group", { name: "Updates" });
+      await section.scrollIntoViewIfNeeded();
+      await expect(section).toContainText("gitcroc 0.2.0 is available (checked");
+    },
+  },
+  {
     name: "the empty state with no tab open",
     fake: "no-tabs",
     open: async (page) => {

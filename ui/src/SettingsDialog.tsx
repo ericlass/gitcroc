@@ -1,15 +1,18 @@
 // The Settings dialog: the theme (UI-23), code themes (UI-24), fonts
 // (UI-26), group operations (section 5), AI (section 7), the git in use,
-// which can be chosen by hand (PLAT-3), and which gitcroc is running.
+// which can be chosen by hand (PLAT-3), the update check (D12), and which
+// gitcroc is running.
 import { For, onMount, Show } from "solid-js";
 import AiSection from "./ai/AiSection";
 import { Modal } from "./dialogs/parts";
 import type { Appearance, AppInfo, CodeTheme, Theme } from "./ipc";
 import type { AiStore } from "./stores/ai";
 import type { GitStore } from "./stores/git";
+import type { UpdateStore } from "./stores/update";
 import { FONT_SIZE_LIMITS, PARALLELISM_LIMITS, type SettingsStore } from "./stores/settings";
 import { CODE_THEME_NAMES, CODE_THEMES } from "./theme/codeThemes";
 import CodeThemePreview from "./theme/CodeThemePreview";
+import UpdateSection from "./update/UpdateSection";
 import { strings } from "./strings/en";
 
 const THEMES: { value: Theme; label: string }[] = [
@@ -47,8 +50,12 @@ export default function SettingsDialog(props: {
   ai: AiStore;
   info: AppInfo | undefined;
   git: GitStore;
-  /** Where it opens: at its top, or at the AI section, as Resolve with AI without a provider asks (AI-3). */
-  at?: "top" | "ai";
+  update: UpdateStore;
+  /**
+   * Where it opens: at its top, at the AI section, as Resolve with AI without a provider asks (AI-3), or at the
+   * Updates section, as the palette's Check for updates does.
+   */
+  at?: "top" | "ai" | "updates";
   onClose: () => void;
 }) {
   let dialog: HTMLDivElement | undefined;
@@ -75,9 +82,12 @@ export default function SettingsDialog(props: {
   };
 
   onMount(() => {
-    const ai = props.at === "ai" ? dialog?.querySelector<HTMLElement>(".ai-settings") : null;
-    ai?.scrollIntoView?.({ block: "start" });
-    (ai ?? dialog)?.querySelector<HTMLElement>("input:checked, input, button")?.focus();
+    const section =
+      props.at === "ai" || props.at === "updates"
+        ? dialog?.querySelector<HTMLElement>(props.at === "ai" ? ".ai-settings" : ".update-settings")
+        : null;
+    section?.scrollIntoView?.({ block: "start" });
+    (section ?? dialog)?.querySelector<HTMLElement>("input:checked, input:enabled, button:enabled")?.focus();
   });
 
   return (
@@ -205,6 +215,7 @@ export default function SettingsDialog(props: {
           </Show>
         </div>
       </fieldset>
+      <UpdateSection update={props.update} settings={props.settings} readOnly={readOnly()} />
       <AiSection ai={props.ai} readOnly={readOnly()} />
       <Show when={props.settings.state.error}>{(error) => <p role="alert">{error()}</p>}</Show>
       <Show when={props.info}>

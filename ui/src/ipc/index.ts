@@ -215,6 +215,8 @@ export type {
   TreeItem,
   TreeNode,
   UnmergedFile,
+  UpdateStatus,
+  UpdateView,
   Upstream,
   WatchWarning,
   WorkspaceId,
@@ -260,6 +262,20 @@ export const gitPickPath = () => unwrap(core.commands.gitPickPath());
 export const settingsGet = () => unwrap(core.commands.settingsGet());
 
 export const settingsSetTheme = (theme: Theme) => unwrap(core.commands.settingsSetTheme(theme));
+
+export const settingsSetUpdateCheck = (enabled: boolean) => unwrap(core.commands.settingsSetUpdateCheck(enabled));
+
+export const updateStatus = () => unwrap(core.commands.updateStatus());
+
+/** Starts a check and returns at once; the result arrives as `update_status_changed` (D12). */
+export const updateCheckNow = () => unwrap(core.commands.updateCheckNow());
+
+export const updateLater = () => unwrap(core.commands.updateLater());
+
+/** Starts the install job, refused while another job runs; the app restarts when it is installed (PLAT-4). */
+export const updateInstall = () => unwrap(core.commands.updateInstall());
+
+export const updateOpenDownloadPage = () => unwrap(core.commands.updateOpenDownloadPage());
 
 export const workspaceGet = () => unwrap(core.commands.workspaceGet());
 

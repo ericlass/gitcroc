@@ -1,5 +1,5 @@
-//! Linux: the desktop's fonts from GTK and GNOME (UI-26), the file manager
-//! and the terminal.
+//! Linux: the desktop's fonts from GTK and GNOME (UI-26), the file manager,
+//! the browser, the terminal and the package.
 
 use std::path::Path;
 
@@ -7,7 +7,9 @@ use gtk::gio;
 use gtk::gio::prelude::SettingsExtManual;
 use gtk::prelude::GtkSettingsExt;
 
-use super::{DesktopFontSource, FileManager, Launch, Terminal};
+use gitcroc_core::Package;
+
+use super::{DesktopFontSource, FileManager, Installation, Launch, Terminal, WebBrowser};
 use crate::ipc::DesktopFonts;
 
 /// Reads the fonts from GTK's settings and GNOME's schema.
@@ -54,6 +56,25 @@ pub struct XdgOpen;
 impl FileManager for XdgOpen {
     fn show(path: &Path) -> Launch {
         Launch::new("xdg-open", [path.into()], path.to_owned())
+    }
+}
+
+impl WebBrowser for XdgOpen {
+    fn open(url: &str) -> Launch {
+        Launch::new("xdg-open", [url.into()], std::env::temp_dir())
+    }
+}
+
+/// The `.deb`, the `.rpm` or the AppImage (see [`super::package`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LinuxInstallation;
+
+impl Installation for LinuxInstallation {
+    fn package() -> Package {
+        super::package::linux_package(
+            tauri::utils::platform::bundle_type(),
+            std::env::var_os("APPIMAGE").as_deref(),
+        )
     }
 }
 

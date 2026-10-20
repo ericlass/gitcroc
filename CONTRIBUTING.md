@@ -130,7 +130,7 @@ On Windows, `just` needs `sh` on PATH, which Git for Windows provides.
 - `macos-universal`: a `.dmg` with a universal (Apple silicon and Intel) app, ad-hoc signed
 - `linux-x86_64`: an AppImage, a `.deb` and an `.rpm`, built on Ubuntu 22.04 (glibc 2.35)
 
-Windows and macOS builds are not code-signed or notarized (SEC-7); [docs/install-unsigned.md](docs/install-unsigned.md) explains how to open them. There is no updater yet (PLAT-4 is M5).
+Windows and macOS builds are not code-signed or notarized (SEC-7); [docs/install-unsigned.md](docs/install-unsigned.md) explains how to open them. Update packages are still verified: the updater checks each against the project's public key in `tauri.conf.json` (SEC-7). Only release bundles check for updates; debug, `e2e` and `perf-trace` builds never do (D12). These CI builds make no updater artifacts; the release workflow does.
 
 The version number lives only in the workspace `Cargo.toml`. Tauri reads it from there, and a test fails if `tauri.conf.json` sets its own or `ui/package.json` disagrees.
 

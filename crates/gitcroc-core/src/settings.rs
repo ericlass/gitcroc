@@ -235,6 +235,10 @@ struct SettingsFile {
     /// `git_status` result.
     #[serde(skip_serializing_if = "Option::is_none")]
     git_path: Option<PathBuf>,
+    /// Whether the app checks for updates by itself (D12, SEC-7), an
+    /// optional top-level key as `git_path` is. Absent means on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    update_check: Option<bool>,
     #[serde(flatten)]
     settings: Settings,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -249,6 +253,8 @@ struct SettingsFile {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct SettingsView {
     pub settings: Settings,
+    /// The app checks for updates by itself (D12); on by default.
+    pub update_check: bool,
     /// Changes are refused; `warning` says why.
     pub read_only: bool,
     pub warning: Option<ConfigWarning>,
@@ -340,6 +346,17 @@ impl SettingsStore {
             return Err(SettingsError::GitPathNotText);
         }
         self.update_file(|file| file.git_path = path)
+    }
+
+    /// Whether the app checks for updates by itself (D12); on unless turned
+    /// off.
+    pub fn update_check(&self) -> bool {
+        self.lock().value.update_check.unwrap_or(true)
+    }
+
+    /// Turns the automatic update check on or off and saves the file.
+    pub fn set_update_check(&self, enabled: bool) -> Result<SettingsView, SettingsError> {
+        self.update_file(|file| file.update_check = Some(enabled))
     }
 
     /// Changes the theme and saves the file.
@@ -518,6 +535,7 @@ impl SettingsStore {
 fn view(state: &Loaded) -> SettingsView {
     SettingsView {
         settings: state.value.settings.clone(),
+        update_check: state.value.update_check.unwrap_or(true),
         read_only: state.warning.is_some(),
         warning: state.warning.clone(),
     }
@@ -538,6 +556,10 @@ fn decode(mut table: toml::Table) -> Result<SettingsFile, toml::de::Error> {
         .map(toml::Value::try_into::<PathBuf>)
         .transpose()?
         .filter(|path| !path.as_os_str().is_empty());
+    let update_check = table
+        .remove("update_check")
+        .map(toml::Value::try_into::<bool>)
+        .transpose()?;
     let session = table
         .remove("session")
         .and_then(|session| session.try_into().ok());
@@ -553,6 +575,7 @@ fn decode(mut table: toml::Table) -> Result<SettingsFile, toml::de::Error> {
     };
     Ok(SettingsFile {
         git_path,
+        update_check,
         settings: decode_settings(table)?,
         session,
         ai,

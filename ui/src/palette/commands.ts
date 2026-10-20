@@ -105,6 +105,7 @@ export const PLACES = {
   next_tab: "tabs",
   previous_tab: "tabs",
   new_group: "tree",
+  check_for_updates: "app",
 } as const satisfies Record<PaletteOp, Place>;
 
 /** The operations of `place`. */

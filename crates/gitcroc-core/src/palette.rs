@@ -96,6 +96,7 @@ pub enum PaletteOp {
     NextTab,
     PreviousTab,
     NewGroup,
+    CheckForUpdates,
 }
 
 /// What an operation acts on.
@@ -382,6 +383,12 @@ const CATALOG: &[PaletteEntry] = &[
     entry(Op::NextTab, "Next tab", &["workspace"], On::App),
     entry(Op::PreviousTab, "Previous tab", &["workspace"], On::App),
     entry(Op::NewGroup, "New group…", &["create"], On::App),
+    entry(
+        Op::CheckForUpdates,
+        "Check for updates",
+        &["update", "version", "upgrade"],
+        On::App,
+    ),
 ];
 
 /// The whole catalog, AI entries included, in catalog order.
