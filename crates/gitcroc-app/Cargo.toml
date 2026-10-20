@@ -37,6 +37,10 @@ keyring.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk.workspace = true
+tikv-jemallocator = { workspace = true, features = ["background_threads"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+tikv-jemalloc-ctl.workspace = true
 
 [dev-dependencies]
 # The mock provider stands in for a real one in the consent tests (AI-6).
