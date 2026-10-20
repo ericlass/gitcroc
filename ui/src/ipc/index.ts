@@ -253,6 +253,10 @@ export const gitStatus = () => unwrap(core.commands.gitStatus());
 
 export const gitRecheck = () => unwrap(core.commands.gitRecheck());
 
+export const settingsSetGitPath = (path: string | null) => unwrap(core.commands.settingsSetGitPath(path));
+
+export const gitPickPath = () => unwrap(core.commands.gitPickPath());
+
 export const settingsGet = () => unwrap(core.commands.settingsGet());
 
 export const settingsSetTheme = (theme: Theme) => unwrap(core.commands.settingsSetTheme(theme));

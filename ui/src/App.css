@@ -69,6 +69,14 @@ main:not(.main) {
   padding: 16px 24px;
 }
 
+/* The git setup screen's and the Settings Git section's buttons (PLAT-3) */
+.setup-actions,
+.setting-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .app {
   display: flex;
   flex-direction: column;

@@ -89,6 +89,11 @@ fn plat_3_git_info_exits_1_without_git() {
     assert_eq!(code, Some(1), "{json}");
     assert_eq!(
         json,
-        serde_json::json!({ "kind": "not_found", "searched": searched })
+        serde_json::json!({
+            "kind": "not_found",
+            "searched": searched,
+            "chosen": null,
+            "chosen_missing": false,
+        })
     );
 }

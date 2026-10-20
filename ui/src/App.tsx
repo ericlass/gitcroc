@@ -559,7 +559,10 @@ export default function App() {
               problem={problem()}
               os={info()?.os}
               checking={git.state.checking}
+              error={git.state.error}
               onRecheck={() => void git.recheck()}
+              onChoose={() => void git.choose()}
+              onAutomatic={() => void git.useAutomatic()}
             />
           )}
         </Match>
@@ -773,7 +776,7 @@ export default function App() {
                   settings={settings}
                   ai={ai}
                   info={info()}
-                  git={git.state.result}
+                  git={git}
                   at={at}
                   onClose={() => setSettingsOpen(null)}
                 />

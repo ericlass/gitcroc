@@ -1,7 +1,7 @@
 // The git detection result as reported by the core (PLAT-3). The store only
 // mirrors the `git_status` command and events; it decides nothing.
 import { createStore } from "solid-js/store";
-import { core, gitRecheck, gitStatus, type GitStatus } from "../ipc";
+import { core, gitPickPath, gitRecheck, gitStatus, type GitStatus, settingsSetGitPath } from "../ipc";
 
 export type GitResult = Exclude<GitStatus, { kind: "checking" }>;
 
@@ -10,10 +10,12 @@ export interface GitState {
   checking: boolean;
   /** The latest finished detection; `null` until the first one is done. */
   result: GitResult | null;
+  /** Why choosing a git path failed, such as read-only settings. */
+  error: string | null;
 }
 
 export function createGitStore() {
-  const [state, setState] = createStore<GitState>({ checking: true, result: null });
+  const [state, setState] = createStore<GitState>({ checking: true, result: null, error: null });
 
   const record = (status: GitStatus) => {
     if (status.kind === "checking") {
@@ -46,7 +48,25 @@ export function createGitStore() {
     return unlisten;
   };
 
-  return { state, subscribe, recheck: gitRecheck };
+  // The result arrives as a `git_status` event; only a refusal is answered here.
+  const choosing = async (request: () => Promise<null>) => {
+    try {
+      await request();
+      setState("error", null);
+    } catch (error) {
+      setState("error", error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  return {
+    state,
+    subscribe,
+    recheck: gitRecheck,
+    /** Opens the platform's file dialog to choose git (PLAT-3); a cancel does nothing. */
+    choose: () => choosing(gitPickPath),
+    /** Forgets the chosen git and detects it again. */
+    useAutomatic: () => choosing(() => settingsSetGitPath(null)),
+  };
 }
 
 export type GitStore = ReturnType<typeof createGitStore>;

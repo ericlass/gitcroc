@@ -119,7 +119,13 @@ import {
 } from "./fakeTree";
 
 const defaultAppInfo: AppInfo = { name: "gitcroc", version: "0.0.0-fake", os: "fake-os", arch: "fake-arch", ui_font: null, code_font: null };
-const defaultGitStatus: GitStatus = { kind: "usable", path: "/fake/bin/git", version: "2.47.0" };
+const defaultGitStatus: GitStatus = {
+  kind: "usable",
+  path: "/fake/bin/git",
+  version: "2.47.0",
+  chosen: null,
+  chosen_missing: false,
+};
 export const defaultChangesSettings: ChangesSettings = {
   diff_mode: "inline",
   file_list: "flat",
@@ -258,6 +264,12 @@ export const fakeState: {
   active: WorkspaceId | null;
   /** What the folder dialog returns; `null` is a cancel. */
   pickedFolder: string | null;
+  /** The git path chosen in Settings; `null` is automatic detection, which finds `gitStatus` (PLAT-3). */
+  gitPath: string | null;
+  /** The paths that hold a git, with the version each reports. */
+  gits: Record<string, string>;
+  /** What the git file dialog returns; `null` is a cancel. */
+  pickedGit: string | null;
   /** What `workspace_summaries` returns, of any workspace. */
   summaries: SummaryView[];
   /** The last `repo_select` of each workspace. */
@@ -404,6 +416,9 @@ export const fakeState: {
   tabs: [defaultWorkspace.id],
   active: defaultWorkspace.id,
   pickedFolder: null,
+  gitPath: null,
+  gits: {},
+  pickedGit: null,
   summaries: [],
   selected: {},
   refs: {},
@@ -1381,6 +1396,52 @@ const groupDeps: GroupDeps = {
   },
 };
 
+/**
+ * What detection finds, like the core (PLAT-3): the chosen git if it holds one, too old or not; otherwise
+ * what automatic detection finds, saying the chosen path had none.
+ */
+function fakeDetection(): GitStatus {
+  const chosen = fakeState.gitPath;
+  const auto = fakeState.gitStatus;
+  if (chosen === null || auto.kind === "checking") {
+    return auto;
+  }
+  const version = fakeState.gits[chosen];
+  if (version !== undefined) {
+    const [major = 0, minor = 0] = version.split(".").map(Number);
+    return major < 2 || (major === 2 && minor < 40)
+      ? { kind: "too_old", path: chosen, found: version, required: "2.40.0", chosen, chosen_missing: false }
+      : { kind: "usable", path: chosen, version, chosen, chosen_missing: false };
+  }
+  if (auto.kind === "not_found") {
+    return { ...auto, searched: [chosen, ...auto.searched], chosen, chosen_missing: true };
+  }
+  return { ...auto, chosen, chosen_missing: true };
+}
+
+/** Like the core: `checking` at once, then the result as a later event. */
+function fakeRecheck() {
+  emitGitStatus({ kind: "checking" });
+  setTimeout(() => emitGitStatus(fakeDetection()), 10);
+  return Promise.resolve({ status: "ok" as const, data: null });
+}
+
+/** Like the core: saves the chosen git, refused while the settings are read-only, and detects again. */
+function fakeSetGitPath(path: string | null) {
+  if (fakeState.settings.read_only) {
+    return Promise.resolve({
+      status: "error" as const,
+      error: {
+        code: "settings_read_only" as const,
+        message: "the settings are read-only, so the change was not saved",
+        git_stderr: null,
+      },
+    });
+  }
+  fakeState.gitPath = path;
+  return fakeRecheck();
+}
+
 /** Delivers a `git_status` event to every listener, as the core would. */
 export function emitGitStatus(payload: GitStatus): void {
   emit(gitStatusListeners, "git_status", payload);
@@ -1473,6 +1534,9 @@ export function reset(): void {
   fakeState.tabs = [defaultWorkspace.id];
   fakeState.active = defaultWorkspace.id;
   fakeState.pickedFolder = null;
+  fakeState.gitPath = null;
+  fakeState.gits = {};
+  fakeState.pickedGit = null;
   fakeState.summaries = [];
   fakeState.selected = {};
   fakeState.refs = {};
@@ -1582,7 +1646,14 @@ if (choice) {
 }
 // `no-git`: no git found, so the window shows the git setup screen (M5-10).
 if (picked === "no-git") {
-  fakeState.gitStatus = { kind: "not_found", searched: ["/usr/bin/git", "/usr/local/bin/git"] };
+  fakeState.gitStatus = {
+    kind: "not_found",
+    searched: ["/usr/bin/git", "/usr/local/bin/git"],
+    chosen: null,
+    chosen_missing: false,
+  };
+  fakeState.gits = { "/opt/git/bin/git": "2.51.0" };
+  fakeState.pickedGit = "/opt/git/bin/git";
 }
 // `no-tabs`: no workspace open, so the window shows its empty state (M5-10).
 if (picked === "no-tabs") {
@@ -2213,11 +2284,15 @@ function fakeOpen(how: "file_manager" | "terminal", repoId: RepoId) {
 export const fake: Core = {
   commands: {
     appInfo: () => Promise.resolve({ status: "ok", data: fakeState.appInfo }),
-    gitStatus: () => Promise.resolve({ status: "ok", data: fakeState.gitStatus }),
-    // Like the core: `checking` at once, then the result as a later event.
-    gitRecheck: () => {
-      emitGitStatus({ kind: "checking" });
-      setTimeout(() => emitGitStatus(fakeState.gitStatus), 10);
+    gitStatus: () => Promise.resolve({ status: "ok", data: fakeDetection() }),
+    gitRecheck: fakeRecheck,
+    settingsSetGitPath: fakeSetGitPath,
+    // Like the core: the dialog answers later; a cancel does nothing.
+    gitPickPath: () => {
+      const picked = fakeState.pickedGit;
+      if (picked !== null) {
+        setTimeout(() => void fakeSetGitPath(picked), 0);
+      }
       return Promise.resolve({ status: "ok", data: null });
     },
     settingsGet: () => Promise.resolve({ status: "ok", data: fakeState.settings }),

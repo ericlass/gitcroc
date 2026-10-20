@@ -229,6 +229,12 @@ pub struct Session {
 /// The file's contents apart from `schema`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 struct SettingsFile {
+    /// The git executable chosen in Settings (PLAT-3), an optional top-level
+    /// key, so the schema stays the same: older builds ignore it. Absent
+    /// means automatic detection. The UI sees it only as text, in the
+    /// `git_status` result.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    git_path: Option<PathBuf>,
     #[serde(flatten)]
     settings: Settings,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -263,6 +269,8 @@ pub enum SettingsError {
     Parallelism,
     #[error("{0}")]
     Ai(#[from] AiSettingsError),
+    #[error("the git path is not valid Unicode, so settings.toml cannot hold it")]
+    GitPathNotText,
 }
 
 /// The file's contents, and a warning when it must not be written.
@@ -316,6 +324,22 @@ impl SettingsStore {
     pub fn set_session(&self, session: Session) -> Result<(), SettingsError> {
         self.update_file(|file| file.session = Some(session))
             .map(drop)
+    }
+
+    /// The git executable chosen in Settings; `None` means automatic
+    /// detection (PLAT-3).
+    pub fn git_path(&self) -> Option<PathBuf> {
+        self.lock().value.git_path.clone()
+    }
+
+    /// Chooses the git executable, or with `None` goes back to automatic
+    /// detection, and saves the file. A path that is not valid Unicode is
+    /// refused, since TOML text cannot hold it.
+    pub fn set_git_path(&self, path: Option<PathBuf>) -> Result<SettingsView, SettingsError> {
+        if path.as_deref().is_some_and(|path| path.to_str().is_none()) {
+            return Err(SettingsError::GitPathNotText);
+        }
+        self.update_file(|file| file.git_path = path)
     }
 
     /// Changes the theme and saves the file.
@@ -508,6 +532,12 @@ fn from_schema_1(_table: &mut toml::Table) {}
 /// whole file unreadable, so it is used read-only and the user's providers
 /// are never overwritten (DATA-1).
 fn decode(mut table: toml::Table) -> Result<SettingsFile, toml::de::Error> {
+    // An empty path is no choice.
+    let git_path = table
+        .remove("git_path")
+        .map(toml::Value::try_into::<PathBuf>)
+        .transpose()?
+        .filter(|path| !path.as_os_str().is_empty());
     let session = table
         .remove("session")
         .and_then(|session| session.try_into().ok());
@@ -522,6 +552,7 @@ fn decode(mut table: toml::Table) -> Result<SettingsFile, toml::de::Error> {
         }
     };
     Ok(SettingsFile {
+        git_path,
         settings: decode_settings(table)?,
         session,
         ai,

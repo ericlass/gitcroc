@@ -18,6 +18,19 @@ export const commands = {
 	 *  `git_status` event.
 	 */
 	gitRecheck: () => typedError<null, IpcError>(__TAURI_INVOKE("git_recheck")),
+	/**
+	 *  Opens the native file dialog and returns at once. When the user picks a
+	 *  file, it is chosen as for `settings_set_git_path`; when they cancel,
+	 *  nothing happens. The dialog is opened from Rust: the front end has no
+	 *  dialog permission (SEC-2).
+	 */
+	gitPickPath: () => typedError<null, IpcError>(__TAURI_INVOKE("git_pick_path")),
+	/**
+	 *  Chooses the git executable, or with `null` goes back to automatic
+	 *  detection (PLAT-3), saves the setting, and starts detecting git again;
+	 *  the result arrives as a `git_status` event.
+	 */
+	settingsSetGitPath: (path: string | null) => typedError<null, IpcError>(__TAURI_INVOKE("settings_set_git_path", { path })),
 	/**  The settings, and why they are read-only if they are (DATA-1). */
 	settingsGet: () => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_get")),
 	/**  Changes the app theme (UI-23) and saves the settings. */
@@ -1563,22 +1576,25 @@ export type FileStatus = "added" | "modified" | "deleted" | "renamed" |
 
 /**
  *  Whether a usable git was found, as shown to the user. Paths and versions
- *  are converted to text here, for display only (PLAT-2).
+ *  are converted to text here, for display only (PLAT-2). Every result says
+ *  which git was chosen in Settings, if one was (`chosen`), and whether that
+ *  path had no executable, so the search went on without it
+ *  (`chosen_missing`).
  */
 export type GitStatus = 
 /**  Detection has not finished yet. */
 { kind: "checking" } | 
 /**  git at `path` is new enough. */
-{ kind: "usable"; path: string; version: string } | 
+{ kind: "usable"; path: string; version: string; chosen: string | null; chosen_missing: boolean } | 
 /**  No git at any of the `searched` paths. */
-{ kind: "not_found"; searched: string[] } | 
+{ kind: "not_found"; searched: string[]; chosen: string | null; chosen_missing: boolean } | 
 /**  git at `path` is version `found`; `required` or newer is needed. */
-{ kind: "too_old"; path: string; found: string; required: string } | 
+{ kind: "too_old"; path: string; found: string; required: string; chosen: string | null; chosen_missing: boolean } | 
 /**
  *  git at `path` did not report a version; `output` is what it printed or
  *  why it did not run.
  */
-{ kind: "unparseable"; path: string; output: string };
+{ kind: "unparseable"; path: string; output: string; chosen: string | null; chosen_missing: boolean };
 
 /**
  *  The result of git detection, sent as event `git_status` whenever it

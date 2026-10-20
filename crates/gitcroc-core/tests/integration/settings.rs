@@ -332,3 +332,58 @@ fn group_settings_are_remembered_and_held_to_their_limits() {
     let view = SettingsStore::load(&config).view();
     assert_eq!(view.settings.groups.group_parallelism, 32);
 }
+
+#[test]
+fn plat_2_git_path_is_absent_by_default() {
+    let config = TempConfig::new();
+    assert_eq!(SettingsStore::load(&config).git_path(), None);
+    let config = TempConfig::with_file("schema = 2\ngit_path = \"\"\n");
+    assert_eq!(SettingsStore::load(&config).git_path(), None);
+}
+
+#[test]
+fn plat_2_git_path_round_trip() {
+    let config = TempConfig::new();
+    let store = SettingsStore::load(&config);
+    store.set_theme(Theme::Dark).unwrap();
+    let chosen = config.dir.join("tools").join("git");
+    store.set_git_path(Some(chosen.clone())).unwrap();
+    assert_eq!(store.git_path(), Some(chosen.clone()));
+    let text = fs::read_to_string(config.file()).unwrap();
+    assert!(text.starts_with("schema = 2\n"), "{text}");
+    assert!(text.contains("theme = \"dark\"\n"), "{text}");
+    let loaded = SettingsStore::load(&config);
+    assert_eq!(loaded.git_path(), Some(chosen));
+    assert_eq!(loaded.view().settings.theme, Theme::Dark);
+
+    // Back to automatic detection: the key leaves the file.
+    store.set_git_path(None).unwrap();
+    assert_eq!(store.git_path(), None);
+    let text = fs::read_to_string(config.file()).unwrap();
+    assert!(!text.contains("git_path"), "{text}");
+    assert_eq!(SettingsStore::load(&config).git_path(), None);
+}
+
+#[test]
+fn data_1_a_file_without_git_path_loads_unchanged() {
+    let contents =
+        "schema = 2\ntheme = \"light\"\ngroup_parallelism = 4\n\n[changes]\nfile_list = \"tree\"\n";
+    let config = TempConfig::with_file(contents);
+    let store = SettingsStore::load(&config);
+    assert_eq!(store.view().warning, None);
+    assert_eq!(store.git_path(), None);
+    let view = store.view();
+    assert_eq!(view.settings.theme, Theme::Light);
+    assert_eq!(view.settings.groups.group_parallelism, 4);
+    assert_eq!(fs::read_to_string(config.file()).unwrap(), contents);
+}
+
+#[test]
+fn plat_2_git_path_is_refused_when_read_only() {
+    let store = SettingsStore::load(&NoConfigDir);
+    assert!(matches!(
+        store.set_git_path(Some(PathBuf::from("/opt/git/bin/git"))),
+        Err(SettingsError::ReadOnly)
+    ));
+    assert_eq!(store.git_path(), None);
+}

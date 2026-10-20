@@ -126,7 +126,9 @@ impl From<SettingsError> for IpcError {
     fn from(error: SettingsError) -> Self {
         let code = match error {
             SettingsError::ReadOnly => IpcErrorCode::SettingsReadOnly,
-            SettingsError::Parallelism | SettingsError::Ai(_) => IpcErrorCode::Refused,
+            SettingsError::Parallelism | SettingsError::Ai(_) | SettingsError::GitPathNotText => {
+                IpcErrorCode::Refused
+            }
             SettingsError::Write { .. } | SettingsError::Encode(_) => IpcErrorCode::Internal,
         };
         Self {
@@ -480,6 +482,52 @@ pub async fn git_status(git: State<'_, GitSetup>) -> Result<GitStatus, IpcError>
 #[tauri::command]
 #[specta::specta]
 pub async fn git_recheck(app: AppHandle) -> Result<(), IpcError> {
+    spawn_git_detection(app);
+    Ok(())
+}
+
+/// Chooses the git executable, or with `null` goes back to automatic
+/// detection (PLAT-3), saves the setting, and starts detecting git again;
+/// the result arrives as a `git_status` event.
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_set_git_path(app: AppHandle, path: Option<PathBuf>) -> Result<(), IpcError> {
+    choose_git(app, path).await
+}
+
+/// Opens the native file dialog and returns at once. When the user picks a
+/// file, it is chosen as for `settings_set_git_path`; when they cancel,
+/// nothing happens. The dialog is opened from Rust: the front end has no
+/// dialog permission (SEC-2).
+#[tauri::command]
+#[specta::specta]
+pub async fn git_pick_path(app: AppHandle) -> Result<(), IpcError> {
+    let picked = app.clone();
+    app.dialog()
+        .file()
+        .set_title("Choose git")
+        .pick_file(move |file| {
+            let Some(path) = file.and_then(|file| file.into_path().ok()) else {
+                return;
+            };
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = choose_git(picked.clone(), Some(path)).await {
+                    picked
+                        .state::<Arc<AppLog>>()
+                        .warn(&format!("the chosen git was not saved: {}", error.message));
+                }
+            });
+        });
+    Ok(())
+}
+
+async fn choose_git(app: AppHandle, path: Option<PathBuf>) -> Result<(), IpcError> {
+    // Saving touches the disk; keep it off the async workers (ARCH-7).
+    let saving = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        saving.state::<Arc<SettingsStore>>().set_git_path(path)
+    })
+    .await??;
     spawn_git_detection(app);
     Ok(())
 }
@@ -2540,7 +2588,8 @@ pub fn spawn_git_detection(app: AppHandle) {
         // An emit fails only while the app shuts down; the state is current
         // either way and `git_status` reads it.
         let _ = GitStatusEvent(GitStatus::Checking).emit(&app);
-        let status = setup.detect().await;
+        let chosen = app.state::<Arc<SettingsStore>>().git_path();
+        let status = setup.detect_chosen(chosen.as_deref()).await;
         perf_mark("git detected");
         let _ = GitStatusEvent(status).emit(&app);
         let Some(git) = setup.git().await.map(|git| GitRunner::new(git.path)) else {
@@ -2744,6 +2793,8 @@ macro_rules! with_commands {
                 app_info,
                 git_status,
                 git_recheck,
+                git_pick_path,
+                settings_set_git_path,
                 settings_get,
                 settings_set_theme,
                 workspace_get,
@@ -2848,6 +2899,8 @@ macro_rules! with_commands {
                 app_info,
                 git_status,
                 git_recheck,
+                git_pick_path,
+                settings_set_git_path,
                 settings_get,
                 settings_set_theme,
                 workspace_get,

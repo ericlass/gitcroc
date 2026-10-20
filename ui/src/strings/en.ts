@@ -57,6 +57,9 @@ export const strings = {
     unparseable: (path: string) => `Found git at ${path}, but could not read its version. It reported:`,
     checking: "Checking…",
     checkAgain: "Check again",
+    chooseGit: "Choose git…",
+    useAutomatic: "Use automatic detection",
+    chosenMissing: (chosen: string) => `The chosen git was not found at ${chosen}.`,
     /** One line per platform, keyed by `AppInfo.os`. */
     installHints: {
       windows: "Install Git for Windows from git-scm.com, or run: winget install --id Git.Git -e",
@@ -93,7 +96,9 @@ export const strings = {
     reposAtOnce: "Repos at once",
     alwaysShowPreflight: "Always show the preflight dialog",
     about: (name: string, version: string, os: string, arch: string) => `${name} version ${version} on ${os} (${arch})`,
+    gitSection: "Git",
     git: (version: string, path: string) => `git version ${version} at ${path}`,
+    chosenMissing: (chosen: string, path: string) => `The chosen git was not found at ${chosen}; using ${path}.`,
     newerSchema: (path: string, found: number, supported: number) =>
       `The settings file ${path} is from a newer gitcroc (schema ${found}; this version knows schema ${supported}). ` +
       "It is used read-only, so changes are not saved.",
