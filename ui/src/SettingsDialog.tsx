@@ -1,11 +1,12 @@
 // The Settings dialog: the theme (UI-23), code themes (UI-24), fonts
-// (UI-26), group operations (section 5), AI (section 7), and which gitcroc
-// and git are running.
+// (UI-26), group operations (section 5), AI (section 7), the git in use,
+// which can be chosen by hand (PLAT-3), and which gitcroc is running.
 import { For, onMount, Show } from "solid-js";
 import AiSection from "./ai/AiSection";
 import { Modal } from "./dialogs/parts";
-import type { Appearance, AppInfo, CodeTheme, GitStatus, Theme } from "./ipc";
+import type { Appearance, AppInfo, CodeTheme, Theme } from "./ipc";
 import type { AiStore } from "./stores/ai";
+import type { GitStore } from "./stores/git";
 import { FONT_SIZE_LIMITS, PARALLELISM_LIMITS, type SettingsStore } from "./stores/settings";
 import { CODE_THEME_NAMES, CODE_THEMES } from "./theme/codeThemes";
 import CodeThemePreview from "./theme/CodeThemePreview";
@@ -45,7 +46,7 @@ export default function SettingsDialog(props: {
   settings: SettingsStore;
   ai: AiStore;
   info: AppInfo | undefined;
-  git: GitStatus | null;
+  git: GitStore;
   /** Where it opens: at its top, or at the AI section, as Resolve with AI without a provider asks (AI-3). */
   at?: "top" | "ai";
   onClose: () => void;
@@ -180,16 +181,35 @@ export default function SettingsDialog(props: {
           {strings.settings.alwaysShowPreflight}
         </label>
       </fieldset>
+      <fieldset disabled={readOnly()}>
+        <legend>{strings.settings.gitSection}</legend>
+        <Show when={props.git.state.result?.kind === "usable" && props.git.state.result}>
+          {(git) => (
+            <>
+              <p class="about">{strings.settings.git(git().version, git().path)}</p>
+              <Show when={git().chosen_missing && git().chosen}>
+                {(chosen) => <p role="alert">{strings.settings.chosenMissing(chosen(), git().path)}</p>}
+              </Show>
+            </>
+          )}
+        </Show>
+        <Show when={props.git.state.error}>{(error) => <p role="alert">{error()}</p>}</Show>
+        <div class="setting-actions">
+          <button type="button" disabled={props.git.state.checking} onClick={() => void props.git.choose()}>
+            {strings.gitSetup.chooseGit}
+          </button>
+          <Show when={(props.git.state.result?.chosen ?? null) !== null}>
+            <button type="button" disabled={props.git.state.checking} onClick={() => void props.git.useAutomatic()}>
+              {strings.gitSetup.useAutomatic}
+            </button>
+          </Show>
+        </div>
+      </fieldset>
       <AiSection ai={props.ai} readOnly={readOnly()} />
       <Show when={props.settings.state.error}>{(error) => <p role="alert">{error()}</p>}</Show>
       <Show when={props.info}>
         {(info) => (
           <p class="about">{strings.settings.about(info().name, info().version, info().os, info().arch)}</p>
-        )}
-      </Show>
-      <Show when={props.git?.kind === "usable" && props.git}>
-        {(git) => (
-          <p class="about">{strings.settings.git(git().version, git().path)}</p>
         )}
       </Show>
       <div class="dialog-actions">

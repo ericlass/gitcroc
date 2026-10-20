@@ -17,7 +17,13 @@ test("arch_6_ui_state_comes_only_from_core", async () => {
 });
 
 test("PLAT-3: Settings shows the git that detection found", async () => {
-  fakeState.gitStatus = { kind: "usable", path: "/opt/git/bin/git", version: "2.51.1" };
+  fakeState.gitStatus = {
+    kind: "usable",
+    path: "/opt/git/bin/git",
+    version: "2.51.1",
+    chosen: null,
+    chosen_missing: false,
+  };
   render(() => <App />);
   fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
   expect(await screen.findByText("git version 2.51.1 at /opt/git/bin/git")).toBeDefined();
