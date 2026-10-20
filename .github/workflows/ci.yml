@@ -163,6 +163,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: smoke-${{ matrix.os }}
+          # A driver failure must not force another cold Tauri build.
+          cache-on-failure: "true"
 
       - name: Install tauri-driver
         run: cargo install tauri-driver --version 2.1.0 --locked
@@ -199,6 +201,7 @@ jobs:
           path: |
             target/e2e/failure.png
             target/e2e/app.log
+            target/e2e/gitcroc.log
           if-no-files-found: ignore
 
   # The checks the main branch's ruleset requires, one per platform. Each

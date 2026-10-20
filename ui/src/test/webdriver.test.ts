@@ -4,7 +4,6 @@ import {
   sessionCapabilities,
   smokeEnvironment,
   smokePaths,
-  webviewEnvironment,
 } from "../../webdriver/platform";
 
 describe("PLAT-1 PLAT-2 ARCH-3 smoke driver platform setup", () => {
@@ -51,10 +50,5 @@ describe("PLAT-1 PLAT-2 ARCH-3 smoke driver platform setup", () => {
     expect(sessionCapabilities("/fixture/gitcroc", "linux")).toEqual({
       alwaysMatch: { "tauri:options": { application: "/fixture/gitcroc" } },
     });
-    const env = webviewEnvironment("C:\\fixture", { WEBVIEW2_BROWSER_EXECUTABLE_FOLDER: "runtime" }, "win32");
-    expect(env.WEBVIEW2_USER_DATA_FOLDER).toBe("C:\\fixture\\webview");
-    expect(env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).toContain("--remote-debugging-port=9222");
-    expect(env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).toContain("--remote-debugging-address=127.0.0.1");
-    expect(env.WEBVIEW2_BROWSER_EXECUTABLE_FOLDER).toBe("runtime");
   });
 });

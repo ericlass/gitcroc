@@ -43,6 +43,13 @@ pub fn run() -> Result<(), Error> {
     let (config, cache, logs) = fixture_dirs
         .as_ref()
         .map_or((config, cache, logs), |dirs| (dirs, dirs, dirs));
+    let context = tauri::generate_context!();
+    #[cfg(feature = "e2e")]
+    let context = {
+        let mut context = context;
+        smoke_dirs::configure(context.config_mut(), fixture_dirs.as_ref());
+        context
+    };
     // Every git process the app runs goes to `gitcroc.log` (section 10).
     let log = Arc::new(AppLog::open(logs));
     let command_log = log.clone();
@@ -163,6 +170,6 @@ pub fn run() -> Result<(), Error> {
             ipc::perf_mark("setup done");
             Ok(())
         })
-        .run(tauri::generate_context!())?;
+        .run(context)?;
     Ok(())
 }

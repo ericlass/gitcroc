@@ -18,15 +18,6 @@ export function sessionCapabilities(app: string, platform: NodeJS.Platform) {
   };
 }
 
-export function webviewEnvironment(dir: string, base: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
-  return {
-    ...base,
-    WEBVIEW2_USER_DATA_FOLDER: paths(platform).join(dir, "webview"),
-    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: "--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1",
-    TAURI_WEBVIEW_AUTOMATION: "true",
-  };
-}
-
 export function smokePaths(root: string, platform: NodeJS.Platform) {
   const path = paths(platform);
   const suffix = platform === "win32" ? ".exe" : "";

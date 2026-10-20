@@ -31,6 +31,17 @@ impl LogDir for FixtureDirs {
     }
 }
 
+/// Pass the debug port to WebView2 itself; Wry sets explicit browser args.
+pub(crate) fn configure(config: &mut tauri::utils::config::Config, dirs: Option<&FixtureDirs>) {
+    for window in &mut config.app.windows {
+        window.additional_browser_args =
+            Some("--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1".to_owned());
+        if let Some(dirs) = dirs {
+            window.data_directory = Some(dirs.0.join("webview"));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -51,5 +62,19 @@ mod tests {
         let id = workspaces.create("Smoke").unwrap();
         let loaded = Workspaces::load_with(&dirs, settings);
         assert_eq!(loaded.view(&id).unwrap().name, "Smoke");
+    }
+
+    #[test]
+    fn plat_2_smoke_configures_the_native_webview_with_its_fixture_and_loopback_port() {
+        let root = tempfile::tempdir().unwrap();
+        let dirs = FixtureDirs(root.path().to_owned());
+        let mut config = tauri::utils::config::Config::default();
+        config.app.windows.push(Default::default());
+        configure(&mut config, Some(&dirs));
+        let window = &config.app.windows[0];
+        let args = window.additional_browser_args.as_ref().unwrap();
+        assert!(args.contains("--remote-debugging-port=9222"));
+        assert!(args.contains("--remote-debugging-address=127.0.0.1"));
+        assert_eq!(window.data_directory, Some(root.path().join("webview")));
     }
 }

@@ -19,11 +19,11 @@
 // Node runs this file directly (type stripping), so it uses no TypeScript
 // syntax that needs compiling, and no packages.
 import { type ChildProcess, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { checkDrivers, ELEMENT, type Element, log, startDriver, startWebview, stopProcess, wd } from "./client.ts";
-import { sessionCapabilities, smokeEnvironment, smokePaths, webviewEnvironment } from "./platform.ts";
+import { sessionCapabilities, smokeEnvironment, smokePaths } from "./platform.ts";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const { app: APP, cli: CLI } = smokePaths(ROOT, process.platform);
@@ -748,7 +748,7 @@ async function main() {
     if (process.platform === "win32") {
       appProcess = await startWebview(
         APP,
-        webviewEnvironment(dir, appEnv, process.platform),
+        { ...appEnv, TAURI_WEBVIEW_AUTOMATION: "true" },
         join(ROOT, "target", "e2e", "app.log"),
       );
     }
@@ -774,6 +774,8 @@ async function main() {
   } finally {
     if (driver !== undefined) stopProcess(driver);
     if (appProcess !== undefined) stopProcess(appProcess);
+    const appLog = join(dir, "logs", "gitcroc", "gitcroc.log");
+    if (failed && existsSync(appLog)) copyFileSync(appLog, join(ROOT, "target", "e2e", "gitcroc.log"));
     if (!failed) {
       rmSync(dir, { recursive: true, force: true });
     }
