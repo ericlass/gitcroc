@@ -11,6 +11,7 @@ mod askpass;
 mod build;
 mod fonts;
 mod ipc;
+mod keychain;
 mod platform;
 mod security;
 mod start;

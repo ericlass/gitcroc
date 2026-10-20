@@ -1,10 +1,11 @@
-// Plain W3C WebDriver over HTTP to tauri-driver and WebKitWebDriver, Linux
-// only, for `just bench-ui` (M1-12) and `just smoke` (M2-15).
+// Plain W3C WebDriver over loopback HTTP to tauri-driver and the native
+// driver: Linux for `just bench-ui`, Linux and Windows for `just smoke`.
 //
 // Node runs this file directly (type stripping), so it uses no TypeScript
 // syntax that needs compiling, and no packages.
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
+import { driverPrograms } from "./platform.ts";
 
 export const DRIVER = "http://127.0.0.1:4444";
 
@@ -39,22 +40,16 @@ async function driverUp(): Promise<boolean> {
 
 function which(program: string): boolean {
   try {
-    execFileSync("which", [program], { stdio: "ignore" });
+    execFileSync(process.platform === "win32" ? "where.exe" : "which", [program], { stdio: "ignore" });
     return true;
   } catch {
     return false;
   }
 }
 
-/** Fails naming how to install tauri-driver or WebKitWebDriver when one is missing. */
+/** Fails naming how to install tauri-driver or its native driver when one is missing. */
 export function checkDrivers() {
-  if (process.platform !== "linux") {
-    throw new Error("this runs on Linux only (WebKitWebDriver)");
-  }
-  for (const [program, install] of [
-    ["tauri-driver", "cargo install tauri-driver --locked"],
-    ["WebKitWebDriver", "sudo apt install webkit2gtk-driver (Debian, Ubuntu)"],
-  ] as const) {
+  for (const [program, install] of driverPrograms(process.platform)) {
     if (!which(program)) {
       throw new Error(`${program} is not on PATH; install it with \`${install}\``);
     }
@@ -63,7 +58,8 @@ export function checkDrivers() {
 
 /** Starts tauri-driver with `env` for the app, and waits until it answers. */
 export async function startDriver(env: NodeJS.ProcessEnv): Promise<ChildProcess> {
-  const driver = spawn("tauri-driver", [], { env, stdio: ["ignore", "ignore", "inherit"] });
+  const [[program]] = driverPrograms(process.platform);
+  const driver = spawn(program, [], { env, stdio: ["ignore", "ignore", "inherit"] });
   driver.on("error", (error) => {
     log(`cannot start tauri-driver: ${error.message}; install it with \`cargo install tauri-driver --locked\``);
     process.exit(2);

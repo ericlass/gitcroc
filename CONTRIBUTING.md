@@ -96,11 +96,23 @@ The `mock` kind exists only for the smoke test: only the `e2e` build offers and 
 
 ## End-to-end smoke test
 
-`just smoke` runs section 12's end-to-end smoke test on the real app, on Linux only (`ui/webdriver/smoke.ts`). It builds the app with the `e2e` Cargo feature into `target/e2e` and drives it through `tauri-driver` and WebKitWebDriver on a throwaway fixture workspace. The test adds a repo, stages a file and commits. It then merges a branch that conflicts, resolves the file in the conflict editor with **Take theirs** and a typed edit, then **Mark resolved** and **Continue**. It checks the history shows the merge commit and the repo is clean. Then comes the group flow (M3-15). It creates a second workspace tab and adds both fixture repos, then Ctrl-clicks them and makes a group of the multi-selection from the menu. A group checkout of `feature`, which only one repo has, with **Create the branch from HEAD**, must show the other repo as *needs attention* in the preflight. After **Run**, the job's report must have an outcome for each repo, and the group row must show `feature`. Last comes the AI flow (M4-12). `app` merges a branch that conflicts again, and Settings gets a provider of the `mock` kind as the default. With **AI features** off the conflict editor must have no **Resolve with AI**; turned on again, **Resolve with AI** must ask for consent, and after **Allow**, **Accept all high-confidence**, **Mark resolved** and **Continue** the merge must be done with the proposed text in the file. Every step waits in the page for its result in the DOM; none waits for a time. On a failure it saves the window as `target/e2e/failure.png` and keeps the fixture folder it names.
+`just smoke` runs section 12's end-to-end smoke test on the real app, on Linux and Windows (`ui/webdriver/smoke.ts`). It builds the app with the `e2e` Cargo feature into `target/e2e` and drives it through `tauri-driver` and the platform WebDriver on a throwaway fixture workspace. The test adds a repo, stages a file and commits. It then merges a branch that conflicts, resolves the file in the conflict editor with **Take theirs** and a typed edit, then **Mark resolved** and **Continue**. It checks the history shows the merge commit and the repo is clean. Then comes the group flow (M3-15). It creates a second workspace tab and adds both fixture repos, then Ctrl-clicks them and makes a group of the multi-selection from the menu. A group checkout of `feature`, which only one repo has, with **Create the branch from HEAD**, must show the other repo as *needs attention* in the preflight. After **Run**, the job's report must have an outcome for each repo, and the group row must show `feature`. Last comes the AI flow (M4-12). `app` merges a branch that conflicts again, and Settings gets a provider of the `mock` kind as the default. With **AI features** off the conflict editor must have no **Resolve with AI**; turned on again, **Resolve with AI** must ask for consent, and after **Allow**, **Accept all high-confidence**, **Mark resolved** and **Continue** the merge must be done with the proposed text in the file. Every step waits in the page for its result in the DOM; none waits for a time. On a failure it saves the window as `target/e2e/failure.png` and keeps the fixture folder it names.
 
 WebDriver cannot drive the native folder dialog, so in an `e2e` build the **Add folder…** dialog is answered by `GITCROC_E2E_PICK_FOLDER`. The smoke test points it at the folder of both fixture repos. In the same build, `GITCROC_E2E_AI` names a JSON array of reply texts: Settings then offers the `mock` kind, which answers each file from those replies, and keys go to an in-memory keychain. The feature is never in a release bundle.
 
-It needs the same drivers as `just bench-ui` (below). Run it under `xvfb-run -a just smoke` to keep its window off your desktop; CI's Linux job runs it that way after `just check`.
+On Linux it needs the same drivers as `just bench-ui` (below); run it under
+`xvfb-run -a just smoke` to keep its window off your desktop. On Windows it needs
+`tauri-driver` and `msedgedriver.exe` on PATH. The Edge WebDriver version must match
+the installed WebView2 runtime. CI's `.github/scripts/install-edge-driver.ps1`
+selects a runtime, downloads the exact driver version from Microsoft, and pins
+`WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` to that runtime; its job summary records the
+Windows, WebView2 and driver versions. Both smoke jobs feed the required checks.
+
+CI also runs the ignored `d11_os_keychain_round_trip` test on Windows and macOS:
+`cargo test -p gitcroc-app --test integration keychain::d11_os_keychain_round_trip -- --ignored --exact`.
+It writes generated test data under a fresh `gitcroc-test-<uuid>` service, reads it
+back, deletes it and verifies it is gone. It never accesses gitcroc credentials.
+Linux needs an unlocked Secret Service and remains a local check.
 
 ## Colors and themes (UI-23)
 
@@ -118,7 +130,7 @@ The core's text (error messages, skip and block reasons, labels the core builds)
 
 ## Continuous integration
 
-CI (`.github/workflows/ci.yml`) runs `just check` on Linux (ubuntu-22.04), Windows and macOS for every pull request and every push to `main`. It calls only `just check`, so local and CI checks cannot drift (QA-5), and on Linux also `just smoke` (see "End-to-end smoke test"). The repository owner must mark the three CI jobs (`check (ubuntu-22.04)`, `check (windows-latest)`, `check (macos-latest)`) as required status checks in the branch protection rule for `main`; this is a manual step in the GitHub settings.
+CI (`.github/workflows/ci.yml`) runs `just check` on Linux (ubuntu-22.04), Windows and macOS for every pull request and every push to `main`. It calls only `just check`, so local and CI checks cannot drift (QA-5), and on Linux and Windows also `just smoke` (see "End-to-end smoke test"). The repository owner must mark the three CI jobs (`check (ubuntu-22.04)`, `check (windows-latest)`, `check (macos-latest)`) as required status checks in the branch protection rule for `main`; this is a manual step in the GitHub settings.
 
 On Windows, `just` needs `sh` on PATH, which Git for Windows provides.
 

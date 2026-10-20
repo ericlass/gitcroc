@@ -1,8 +1,8 @@
 # QA-1 and QA-5: every pull request runs `just check` on all three
 # platforms. Only `just check`'s two halves run here, `just check-rust` and
 # `just check-ui` as separate jobs in parallel, so local and CI checks cannot
-# drift; and on Linux `just smoke`, the end-to-end smoke test (section 12,
-# M2-15), in a third job. The jobs named `check (<os>)` that the ruleset of
+# drift; and on Linux and Windows `just smoke`, the end-to-end smoke test
+# (section 12, M5-16). The jobs named `check (<os>)` that the ruleset of
 # main requires wait for all of them.
 name: CI
 
@@ -72,6 +72,12 @@ jobs:
       - name: just check-rust
         run: just check-rust
 
+      # D11, SEC-1: a unique test service, never gitcroc's credentials.
+      # Linux hosted runners have no Secret Service; that check stays local.
+      - name: Real OS keychain round trip
+        if: runner.os == 'Windows' || runner.os == 'macOS'
+        run: cargo test -p gitcroc-app --test integration keychain::d11_os_keychain_round_trip -- --ignored --exact
+
   ui:
     name: check-ui (${{ matrix.os }})
     strategy:
@@ -119,8 +125,12 @@ jobs:
         run: just check-ui
 
   smoke:
-    name: smoke (ubuntu-22.04)
-    runs-on: ubuntu-22.04
+    name: smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -136,14 +146,23 @@ jobs:
 
       # WebKitGTK 4.1 to build; WebDriver for it, and a display for the app.
       - name: Install build packages and the smoke test's drivers
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libdbus-1-dev webkit2gtk-driver xvfb
 
+      # Select an installed WebView2 runtime and pin the app to it via
+      # WEBVIEW2_BROWSER_EXECUTABLE_FOLDER. Download its exact driver version
+      # from Microsoft, verify it, and record both versions and the OS build.
+      - name: Install matching Microsoft Edge WebDriver
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./.github/scripts/install-edge-driver.ps1
+
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
         with:
-          key: smoke
+          key: smoke-${{ matrix.os }}
 
       - name: Install tauri-driver
         run: cargo install tauri-driver --version 2.1.0 --locked
@@ -164,14 +183,19 @@ jobs:
       - name: Install front-end packages
         run: pnpm --dir ui install --frozen-lockfile
 
-      - name: just smoke
+      - name: just smoke (Linux)
+        if: runner.os == 'Linux'
         run: xvfb-run -a just smoke
+
+      - name: just smoke (Windows)
+        if: runner.os == 'Windows'
+        run: just smoke
 
       - name: Upload the smoke test's failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: smoke-failure
+          name: smoke-failure-${{ matrix.os }}
           path: target/e2e/failure.png
           if-no-files-found: ignore
 
