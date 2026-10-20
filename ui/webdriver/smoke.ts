@@ -328,7 +328,7 @@ const TREE: Path = [["tree", "Repositories"]];
 const HISTORY: Path = [["listbox", "History"]];
 const BANNER: Path = [["region", "Conflict state"]];
 const CONFLICT: Path = [["region", "Conflict"]];
-const FILE_SECTIONS = '[role="listbox"][aria-label="Changed files"] .file-section';
+const FILE_SECTIONS = '[role="treegrid"][aria-label="Changed files"] .file-section';
 
 async function smoke(session: Session, app: string, env: NodeJS.ProcessEnv) {
   log("the app starts with the fixture workspace");

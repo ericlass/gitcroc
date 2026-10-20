@@ -7,7 +7,9 @@
 // other list. The palette's file operations run the selected file's
 // controls, and Stage all and Unstage all the lists' (UI-22). Which files
 // may be changed is the core's to check; this only forwards what was
-// clicked (ARCH-6).
+// clicked (ARCH-6). It is a treegrid (M5-10): a row per section, repo,
+// folder and file, each with one cell, so the lists' buttons may sit in it;
+// the file rows carry the selection.
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createMemo, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import type { ChangeAction, ChangesContent, FileListMode, FileStatus, RepoId, UnmergedKind, WorkspaceId } from "../ipc";
@@ -50,7 +52,7 @@ function FileCells(props: { row: FileEntry; unsaved: boolean }) {
   };
   return (
     <>
-      <span class={`file-status status-${props.row.status}`} aria-label={status()[1]}>
+      <span class={`file-status status-${props.row.status}`} role="img" aria-label={status()[1]}>
         {status()[0]}
       </span>
       <span class="file-name" title={title()}>
@@ -418,7 +420,7 @@ export default function FileList(props: {
     <div
       class="file-list"
       ref={(element) => (scroller = element)}
-      role="listbox"
+      role="treegrid"
       aria-label={strings.changes.changedFiles}
       aria-multiselectable={props.onAction !== undefined ? "true" : undefined}
       tabindex="0"
@@ -450,7 +452,8 @@ export default function FileList(props: {
                         return current !== null && props.marked.length > 1 && isMarked(current.file);
                       })(),
                     }}
-                    role={row().kind === "file" ? "option" : "presentation"}
+                    role="row"
+                    aria-level={depth() + 1}
                     aria-selected={(() => {
                       const current = file();
                       return current === null ? undefined : sameFile(current.file, props.selected) || isMarked(current.file);
@@ -480,7 +483,9 @@ export default function FileList(props: {
                       }
                     }}
                   >
-                    {rowView(row())}
+                    <div role="gridcell" class="file-cell">
+                      {rowView(row())}
+                    </div>
                   </div>
                 );
               }}

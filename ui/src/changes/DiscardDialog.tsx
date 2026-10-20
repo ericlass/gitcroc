@@ -3,6 +3,7 @@
 // a discard sent without it; this only asks. Escape and Cancel keep the
 // changes.
 import { For, onMount } from "solid-js";
+import { Modal } from "../dialogs/parts";
 import { strings } from "../strings/en";
 
 /** Files named one by one; more are counted. */
@@ -21,46 +22,36 @@ export default function DiscardDialog(props: {
   // Cancel has the focus: Enter alone never discards.
   onMount(() => cancel?.focus());
 
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      props.onCancel();
-    }
-  };
-
   const more = () => props.files.length - LISTED;
 
   return (
-    <div class="backdrop">
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="discard-title"
-        aria-describedby="discard-text"
-        class="dialog discard"
-        onKeyDown={onKeyDown}
-      >
-        <h2 id="discard-title">{strings.changes.discardDialog(props.repo)}</h2>
-        <p id="discard-text">
-          {props.hunk
-            ? strings.changes.hunkLost
-            : props.files.length === 1
-              ? strings.changes.fileLost
-              : strings.changes.filesLost(props.files.length)}
-        </p>
-        <ul class="discard-files">
-          <For each={props.files.slice(0, LISTED)}>{(file) => <li>{file}</li>}</For>
-          {more() > 0 && <li>{strings.changes.andMore(more())}</li>}
-        </ul>
-        <div class="dialog-actions">
-          <button type="button" ref={(element) => (cancel = element)} onClick={() => props.onCancel()}>
-            {strings.common.cancel}
-          </button>
-          <button type="button" class="danger" onClick={() => props.onConfirm()}>
-            {strings.changes.discard}
-          </button>
-        </div>
+    <Modal
+      role="alertdialog"
+      labelledby="discard-title"
+      describedby="discard-text"
+      class="dialog discard"
+      onEscape={props.onCancel}
+    >
+      <h2 id="discard-title">{strings.changes.discardDialog(props.repo)}</h2>
+      <p id="discard-text">
+        {props.hunk
+          ? strings.changes.hunkLost
+          : props.files.length === 1
+            ? strings.changes.fileLost
+            : strings.changes.filesLost(props.files.length)}
+      </p>
+      <ul class="discard-files">
+        <For each={props.files.slice(0, LISTED)}>{(file) => <li>{file}</li>}</For>
+        {more() > 0 && <li>{strings.changes.andMore(more())}</li>}
+      </ul>
+      <div class="dialog-actions">
+        <button type="button" ref={(element) => (cancel = element)} onClick={() => props.onCancel()}>
+          {strings.common.cancel}
+        </button>
+        <button type="button" class="danger" onClick={() => props.onConfirm()}>
+          {strings.changes.discard}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

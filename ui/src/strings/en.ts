@@ -30,6 +30,8 @@ export const strings = {
 
   app: {
     lookingForGit: "Looking for git…",
+    /** What the live region says when a job ends failed or in conflict. */
+    jobEnded: (job: string, workspace: string, outcome: string) => `${job} in ${workspace}: ${outcome}`,
     missingWorkspaces: (files: string) =>
       `These workspace files were not found, so their tabs were not restored: ${files}`,
     cannotReachCore: (error: string) => `Cannot reach the core: ${error}`,
@@ -523,6 +525,10 @@ export const strings = {
     stageAllFirst: "Stage all tracked changes first",
     pushAfter: "Push after commit",
     diff: "Diff",
+    /** The names of the diff's editors, read by screen readers. */
+    diffOf: (path: string) => `Diff of ${path}`,
+    diffBefore: (path: string) => `${path} before`,
+    diffAfter: (path: string) => `${path} after`,
     conflict: "Conflict",
     noFile: "No file changed.",
     mode: (old: string, added: string) => `mode ${old} → ${added}`,

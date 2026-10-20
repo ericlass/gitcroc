@@ -3,7 +3,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 const tree = (page: Page) => page.getByRole("tree", { name: "Repositories" });
 const history = (page: Page) => page.getByRole("listbox", { name: "History" });
-const files = (page: Page) => page.getByRole("listbox", { name: "Changed files" });
+const files = (page: Page) => page.getByRole("treegrid", { name: "Changed files" });
 const diff = (page: Page) => page.getByRole("region", { name: "Diff" });
 
 /** Opens api's history and selects its commit with `subject`. */
@@ -19,8 +19,8 @@ test("UI-14 selecting a commit shows its files and the first diff; side by side 
   await page.goto("/?fake=tree");
   await selectCommit(page, "api: change 40");
 
-  await expect(files(page).getByRole("option")).toHaveCount(3);
-  await expect(files(page).getByRole("option", { selected: true })).toContainText("README.md");
+  await expect(files(page).getByRole("row")).toHaveCount(3);
+  await expect(files(page).getByRole("row", { selected: true })).toContainText("README.md");
   await expect(diff(page).locator(".cm-content")).toContainText("line five");
   // Inline: one editor with both line numbers.
   await expect(diff(page).locator(".cm-editor")).toHaveCount(1);
@@ -38,9 +38,9 @@ test("UI-14 selecting a commit shows its files and the first diff; side by side 
 test("UI-16 a merge commit can switch parent", async ({ page }) => {
   await page.goto("/?fake=tree");
   await selectCommit(page, "api: change 36");
-  await expect(files(page).getByRole("option")).toHaveText([/side\.txt/]);
+  await expect(files(page).getByRole("row")).toHaveText([/side\.txt/]);
   await page.getByRole("combobox", { name: "Compare with parent" }).selectOption("1");
-  await expect(files(page).getByRole("option")).toHaveText([/main\.txt/]);
+  await expect(files(page).getByRole("row")).toHaveText([/main\.txt/]);
   await expect(diff(page).locator(".cm-content")).toContainText("on main");
 });
 
@@ -50,7 +50,7 @@ test("UI-15 uncommitted changes show both lists", async ({ page }) => {
   await history(page).getByRole("option", { name: /Uncommitted changes/ }).click();
   await expect(page.getByRole("heading", { name: "Uncommitted changes" })).toBeVisible();
   await expect(files(page).locator(".file-section")).toHaveText(["Staged (1)", "Unstaged (3)"]);
-  await expect(files(page).getByRole("option", { selected: true })).toContainText("src/app.ts");
+  await expect(files(page).getByRole("row", { selected: true })).toContainText("src/app.ts");
   await expect(diff(page).locator(".cm-content")).toContainText("staged line");
 });
 
@@ -58,12 +58,12 @@ test("UI-15 stage a hunk, then discard a file after confirming", async ({ page }
   await page.goto("/?fake=tree");
   await tree(page).getByRole("treeitem", { name: /^api/ }).click();
   await history(page).getByRole("option", { name: /Uncommitted changes/ }).click();
-  await files(page).getByRole("option", { name: /main\.rs/ }).click();
+  await files(page).getByRole("row", { name: /main\.rs/ }).click();
   await diff(page).getByRole("button", { name: "Stage hunk 2" }).click();
   // The fake stages it; a file with a hunk left is in both lists.
   await expect(files(page).locator(".file-section")).toHaveText(["Staged (2)", "Unstaged (3)"]);
 
-  await files(page).getByRole("option", { name: /notes\.txt/ }).click();
+  await files(page).getByRole("row", { name: /notes\.txt/ }).click();
   await page.getByRole("button", { name: "Discard notes.txt" }).click();
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toContainText("Discard changes in api?");
@@ -173,7 +173,7 @@ test("SEC-2 diffs and images work under the app's CSP without 'unsafe-inline'", 
   expect(background).not.toBe("rgba(0, 0, 0, 0)");
 
   // Images arrive as bytes and show through blob: URLs.
-  await files(page).getByRole("option", { name: /logo\.png/ }).click();
+  await files(page).getByRole("row", { name: /logo\.png/ }).click();
   const after = diff(page).getByRole("img", { name: "After image" });
   await expect(after).toHaveAttribute("src", /^blob:/);
   await expect.poll(() => after.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);

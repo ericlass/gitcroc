@@ -19,6 +19,7 @@ import PreflightDialog from "./groups/PreflightDialog";
 import { appInfo, type GroupOp, type JobId, type PaletteItem, type TargetSet, type WorkspaceId } from "./ipc";
 import { needsLook } from "./jobs/GroupReport";
 import JobList from "./jobs/JobList";
+import { outcomeText } from "./jobs/outcome";
 import { matches, modalOpen, setMac } from "./keys";
 import Panes from "./layout/Panes";
 import { moveToRegion } from "./layout/regions";
@@ -39,6 +40,7 @@ import SyncDialogs, { SyncRefusal } from "./sync/SyncDialogs";
 import BranchDialogs from "./tree/BranchDialogs";
 import IntegrateDialogs from "./integrate/IntegrateDialogs";
 import { createAiStore } from "./stores/ai";
+import { createAnnouncer } from "./stores/announcer";
 import { createAskpassStore } from "./stores/askpass";
 import { createBranchStore } from "./stores/branch";
 import { createChangesStore } from "./stores/changes";
@@ -74,9 +76,14 @@ export default function App() {
   // A group job's report opens by itself when a repo failed or is in
   // conflict and its tab is active; otherwise its tab shows the marker
   // (UI-32).
+  // A job that ended failed or in conflict is announced, in any tab (M5-10).
+  const announcer = createAnnouncer();
   const jobs = createJobStore((view) => {
     if (view.report !== null && needsLook(view.report) && view.workspace_id === workspaces.active()?.id) {
       setJobsOpen({ initial: view.job_id });
+    }
+    if (view.outcome?.kind === "failed" || view.outcome?.kind === "conflict") {
+      announcer.announce(strings.app.jobEnded(view.label, view.workspace_name, outcomeText(view.outcome)));
     }
   });
   const groupOps = createGroupOpStore();
@@ -536,246 +543,256 @@ export default function App() {
   };
 
   return (
-    <Switch>
-      <Match when={git.state.result === null}>
-        <main class="message-screen">
-          <p>{strings.app.lookingForGit}</p>
-        </main>
-      </Match>
-      <Match when={gitProblem()}>
-        {(problem) => (
-          <GitSetup problem={problem()} os={info()?.os} checking={git.state.checking} onRecheck={() => void git.recheck()} />
-        )}
-      </Match>
-      <Match when={true}>
-        <div class="app">
-          <TabBar
-            commands={commands}
-            workspaces={workspaces}
-            jobs={jobs}
-            dialogs={workspaceDialogs}
-            share={share}
-            ai={ai}
-            onClose={closeTab}
-          />
-          <Show when={share.state.notice}>
-            {(notice) => (
-              <div role={notice().error ? "alert" : "status"} class="banner banner-dismissible">
-                <span>{notice().text}</span>
-                <button type="button" onClick={() => share.dismiss()}>
+    <>
+      <div class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+        {announcer.text()}
+      </div>
+      <Switch>
+        <Match when={git.state.result === null}>
+          <main class="message-screen">
+            <p>{strings.app.lookingForGit}</p>
+          </main>
+        </Match>
+        <Match when={gitProblem()}>
+          {(problem) => (
+            <GitSetup
+              problem={problem()}
+              os={info()?.os}
+              checking={git.state.checking}
+              onRecheck={() => void git.recheck()}
+            />
+          )}
+        </Match>
+        <Match when={true}>
+          <div class="app">
+            <TabBar
+              commands={commands}
+              workspaces={workspaces}
+              jobs={jobs}
+              dialogs={workspaceDialogs}
+              share={share}
+              ai={ai}
+              onClose={closeTab}
+            />
+            <Show when={share.state.notice}>
+              {(notice) => (
+                <div role={notice().error ? "alert" : "status"} class="banner banner-dismissible">
+                  <span>{notice().text}</span>
+                  <button type="button" onClick={() => share.dismiss()}>
+                    {strings.common.dismiss}
+                  </button>
+                </div>
+              )}
+            </Show>
+            <Show when={!missingDismissed() && workspaces.state.missing.length > 0}>
+              <div role="alert" class="banner banner-dismissible">
+                <span>{strings.app.missingWorkspaces(workspaces.state.missing.join(", "))}</span>
+                <button type="button" onClick={() => setMissingDismissed(true)}>
                   {strings.common.dismiss}
                 </button>
               </div>
-            )}
-          </Show>
-          <Show when={!missingDismissed() && workspaces.state.missing.length > 0}>
-            <div role="alert" class="banner banner-dismissible">
-              <span>{strings.app.missingWorkspaces(workspaces.state.missing.join(", "))}</span>
-              <button type="button" onClick={() => setMissingDismissed(true)}>
-                {strings.common.dismiss}
-              </button>
-            </div>
-          </Show>
-          <Toolbar
-            sync={syncActions()}
-            onBranch={branchAction()}
-            onMerge={mergeAction()}
-            onStash={stashAction()}
-            disabledWhy={disabledWhy()}
-            onPalette={workspace() === undefined ? null : openPalette}
-            onSettings={() => setSettingsOpen("top")}
-          />
-          <Show when={workspace()?.id}>{(id) => <SyncRefusal workspace={id()} sync={sync} />}</Show>
-          <Show when={workspace()?.id}>
-            {(id) => (
-              <StashOffer
-                workspace={id()}
-                stash={stash}
-                view={(repo) => summaries.view(id(), repo)}
-                repoName={repoName}
-              />
-            )}
-          </Show>
-          <Show when={info.error as unknown}>
-            <div role="alert" class="banner">
-              {strings.app.cannotReachCore(String(info.error))}
-            </div>
-          </Show>
-          <Show when={settings.state.view?.warning}>{(warning) => <SettingsBanner warning={warning()} />}</Show>
-          <Show when={workspace()?.id}>
-            {(id) => (
-              <Show when={!watch.watch(id()).dismissed && watch.watch(id()).warning}>
-                {(warning) => (
-                  <div role="alert" class="banner banner-dismissible">
-                    <span>{strings.app.watchFailed(warning().message)}</span>
-                    <button type="button" onClick={() => watch.dismiss(id())}>
-                      {strings.common.dismiss}
-                    </button>
-                  </div>
-                )}
-              </Show>
-            )}
-          </Show>
-          {/* Keyed: each tab's panes are built anew from its own state, so nothing of one tab shows in another
-              (UI-29). */}
-          <Show
-            when={workspace()?.id}
-            keyed
-            fallback={
-              <main class="main">
-                <Switch
-                  fallback={
-                    <div class="empty-state">
-                      <p class="placeholder">{strings.app.noWorkspace}</p>
-                      <Show when={startError()}>{(text) => <p role="alert">{text()}</p>}</Show>
-                      <WorkspaceStart
-                        workspaces={workspaces}
-                        dialogs={workspaceDialogs}
-                        onError={setStartError}
-                        onImport={() => share.importWorkspace()}
-                      />
+            </Show>
+            <Toolbar
+              sync={syncActions()}
+              onBranch={branchAction()}
+              onMerge={mergeAction()}
+              onStash={stashAction()}
+              disabledWhy={disabledWhy()}
+              onPalette={workspace() === undefined ? null : openPalette}
+              onSettings={() => setSettingsOpen("top")}
+            />
+            <Show when={workspace()?.id}>{(id) => <SyncRefusal workspace={id()} sync={sync} />}</Show>
+            <Show when={workspace()?.id}>
+              {(id) => (
+                <StashOffer
+                  workspace={id()}
+                  stash={stash}
+                  view={(repo) => summaries.view(id(), repo)}
+                  repoName={repoName}
+                />
+              )}
+            </Show>
+            <Show when={info.error as unknown}>
+              <div role="alert" class="banner">
+                {strings.app.cannotReachCore(String(info.error))}
+              </div>
+            </Show>
+            <Show when={settings.state.view?.warning}>{(warning) => <SettingsBanner warning={warning()} />}</Show>
+            <Show when={workspace()?.id}>
+              {(id) => (
+                <Show when={!watch.watch(id()).dismissed && watch.watch(id()).warning}>
+                  {(warning) => (
+                    <div role="alert" class="banner banner-dismissible">
+                      <span>{strings.app.watchFailed(warning().message)}</span>
+                      <button type="button" onClick={() => watch.dismiss(id())}>
+                        {strings.common.dismiss}
+                      </button>
                     </div>
-                  }
-                >
-                  <Match when={workspaces.state.error !== null}>
-                    <p class="placeholder">{strings.app.cannotOpenWorkspace(workspaces.state.error ?? "")}</p>
-                  </Match>
-                  <Match when={workspaces.state.views === null}>
-                    <p class="placeholder">{strings.app.openingWorkspace}</p>
-                  </Match>
-                </Switch>
-              </main>
-            }
-          >
-            {(id) => (
-              <>
+                  )}
+                </Show>
+              )}
+            </Show>
+            {/* Keyed: each tab's panes are built anew from its own state, so nothing of one tab shows in another
+                (UI-29). */}
+            <Show
+              when={workspace()?.id}
+              keyed
+              fallback={
                 <main class="main">
-                  <Panes
-                    workspace={id}
-                    layout={layout}
-                    tree={tree}
-                    summaries={summaries}
-                    workspaces={workspaces}
-                    history={history}
-                    changes={changes}
-                    commit={commit}
-                    conflicts={conflicts}
-                    branch={branch}
-                    stash={stash}
-                    tag={tag}
-                    remote={remote}
-                    clone={clone}
-                    share={share}
-                    groupOps={groupOps}
-                    reset={reset}
-                    integrate={integrate}
-                    settings={settings}
-                    ai={ai}
-                    resolveAll={resolveAll}
-                    commands={commands}
-                    onAiSettings={() => setSettingsOpen("ai")}
-                  />
+                  <Switch
+                    fallback={
+                      <div class="empty-state">
+                        <p class="placeholder">{strings.app.noWorkspace}</p>
+                        <Show when={startError()}>{(text) => <p role="alert">{text()}</p>}</Show>
+                        <WorkspaceStart
+                          workspaces={workspaces}
+                          dialogs={workspaceDialogs}
+                          onError={setStartError}
+                          onImport={() => share.importWorkspace()}
+                        />
+                      </div>
+                    }
+                  >
+                    <Match when={workspaces.state.error !== null}>
+                      <p class="placeholder">{strings.app.cannotOpenWorkspace(workspaces.state.error ?? "")}</p>
+                    </Match>
+                    <Match when={workspaces.state.views === null}>
+                      <p class="placeholder">{strings.app.openingWorkspace}</p>
+                    </Match>
+                  </Switch>
                 </main>
-                <BranchDialogs workspace={id} branch={branch} repoName={repoName} />
-                <SyncDialogs workspace={id} sync={sync} repoName={repoName} />
-                <StashDialogs workspace={id} stash={stash} repoName={repoName} />
-                <TagDialogs workspace={id} tag={tag} repoName={repoName} />
-                <RemoteDialogs workspace={id} remote={remote} repoName={repoName} />
-                <Show when={clone.isOpen(id)}>
-                  <CloneDialog workspace={id} clone={clone} groups={workspace()?.groups ?? []} />
-                </Show>
-                <Show when={share.missingOpen(id)}>
-                  <MissingReposDialog workspace={id} share={share} />
-                </Show>
-                <ResetDialogs workspace={id} reset={reset} repoName={repoName} />
-                <IntegrateDialogs workspace={id} integrate={integrate} repoName={repoName} branchOf={branchOf} />
-                <StatusBar workspace={id} jobs={jobs} onOpenJobs={() => setJobsOpen({})} />
-              </>
-            )}
-          </Show>
-          <WorkspaceDialogsView dialogs={workspaceDialogs} workspaces={workspaces} onCloseTab={closeConfirmed} />
-          <Show when={jobsOpen()} keyed>
-            {(open) => (
-              <JobList
-                jobs={jobs}
-                initial={open.initial}
-                onClose={() => setJobsOpen(null)}
-                onSelectRepo={(id, repo) => {
-                  setJobsOpen(null);
-                  void workspaces.open(id).then(() => tree.selectRepo(id, repo));
-                }}
-                onOpenFile={(id, repo, path) => {
-                  setJobsOpen(null);
-                  void workspaces
-                    .open(id)
-                    .then(() => tree.selectRepo(id, repo))
-                    .then(() => resolveAll.open(id, repo, path));
-                }}
-                onRetry={(id, job) => {
-                  setJobsOpen(null);
-                  void groupOps.retry(id, job);
-                }}
-              />
-            )}
-          </Show>
-          <Show when={syncOptions()} keyed>
-            {(open) => (
-              <GroupSyncDialog
-                kind={open.kind}
-                targetName={open.targetName}
-                onRun={(op) => {
-                  setSyncOptions(null);
-                  open.run(op);
-                }}
-                onClose={() => setSyncOptions(null)}
-              />
-            )}
-          </Show>
-          <Show when={groupOps.state.nameDialog} keyed>
-            {(dialog) => (
-              <GroupNameDialog
-                dialog={dialog}
-                onRun={(op) => {
-                  groupOps.closeName();
-                  void groupOps.run(dialog.workspaceId, dialog.target, op);
-                }}
-                onClose={() => groupOps.closeName()}
-              />
-            )}
-          </Show>
-          <Show when={groupOps.state.pending}>
-            {(pending) => <PreflightDialog pending={pending()} groupOps={groupOps} />}
-          </Show>
-          <Show when={askpass.current()} keyed>
-            {(prompt) => (
-              <AskpassDialog prompt={prompt} onAnswer={(answer) => void askpass.answer(prompt.prompt_id, answer)} />
-            )}
-          </Show>
-          <Show when={settingsOpen()} keyed>
-            {(at) => (
-              <SettingsDialog
-                settings={settings}
-                ai={ai}
-                info={info()}
-                git={git.state.result}
-                at={at}
-                onClose={() => setSettingsOpen(null)}
-              />
-            )}
-          </Show>
-          <Show when={palette()} keyed>
-            {(open) => (
-              <Palette
-                workspace={open.workspace}
-                commands={commands}
-                onClose={closePalette}
-                onSelect={(item) => selectFromPalette(open.workspace, item)}
-              />
-            )}
-          </Show>
-          <ConsentDialog ai={ai} />
-        </div>
-      </Match>
-    </Switch>
+              }
+            >
+              {(id) => (
+                <>
+                  <main class="main">
+                    <Panes
+                      workspace={id}
+                      layout={layout}
+                      tree={tree}
+                      summaries={summaries}
+                      workspaces={workspaces}
+                      history={history}
+                      changes={changes}
+                      commit={commit}
+                      conflicts={conflicts}
+                      branch={branch}
+                      stash={stash}
+                      tag={tag}
+                      remote={remote}
+                      clone={clone}
+                      share={share}
+                      groupOps={groupOps}
+                      reset={reset}
+                      integrate={integrate}
+                      settings={settings}
+                      ai={ai}
+                      resolveAll={resolveAll}
+                      commands={commands}
+                      onAiSettings={() => setSettingsOpen("ai")}
+                    />
+                  </main>
+                  <BranchDialogs workspace={id} branch={branch} repoName={repoName} />
+                  <SyncDialogs workspace={id} sync={sync} repoName={repoName} />
+                  <StashDialogs workspace={id} stash={stash} repoName={repoName} />
+                  <TagDialogs workspace={id} tag={tag} repoName={repoName} />
+                  <RemoteDialogs workspace={id} remote={remote} repoName={repoName} />
+                  <Show when={clone.isOpen(id)}>
+                    <CloneDialog workspace={id} clone={clone} groups={workspace()?.groups ?? []} />
+                  </Show>
+                  <Show when={share.missingOpen(id)}>
+                    <MissingReposDialog workspace={id} share={share} />
+                  </Show>
+                  <ResetDialogs workspace={id} reset={reset} repoName={repoName} />
+                  <IntegrateDialogs workspace={id} integrate={integrate} repoName={repoName} branchOf={branchOf} />
+                  <StatusBar workspace={id} jobs={jobs} onOpenJobs={() => setJobsOpen({})} />
+                </>
+              )}
+            </Show>
+            <WorkspaceDialogsView dialogs={workspaceDialogs} workspaces={workspaces} onCloseTab={closeConfirmed} />
+            <Show when={jobsOpen()} keyed>
+              {(open) => (
+                <JobList
+                  jobs={jobs}
+                  initial={open.initial}
+                  onClose={() => setJobsOpen(null)}
+                  onSelectRepo={(id, repo) => {
+                    setJobsOpen(null);
+                    void workspaces.open(id).then(() => tree.selectRepo(id, repo));
+                  }}
+                  onOpenFile={(id, repo, path) => {
+                    setJobsOpen(null);
+                    void workspaces
+                      .open(id)
+                      .then(() => tree.selectRepo(id, repo))
+                      .then(() => resolveAll.open(id, repo, path));
+                  }}
+                  onRetry={(id, job) => {
+                    setJobsOpen(null);
+                    void groupOps.retry(id, job);
+                  }}
+                />
+              )}
+            </Show>
+            <Show when={syncOptions()} keyed>
+              {(open) => (
+                <GroupSyncDialog
+                  kind={open.kind}
+                  targetName={open.targetName}
+                  onRun={(op) => {
+                    setSyncOptions(null);
+                    open.run(op);
+                  }}
+                  onClose={() => setSyncOptions(null)}
+                />
+              )}
+            </Show>
+            <Show when={groupOps.state.nameDialog} keyed>
+              {(dialog) => (
+                <GroupNameDialog
+                  dialog={dialog}
+                  onRun={(op) => {
+                    groupOps.closeName();
+                    void groupOps.run(dialog.workspaceId, dialog.target, op);
+                  }}
+                  onClose={() => groupOps.closeName()}
+                />
+              )}
+            </Show>
+            <Show when={groupOps.state.pending}>
+              {(pending) => <PreflightDialog pending={pending()} groupOps={groupOps} />}
+            </Show>
+            <Show when={askpass.current()} keyed>
+              {(prompt) => (
+                <AskpassDialog prompt={prompt} onAnswer={(answer) => void askpass.answer(prompt.prompt_id, answer)} />
+              )}
+            </Show>
+            <Show when={settingsOpen()} keyed>
+              {(at) => (
+                <SettingsDialog
+                  settings={settings}
+                  ai={ai}
+                  info={info()}
+                  git={git.state.result}
+                  at={at}
+                  onClose={() => setSettingsOpen(null)}
+                />
+              )}
+            </Show>
+            <Show when={palette()} keyed>
+              {(open) => (
+                <Palette
+                  workspace={open.workspace}
+                  commands={commands}
+                  onClose={closePalette}
+                  onSelect={(item) => selectFromPalette(open.workspace, item)}
+                />
+              )}
+            </Show>
+            <ConsentDialog ai={ai} />
+          </div>
+        </Match>
+      </Switch>
+    </>
   );
 }

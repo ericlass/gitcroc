@@ -53,7 +53,7 @@ test("UI-22 the palette opens from inside the conflict editor", async ({ page })
   await page.goto("/?fake=conflict");
   await item(page, /^api/).click();
   await history(page).getByRole("option", { name: /Uncommitted changes/ }).click();
-  await page.getByRole("listbox", { name: "Changed files" }).getByRole("option", { name: /README\.md/ }).click();
+  await page.getByRole("treegrid", { name: "Changed files" }).getByRole("row", { name: /README\.md/ }).click();
   const editor = page.getByRole("textbox", { name: "Resolution of README.md" });
   await editor.click();
   await page.keyboard.press("Control+k");
@@ -247,14 +247,14 @@ async function treeMenu(page: Page, path: string[], entry: string) {
 }
 
 const commit = (page: Page) => history(page).getByRole("option").nth(2);
-const files = (page: Page) => page.getByRole("listbox", { name: "Changed files" });
+const files = (page: Page) => page.getByRole("treegrid", { name: "Changed files" });
 
 /** api's uncommitted changes, with `file` selected when given. */
 async function uncommitted(page: Page, file?: string) {
   await open(page, ["api"]);
   await history(page).getByRole("option", { name: /Uncommitted changes/ }).click();
   if (file !== undefined) {
-    await files(page).getByRole("option", { name: new RegExp(escape(file)) }).first().click();
+    await files(page).getByRole("row", { name: new RegExp(escape(file)) }).first().click();
   }
 }
 
@@ -472,7 +472,7 @@ const CASES = {
       await editorOn(page);
       await button(page, "Mark resolved").click();
       await button(page, "Mark resolved anyway").click();
-      await files(page).getByRole("option", { name: /src\/app\.ts/ }).click();
+      await files(page).getByRole("row", { name: /src\/app\.ts/ }).click();
       await useThis(page, "Ours: main");
       await expect(banner(page).getByRole("button", { name: "Continue" })).toBeEnabled();
     },
@@ -611,8 +611,11 @@ const CASES = {
       await page.getByRole("menuitem", { name: "Export workspace…" }).click();
     },
   },
-  job_list: { label: "Show jobs", entry: (page) => button(page, "Show the job list").click() },
-  close_tab: { label: "Close tab", entry: (page) => button(page, "Close My workspace").click() },
+  job_list: {
+    label: "Show jobs",
+    entry: (page) => page.getByRole("button", { description: "Show the job list" }).click(),
+  },
+  close_tab: { label: "Close tab", entry: (page) => page.getByTitle("Close My workspace").click() },
   next_tab: {
     label: "Next tab",
     setup: async (page) => {

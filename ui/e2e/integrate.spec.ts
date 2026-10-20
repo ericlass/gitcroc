@@ -5,7 +5,7 @@ const toolbar = (page: Page) => page.getByRole("toolbar", { name: "Main" });
 
 test("UI-20 merge from the toolbar and UI-13 cherry-pick from the history", async ({ page }) => {
   await page.goto("/?fake=tree");
-  const status = page.getByRole("status");
+  const status = page.getByRole("button", { description: "Show the job list" });
   const merge = toolbar(page).getByRole("button", { name: "Merge" });
   await expect(tree(page).getByRole("treeitem", { name: /^api/ })).toBeVisible();
   await expect(merge).toBeDisabled();

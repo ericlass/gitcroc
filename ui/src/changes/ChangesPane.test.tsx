@@ -105,8 +105,8 @@ test("UI-14 commit header and file list", async () => {
     "Massets/logo.png",
     "Msrc/main.rs",
   ]);
-  const files = screen.getByRole("listbox", { name: "Changed files" });
-  expect(within(files).getByRole("option", { selected: true }).textContent).toContain("README.md");
+  const files = screen.getByRole("treegrid", { name: "Changed files" });
+  expect(within(files).getByRole("row", { selected: true }).textContent).toContain("README.md");
   expect(diffCalls()).toEqual([
     {
       command: "diff",
@@ -127,7 +127,7 @@ test("UI-14 commit header and file list", async () => {
     "Mmain.rs",
     "MREADME.md",
   ]);
-  expect(within(files).getByRole("option", { selected: true }).textContent).toContain("README.md");
+  expect(within(files).getByRole("row", { selected: true }).textContent).toContain("README.md");
 
   // Another file: its diff.
   fireEvent.click(screen.getByText("main.rs"));

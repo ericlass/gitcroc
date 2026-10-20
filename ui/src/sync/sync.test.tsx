@@ -5,6 +5,9 @@ import type { SummaryView } from "../ipc";
 import { emitRepoSummary, fakeState, finishSync, reset } from "../ipc/fake";
 import { type FakeRefs, refNodes, summary } from "../ipc/fakeTree";
 
+/** The status bar: its button shows the jobs (UI-21). */
+const statusBar = () => screen.getByRole("button", { description: "Show the job list" });
+
 // jsdom lays nothing out; give the tree a height so rows are rendered.
 beforeEach(() => {
   const real = HTMLElement.prototype.getBoundingClientRect;
@@ -92,7 +95,7 @@ test("ui_20_toolbar_acts_on_the_selected_repo", async () => {
     },
   ]);
   // The fake's pull failed: main is ahead and behind, and ff-only is the default.
-  expect(screen.getByRole("status").textContent).toContain("Pull origin/main into main: Failed");
+  expect(statusBar().textContent).toContain("Pull origin/main into main: Failed");
 
   // The arrow opens the options.
   fireEvent.click(button("Pull options"));
@@ -106,7 +109,7 @@ test("ui_20_toolbar_acts_on_the_selected_repo", async () => {
   });
   expect(screen.queryByRole("dialog")).toBeNull();
   // OPS-7: ahead and behind read again after the job.
-  expect(screen.getByRole("status").textContent).toContain("Pull origin/main into main: Succeeded");
+  expect(statusBar().textContent).toContain("Pull origin/main into main: Succeeded");
 
   // GRP-8: busy or missing, nothing; in conflict state or on a detached HEAD, only Fetch.
   await becomes({ busy: true });
@@ -133,10 +136,10 @@ test("UI-21 a fetch shows git's phase in the status bar while it runs", async ()
   fakeState.holdSync = true;
   fireEvent.click(button("Fetch"));
   await settleAll();
-  expect(screen.getByRole("status").textContent).toBe("Fetch all remotes Receiving objects 1/2");
+  expect(statusBar().textContent).toBe("Fetch all remotes Receiving objects 1/2");
   finishSync();
   await settleAll();
-  expect(screen.getByRole("status").textContent).toContain("Fetch all remotes: Nothing to do");
+  expect(statusBar().textContent).toContain("Fetch all remotes: Nothing to do");
 });
 
 test("UI-20 a push without a remote to go to asks which", async () => {
@@ -167,7 +170,7 @@ test("UI-20 a push without a remote to go to asks which", async () => {
     remote: "b",
     force_with_lease: false,
   });
-  expect(screen.getByRole("status").textContent).toContain("Push topic to b/topic: Succeeded");
+  expect(statusBar().textContent).toContain("Push topic to b/topic: Succeeded");
 });
 
 test("GRP-9 a force push needs the user's confirmation", async () => {
@@ -188,7 +191,7 @@ test("GRP-9 a force push needs the user's confirmation", async () => {
   await settleAll();
   expect(fakeState.syncRequests.map((request) => request.confirmed)).toEqual([false, true]);
   expect(screen.queryByRole("alertdialog")).toBeNull();
-  expect(screen.getByRole("status").textContent).toContain("Force push main to origin/main: Succeeded");
+  expect(statusBar().textContent).toContain("Force push main to origin/main: Succeeded");
 });
 
 test("UI-20 a refused click shows the core's reason until dismissed", async () => {

@@ -198,6 +198,8 @@ export default function DiffView(props: {
     parts = newParts();
     const diff = props.diff;
     const base = () => baseExtensions(parts, props.wrap);
+    /** The editor's name, as its content is a text box to assistive technology. */
+    const named = (label: string) => EditorView.contentAttributes.of({ "aria-label": label });
     if (sideBySide()) {
       const oldText = diff.old_text ?? "";
       const newText = diff.new_text ?? "";
@@ -208,8 +210,16 @@ export default function DiffView(props: {
       const positions = sidePositions(diff, EditorState.create({ doc: newText }));
       merge = new MergeView({
         parent: host,
-        a: { doc: oldText, extensions: [base(), lineNumbers()] },
-        b: { doc: newText, extensions: [base(), lineNumbers(), sideHeaders(diff, positions, props.controls)] },
+        a: { doc: oldText, extensions: [base(), named(strings.changes.diffBefore(props.path)), lineNumbers()] },
+        b: {
+          doc: newText,
+          extensions: [
+            base(),
+            named(strings.changes.diffAfter(props.path)),
+            lineNumbers(),
+            sideHeaders(diff, positions, props.controls),
+          ],
+        },
         highlightChanges: false,
         gutter: false,
         collapseUnchanged: margin === null ? undefined : { margin, minSize: 4 },
@@ -222,7 +232,7 @@ export default function DiffView(props: {
       const start = EditorState.create({ doc: doc.text });
       const state = EditorState.create({
         doc: doc.text,
-        extensions: [base(), inlineExtensions(doc, start, props.controls)],
+        extensions: [base(), named(strings.changes.diffOf(props.path)), inlineExtensions(doc, start, props.controls)],
       });
       const view = new EditorView({ state, parent: host });
       views = [view];

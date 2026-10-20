@@ -4,6 +4,7 @@
 import { For, onMount, Show } from "solid-js";
 import type { AiStore } from "../stores/ai";
 import { consentTargetValue } from "../stores/ai";
+import { Modal } from "../dialogs/parts";
 import { strings } from "../strings/en";
 
 export default function ConsentDialog(props: { ai: AiStore }) {
@@ -15,58 +16,45 @@ export default function ConsentDialog(props: { ai: AiStore }) {
         const request = () => open().request;
         const where = () => consentTargetValue(request());
         return (
-          <div class="backdrop">
-            <div
-              role="alertdialog"
-              aria-modal="true"
-              aria-labelledby="consent-title"
-              aria-describedby="consent-text"
-              class="dialog op-dialog consent-dialog"
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  props.ai.cancel();
-                }
-              }}
-            >
-              <h2 id="consent-title">{strings.ai.consent.title(where())}</h2>
-              <div id="consent-text">
-                <p>
-                  {request().to.kind === "host" ? (
-                    <>
-                      {strings.ai.consent.sendsToHost(request().provider_name)}
-                      <code>{where()}</code>
-                    </>
-                  ) : (
-                    <>
-                      {strings.ai.consent.runsProgram(request().provider_name)}
-                      <code>{where()}</code>
-                      {strings.ai.consent.passesIt}
-                    </>
-                  )}{" "}
-                  {strings.ai.consent.whatIsSent}
-                </p>
-                <ul class="consent-sent">
-                  <For each={request().sent}>{(item) => <li>{item}</li>}</For>
-                </ul>
-                <p class="note">{strings.ai.consent.askedAgain}</p>
-              </div>
-              <Show when={open().error}>{(error) => <p role="alert">{error()}</p>}</Show>
-              <div class="dialog-actions">
-                <button type="button" ref={(element) => (cancel = element)} onClick={() => props.ai.cancel()}>
-                  {strings.common.cancel}
-                </button>
-                <button
-                  type="button"
-                  class="primary"
-                  disabled={open().sending}
-                  onClick={() => void props.ai.allow()}
-                >
-                  {strings.ai.consent.allow}
-                </button>
-              </div>
+          <Modal
+            role="alertdialog"
+            labelledby="consent-title"
+            describedby="consent-text"
+            class="dialog op-dialog consent-dialog"
+            onEscape={() => props.ai.cancel()}
+          >
+            <h2 id="consent-title">{strings.ai.consent.title(where())}</h2>
+            <div id="consent-text">
+              <p>
+                {request().to.kind === "host" ? (
+                  <>
+                    {strings.ai.consent.sendsToHost(request().provider_name)}
+                    <code>{where()}</code>
+                  </>
+                ) : (
+                  <>
+                    {strings.ai.consent.runsProgram(request().provider_name)}
+                    <code>{where()}</code>
+                    {strings.ai.consent.passesIt}
+                  </>
+                )}{" "}
+                {strings.ai.consent.whatIsSent}
+              </p>
+              <ul class="consent-sent">
+                <For each={request().sent}>{(item) => <li>{item}</li>}</For>
+              </ul>
+              <p class="note">{strings.ai.consent.askedAgain}</p>
             </div>
-          </div>
+            <Show when={open().error}>{(error) => <p role="alert">{error()}</p>}</Show>
+            <div class="dialog-actions">
+              <button type="button" ref={(element) => (cancel = element)} onClick={() => props.ai.cancel()}>
+                {strings.common.cancel}
+              </button>
+              <button type="button" class="primary" disabled={open().sending} onClick={() => void props.ai.allow()}>
+                {strings.ai.consent.allow}
+              </button>
+            </div>
+          </Modal>
         );
       }}
     </Show>

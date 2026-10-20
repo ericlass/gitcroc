@@ -210,7 +210,7 @@ test("ui_28_tabs_reorder_by_drag_and_keyboard_and_close", async () => {
   expect(tabNames()).toEqual(["Java", "My workspace", "Kotlin"]);
 
   // Closing the active tab activates the one that takes its place; the file stays.
-  fireEvent.click(screen.getByRole("button", { name: "Close Java" }));
+  fireEvent.click(screen.getByTitle("Close Java"));
   await settleAll();
   expect(tabNames()).toEqual(["My workspace", "Kotlin"]);
   expect(activeTab()?.textContent).toBe("My workspace");
@@ -260,8 +260,8 @@ test("ui_29_switching_tabs_restores_selection_expansion_scroll_filter_and_sizes"
   const subject = commit.textContent;
   fireEvent.click(commit);
   await settleAll();
-  const files = () => within(screen.getByRole("listbox", { name: "Changed files" }));
-  const file = files().getAllByRole("option")[1] as HTMLElement;
+  const files = () => within(screen.getByRole("treegrid", { name: "Changed files" }));
+  const file = files().getAllByRole("row")[1] as HTMLElement;
   const fileName = file.textContent;
   fireEvent.click(file);
   await settleAll();
@@ -305,7 +305,7 @@ test("ui_29_switching_tabs_restores_selection_expansion_scroll_filter_and_sizes"
     .getAllByRole("option")
     .find((row) => row.getAttribute("aria-selected") === "true");
   expect(selectedCommit?.textContent).toBe(subject);
-  expect(files().getByRole("option", { selected: true }).textContent).toBe(fileName);
+  expect(files().getByRole("row", { selected: true }).textContent).toBe(fileName);
   fireEvent.input(filter(), { target: { value: "" } });
   await settleAll();
   expect(treeRow("api")?.getAttribute("aria-selected")).toBe("true");
@@ -352,7 +352,7 @@ async function editConflict() {
   await settleAll();
   fireEvent.click(within(screen.getByRole("region", { name: "History" })).getAllByRole("option")[0] as HTMLElement);
   await settleAll();
-  fireEvent.click(within(screen.getByRole("listbox", { name: "Changed files" })).getByText("a.txt"));
+  fireEvent.click(within(screen.getByRole("treegrid", { name: "Changed files" })).getByText("a.txt"));
   await settleAll();
   editor().dispatch({ changes: { from: 0, insert: "mine " }, userEvent: "input.type" });
   return editor().state.doc.toString();
@@ -383,11 +383,11 @@ test("ui_29 closing a tab with unsaved conflict edits asks first, naming the fil
   await editConflict();
 
   // A tab without unsaved edits closes at once.
-  fireEvent.click(screen.getByRole("button", { name: "Close Java" }));
+  fireEvent.click(screen.getByTitle("Close Java"));
   await settleAll();
   expect(tabNames()).toEqual(["My workspace"]);
 
-  fireEvent.click(screen.getByRole("button", { name: "Close My workspace" }));
+  fireEvent.click(screen.getByTitle("Close My workspace"));
   const confirm = within(await screen.findByRole("alertdialog"));
   expect(confirm.getByRole("heading").textContent).toBe("Close My workspace?");
   expect(confirm.getByRole("listitem").textContent).toBe("api: a.txt");
@@ -395,7 +395,7 @@ test("ui_29 closing a tab with unsaved conflict edits asks first, naming the fil
   expect(tabNames()).toEqual(["My workspace"]);
   expect(editor().state.doc.toString().startsWith("mine ")).toBe(true);
 
-  fireEvent.click(screen.getByRole("button", { name: "Close My workspace" }));
+  fireEvent.click(screen.getByTitle("Close My workspace"));
   fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Close tab" }));
   await settleAll();
   expect(screen.queryAllByRole("tab")).toEqual([]);
@@ -422,10 +422,10 @@ test("ui_31_a_background_workspace_releases_history_and_diffs", async () => {
   const history = () => within(screen.getByRole("region", { name: "History" }));
   fireEvent.click(history().getAllByRole("option")[1] as HTMLElement);
   await settleAll();
-  const files = () => within(screen.getByRole("listbox", { name: "Changed files" }));
-  fireEvent.click(files().getAllByRole("option")[1] as HTMLElement);
+  const files = () => within(screen.getByRole("treegrid", { name: "Changed files" }));
+  fireEvent.click(files().getAllByRole("row")[1] as HTMLElement);
   await settleAll();
-  const fileName = files().getByRole("option", { selected: true }).textContent;
+  const fileName = files().getByRole("row", { selected: true }).textContent;
   const scroller = () => document.querySelector(".history-scroller") as HTMLElement;
   scroller().scrollTop = 495 * 24;
   fireEvent.scroll(scroller());
@@ -454,7 +454,7 @@ test("ui_31_a_background_workspace_releases_history_and_diffs", async () => {
   fireEvent.scroll(scroller());
   await settleAll();
   expect(history().getAllByRole("option")[1]?.getAttribute("aria-selected")).toBe("true");
-  expect(files().getByRole("option", { selected: true }).textContent).toBe(fileName);
+  expect(files().getByRole("row", { selected: true }).textContent).toBe(fileName);
   expect(holdsViews(main)).toEqual({ walk: true, changes: true });
 });
 
@@ -498,7 +498,7 @@ test("ui_32_tab_badge_counts_jobs_and_marks_unseen_failures", async () => {
   // Activating the tab shows the report in the status bar: it is seen.
   fireEvent.click(tab("Java"));
   await settleAll();
-  expect(screen.getByRole("status").textContent).toContain("Job 41");
+  expect(screen.getByRole("button", { description: "Show the job list" }).textContent).toContain("Job 41");
   fireEvent.click(tab("My workspace"));
   await settleAll();
   expect(marked("Java")).toBe(false);

@@ -45,7 +45,7 @@ async function setup(jobs: JobView[] = []) {
   return store;
 }
 
-const status = () => screen.getByRole("status");
+const status = () => screen.getByRole("button", { description: "Show the job list" });
 const openList = () => fireEvent.click(screen.getByRole("button", { description: "Show the job list" }));
 const rows = () =>
   within(screen.getByRole("listbox", { name: "Jobs" }))

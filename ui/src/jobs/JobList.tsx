@@ -4,10 +4,11 @@
 // group job shows its sub-jobs while it runs and its result report when it
 // ended (section 5). Opening it marks every ended job seen; Escape closes it.
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import { createSignal, For, Match, onMount, Show, Switch } from "solid-js";
 import type { CancelResult, JobId, RepoId, WorkspaceId } from "../ipc";
 import type { JobStore } from "../stores/jobs";
 import AiFileList from "../conflict/AiFileList";
+import { Modal } from "../dialogs/parts";
 import { GroupReport, SubJobList } from "./GroupReport";
 import { formatDuration, formatStart, JobStateLabel } from "./outcome";
 import { strings } from "../strings/en";
@@ -39,7 +40,6 @@ export default function JobList(props: {
   onRetry: (workspace: WorkspaceId, job: JobId) => void;
 }) {
   let scroller: HTMLDivElement | undefined;
-  const opener = document.activeElement;
   const [selected, setSelected] = createSignal<JobId | null>(props.initial ?? props.jobs.jobs()[0]?.job_id ?? null);
   const [cancelled, setCancelled] = createSignal<Record<JobId, string>>({});
 
@@ -65,11 +65,6 @@ export default function JobList(props: {
       virtualizer.scrollToIndex(selectedIndex(), { align: "auto" });
     }
     scroller?.focus();
-  });
-  onCleanup(() => {
-    if (opener instanceof HTMLElement) {
-      opener.focus();
-    }
   });
 
   const select = (index: number) => {
@@ -101,13 +96,6 @@ export default function JobList(props: {
     event.preventDefault();
   };
 
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      props.onClose();
-    }
-  };
-
   const cancel = async (id: JobId) => {
     let text: string | null;
     try {
@@ -119,121 +107,119 @@ export default function JobList(props: {
   };
 
   return (
-    <div class="backdrop" onClick={(event) => event.target === event.currentTarget && props.onClose()}>
-      <div role="dialog" aria-modal="true" aria-labelledby="jobs-title" class="dialog job-list" onKeyDown={onKeyDown}>
-        <div class="job-list-header">
-          <h2 id="jobs-title">{strings.jobs.title}</h2>
-          <button type="button" onClick={() => props.onClose()}>
-            {strings.common.close}
-          </button>
-        </div>
-        <Show when={props.jobs.state.error}>
-          {(error) => <p role="alert">{strings.jobs.cannotRead(error())}</p>}
-        </Show>
-        <div class="job-columns" aria-hidden="true">
-          <span>{strings.jobs.columns.job}</span>
-          <span>{strings.jobs.columns.workspace}</span>
-          <span>{strings.jobs.columns.repo}</span>
-          <span>{strings.jobs.columns.state}</span>
-          <span>{strings.jobs.columns.started}</span>
-          <span>{strings.jobs.columns.duration}</span>
-        </div>
-        <div
-          class="job-scroller"
-          ref={(element) => (scroller = element)}
-          role="listbox"
-          aria-label={strings.jobs.title}
-          tabindex="0"
-          aria-activedescendant={selectedIndex() >= 0 ? `job-row-${selectedIndex()}` : undefined}
-          onKeyDown={onListKeyDown}
-        >
-          <Show when={rows().length > 0} fallback={<p class="placeholder">{strings.jobs.noJobs}</p>}>
-            <div class="job-rows" style={{ height: `${virtualizer.getTotalSize()}px` }}>
-              <For each={virtualizer.getVirtualItems()}>
-                {(item) => (
-                  <Show when={rows()[item.index]}>
-                    {(row) => (
-                      <div
-                        id={`job-row-${item.index}`}
-                        class="job-row"
-                        classList={{ selected: row().job_id === selected() }}
-                        role="option"
-                        aria-selected={row().job_id === selected()}
-                        data-index={item.index}
-                        style={{ transform: `translateY(${item.start}px)` }}
-                        onClick={() => select(item.index)}
-                      >
-                        <span class="job-label">{row().label}</span>
-                        <span>{row().workspace_name}</span>
-                        <span>{row().repo_names.join(", ")}</span>
-                        <JobStateLabel job={row()} />
-                        <span>{formatStart(row().started_at)}</span>
-                        <span>{formatDuration(row().duration_ms)}</span>
-                      </div>
-                    )}
-                  </Show>
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
-        <section class="job-detail" aria-label={strings.jobs.output}>
-          <Show when={job()} fallback={<p class="placeholder">{strings.jobs.selectJob}</p>}>
-            {(shown) => (
-              <>
-                <div class="job-detail-header">
-                  <span class="job-label">{shown().label}</span>
-                  <JobStateLabel job={shown()} />
-                  <Show when={shown().state !== "ended"}>
-                    <button type="button" onClick={() => void cancel(shown().job_id)}>
-                      {strings.common.cancel}
-                    </button>
-                  </Show>
-                </div>
-                <Show when={cancelled()[shown().job_id]}>{(text) => <p aria-live="polite">{text()}</p>}</Show>
-                <Show when={shown().message}>{(message) => <p class="job-message">{message()}</p>}</Show>
-                <Switch
-                  fallback={
-                    <Show when={shown().output} fallback={<p class="placeholder">{strings.jobs.noOutput}</p>}>
-                      <pre class="job-output" tabindex="0">
-                        {shown().output}
-                      </pre>
-                    </Show>
-                  }
-                >
-                  <Match when={shown().report}>
-                    {(report) => (
-                      <GroupReport
-                        job={shown()}
-                        report={report()}
-                        onSelectRepo={(repo) => props.onSelectRepo(shown().workspace_id, repo)}
-                        onRetry={() => props.onRetry(shown().workspace_id, shown().job_id)}
-                      />
-                    )}
-                  </Match>
-                  <Match when={shown().sub_jobs.length > 0}>
-                    <SubJobList job={shown()} />
-                  </Match>
-                  <Match when={shown().ai_files.length > 0}>
-                    <AiFileList
-                      job={shown()}
-                      onOpen={
-                        props.onOpenFile &&
-                        ((path) => props.onOpenFile?.(shown().workspace_id, shown().repos[0] ?? "", path))
-                      }
-                    />
-                    <Show when={shown().output}>
-                      <pre class="job-output" tabindex="0">
-                        {shown().output}
-                      </pre>
-                    </Show>
-                  </Match>
-                </Switch>
-              </>
-            )}
-          </Show>
-        </section>
+    <Modal labelledby="jobs-title" class="dialog job-list" onEscape={props.onClose} onBackdrop={props.onClose}>
+      <div class="job-list-header">
+        <h2 id="jobs-title">{strings.jobs.title}</h2>
+        <button type="button" onClick={() => props.onClose()}>
+          {strings.common.close}
+        </button>
       </div>
-    </div>
+      <Show when={props.jobs.state.error}>
+        {(error) => <p role="alert">{strings.jobs.cannotRead(error())}</p>}
+      </Show>
+      <div class="job-columns" aria-hidden="true">
+        <span>{strings.jobs.columns.job}</span>
+        <span>{strings.jobs.columns.workspace}</span>
+        <span>{strings.jobs.columns.repo}</span>
+        <span>{strings.jobs.columns.state}</span>
+        <span>{strings.jobs.columns.started}</span>
+        <span>{strings.jobs.columns.duration}</span>
+      </div>
+      <div
+        class="job-scroller"
+        ref={(element) => (scroller = element)}
+        role="listbox"
+        aria-label={strings.jobs.title}
+        tabindex="0"
+        aria-activedescendant={selectedIndex() >= 0 ? `job-row-${selectedIndex()}` : undefined}
+        onKeyDown={onListKeyDown}
+      >
+        <Show when={rows().length > 0} fallback={<p class="placeholder">{strings.jobs.noJobs}</p>}>
+          <div class="job-rows" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+            <For each={virtualizer.getVirtualItems()}>
+              {(item) => (
+                <Show when={rows()[item.index]}>
+                  {(row) => (
+                    <div
+                      id={`job-row-${item.index}`}
+                      class="job-row"
+                      classList={{ selected: row().job_id === selected() }}
+                      role="option"
+                      aria-selected={row().job_id === selected()}
+                      data-index={item.index}
+                      style={{ transform: `translateY(${item.start}px)` }}
+                      onClick={() => select(item.index)}
+                    >
+                      <span class="job-label">{row().label}</span>
+                      <span>{row().workspace_name}</span>
+                      <span>{row().repo_names.join(", ")}</span>
+                      <JobStateLabel job={row()} />
+                      <span>{formatStart(row().started_at)}</span>
+                      <span>{formatDuration(row().duration_ms)}</span>
+                    </div>
+                  )}
+                </Show>
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
+      <section class="job-detail" aria-label={strings.jobs.output}>
+        <Show when={job()} fallback={<p class="placeholder">{strings.jobs.selectJob}</p>}>
+          {(shown) => (
+            <>
+              <div class="job-detail-header">
+                <span class="job-label">{shown().label}</span>
+                <JobStateLabel job={shown()} />
+                <Show when={shown().state !== "ended"}>
+                  <button type="button" onClick={() => void cancel(shown().job_id)}>
+                    {strings.common.cancel}
+                  </button>
+                </Show>
+              </div>
+              <Show when={cancelled()[shown().job_id]}>{(text) => <p aria-live="polite">{text()}</p>}</Show>
+              <Show when={shown().message}>{(message) => <p class="job-message">{message()}</p>}</Show>
+              <Switch
+                fallback={
+                  <Show when={shown().output} fallback={<p class="placeholder">{strings.jobs.noOutput}</p>}>
+                    <pre class="job-output" tabindex="0">
+                      {shown().output}
+                    </pre>
+                  </Show>
+                }
+              >
+                <Match when={shown().report}>
+                  {(report) => (
+                    <GroupReport
+                      job={shown()}
+                      report={report()}
+                      onSelectRepo={(repo) => props.onSelectRepo(shown().workspace_id, repo)}
+                      onRetry={() => props.onRetry(shown().workspace_id, shown().job_id)}
+                    />
+                  )}
+                </Match>
+                <Match when={shown().sub_jobs.length > 0}>
+                  <SubJobList job={shown()} />
+                </Match>
+                <Match when={shown().ai_files.length > 0}>
+                  <AiFileList
+                    job={shown()}
+                    onOpen={
+                      props.onOpenFile &&
+                      ((path) => props.onOpenFile?.(shown().workspace_id, shown().repos[0] ?? "", path))
+                    }
+                  />
+                  <Show when={shown().output}>
+                    <pre class="job-output" tabindex="0">
+                      {shown().output}
+                    </pre>
+                  </Show>
+                </Match>
+              </Switch>
+            </>
+          )}
+        </Show>
+      </section>
+    </Modal>
   );
 }

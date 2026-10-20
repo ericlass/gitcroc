@@ -107,7 +107,7 @@ async function setup() {
   return { changes, conflicts, show, stops };
 }
 
-const files = () => screen.getByRole("listbox", { name: "Changed files" });
+const files = () => screen.getByRole("treegrid", { name: "Changed files" });
 const conflictPane = () => screen.getByRole("region", { name: "Conflict" });
 
 /** The shown conflict editor. */
@@ -133,7 +133,7 @@ const selectFile = async (name: string) => {
 
 const rowOf = (name: string) =>
   within(files())
-    .getAllByRole("option")
+    .getAllByRole("row")
     .find((option) => option.textContent?.includes(name));
 
 test("OPS-3 conflicted files listed first", async () => {
@@ -141,14 +141,17 @@ test("OPS-3 conflicted files listed first", async () => {
   await show("r1");
   const sections = [...document.querySelectorAll(".file-section")].map((section) => section.textContent);
   expect(sections).toEqual(["Unmerged (2)", "Staged (0)", "Unstaged (1)"]);
-  const options = within(files()).getAllByRole("option");
+  // The file rows, not the sections'.
+  const options = within(files())
+    .getAllByRole("row")
+    .filter((row) => row.querySelector(".file-name") !== null);
   expect(options.map((option) => option.querySelector(".file-name")?.textContent)).toEqual([
     "a.txt (both modified)",
     "b.txt (both modified)",
     "notes.txt",
   ]);
   // The first conflicted file is selected and opened in the conflict editor.
-  expect(within(files()).getByRole("option", { selected: true }).textContent).toContain("a.txt");
+  expect(within(files()).getByRole("row", { selected: true }).textContent).toContain("a.txt");
   expect(within(conflictPane()).getByRole("toolbar", { name: "Conflict" })).toBeDefined();
   // Unmerged files have no stage or discard controls; they are resolved here.
   expect(within(rowOf("a.txt") ?? document.body).queryAllByRole("button")).toHaveLength(0);
@@ -237,7 +240,7 @@ test("OPS-9 unsaved edits survive switching files and repos", async () => {
   type(0, "mine ");
 
   await show("r2");
-  expect(within(files()).getByRole("option", { selected: true }).textContent).toContain("c.txt");
+  expect(within(files()).getByRole("row", { selected: true }).textContent).toContain("c.txt");
   expect(text().startsWith("first\n")).toBe(true);
   await show("r1");
   expect(text()).toBe(edited);
@@ -301,7 +304,7 @@ test("OPS-5 mark resolved anyway", async () => {
   expect(fakeState.conflictRequests.at(-1)).toMatchObject({ text: expect.stringContaining("<<<<<<< main\n") });
   // The file left the unmerged list; the next one is shown.
   expect(rowOf("a.txt")).toBeUndefined();
-  expect(within(files()).getByRole("option", { selected: true }).textContent).toContain("b.txt");
+  expect(within(files()).getByRole("row", { selected: true }).textContent).toContain("b.txt");
 
   // Resolved text goes through without the override, as the buffer reads.
   fireEvent.click(within(conflictPane()).getByRole("button", { name: "Take theirs in conflict 1" }));

@@ -5,7 +5,7 @@ const toolbar = (page: Page) => page.getByRole("toolbar", { name: "Main" });
 
 test("UI-20 fetch, pull and push the selected repo from the toolbar", async ({ page }) => {
   await page.goto("/?fake=tree");
-  const status = page.getByRole("status");
+  const status = page.getByRole("button", { description: "Show the job list" });
   const fetch = toolbar(page).getByRole("button", { name: "Fetch", exact: true });
   await expect(tree(page).getByRole("treeitem", { name: /^api/ })).toBeVisible();
   await expect(fetch).toBeDisabled();

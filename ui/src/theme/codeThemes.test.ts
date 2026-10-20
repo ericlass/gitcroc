@@ -61,3 +61,46 @@ test("ui_25_diff_colors_meet_contrast", () => {
   }
   expect(failures).toEqual([]);
 });
+
+test("ui_25_syntax_colors_meet_contrast", () => {
+  // Every color text is drawn in, on every background it can be drawn on: the editor's, and each diff highlight
+  // at line and word level (WCAG 1.4.3). Gutter and hunk header text on their own backgrounds.
+  const syntax: (keyof CodeThemeColors)[] = [
+    "text",
+    "keyword",
+    "string",
+    "comment",
+    "number",
+    "type",
+    "function",
+    "tag",
+  ];
+  const backgrounds: (keyof CodeThemeColors)[] = [
+    "background",
+    "added",
+    "addedWord",
+    "removed",
+    "removedWord",
+    "changed",
+    "changedWord",
+    "conflict",
+    "conflictWord",
+  ];
+  const pairs: [keyof CodeThemeColors, keyof CodeThemeColors][] = [
+    ...syntax.flatMap((text) => backgrounds.map((background): [typeof text, typeof background] => [text, background])),
+    ["gutterText", "gutterBackground"],
+    ["hunkText", "hunkBackground"],
+  ];
+  const failures: string[] = [];
+  for (const name of CODE_THEME_NAMES) {
+    const colors = CODE_THEMES[name].colors;
+    for (const [text, background] of pairs) {
+      expect(colors[text], `${name} ${text}`).toMatch(/^#[0-9a-f]{6}$/);
+      const ratio = contrast(colors[text], colors[background]);
+      if (ratio < 4.5) {
+        failures.push(`${name} ${text} on ${background}: ${ratio.toFixed(2)}`);
+      }
+    }
+  }
+  expect(failures).toEqual([]);
+});

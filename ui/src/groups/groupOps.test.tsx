@@ -9,6 +9,9 @@ import { refNodes, summary } from "../ipc/fakeTree";
 import { createGroupOpStore } from "../stores/groupOps";
 import PreflightDialog from "./PreflightDialog";
 
+/** The status bar: its button shows the jobs (UI-21). */
+const statusBar = () => screen.getByRole("button", { description: "Show the job list" });
+
 // jsdom lays nothing out; give the tree and the job list a height so their rows are rendered.
 beforeEach(() => {
   const real = HTMLElement.prototype.getBoundingClientRect;
@@ -187,7 +190,7 @@ test("the report lists every repo with one outcome, opens on failure and survive
   fakeGroups.outputs = { r2: "fatal: could not read from remote repository\n" };
   fakeGroups.classes = { r3: { kind: "blocked", reason: "in conflict state" } };
   await runOnAll();
-  expect(screen.getByRole("status").textContent).toBe("Fetch · All (4 repos) 0/3 repos");
+  expect(statusBar().textContent).toBe("Fetch · All (4 repos) 0/3 repos");
   expect(dialog()).toBeNull();
   fireEvent.click(screen.getByRole("button", { description: "Show the job list" }));
   const subJobs = within(screen.getByRole("list", { name: "Repos" })).getAllByRole("listitem");
@@ -233,7 +236,7 @@ test("a report without a failure or conflict does not open by itself", async () 
   await appSetup();
   await runOnAll();
   expect(dialog()).toBeNull();
-  expect(screen.getByRole("status").textContent).toContain("Succeeded");
+  expect(statusBar().textContent).toContain("Succeeded");
 });
 
 test("grp_11_retry_failed_targets_only_the_failed_repos", async () => {

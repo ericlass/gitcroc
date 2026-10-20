@@ -1,7 +1,8 @@
 // The status bar of UI-21: the running jobs of this workspace with their
 // progress; after the last one ends, its outcome for a while, and a failed
 // or conflicted job until the job list has shown it. Clicking it opens the
-// job list.
+// job list. It is no live region, so progress is not read out on every step;
+// the window's live region says when a job failed (M5-10).
 import { createEffect, createSignal, For, type JSX, Match, on, onCleanup, Show, Switch } from "solid-js";
 import type { JobId, WorkspaceId } from "../ipc";
 import { JobProgressLabel, OutcomeLabel } from "../jobs/outcome";
@@ -66,26 +67,24 @@ export default function StatusBar(props: {
         title={strings.statusBar.showJobs}
         onClick={() => props.onOpenJobs()}
       >
-        <span role="status">
-          <Switch fallback={strings.statusBar.noJobs}>
-            <Match when={running().length > 0}>
-              <For each={running()}>
-                {(job) => (
-                  <span class="status-job">
-                    {job.label} <JobProgressLabel job={job} />
-                  </span>
-                )}
-              </For>
-            </Match>
-            <Match when={ended()}>
+        <Switch fallback={strings.statusBar.noJobs}>
+          <Match when={running().length > 0}>
+            <For each={running()}>
               {(job) => (
                 <span class="status-job">
-                  {job().label}: <Show when={job().outcome}>{(outcome) => <OutcomeLabel outcome={outcome()} />}</Show>
+                  {job.label} <JobProgressLabel job={job} />
                 </span>
               )}
-            </Match>
-          </Switch>
-        </span>
+            </For>
+          </Match>
+          <Match when={ended()}>
+            {(job) => (
+              <span class="status-job">
+                {job().label}: <Show when={job().outcome}>{(outcome) => <OutcomeLabel outcome={outcome()} />}</Show>
+              </span>
+            )}
+          </Match>
+        </Switch>
       </button>
       {props.children}
     </footer>
