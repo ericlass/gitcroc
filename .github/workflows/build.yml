@@ -48,7 +48,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      INSTALL_LOGS: ${{ runner.temp }}/install-logs
+      INSTALL_LOGS: ${{ github.workspace }}/install-logs
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
