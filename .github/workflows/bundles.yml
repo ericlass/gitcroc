@@ -44,7 +44,8 @@ jobs:
             target: ""
           - platform: macos-universal
             os: macos-latest
-            bundles: dmg
+            # The app bundle too: the updater's .app.tar.gz is made from it.
+            bundles: app,dmg
             target: universal-apple-darwin
           # ubuntu-22.04 has glibc 2.35, the Linux floor of D6.
           - platform: linux-x86_64
@@ -148,7 +149,9 @@ jobs:
               ;;
           esac
           if [ "$SIGNING" != none ]; then
-            args+=(--config "$GITHUB_WORKSPACE/crates/gitcroc-app/tauri.release.conf.json")
+            # Relative to ui/, where `just bundle` runs Tauri; an absolute
+            # Windows path would lose its backslashes in just's shell.
+            args+=(--config ../crates/gitcroc-app/tauri.release.conf.json)
           fi
           just bundle "${args[@]}"
 

@@ -481,9 +481,14 @@ async fn ops_7_a_write_jobs_own_changes_are_not_refreshed_again() {
     let change = watched.change_within(EVENTUALLY, |_| true).await.unwrap();
     assert_eq!(change.repo_id, lib_id);
 
-    // Released, `app` is watched again.
+    // Released, `app` is watched again. `lib` may report its commit once
+    // more when the file system's events reach the watcher late (Windows),
+    // so only `app`'s change counts here.
     watched.watchers.hold(&watched.id, &app_id, false);
     app.commit_file("three.txt", "three\n", "Third").unwrap();
-    let change = watched.change_within(EVENTUALLY, |_| true).await.unwrap();
-    assert_eq!(change.repo_id, app_id);
+    let app_change = app_id.clone();
+    let change = watched
+        .change_within(EVENTUALLY, move |change| change.repo_id == app_change)
+        .await;
+    assert!(change.is_some(), "no change of app after the job ended");
 }
