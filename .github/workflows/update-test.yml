@@ -78,5 +78,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: update-failure-${{ matrix.os }}
-          path: target/update-test/logs/
+          path: ${{ runner.temp }}/gitcroc-update-test/logs/
           if-no-files-found: ignore

@@ -10,10 +10,11 @@ import shutil
 import subprocess
 import threading
 import time
+import tempfile
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-WORK = ROOT / "target/update-test"
+WORK = Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "gitcroc-update-test"
 BASE = "http://127.0.0.1:8765"
 
 

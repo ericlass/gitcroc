@@ -8,9 +8,16 @@ from unittest.mock import patch
 spec = importlib.util.spec_from_file_location("update_test", Path(__file__).with_name("update_test.py"))
 driver = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(driver)
+build_spec = importlib.util.spec_from_file_location("update_build", Path(__file__).with_name("update_build.py"))
+builder = importlib.util.module_from_spec(build_spec)
+build_spec.loader.exec_module(builder)
 
 
 class UpdateTests(unittest.TestCase):
+    def test_sec_7_job_outputs_stay_outside_cargos_shared_cache(self):
+        self.assertFalse(builder.WORK.is_relative_to(builder.ROOT / "target"))
+        self.assertEqual(builder.WORK, driver.WORK)
+
     def test_plat_4_requires_installed_and_new_start_in_order(self):
         start = "gitcroc 0.1.1 started (linux x86_64, AppImage)"
         self.assertFalse(driver.installed("update: installed 0.1.1\n", "0.1.1", start))

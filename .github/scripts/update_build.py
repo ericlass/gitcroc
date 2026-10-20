@@ -4,10 +4,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
-WORK = ROOT / "target/update-test"
+WORK = Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "gitcroc-update-test"
 
 
 def run(*args, **kwargs):
@@ -15,6 +16,9 @@ def run(*args, **kwargs):
 
 
 def build():
+    shutil.rmtree(WORK, ignore_errors=True)
+    # Older runs put generated packages in Cargo's cached target directory.
+    shutil.rmtree(ROOT / "target/update-test", ignore_errors=True)
     WORK.mkdir(parents=True, exist_ok=True)
     version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
     core, separator, suffix = version.partition("-")
@@ -25,6 +29,7 @@ def build():
     target = "universal-apple-darwin" if system == "macOS" else ""
     bundles = {"Windows": "nsis", "macOS": "app,dmg", "Linux": "appimage,deb"}[system]
     key = WORK / "updater.key"
+    config = ROOT / "target/update-test-overlay.json"
     pnpm = shutil.which("pnpm")
     try:
         run(pnpm, "--dir", "ui", "exec", "tauri", "signer", "generate", "--ci", "--write-keys", str(key),
@@ -35,12 +40,11 @@ def build():
                        "plugins": {"updater": {"pubkey": public,
                            "dangerousInsecureTransportProtocol": True,
                            "endpoints": ["http://127.0.0.1:8765/latest.json"]}}}
-            config = WORK / "overlay.json"
             config.write_text(json.dumps(overlay))
             env = os.environ.copy()
             env.update(TAURI_SIGNING_PRIVATE_KEY=str(key), TAURI_SIGNING_PRIVATE_KEY_PASSWORD="")
             args = ["just", "bundle", "--features", "update-test", "--bundles", bundles,
-                    "--config", "../target/update-test/overlay.json"]
+                    "--config", "../target/update-test-overlay.json"]
             if target:
                 args += ["--target", target]
             run(*args, env=env)
@@ -57,7 +61,7 @@ def build():
     finally:
         key.unlink(missing_ok=True)
         Path(str(key) + ".pub").unlink(missing_ok=True)
-        (WORK / "overlay.json").unlink(missing_ok=True)
+        config.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
