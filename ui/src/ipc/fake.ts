@@ -68,12 +68,14 @@ import type {
   TagRequest,
   TargetSet,
   TreeNode,
+  UpdateView,
   WatchWarning,
   WorkspaceId,
   WorkspaceTabs,
   WorkspaceView,
 } from "./bindings";
 import type { Core } from "./core";
+import { fakeUpdate, offered, offerUpdate, resetUpdate, updateCommands } from "./fakeUpdate";
 import {
   applyChange,
   defaultDetails,
@@ -144,6 +146,7 @@ export const defaultAppearance: Appearance = {
 export const defaultGroupSettings: GroupSettings = { group_parallelism: 8, always_show_preflight: false };
 const defaultSettings: SettingsView = {
   settings: { theme: "system", ...defaultAppearance, ...defaultGroupSettings, changes: defaultChangesSettings },
+  update_check: true,
   read_only: false,
   warning: null,
 };
@@ -182,6 +185,7 @@ let nextEventId = 1;
 let nextJobId = 1;
 const jobProgressListeners: Listeners<JobView> = new Set();
 const gitStatusListeners: Listeners<GitStatus> = new Set();
+const updateStatusListeners: Listeners<UpdateView> = new Set();
 const workspaceChangedListeners: Listeners<WorkspaceView> = new Set();
 const groupSummaryListeners: Listeners<GroupSummary> = new Set();
 const workspacesChangedListeners: Listeners<WorkspaceTabs> = new Set();
@@ -1396,6 +1400,15 @@ const groupDeps: GroupDeps = {
   },
 };
 
+/** What the fake's updater uses of the fake core (PLAT-4). */
+const updateDeps = {
+  sendJob,
+  newJobId: () => nextJobId++,
+  workspace: () => (fakeState.active === null ? null : (openWorkspace(fakeState.active) ?? null)),
+  jobsRunning: () => fakeState.jobs.some((job) => job.state !== "ended"),
+  changed: (view: UpdateView) => emit(updateStatusListeners, "update_status_changed", view),
+};
+
 /**
  * What detection finds, like the core (PLAT-3): the chosen git if it holds one, too old or not; otherwise
  * what automatic detection finds, saying the chosen path had none.
@@ -1589,6 +1602,8 @@ export function reset(): void {
   imageFiles.clear();
   jobProgressListeners.clear();
   gitStatusListeners.clear();
+  updateStatusListeners.clear();
+  resetUpdate();
   workspaceChangedListeners.clear();
   groupSummaryListeners.clear();
   workspacesChangedListeners.clear();
@@ -1612,6 +1627,9 @@ export function reset(): void {
 // Playwright runs the fake build; `?fake=<name>` picks a data set.
 const picked = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("fake");
 // `jobs` is the `tree` data set with this run's jobs (UI-21).
+// `update` and `update-deb` are the `tree` data set with version 0.2.0 on offer, for an AppImage, which installs it,
+// and for a `.deb`, which only notifies (PLAT-4).
+const withUpdate = picked === "update" || picked === "update-deb";
 // `ai-conflict` and `ai-resolve-all` are the `conflict` data set with AI to resolve it.
 const withAi = picked === "ai-conflict" || picked === "ai-resolve-all";
 // `conflict-choice` is the `conflict` data set with src/app.ts a choice between the two versions (OPS-6).
@@ -1619,7 +1637,10 @@ const choice = picked === "conflict-choice";
 const data =
   picked === null
     ? null
-    : scenario(picked === "jobs" ? "tree" : withAi || choice ? "conflict" : picked, defaultWorkspace.id);
+    : scenario(picked === "jobs" || withUpdate ? "tree" : withAi || choice ? "conflict" : picked, defaultWorkspace.id);
+if (withUpdate) {
+  offerUpdate(offered, picked === "update");
+}
 if (picked === "jobs") {
   fakeState.jobs = jobsScenario(defaultWorkspace);
   nextJobId = 100;
@@ -1662,7 +1683,7 @@ if (picked === "no-tabs") {
 }
 // Playwright reads what reached the fake core, to tell which handler ran (UI-22).
 if (picked !== null && typeof window !== "undefined") {
-  Object.assign(window, { fakeCore: { state: fakeState, groups: fakeGroups } });
+  Object.assign(window, { fakeCore: { state: fakeState, groups: fakeGroups, update: fakeUpdate } });
 }
 if (data) {
   fakeState.workspace = { ...defaultWorkspace, repos: data.repos, groups: data.groups ?? [] };
@@ -2296,6 +2317,22 @@ export const fake: Core = {
       return Promise.resolve({ status: "ok", data: null });
     },
     settingsGet: () => Promise.resolve({ status: "ok", data: fakeState.settings }),
+    ...updateCommands(updateDeps),
+    // Like the core: read-only settings refuse the change.
+    settingsSetUpdateCheck: (enabled) => {
+      if (fakeState.settings.read_only) {
+        return Promise.resolve({
+          status: "error",
+          error: {
+            code: "settings_read_only",
+            message: "the settings are read-only, so the change was not saved",
+            git_stderr: null,
+          },
+        });
+      }
+      fakeState.settings = { ...fakeState.settings, update_check: enabled };
+      return Promise.resolve({ status: "ok", data: fakeState.settings });
+    },
     // Like the core: read-only settings refuse every change.
     settingsSetTheme: (theme) => {
       if (fakeState.settings.read_only) {
@@ -3055,5 +3092,6 @@ export const fake: Core = {
     aiModels: fakeEvent(aiModelsListeners),
     aiSelfTest: fakeEvent(aiSelfTestListeners),
     aiProposalReady: fakeEvent(aiProposalReadyListeners),
+    updateStatusChanged: fakeEvent(updateStatusListeners),
   },
 };

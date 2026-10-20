@@ -143,8 +143,9 @@ test("PERF-1 UI-22 the palette's list holds no more rows than fit and the oversc
   const limit = Math.ceil(height / ROW_HEIGHT) + 1 + 2 * OVERSCAN;
   expect(await options(page).count()).toBeLessThanOrEqual(limit);
   expect(await list.evaluate((element) => element.scrollHeight)).toBeGreaterThan(height * 2);
+  // End selects the catalog's last entry.
   await page.keyboard.press("End");
-  await expect(options(page).filter({ hasText: "New group…" })).toHaveAttribute("aria-selected", "true");
+  await expect(options(page).filter({ hasText: "Check for updates" })).toHaveAttribute("aria-selected", "true");
   expect(await options(page).count()).toBeLessThanOrEqual(limit);
 });
 
@@ -635,6 +636,12 @@ const CASES = {
       await row(page, 1, "Ungrouped").click({ button: "right" });
       await page.getByRole("menuitem", { name: "New group…", exact: true }).click();
     },
+  },
+  // With a version on offer, both open the update dialog (PLAT-4).
+  check_for_updates: {
+    fake: "update",
+    label: "Check for updates",
+    entry: (page) => page.getByRole("button", { name: "gitcroc 0.2.0 is available" }).click(),
   },
 } satisfies Record<PaletteOp, Case>;
 

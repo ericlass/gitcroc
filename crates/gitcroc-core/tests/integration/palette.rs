@@ -227,7 +227,8 @@ const SECTIONS: &[(&str, &str, PaletteOp)] = &[
     ("Section 5", "Commit", PaletteOp::Commit),
 ];
 
-/// The entries around the operations: AI (AI-3, AI-11) and the app.
+/// The entries around the operations: AI (AI-3, AI-11) and the app, with
+/// the update check (PLAT-4).
 const AROUND: &[(&str, PaletteOp)] = &[
     ("Resolve with AI", PaletteOp::ResolveWithAi),
     ("Resolve all with AI", PaletteOp::ResolveAllWithAi),
@@ -244,6 +245,7 @@ const AROUND: &[(&str, PaletteOp)] = &[
     ("Next tab", PaletteOp::NextTab),
     ("Previous tab", PaletteOp::PreviousTab),
     ("New group", PaletteOp::NewGroup),
+    ("Check for updates (M5-12)", PaletteOp::CheckForUpdates),
 ];
 
 #[tokio::test]

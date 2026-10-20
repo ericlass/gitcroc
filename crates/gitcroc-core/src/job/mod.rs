@@ -959,6 +959,13 @@ impl TrackedJob {
         move |done, total| jobs.set_progress(id, None, done, total)
     }
 
+    /// Reports progress in phase `step` like [`Self::step`], from another
+    /// thread.
+    pub fn step_reporter(&self, step: &str) -> impl Fn(u32, u32) + Send + Sync + 'static {
+        let (jobs, id, step) = (self.jobs.clone(), self.id, step.to_owned());
+        move |done, total| jobs.set_progress(id, Some(&step), done, total)
+    }
+
     /// Ends the job and sends its view.
     pub fn end(mut self, outcome: Outcome, output: String, message: Option<String>) {
         self.ended = true;

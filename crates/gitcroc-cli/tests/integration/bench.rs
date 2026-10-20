@@ -25,6 +25,19 @@ fn small_target_project() -> SetSpec {
     }
 }
 
+/// The harness ran every scenario: it exits 0, or 1 when a scenario was over
+/// its budget, which depends on how fast this machine is. The budgets gate on
+/// the reference machine (`just bench`), never on a CI runner, whose speed
+/// varies. 2 is an error.
+fn assert_ran(out: &std::process::Output) {
+    assert!(
+        matches!(out.status.code(), Some(0 | 1)),
+        "exit {:?}: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 #[test]
 fn perf_8_harness_prints_json_with_the_open_repo_history_diff_and_status_scenarios() {
     let data = tempfile::tempdir().unwrap();
@@ -35,12 +48,7 @@ fn perf_8_harness_prints_json_with_the_open_repo_history_diff_and_status_scenari
         .arg(data.path())
         .output()
         .unwrap();
-    assert_eq!(
-        out.status.code(),
-        Some(0),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    assert_ran(&out);
     let results: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let results = results.as_array().unwrap();
     let open = results
@@ -110,12 +118,7 @@ fn perf_8_stretch_measures_a_refresh_and_a_group_fetch_of_many_repos() {
         .arg(data.path())
         .output()
         .unwrap();
-    assert_eq!(
-        out.status.code(),
-        Some(0),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    assert_ran(&out);
     let results: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let on_many = |scenario: &str| {
         results

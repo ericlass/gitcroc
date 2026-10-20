@@ -18,6 +18,7 @@ pub mod linux;
 mod macos;
 #[cfg(not(target_os = "linux"))]
 mod other;
+pub mod package;
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
@@ -28,11 +29,19 @@ pub use launch::{Launch, LaunchError, start};
 #[cfg(target_os = "linux")]
 pub use linux::GtkFonts as PlatformFonts;
 #[cfg(target_os = "linux")]
+pub use linux::LinuxInstallation as PlatformInstallation;
+#[cfg(target_os = "linux")]
 pub use linux::Terminals as PlatformTerminal;
+#[cfg(target_os = "linux")]
+pub use linux::XdgOpen as PlatformBrowser;
 #[cfg(target_os = "linux")]
 pub use linux::XdgOpen as PlatformFileManager;
 #[cfg(target_os = "macos")]
 pub use macos::Finder as PlatformFileManager;
+#[cfg(target_os = "macos")]
+pub use macos::MacInstallation as PlatformInstallation;
+#[cfg(target_os = "macos")]
+pub use macos::Open as PlatformBrowser;
 #[cfg(target_os = "macos")]
 pub use macos::TerminalApp as PlatformTerminal;
 #[cfg(not(target_os = "linux"))]
@@ -42,7 +51,11 @@ pub use unix::UnixSockets as PlatformSockets;
 #[cfg(windows)]
 pub use windows::Explorer as PlatformFileManager;
 #[cfg(windows)]
+pub use windows::Explorer as PlatformBrowser;
+#[cfg(windows)]
 pub use windows::NamedPipes as PlatformSockets;
+#[cfg(windows)]
+pub use windows::WindowsInstallation as PlatformInstallation;
 #[cfg(windows)]
 pub use windows::WindowsTerminal as PlatformTerminal;
 
@@ -50,6 +63,17 @@ pub use windows::WindowsTerminal as PlatformTerminal;
 pub trait FileManager {
     /// What shows folder `path` in it.
     fn show(path: &Path) -> Launch;
+}
+
+/// The default web browser, for the download page (PLAT-4).
+pub trait WebBrowser {
+    /// What opens `url` in it.
+    fn open(url: &str) -> Launch;
+}
+
+/// The package the running app came from (PLAT-4); see [`package`].
+pub trait Installation {
+    fn package() -> gitcroc_core::Package;
 }
 
 /// A terminal (section 6 "Repos").

@@ -31,6 +31,7 @@ mod tag;
 mod target;
 mod tree;
 mod unblocked;
+mod update;
 mod watch;
 mod workspace;
 
@@ -133,6 +134,10 @@ pub use tag::{TagError, TagOp, TagRequest, TagStart, op_tag, tag_name_check};
 pub use target::{TargetSet, target_repos};
 pub use tree::{
     TreeError, TreeItem, TreeNode, Trees, UNGROUPED_ID, group_branches, tree_filter, tree_refs,
+};
+pub use update::{
+    CHECK_INTERVAL, Package, UpdateClock, UpdateError, UpdateEvents, UpdateFound, UpdateFuture,
+    UpdateInstall, UpdateProgress, UpdateSetup, UpdateSource, UpdateStatus, UpdateView, Updates,
 };
 pub use watch::{DEBOUNCE, MAX_DELAY, RepoChange, WatchWarning, WatchedPath, Watchers};
 pub use workspace::{

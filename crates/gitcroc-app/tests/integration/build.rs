@@ -1,6 +1,6 @@
-//! Build configuration (M0-08): one version number for the whole app, no
-//! updater until auto-update arrives in M5, the app identifier (ADR 0002) and
-//! no bundled git (D13).
+//! Build configuration (M0-08): one version number for the whole app, the
+//! updater and its key (SEC-7, M5-12), the app identifier (ADR 0002) and no
+//! bundled git (D13).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -61,23 +61,105 @@ fn one_version_number() {
     }
 }
 
-/// Auto-update arrives in M5; until then the build has no update endpoint.
+/// The project's updater public key (README "Updater key"): the content of
+/// the `.pub` file, base64 as Tauri takes it. The private key never enters
+/// the repo.
+const UPDATER_PUBLIC_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdDOUE5NTE3NjI5QTdDOTkKUldTWmZKcGlGNVdhZkFycG4veXhKemFOZW1zVlJubDFnTzNRZTY5YnNReEJTWnFPWVNpU0hwc1oK";
+
+/// SEC-7: update packages are verified with the project's own key. The
+/// updater has the public key and one https endpoint, the latest release's
+/// manifest; the Windows installer runs passive. Updater artifacts are made
+/// by the release config of M5-13 only, so a build without the private key
+/// still works.
 #[test]
-fn no_updater_until_m5() {
+fn sec_7_updates_are_verified_with_the_project_key() {
     let config = read_json(&app_dir().join("tauri.conf.json"));
+    let updater = config
+        .pointer("/plugins/updater")
+        .expect("tauri.conf.json configures the updater");
+    assert_eq!(updater["pubkey"].as_str(), Some(UPDATER_PUBLIC_KEY));
+    let endpoints: Vec<&str> = updater["endpoints"]
+        .as_array()
+        .expect("endpoints is a list")
+        .iter()
+        .map(|endpoint| endpoint.as_str().expect("an endpoint is text"))
+        .collect();
+    assert_eq!(
+        endpoints,
+        ["https://github.com/ericlass/gitcroc/releases/latest/download/latest.json"]
+    );
     assert!(
-        config.pointer("/plugins/updater").is_none(),
-        "tauri.conf.json must not configure the updater"
+        endpoints
+            .iter()
+            .all(|endpoint| endpoint.starts_with("https://"))
+    );
+    assert_eq!(
+        config.pointer("/plugins/updater/windows/installMode"),
+        Some(&Value::from("passive"))
+    );
+    assert!(
+        updater.get("dangerousInsecureTransportProtocol").is_none()
+            && updater.get("dangerousAcceptInvalidCerts").is_none()
+            && updater.get("dangerousAcceptInvalidHostnames").is_none(),
+        "the updater must not loosen its transport"
     );
     assert!(
         config.pointer("/bundle/createUpdaterArtifacts").is_none(),
-        "tauri.conf.json must not create updater artifacts"
+        "tauri.conf.json must not create updater artifacts; the release config does (M5-13)"
     );
+    for path in overlay_configs() {
+        let overlay = read_json(&path);
+        assert!(
+            overlay.pointer("/plugins/updater").is_none(),
+            "{} must not change the updater",
+            path.display()
+        );
+    }
 
     let manifest = read(&app_dir().join("Cargo.toml"));
     assert!(
-        !manifest.contains("tauri-plugin-updater"),
-        "the updater plugin must not be a dependency"
+        manifest.contains("tauri-plugin-updater"),
+        "the updater plugin is a dependency of gitcroc-app"
+    );
+    // The public key decodes to a minisign public key.
+    let key = String::from_utf8(
+        base64::engine::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            UPDATER_PUBLIC_KEY,
+        )
+        .expect("the key is base64"),
+    )
+    .expect("the key is text");
+    assert!(
+        key.starts_with("untrusted comment: minisign public key: "),
+        "{key}"
+    );
+}
+
+/// D12: debug and test builds never check for updates, and neither do the
+/// `e2e` and `perf-trace` builds of the smoke test and the benches, so no
+/// test, smoke run or bench reaches the network. This test binary is a
+/// debug build.
+#[test]
+fn d12_debug_and_test_builds_never_check() {
+    const { assert!(cfg!(debug_assertions)) };
+    const { assert!(!gitcroc_app::update::CHECKS) };
+    let source = read(&app_dir().join("src/update.rs"));
+    assert!(
+        source.contains(
+            "!(cfg!(debug_assertions) || cfg!(feature = \"e2e\") || cfg!(feature = \"perf-trace\"))"
+        ),
+        "CHECKS must be off in debug, e2e and perf-trace builds"
+    );
+}
+
+/// PLAT-4: the packages that only notify open the releases page, fixed in
+/// the app and never taken from the manifest.
+#[test]
+fn plat_4_the_download_page_is_fixed() {
+    assert_eq!(
+        gitcroc_app::update::RELEASES_PAGE,
+        "https://github.com/ericlass/gitcroc/releases/latest"
     );
 }
 

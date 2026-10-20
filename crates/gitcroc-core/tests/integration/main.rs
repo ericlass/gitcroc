@@ -32,6 +32,7 @@ mod sync;
 mod tabs;
 mod tag;
 mod tree;
+mod update;
 mod watch;
 mod workspace;
 mod workspaces;

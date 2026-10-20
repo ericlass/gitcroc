@@ -339,6 +339,156 @@ fn d3_gix_is_in_gitcroc_git_only_and_has_no_network_client() {
     assert!(network.is_empty(), "D3: gix is built with {network:?}");
 }
 
+/// Crates that open HTTP connections, or the sockets under them.
+const HTTP_CLIENTS: [&str; 8] = [
+    "reqwest",
+    "hyper",
+    "ureq",
+    "isahc",
+    "curl",
+    "attohttpc",
+    "surf",
+    "minreq",
+];
+
+/// The targets the app ships for (section 11), with the `cfg` values a
+/// dependency's platform is matched against.
+const DESKTOP_TARGETS: [(&str, &[&str]); 3] = [
+    (
+        "x86_64-unknown-linux-gnu",
+        &[
+            "unix",
+            "target_os=\"linux\"",
+            "target_family=\"unix\"",
+            "target_arch=\"x86_64\"",
+            "target_vendor=\"unknown\"",
+            "target_env=\"gnu\"",
+            "target_pointer_width=\"64\"",
+        ],
+    ),
+    (
+        "x86_64-pc-windows-msvc",
+        &[
+            "windows",
+            "target_os=\"windows\"",
+            "target_family=\"windows\"",
+            "target_arch=\"x86_64\"",
+            "target_vendor=\"pc\"",
+            "target_env=\"msvc\"",
+            "target_pointer_width=\"64\"",
+        ],
+    ),
+    (
+        "aarch64-apple-darwin",
+        &[
+            "unix",
+            "target_os=\"macos\"",
+            "target_family=\"unix\"",
+            "target_arch=\"aarch64\"",
+            "target_vendor=\"apple\"",
+            "target_env=\"\"",
+            "target_pointer_width=\"64\"",
+        ],
+    ),
+];
+
+/// Whether `dep` is a normal dependency on one of the desktop targets. Some
+/// crates, such as `tauri`, depend on an HTTP client only on Android and
+/// iOS.
+fn normal_on_desktop(dep: &cargo_metadata::NodeDep) -> bool {
+    use cargo_metadata::cargo_platform::Cfg;
+    dep.dep_kinds.iter().any(|kind| {
+        kind.kind == DependencyKind::Normal
+            && kind.target.as_ref().is_none_or(|platform| {
+                DESKTOP_TARGETS.iter().any(|(name, cfgs)| {
+                    let cfgs: Vec<Cfg> = cfgs
+                        .iter()
+                        .map(|cfg| cfg.parse().expect("a cfg value"))
+                        .collect();
+                    platform.matches(name, &cfgs)
+                })
+            })
+    })
+}
+
+/// The HTTP clients among `reached`.
+fn http_clients(reached: BTreeSet<&str>) -> Vec<&str> {
+    reached
+        .into_iter()
+        .filter(|name| HTTP_CLIENTS.contains(name))
+        .collect()
+}
+
+/// D12: the app makes no network calls of its own except the user's AI
+/// calls and the update check. Of the project's crates only `gitcroc-ai`
+/// depends on an HTTP client directly, and `gitcroc-app` reaches one only
+/// through `gitcroc-ai` and the updater plugin. Git's network operations run
+/// the git CLI (ARCH-1), and `gix` has no network client (D3).
+#[test]
+fn d12_only_the_ai_and_update_code_open_connections() {
+    let meta = metadata();
+    let names = names_by_id(meta);
+    let direct: BTreeSet<(&str, &str)> = meta
+        .workspace_packages()
+        .into_iter()
+        .flat_map(|p| {
+            p.dependencies
+                .iter()
+                .filter(|dep| dep.kind == DependencyKind::Normal)
+                .filter(|dep| HTTP_CLIENTS.contains(&dep.name.as_str()))
+                .map(move |dep| (p.name.as_str(), dep.name.as_str()))
+        })
+        .collect();
+    assert_eq!(direct, BTreeSet::from([("gitcroc-ai", "reqwest")]));
+
+    let resolve = meta.resolve.as_ref().expect("metadata includes resolve");
+    let nodes: HashMap<_, _> = resolve.nodes.iter().map(|n| (&n.id, n)).collect();
+    // The packages a crate reaches through normal dependencies, without
+    // passing the crates in `through`.
+    let reached = |root: &str, through: &[&str]| -> BTreeSet<&str> {
+        let start = meta
+            .workspace_packages()
+            .into_iter()
+            .find(|p| p.name.as_str() == root)
+            .unwrap_or_else(|| panic!("{root} is a workspace member"));
+        let mut seen = HashSet::new();
+        let mut queue = VecDeque::from([&start.id]);
+        while let Some(id) = queue.pop_front() {
+            for dep in &nodes[id].deps {
+                if normal_on_desktop(dep)
+                    && !through.contains(&names[&dep.pkg])
+                    && seen.insert(&dep.pkg)
+                {
+                    queue.push_back(&dep.pkg);
+                }
+            }
+        }
+        seen.into_iter().map(|id| names[id]).collect()
+    };
+    let app = reached("gitcroc-app", &[]);
+    assert!(app.contains("tauri-plugin-updater"), "D12: no updater");
+    assert_eq!(
+        http_clients(reached(
+            "gitcroc-app",
+            &["gitcroc-ai", "tauri-plugin-updater"]
+        )),
+        Vec::<&str>::new(),
+        "D12: gitcroc-app reaches an HTTP client past gitcroc-ai and the updater"
+    );
+    for name in ["gitcroc-git", "gitcroc-core"] {
+        assert_eq!(
+            http_clients(reached(name, &[])),
+            Vec::<&str>::new(),
+            "D12: {name} reaches an HTTP client"
+        );
+    }
+    assert_eq!(
+        http_clients(reached("gitcroc-cli", &["gitcroc-ai"])),
+        Vec::<&str>::new(),
+        "D12: gitcroc-cli reaches an HTTP client past gitcroc-ai"
+    );
+}
+
 /// The `os` values of `job` in a workflow file: an inline list, such as
 /// `os: [ubuntu-22.04, windows-latest]`, or one `os:` line per `include`
 /// entry. Read from the text, since the workspace has no YAML parser.

@@ -542,6 +542,14 @@ const OPERATIONS = {
       await menu(page, "New group…");
     },
   },
+  check_for_updates: {
+    fake: "update",
+    label: "Check for updates",
+    entry: async (page) => {
+      await toRegion(page, ".status-bar");
+      await press(page, page.getByRole("button", { name: "gitcroc 0.2.0 is available" }));
+    },
+  },
 } satisfies Record<PaletteOp, Case>;
 
 /** The request of `action` on hunk `hunk`, from 0, in what reached the core. */

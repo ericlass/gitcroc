@@ -36,6 +36,39 @@ export const commands = {
 	/**  Changes the app theme (UI-23) and saves the settings. */
 	settingsSetTheme: (theme: Theme) => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_set_theme", { theme })),
 	/**
+	 *  Turns the automatic update check on or off (D12, SEC-7) and saves the
+	 *  settings.
+	 */
+	settingsSetUpdateCheck: (enabled: boolean) => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_set_update_check", { enabled })),
+	/**
+	 *  Where the update check and install are (PLAT-4); each change also
+	 *  arrives as `update_status_changed`.
+	 */
+	updateStatus: () => typedError<UpdateView, IpcError>(__TAURI_INVOKE("update_status")),
+	/**
+	 *  Checks for an update at once, also while automatic checks are off, and
+	 *  returns at once; the result arrives as `update_status_changed`. A build
+	 *  that does not check does nothing (D12).
+	 */
+	updateCheckNow: () => typedError<null, IpcError>(__TAURI_INVOKE("update_check_now")),
+	/**
+	 *  Puts off the available update's notice until the next start or a newer
+	 *  version.
+	 */
+	updateLater: () => typedError<null, IpcError>(__TAURI_INVOKE("update_later")),
+	/**
+	 *  Installs the available update as a job of the active workspace, refused
+	 *  while another job runs, and restarts into it once it is verified and
+	 *  installed (PLAT-4, SEC-7). The UI asks first when a tab holds unsaved
+	 *  conflict edits (OPS-9).
+	 */
+	updateInstall: () => typedError<JobId, IpcError>(__TAURI_INVOKE("update_install")),
+	/**
+	 *  Opens the releases page in the browser, for the packages that do not
+	 *  install updates (PLAT-4). The page is fixed in the app.
+	 */
+	updateOpenDownloadPage: () => typedError<null, IpcError>(__TAURI_INVOKE("update_open_download_page")),
+	/**
 	 *  The open workspaces in tab order, the active one, and the saved tabs
 	 *  whose file was gone at start (UI-27, UI-33).
 	 */
@@ -700,6 +733,7 @@ export const events = {
 	preflightReady: makeEvent<PreflightReadyEvent>("preflight_ready"),
 	repoRefsChanged: makeEvent<RepoRefsChangedEvent>("repo_refs_changed"),
 	repoSummary: makeEvent<RepoSummaryEvent>("repo_summary"),
+	updateStatusChanged: makeEvent<UpdateStatusChangedEvent>("update_status_changed"),
 	watchWarning: makeEvent<WatchWarningEvent>("watch_warning"),
 	workspaceAddReport: makeEvent<WorkspaceAddReportEvent>("workspace_add_report"),
 	workspaceChanged: makeEvent<WorkspaceChangedEvent>("workspace_changed"),
@@ -709,7 +743,7 @@ export const events = {
 };
 
 /* Constants */
-export const PALETTE_CATALOG = [{"ai":false,"keywords":["repository","existing","scan"],"label":"Add folder…","op":"add_folder","subject":"app"},{"ai":false,"keywords":["url"],"label":"Clone repository…","op":"clone","subject":"app"},{"ai":false,"keywords":["repository"],"label":"Remove from workspace","op":"remove_repo","subject":"target_set"},{"ai":false,"keywords":["folder","explorer","finder","reveal"],"label":"Open in file manager","op":"open_in_file_manager","subject":"target_set"},{"ai":false,"keywords":["shell","console"],"label":"Open in terminal","op":"open_in_terminal","subject":"target_set"},{"ai":false,"keywords":["add"],"label":"Stage file","op":"stage_file","subject":"file"},{"ai":false,"keywords":["remove"],"label":"Unstage file","op":"unstage_file","subject":"file"},{"ai":false,"keywords":["restore","undo"],"label":"Discard file changes…","op":"discard_file","subject":"file"},{"ai":false,"keywords":["add"],"label":"Stage all","op":"stage_all","subject":"target_set"},{"ai":false,"keywords":[],"label":"Unstage all","op":"unstage_all","subject":"target_set"},{"ai":false,"keywords":["message"],"label":"Commit…","op":"commit","subject":"target_set"},{"ai":false,"keywords":["message"],"label":"Amend last commit…","op":"amend","subject":"target_set"},{"ai":false,"keywords":["switch","checkout"],"label":"Check out branch…","op":"checkout","subject":"target_set"},{"ai":false,"keywords":["new"],"label":"Create branch…","op":"create_branch","subject":"target_set"},{"ai":false,"keywords":["move"],"label":"Rename branch…","op":"rename_branch","subject":"branch"},{"ai":false,"keywords":["remove"],"label":"Delete branch…","op":"delete_branch","subject":"target_set"},{"ai":false,"keywords":["branch","track"],"label":"Set upstream…","op":"set_upstream","subject":"branch"},{"ai":false,"keywords":["switch","checkout","track"],"label":"Check out remote branch","op":"checkout_remote_branch","subject":"branch"},{"ai":false,"keywords":["switch","checkout","detach"],"label":"Check out commit (detached)","op":"checkout_commit","subject":"commit"},{"ai":false,"keywords":[],"label":"Fetch","op":"fetch","subject":"target_set"},{"ai":false,"keywords":["prune"],"label":"Fetch with options…","op":"fetch_with_options","subject":"target_set"},{"ai":false,"keywords":[],"label":"Pull","op":"pull","subject":"target_set"},{"ai":false,"keywords":["strategy","ff-only"],"label":"Pull with options…","op":"pull_with_options","subject":"target_set"},{"ai":false,"keywords":[],"label":"Push","op":"push","subject":"target_set"},{"ai":false,"keywords":["force","upstream"],"label":"Push with options…","op":"push_with_options","subject":"target_set"},{"ai":false,"keywords":[],"label":"Merge into current…","op":"merge","subject":"target_set"},{"ai":false,"keywords":[],"label":"Rebase current onto…","op":"rebase","subject":"target_set"},{"ai":false,"keywords":["apply"],"label":"Cherry-pick commit","op":"cherry_pick","subject":"commit"},{"ai":false,"keywords":["undo"],"label":"Revert commit","op":"revert","subject":"commit"},{"ai":false,"keywords":["conflict","cancel","merge","rebase"],"label":"Abort","op":"abort","subject":"conflict"},{"ai":false,"keywords":["conflict","merge","rebase"],"label":"Continue","op":"continue","subject":"conflict"},{"ai":false,"keywords":["conflict","stage"],"label":"Mark resolved","op":"mark_resolved","subject":"file"},{"ai":false,"keywords":["conflict","hunk"],"label":"Take ours","op":"take_ours","subject":"file"},{"ai":false,"keywords":["conflict","hunk"],"label":"Take theirs","op":"take_theirs","subject":"file"},{"ai":false,"keywords":["conflict","hunk"],"label":"Take both","op":"take_both","subject":"file"},{"ai":false,"keywords":["conflict","ours"],"label":"Keep our version of the file","op":"keep_ours","subject":"file"},{"ai":false,"keywords":["conflict","theirs"],"label":"Keep their version of the file","op":"keep_theirs","subject":"file"},{"ai":false,"keywords":["save"],"label":"Stash changes…","op":"stash","subject":"target_set"},{"ai":false,"keywords":[],"label":"Apply stash","op":"stash_apply","subject":"stash"},{"ai":false,"keywords":[],"label":"Pop stash","op":"stash_pop","subject":"stash"},{"ai":false,"keywords":["delete"],"label":"Drop stash…","op":"stash_drop","subject":"stash"},{"ai":false,"keywords":["new"],"label":"Create tag…","op":"create_tag","subject":"target_set"},{"ai":false,"keywords":["remove"],"label":"Delete tag…","op":"delete_tag","subject":"tag"},{"ai":false,"keywords":[],"label":"Push tag","op":"push_tag","subject":"tag"},{"ai":false,"keywords":[],"label":"Reset current branch: soft…","op":"reset_soft","subject":"commit"},{"ai":false,"keywords":[],"label":"Reset current branch: mixed…","op":"reset_mixed","subject":"commit"},{"ai":false,"keywords":["discard"],"label":"Reset current branch: hard…","op":"reset_hard","subject":"commit"},{"ai":false,"keywords":["new"],"label":"Add remote…","op":"add_remote","subject":"target_set"},{"ai":false,"keywords":[],"label":"Rename remote…","op":"rename_remote","subject":"remote"},{"ai":false,"keywords":["delete"],"label":"Remove remote…","op":"remove_remote","subject":"remote"},{"ai":false,"keywords":[],"label":"Edit remote URL…","op":"edit_remote_url","subject":"remote"},{"ai":true,"keywords":["conflict"],"label":"Resolve with AI","op":"resolve_with_ai","subject":"file"},{"ai":true,"keywords":["conflict"],"label":"Resolve all with AI","op":"resolve_all_with_ai","subject":"conflict"},{"ai":true,"keywords":["ai","conflict","proposals"],"label":"Accept all high-confidence","op":"accept_high_confidence","subject":"file"},{"ai":false,"keywords":["preferences","options"],"label":"Settings","op":"settings","subject":"app"},{"ai":false,"keywords":["tab","create"],"label":"New workspace…","op":"new_workspace","subject":"app"},{"ai":false,"keywords":["open"],"label":"Import workspace…","op":"import_workspace","subject":"app"},{"ai":false,"keywords":["save","share"],"label":"Export workspace…","op":"export_workspace","subject":"app"},{"ai":false,"keywords":["job list","progress"],"label":"Show jobs","op":"job_list","subject":"app"},{"ai":false,"keywords":["workspace"],"label":"Close tab","op":"close_tab","subject":"app"},{"ai":false,"keywords":["workspace"],"label":"Next tab","op":"next_tab","subject":"app"},{"ai":false,"keywords":["workspace"],"label":"Previous tab","op":"previous_tab","subject":"app"},{"ai":false,"keywords":["create"],"label":"New group…","op":"new_group","subject":"app"}] as const;
+export const PALETTE_CATALOG = [{"ai":false,"keywords":["repository","existing","scan"],"label":"Add folder…","op":"add_folder","subject":"app"},{"ai":false,"keywords":["url"],"label":"Clone repository…","op":"clone","subject":"app"},{"ai":false,"keywords":["repository"],"label":"Remove from workspace","op":"remove_repo","subject":"target_set"},{"ai":false,"keywords":["folder","explorer","finder","reveal"],"label":"Open in file manager","op":"open_in_file_manager","subject":"target_set"},{"ai":false,"keywords":["shell","console"],"label":"Open in terminal","op":"open_in_terminal","subject":"target_set"},{"ai":false,"keywords":["add"],"label":"Stage file","op":"stage_file","subject":"file"},{"ai":false,"keywords":["remove"],"label":"Unstage file","op":"unstage_file","subject":"file"},{"ai":false,"keywords":["restore","undo"],"label":"Discard file changes…","op":"discard_file","subject":"file"},{"ai":false,"keywords":["add"],"label":"Stage all","op":"stage_all","subject":"target_set"},{"ai":false,"keywords":[],"label":"Unstage all","op":"unstage_all","subject":"target_set"},{"ai":false,"keywords":["message"],"label":"Commit…","op":"commit","subject":"target_set"},{"ai":false,"keywords":["message"],"label":"Amend last commit…","op":"amend","subject":"target_set"},{"ai":false,"keywords":["switch","checkout"],"label":"Check out branch…","op":"checkout","subject":"target_set"},{"ai":false,"keywords":["new"],"label":"Create branch…","op":"create_branch","subject":"target_set"},{"ai":false,"keywords":["move"],"label":"Rename branch…","op":"rename_branch","subject":"branch"},{"ai":false,"keywords":["remove"],"label":"Delete branch…","op":"delete_branch","subject":"target_set"},{"ai":false,"keywords":["branch","track"],"label":"Set upstream…","op":"set_upstream","subject":"branch"},{"ai":false,"keywords":["switch","checkout","track"],"label":"Check out remote branch","op":"checkout_remote_branch","subject":"branch"},{"ai":false,"keywords":["switch","checkout","detach"],"label":"Check out commit (detached)","op":"checkout_commit","subject":"commit"},{"ai":false,"keywords":[],"label":"Fetch","op":"fetch","subject":"target_set"},{"ai":false,"keywords":["prune"],"label":"Fetch with options…","op":"fetch_with_options","subject":"target_set"},{"ai":false,"keywords":[],"label":"Pull","op":"pull","subject":"target_set"},{"ai":false,"keywords":["strategy","ff-only"],"label":"Pull with options…","op":"pull_with_options","subject":"target_set"},{"ai":false,"keywords":[],"label":"Push","op":"push","subject":"target_set"},{"ai":false,"keywords":["force","upstream"],"label":"Push with options…","op":"push_with_options","subject":"target_set"},{"ai":false,"keywords":[],"label":"Merge into current…","op":"merge","subject":"target_set"},{"ai":false,"keywords":[],"label":"Rebase current onto…","op":"rebase","subject":"target_set"},{"ai":false,"keywords":["apply"],"label":"Cherry-pick commit","op":"cherry_pick","subject":"commit"},{"ai":false,"keywords":["undo"],"label":"Revert commit","op":"revert","subject":"commit"},{"ai":false,"keywords":["conflict","cancel","merge","rebase"],"label":"Abort","op":"abort","subject":"conflict"},{"ai":false,"keywords":["conflict","merge","rebase"],"label":"Continue","op":"continue","subject":"conflict"},{"ai":false,"keywords":["conflict","stage"],"label":"Mark resolved","op":"mark_resolved","subject":"file"},{"ai":false,"keywords":["conflict","hunk"],"label":"Take ours","op":"take_ours","subject":"file"},{"ai":false,"keywords":["conflict","hunk"],"label":"Take theirs","op":"take_theirs","subject":"file"},{"ai":false,"keywords":["conflict","hunk"],"label":"Take both","op":"take_both","subject":"file"},{"ai":false,"keywords":["conflict","ours"],"label":"Keep our version of the file","op":"keep_ours","subject":"file"},{"ai":false,"keywords":["conflict","theirs"],"label":"Keep their version of the file","op":"keep_theirs","subject":"file"},{"ai":false,"keywords":["save"],"label":"Stash changes…","op":"stash","subject":"target_set"},{"ai":false,"keywords":[],"label":"Apply stash","op":"stash_apply","subject":"stash"},{"ai":false,"keywords":[],"label":"Pop stash","op":"stash_pop","subject":"stash"},{"ai":false,"keywords":["delete"],"label":"Drop stash…","op":"stash_drop","subject":"stash"},{"ai":false,"keywords":["new"],"label":"Create tag…","op":"create_tag","subject":"target_set"},{"ai":false,"keywords":["remove"],"label":"Delete tag…","op":"delete_tag","subject":"tag"},{"ai":false,"keywords":[],"label":"Push tag","op":"push_tag","subject":"tag"},{"ai":false,"keywords":[],"label":"Reset current branch: soft…","op":"reset_soft","subject":"commit"},{"ai":false,"keywords":[],"label":"Reset current branch: mixed…","op":"reset_mixed","subject":"commit"},{"ai":false,"keywords":["discard"],"label":"Reset current branch: hard…","op":"reset_hard","subject":"commit"},{"ai":false,"keywords":["new"],"label":"Add remote…","op":"add_remote","subject":"target_set"},{"ai":false,"keywords":[],"label":"Rename remote…","op":"rename_remote","subject":"remote"},{"ai":false,"keywords":["delete"],"label":"Remove remote…","op":"remove_remote","subject":"remote"},{"ai":false,"keywords":[],"label":"Edit remote URL…","op":"edit_remote_url","subject":"remote"},{"ai":true,"keywords":["conflict"],"label":"Resolve with AI","op":"resolve_with_ai","subject":"file"},{"ai":true,"keywords":["conflict"],"label":"Resolve all with AI","op":"resolve_all_with_ai","subject":"conflict"},{"ai":true,"keywords":["ai","conflict","proposals"],"label":"Accept all high-confidence","op":"accept_high_confidence","subject":"file"},{"ai":false,"keywords":["preferences","options"],"label":"Settings","op":"settings","subject":"app"},{"ai":false,"keywords":["tab","create"],"label":"New workspace…","op":"new_workspace","subject":"app"},{"ai":false,"keywords":["open"],"label":"Import workspace…","op":"import_workspace","subject":"app"},{"ai":false,"keywords":["save","share"],"label":"Export workspace…","op":"export_workspace","subject":"app"},{"ai":false,"keywords":["job list","progress"],"label":"Show jobs","op":"job_list","subject":"app"},{"ai":false,"keywords":["workspace"],"label":"Close tab","op":"close_tab","subject":"app"},{"ai":false,"keywords":["workspace"],"label":"Next tab","op":"next_tab","subject":"app"},{"ai":false,"keywords":["workspace"],"label":"Previous tab","op":"previous_tab","subject":"app"},{"ai":false,"keywords":["create"],"label":"New group…","op":"new_group","subject":"app"},{"ai":false,"keywords":["update","version","upgrade"],"label":"Check for updates","op":"check_for_updates","subject":"app"}] as const;
 
 /* Types */
 /**  What an add job did. */
@@ -2055,6 +2089,17 @@ export type Operation =
  */
 export type Outcome = { kind: "succeeded" } | { kind: "nothing_to_do" } | { kind: "skipped"; reason: SkipReason } | { kind: "failed" } | { kind: "conflict" };
 
+/**  The package the running app came from (PLAT-4). */
+export type Package = 
+/**  The NSIS installer. */
+"windows_installer" | 
+/**  The portable zip. */
+"windows_portable" | 
+/**  The `.app` of the `.dmg`. */
+"mac_app" | "app_image" | "deb" | "rpm" | 
+/**  None of the above, such as a build run from the source tree. */
+"unknown";
+
 /**  One row of the palette. */
 export type PaletteItem = { kind: "operation"; op: PaletteOp; label: string; subject: PaletteSubject } | { kind: "repo"; repo_id: RepoId; name: string; 
 /**
@@ -2076,7 +2121,7 @@ remote: string | null };
  *  An operation of the palette. The id is stable: the UI maps each to the
  *  handler its toolbar, menu or pane entry uses.
  */
-export type PaletteOp = "add_folder" | "clone" | "remove_repo" | "open_in_file_manager" | "open_in_terminal" | "stage_file" | "unstage_file" | "discard_file" | "stage_all" | "unstage_all" | "commit" | "amend" | "checkout" | "create_branch" | "rename_branch" | "delete_branch" | "set_upstream" | "checkout_remote_branch" | "checkout_commit" | "fetch" | "fetch_with_options" | "pull" | "pull_with_options" | "push" | "push_with_options" | "merge" | "rebase" | "cherry_pick" | "revert" | "abort" | "continue" | "mark_resolved" | "take_ours" | "take_theirs" | "take_both" | "keep_ours" | "keep_theirs" | "stash" | "stash_apply" | "stash_pop" | "stash_drop" | "create_tag" | "delete_tag" | "push_tag" | "reset_soft" | "reset_mixed" | "reset_hard" | "add_remote" | "rename_remote" | "remove_remote" | "edit_remote_url" | "resolve_with_ai" | "resolve_all_with_ai" | "accept_high_confidence" | "settings" | "new_workspace" | "import_workspace" | "export_workspace" | "job_list" | "close_tab" | "next_tab" | "previous_tab" | "new_group";
+export type PaletteOp = "add_folder" | "clone" | "remove_repo" | "open_in_file_manager" | "open_in_terminal" | "stage_file" | "unstage_file" | "discard_file" | "stage_all" | "unstage_all" | "commit" | "amend" | "checkout" | "create_branch" | "rename_branch" | "delete_branch" | "set_upstream" | "checkout_remote_branch" | "checkout_commit" | "fetch" | "fetch_with_options" | "pull" | "pull_with_options" | "push" | "push_with_options" | "merge" | "rebase" | "cherry_pick" | "revert" | "abort" | "continue" | "mark_resolved" | "take_ours" | "take_theirs" | "take_both" | "keep_ours" | "keep_theirs" | "stash" | "stash_apply" | "stash_pop" | "stash_drop" | "create_tag" | "delete_tag" | "push_tag" | "reset_soft" | "reset_mixed" | "reset_hard" | "add_remote" | "rename_remote" | "remove_remote" | "edit_remote_url" | "resolve_with_ai" | "resolve_all_with_ai" | "accept_high_confidence" | "settings" | "new_workspace" | "import_workspace" | "export_workspace" | "job_list" | "close_tab" | "next_tab" | "previous_tab" | "new_group" | "check_for_updates";
 
 /**  The best [`MAX_PALETTE_ITEMS`] items of a query, and how many matched. */
 export type PaletteResult = {
@@ -2545,6 +2590,8 @@ export type Settings = {
 /**  The settings as the UI sees them. */
 export type SettingsView = {
 	settings: Settings,
+	/**  The app checks for updates by itself (D12); on by default. */
+	update_check: boolean,
 	/**  Changes are refused; `warning` says why. */
 	read_only: boolean,
 	warning: ConfigWarning | null,
@@ -2879,6 +2926,50 @@ export type UnmergedFile = {
 
 /**  How the two sides of a merge left a path, as `git status` names it. */
 export type UnmergedKind = "both_deleted" | "added_by_us" | "deleted_by_them" | "added_by_them" | "deleted_by_us" | "both_added" | "both_modified";
+
+/**
+ *  Where the update check and install are. Times and byte counts are `u64`,
+ *  declared to specta as `u32` so TypeScript gets a plain `number`; specta
+ *  makes an `f64` `number | null`.
+ */
+export type UpdateStatus = 
+/**  No check has run yet. */
+{ kind: "idle" } | { kind: "checking" } | 
+/**
+ *  The last check found no newer version; times are milliseconds since
+ *  the Unix epoch.
+ */
+{ kind: "up_to_date"; checked_at: number } | 
+/**  The last check found `version`. */
+{ kind: "available"; version: string; date: string | null; notes: string; checked_at: number } | 
+/**
+ *  `done` of `total` bytes of `version` are downloaded; `total` is `None`
+ *  while it is not known.
+ */
+{ kind: "downloading"; version: string; done: number; total: number | null } | 
+/**  `version` is installed; the app restarts into it. */
+{ kind: "ready_to_restart"; version: string } | 
+/**  The last check failed, such as when offline. */
+{ kind: "failed"; reason: string; checked_at: number };
+
+/**
+ *  The updater's view changed: a check began or ended, an update is
+ *  downloading or ready, or its notice was put off (PLAT-4).
+ */
+export type UpdateStatusChangedEvent = UpdateView;
+
+/**  The updater as the UI shows it. */
+export type UpdateView = {
+	status: UpdateStatus,
+	current_version: string,
+	package: Package,
+	/**  An update installs itself; otherwise the download page is offered. */
+	installs: boolean,
+	/**  This build checks at all: release bundles only (D12). */
+	checks: boolean,
+	/**  The available version's notice was put off with Later. */
+	later: boolean,
+};
 
 /**  The branch the current branch tracks. */
 export type Upstream = {

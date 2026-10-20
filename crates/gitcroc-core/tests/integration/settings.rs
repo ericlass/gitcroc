@@ -75,6 +75,7 @@ fn data_1_missing_file_gives_defaults() {
                 },
                 changes: ChangesSettings::default(),
             },
+            update_check: true,
             read_only: false,
             warning: None,
         }

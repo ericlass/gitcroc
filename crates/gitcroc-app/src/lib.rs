@@ -5,6 +5,7 @@ pub mod askpass;
 pub mod ipc;
 pub mod platform;
 pub mod proposer;
+pub mod update;
 
 use std::sync::Arc;
 
@@ -59,6 +60,9 @@ pub fn run() -> Result<(), Error> {
         // The folder picker, used from Rust only; the window has no dialog
         // permission (SEC-2).
         .plugin(tauri_plugin_dialog::init())
+        // The update check and install (PLAT-4), used from Rust only; the
+        // window has no updater permission (SEC-2).
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(invoke_handler)
         .manage(GitSetup::new())
         .manage(log)
@@ -107,6 +111,10 @@ pub fn run() -> Result<(), Error> {
             app.manage(askpass_ui);
             app.manage(jobs);
             app.manage(ipc::group_ops(app.handle()));
+            // Checks only in release bundles, after the startup refresh (D12).
+            let updates = update::updates(app.handle());
+            tauri::async_runtime::spawn(updates.clone().run_schedule());
+            app.manage(updates);
             // AI providers (M4-05): their keys in the OS keychain, or in
             // memory for the `e2e` build. With AI on, the CLI providers are
             // detected and self-tested in the background (AI-2, AI-16).

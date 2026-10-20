@@ -1,5 +1,6 @@
 //! Windows: the askpass socket is a named pipe of a random name, local to
-//! the machine (D10); the file manager and the terminal.
+//! the machine (D10); the file manager, the browser, the terminal and the
+//! package.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -8,7 +9,9 @@ use std::time::Duration;
 
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 
-use super::{FileManager, Launch, LocalListener, LocalSockets, Terminal};
+use gitcroc_core::Package;
+
+use super::{FileManager, Installation, Launch, LocalListener, LocalSockets, Terminal, WebBrowser};
 
 /// `ERROR_PIPE_BUSY`: every instance of the pipe is taken for now.
 const PIPE_BUSY: i32 = 231;
@@ -80,6 +83,27 @@ pub struct Explorer;
 impl FileManager for Explorer {
     fn show(path: &Path) -> Launch {
         Launch::new("explorer", [path.into()], path.to_owned())
+    }
+}
+
+/// Explorer opens a URL in the default browser too.
+impl WebBrowser for Explorer {
+    fn open(url: &str) -> Launch {
+        Launch::new("explorer", [url.into()], std::env::temp_dir())
+    }
+}
+
+/// The installer or the portable zip (see [`super::package`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WindowsInstallation;
+
+impl Installation for WindowsInstallation {
+    fn package() -> Package {
+        let uninstaller = std::env::current_exe()
+            .ok()
+            .and_then(|exe| Some(exe.parent()?.join(super::package::WINDOWS_UNINSTALLER)))
+            .is_some_and(|path| path.is_file());
+        super::package::windows_package(tauri::utils::platform::bundle_type(), uninstaller)
     }
 }
 

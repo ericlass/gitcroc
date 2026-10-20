@@ -223,8 +223,9 @@ fn sec_2_capabilities_expose_no_shell_or_fs() {
             "SEC-2: {source} grants {identifier}, which is not in ALLOWED_PERMISSIONS"
         );
         // The dialog plugin is linked for the folder picker, which Rust
-        // opens; the UI gets none of its commands (M1-05).
-        for plugin in ["shell:", "fs:", "http:", "dialog:"] {
+        // opens; the UI gets none of its commands (M1-05). Nor of the
+        // updater's, which the app's own commands call (M5-12).
+        for plugin in ["shell:", "fs:", "http:", "dialog:", "updater:"] {
             assert!(
                 !identifier.starts_with(plugin),
                 "SEC-2: {source} grants {identifier}"

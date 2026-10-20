@@ -14,3 +14,4 @@ mod ipc;
 mod platform;
 mod security;
 mod start;
+mod update;
