@@ -6,7 +6,8 @@
 //! `CHANGELOG.md`). `assemble` reads the packages and `.sig` files in `<dir>`,
 //! writes `<dir>/latest.json` and prints the release notes. Without a section
 //! for the version both fail; with `--dry-run` they take the Unreleased
-//! section instead and say so. Exits 1 on an error and 2 on a usage error.
+//! section instead, or the newest one when Unreleased is empty, and say so.
+//! Exits 1 on an error and 2 on a usage error.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -85,16 +86,16 @@ fn run(args: &Args) -> Result<(), release_manifest::Error> {
             path: args.changelog.clone(),
             source,
         })?;
-    let (text, unreleased) = match &args.command {
+    let (text, fallback) = match &args.command {
         Command::Section => {
             let section =
                 release_manifest::release_section(&changelog, &args.version, args.dry_run)?;
-            (section.text, section.unreleased)
+            (section.text, section.fallback)
         }
         Command::Assemble { pub_date, dir } => {
             let assembled =
                 release_manifest::assemble(dir, &changelog, &args.version, pub_date, args.dry_run)?;
-            (assembled.notes, assembled.unreleased)
+            (assembled.notes, assembled.fallback)
         }
         Command::Local {
             pub_date,
@@ -115,9 +116,9 @@ fn run(args: &Args) -> Result<(), release_manifest::Error> {
             return Ok(());
         }
     };
-    if unreleased {
+    if let Some(name) = fallback {
         eprintln!(
-            "release-manifest: {} has no section for {}; this dry run uses the Unreleased section",
+            "release-manifest: {} has no section for {}; this dry run uses the {name} section",
             args.changelog.display(),
             args.version
         );

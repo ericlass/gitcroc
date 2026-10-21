@@ -37,4 +37,4 @@ The repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KE
 
 ## Dry runs
 
-Actions, Release, "Run workflow" builds and signs everything from the chosen branch with a key made for the run, and uploads the release as the artifact `gitcroc-<version>-release`, without creating a release. A pull request that changes the release workflow, `bundles.yml`, `tauri.release.conf.json` or `tools/release-manifest` runs one too. When the version has no changelog section yet, a dry run takes the `Unreleased` section and says so in its log.
+Actions, Release, "Run workflow" builds and signs everything from the chosen branch with a key made for the run, and uploads the release as the artifact `gitcroc-<version>-release`, without creating a release. A pull request that changes the release workflow, `bundles.yml`, `tauri.release.conf.json` or `tools/release-manifest` runs one too. When the version has no changelog section yet, a dry run takes the `Unreleased` section, or the newest section when `Unreleased` is empty (right after a release), and says so in its log.
