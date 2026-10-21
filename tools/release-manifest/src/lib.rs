@@ -29,7 +29,7 @@ pub enum Error {
     BadDate(String),
     #[error("CHANGELOG.md has no section for {0}")]
     NoSection(String),
-    #[error("CHANGELOG.md has neither a section for {0} nor an Unreleased section")]
+    #[error("CHANGELOG.md has no section for {0}, and no other section has notes")]
     NoUnreleased(String),
     #[error("no {what} ({pattern}) among the files")]
     Missing { what: &'static str, pattern: String },
@@ -46,9 +46,9 @@ pub enum Error {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Section {
     pub text: String,
-    /// True when a dry run took the Unreleased section because the version
-    /// has none.
-    pub unreleased: bool,
+    /// The section a dry run took because the version has none: Unreleased,
+    /// or right after a release, when Unreleased is empty, the newest one.
+    pub fallback: Option<String>,
 }
 
 /// The body of the section of `CHANGELOG.md` headed `## [<name>]` or
@@ -70,24 +70,36 @@ pub fn changelog_section(changelog: &str, name: &str) -> Option<String> {
 
 /// The version's section. A release needs one; a dry run takes the
 /// Unreleased section when the version has none, since the version of a
-/// dry run may never be released.
+/// dry run may never be released, and the newest section with notes when
+/// Unreleased is empty, as it is right after a release.
 pub fn release_section(changelog: &str, version: &str, dry_run: bool) -> Result<Section, Error> {
     check_version(version)?;
     if let Some(text) = changelog_section(changelog, version) {
         return Ok(Section {
             text,
-            unreleased: false,
+            fallback: None,
         });
     }
     if !dry_run {
         return Err(Error::NoSection(version.to_owned()));
     }
-    let text = changelog_section(changelog, "Unreleased")
+    let (name, text) = changelog_section(changelog, "Unreleased")
+        .map(|text| ("Unreleased".to_owned(), text))
+        .or_else(|| newest_section(changelog))
         .ok_or_else(|| Error::NoUnreleased(version.to_owned()))?;
     Ok(Section {
         text,
-        unreleased: true,
+        fallback: Some(name),
     })
+}
+
+/// The first section after Unreleased that has notes, with its name.
+fn newest_section(changelog: &str) -> Option<(String, String)> {
+    changelog
+        .lines()
+        .filter_map(heading_name)
+        .filter(|name| !name.eq_ignore_ascii_case("Unreleased"))
+        .find_map(|name| changelog_section(changelog, name).map(|text| (name.to_owned(), text)))
 }
 
 /// The name a `## ` heading gives its section: the text in brackets, or the
@@ -271,7 +283,7 @@ explains how to get past the warning. `SHA256SUMS` has the checksum of every fil
 #[derive(Debug)]
 pub struct Assembled {
     pub notes: String,
-    pub unreleased: bool,
+    pub fallback: Option<String>,
 }
 
 /// Reads the packages in `dir`, writes `dir/latest.json` and returns the
@@ -316,7 +328,7 @@ pub fn assemble(
     fs::write(&path, text).map_err(|source| Error::Io { path, source })?;
     Ok(Assembled {
         notes: release_notes(version, &section.text, &packages),
-        unreleased: section.unreleased,
+        fallback: section.fallback,
     })
 }
 
@@ -532,7 +544,7 @@ All notable changes to gitcroc are documented in this file.
             false,
         )
         .unwrap();
-        assert!(!assembled.unreleased);
+        assert_eq!(assembled.fallback, None);
         let section = "### Added\n- Workspaces and groups.\n- AI conflict resolution.";
         assert!(
             assembled
@@ -601,7 +613,7 @@ All notable changes to gitcroc are documented in this file.
     }
 
     #[test]
-    fn a_release_needs_its_section_and_a_dry_run_falls_back_to_unreleased() {
+    fn a_release_needs_its_section_and_a_dry_run_falls_back_to_unreleased_or_the_newest() {
         let err = release_section(CHANGELOG, "1.0.0", false).unwrap_err();
         assert!(
             matches!(err, Error::NoSection(ref version) if version == "1.0.0"),
@@ -611,14 +623,25 @@ All notable changes to gitcroc are documented in this file.
             release_section(CHANGELOG, "1.0.0", true).unwrap(),
             Section {
                 text: "### Added\n- Something new.".to_owned(),
-                unreleased: true
+                fallback: Some("Unreleased".to_owned())
             }
         );
         // A dry run of a version with a section uses it.
-        assert!(
-            !release_section(CHANGELOG, "1.0.0-rc.1", true)
+        assert_eq!(
+            release_section(CHANGELOG, "1.0.0-rc.1", true)
                 .unwrap()
-                .unreleased
+                .fallback,
+            None
+        );
+        // Right after a release Unreleased is empty; a dry run takes the
+        // newest section with notes.
+        let released = CHANGELOG.replace("### Added\n- Something new.\n", "");
+        assert_eq!(
+            release_section(&released, "1.0.1", true).unwrap(),
+            Section {
+                text: "### Added\n- Workspaces and groups.\n- AI conflict resolution.".to_owned(),
+                fallback: Some("1.0.0-rc.1".to_owned())
+            }
         );
         let err = release_section("# Changelog\n", "1.0.0", true).unwrap_err();
         assert!(matches!(err, Error::NoUnreleased(_)), "{err}");
