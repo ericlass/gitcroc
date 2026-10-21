@@ -26,7 +26,7 @@ The repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KE
 6. **Check the draft** under Releases:
    - **Files:** `gitcroc_<version>_x64-setup.exe` and its `.sig`, `gitcroc-<version>-windows-x64-portable.zip`, `gitcroc_<version>_universal.dmg`, `gitcroc.app.tar.gz` and its `.sig`, `gitcroc_<version>_amd64.AppImage` and its `.sig`, `gitcroc_<version>_amd64.deb`, `gitcroc-<version>-1.x86_64.rpm`, `SHA256SUMS` and `latest.json`.
    - **`latest.json`:** `version` is the new version. The four platforms `windows-x86_64`, `darwin-x86_64`, `darwin-aarch64` and `linux-x86_64` point to `https://github.com/ericlass/gitcroc/releases/download/v<version>/…` and each has a signature. `pub_date` is when the workflow ran.
-   - **Notes:** the changelog section, then the download paragraph with the link to `docs/install-unsigned.md`.
+   - **Notes:** the changelog section, then the download paragraph with the link to `docs/user/install.md`.
    - **Pre-release:** the box is ticked exactly when the version has a pre-release part.
 7. **Publish** the draft. Publish a pre-release as a pre-release. GitHub's `releases/latest`, where the updater looks for `latest.json`, ignores pre-releases and drafts, so installed apps are offered final versions only.
 

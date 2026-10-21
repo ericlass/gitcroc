@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 pub const RELEASES: &str = "https://github.com/ericlass/gitcroc/releases/download";
 
 /// The page that explains how to open the unsigned builds (SEC-7).
-pub const INSTALL_UNSIGNED: &str = "docs/install-unsigned.md";
+pub const INSTALL_UNSIGNED: &str = "docs/user/install.md";
 
 /// Errors returned by `release-manifest`.
 #[derive(Debug, thiserror::Error)]
@@ -557,9 +557,7 @@ All notable changes to gitcroc are documented in this file.
     fn sec_7_release_notes_link_the_unsigned_install_page_and_name_each_file() {
         let notes = release_notes(VERSION, "### Fixed\n- A bug.", &packages());
         assert!(
-            notes.contains(
-                "https://github.com/ericlass/gitcroc/blob/v1.0.0/docs/install-unsigned.md"
-            ),
+            notes.contains("https://github.com/ericlass/gitcroc/blob/v1.0.0/docs/user/install.md"),
             "{notes}"
         );
         for file in [
