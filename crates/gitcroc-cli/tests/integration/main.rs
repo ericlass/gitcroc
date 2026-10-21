@@ -19,5 +19,6 @@ mod group_world;
 mod history;
 mod quality_gates;
 mod status;
+mod user_docs;
 mod workspace;
 mod workspace_policy;

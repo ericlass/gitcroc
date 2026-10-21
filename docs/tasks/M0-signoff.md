@@ -2,7 +2,7 @@
 
 Milestone M0 (docs/spec/13-milestones.md) is done when an empty three-pane window opens on all three platforms from the CI artifacts and QA-1 is green. The person verifying fills in this file and commits it.
 
-Get the artifacts from the latest green run of the **Build** workflow on `main` (`gitcroc-<version>-<platform>`). [docs/install-unsigned.md](../install-unsigned.md) explains how to get past the unsigned-build warnings.
+Get the artifacts from the latest green run of the **Build** workflow on `main` (`gitcroc-<version>-<platform>`). [docs/user/install.md](../user/install.md) explains how to get past the unsigned-build warnings.
 
 Mark each check `[x]` when it passes and add notes after it: the OS warning you saw, or what failed.
 
