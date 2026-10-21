@@ -166,6 +166,10 @@ It checks that A installs and restarts as B, B refuses a tampered package withou
 and Linux's deb only notifies. Generated keys and overlays are deleted; only failure logs
 are uploaded. Release workflows never enable the feature.
 
+## Releasing
+
+[RELEASING.md](RELEASING.md) has the steps of a release.
+
 ## Test naming (QA-3)
 
 A test for requirement X carries X in its name or in a comment. For example, `grp_6_one_failure_does_not_stop_others` tests GRP-6. The coverage script accepts both `GRP-6` and `grp_6`. It searches test code under `crates/` and `ui/`, which means:
