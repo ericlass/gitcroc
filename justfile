@@ -14,7 +14,8 @@ check-rust:
     just coverage M2
     just coverage M3
     just coverage M4
-    just coverage spec --report-only
+    just coverage M5
+    just coverage spec
 
 # The front-end half of `just check`.
 check-ui:
