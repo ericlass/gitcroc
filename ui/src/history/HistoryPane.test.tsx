@@ -28,6 +28,7 @@ afterEach(() => {
   cleanup();
   reset();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -184,6 +185,37 @@ test("UI-36 an edge right of the subject resizes the column to its right, and th
   expect(screen.getByRole("separator", { name: "Resize Graph" }).classList.contains("splitter-before")).toBe(true);
   // Each edge between two columns has one splitter; the subject has none.
   expect(screen.getAllByRole("separator")).toHaveLength(4);
+});
+
+test("UI-36 the header leaves room for the list's scrollbar, so its columns line up with the rows", async () => {
+  // jsdom has no ResizeObserver and no scrollbars: the list reports one 14 px wide. The virtualizer observes the
+  // list too; only the observer of the rows is the header's.
+  const observers: { callback: () => void; targets: Element[] }[] = [];
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      targets: Element[] = [];
+      constructor(callback: () => void) {
+        observers.push({ callback, targets: this.targets });
+      }
+      observe(target: Element) {
+        this.targets.push(target);
+      }
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(586);
+  await showColumns();
+  const pane = document.querySelector<HTMLElement>(".history-pane");
+  expect(pane?.style.getPropertyValue("--history-scrollbar")).toBe("0px");
+  for (const observer of observers) {
+    if (observer.targets.some((target) => target.classList.contains("history-rows"))) {
+      observer.callback();
+    }
+  }
+  expect(pane?.style.getPropertyValue("--history-scrollbar")).toBe("14px");
 });
 
 test("UI-36 the header menu moves and resets columns", async () => {

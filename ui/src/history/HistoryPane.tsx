@@ -182,6 +182,8 @@ function HistoryList(props: {
   members: () => RepoId[] | null;
   /** The columns left to right (UI-36). */
   order: () => readonly HistoryColumn[];
+  /** The width of the list's vertical scrollbar, which the header leaves room for; 0 without one. */
+  onScrollbar: (width: number) => void;
   branch: BranchStore;
   integrate: IntegrateStore;
   tag: TagStore;
@@ -260,6 +262,20 @@ function HistoryList(props: {
     if (scroller) {
       scroller.scrollTop = history().scrollTop;
     }
+  });
+
+  // The scrollbar comes and goes as rows load and the pane resizes; it narrows the rows, not the header.
+  onMount(() => {
+    const list = scroller;
+    if (list === undefined || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => props.onScrollbar(list.offsetWidth - list.clientWidth));
+    observer.observe(list);
+    for (const rows of list.children) {
+      observer.observe(rows);
+    }
+    onCleanup(() => observer.disconnect());
   });
 
   // A commit selected elsewhere, such as a parent in the changes pane,
@@ -628,6 +644,7 @@ export default function HistoryPane(props: {
   /** The repo of a single-repo history; a merged one has none. */
   const repo = (): RepoId | undefined => history().source?.repo ?? undefined;
   const columns = () => props.layout.historyColumns(props.workspace);
+  const [scrollbar, setScrollbar] = createSignal(0);
   const widths = () => {
     const c = columns();
     return {
@@ -635,6 +652,7 @@ export default function HistoryPane(props: {
       "--col-author": `${c.author}px`,
       "--col-date": `${c.date}px`,
       "--col-hash": `${c.hash}px`,
+      "--history-scrollbar": `${scrollbar()}px`,
     };
   };
   const empty = () => history().rows.length === 0 && history().done && history().error === null;
@@ -698,6 +716,7 @@ export default function HistoryPane(props: {
           name={props.name}
           members={() => props.members?.() ?? null}
           order={() => props.layout.columnOrder(props.workspace)}
+          onScrollbar={setScrollbar}
           branch={props.branch}
           integrate={props.integrate}
           tag={props.tag}

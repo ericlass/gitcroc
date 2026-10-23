@@ -1,5 +1,8 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 
+// Headless Chromium hides scrollbars; the list's scrollbar must not shift the rows from the header.
+test.use({ launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"] } });
+
 const tree = (page: Page) => page.getByRole("tree", { name: "Repositories" });
 const headers = (page: Page) => page.getByRole("toolbar", { name: "History columns" });
 const header = (page: Page, name: string) => headers(page).getByRole("button", { name, exact: true });
@@ -72,8 +75,14 @@ test("UI-36 a column edge follows the pointer on both sides of the subject", asy
   await drag(page, page.getByRole("separator", { name: "Resize Author" }), 50);
   expect(await edges(author)).toEqual({ left: authorBefore.left + 20, right: authorBefore.right });
 
-  // Rows follow the header, and the widths reach the core when a resize ends.
-  expect(await edges(page.locator("#history-row-1 .history-author"))).toEqual(await edges(author));
+  // Rows follow the header, also beside the list's scrollbar, and the widths reach the core when a resize ends.
+  const list = page.getByRole("listbox", { name: "History" });
+  expect(await list.evaluate((scroller: HTMLElement) => scroller.offsetWidth - scroller.clientWidth)).toBeGreaterThan(0);
+  for (const column of ["graph", "subject", "author", "date", "hash"]) {
+    expect(await edges(page.locator(`#history-row-1 .history-${column}`))).toEqual(
+      await edges(page.locator(`.history-columns .history-${column}`)),
+    );
+  }
   expect(await savedColumns(page)).toEqual({ order: null, graph: 120, author: 120, date: 128, hash: 72 });
 });
 

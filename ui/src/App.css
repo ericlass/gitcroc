@@ -1641,8 +1641,10 @@ button.danger:hover:not(:disabled) {
   white-space: nowrap;
 }
 
+/* The header ends where the rows do: before the list's scrollbar. */
 .history-columns {
   flex: 0 0 auto;
+  padding-right: var(--history-scrollbar, 0px);
   color: var(--text-secondary);
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
