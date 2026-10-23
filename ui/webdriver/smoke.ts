@@ -93,6 +93,7 @@ const FIND = `
     option: '[role="option"]',
     radio: 'input[type="radio"],[role="radio"]',
     region: 'section[aria-label],[role="region"]',
+    tab: '[role="tab"]',
     textbox: 'input:not([type]),input[type="text"],textarea,[role="textbox"]',
     toolbar: '[role="toolbar"]',
     tree: '[role="tree"]',
@@ -605,10 +606,11 @@ const AI_REPLY = JSON.stringify({
 
 const SETTINGS: Path = [["dialog", "Settings"]];
 
-/** Opens Settings, runs `steps` in it and closes it. */
-async function inSettings(session: Session, steps: () => Promise<void>) {
+/** Opens Settings at its tab named `tab` (M5-27), runs `steps` in it and closes it. */
+async function inSettings(session: Session, tab: string, steps: () => Promise<void>) {
   await session.click([["button", "Settings"]]);
   await session.element(SETTINGS);
+  await session.click([...SETTINGS, ["tab", tab]]);
   await steps();
   await session.click([...SETTINGS, ["button", "Close"]]);
   await session.gone(SETTINGS);
@@ -646,7 +648,7 @@ async function aiFlow(session: Session, env: NodeJS.ProcessEnv, app: string) {
   await session.element(resolveWithAi);
 
   log("Settings, AI: add the mock provider and make it the default");
-  await inSettings(session, async () => {
+  await inSettings(session, "AI", async () => {
     await session.click([...SETTINGS, ["button", "Add provider…"]]);
     await session.select([...SETTINGS, ["combobox", "/^Kind/"]], "mock");
     // Lower case, as for the group: WebKitWebDriver typed "Mock" as "mock".
@@ -664,13 +666,13 @@ async function aiFlow(session: Session, env: NodeJS.ProcessEnv, app: string) {
   // The AI section redraws once the core has the switch, which moves Close: wait for it before closing.
   const aiFeatures: Path = [...SETTINGS, ["checkbox", "AI features"]];
   const addProvider: Path = [...SETTINGS, ["button", "Add provider…"]];
-  await inSettings(session, async () => {
+  await inSettings(session, "AI", async () => {
     await session.click(aiFeatures);
     await session.gone(addProvider);
   });
   await session.element([...CONFLICT, ["button", "Mark resolved"]]);
   await session.gone(resolveWithAi);
-  await inSettings(session, async () => {
+  await inSettings(session, "AI", async () => {
     await session.click(aiFeatures);
     await session.element(addProvider);
   });
