@@ -150,7 +150,7 @@ export default function Panes(props: {
   );
 
   return (
-    <div class="panes">
+    <div class="panes" classList={{ "panes-bottom": bottom() }}>
       <section class="pane pane-tree" aria-label={strings.panes.tree} style={{ width: `${sizes().tree}px` }}>
         <TreePane
           workspace={props.workspace}

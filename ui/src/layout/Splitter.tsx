@@ -1,6 +1,8 @@
 // A splitter that resizes the pane or column beside it. A vertical one
 // resizes what is to its left; a horizontal one what is below it. Drag it,
-// or focus it and use the arrow keys; double-click resets it.
+// or focus it and use the arrow keys; double-click resets it. Between panes,
+// both start from the size shown, which is less than the set one while a
+// small window shrinks the pane.
 const KEY_STEP = 16;
 
 export default function Splitter(props: {
@@ -27,13 +29,28 @@ export default function Splitter(props: {
   // A horizontal splitter sits above its pane: moving up makes it taller.
   const position = (event: PointerEvent) => (horizontal() ? -event.clientY : event.clientX);
 
+  const shown = (splitter: HTMLElement) => {
+    if (props.class !== undefined) {
+      return props.width;
+    }
+    const resized = horizontal() ? splitter.nextElementSibling : splitter.previousElementSibling;
+    const box = resized?.getBoundingClientRect();
+    const size = box && (horizontal() ? box.height : box.width);
+    return size ? Math.min(props.width, Math.round(size)) : props.width;
+  };
+
   const onPointerDown = (event: PointerEvent & { currentTarget: HTMLElement }) => {
     if (event.button !== 0) {
       return;
     }
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag = { pointerId: event.pointerId, start: position(event), startWidth: props.width, max: props.max() };
+    drag = {
+      pointerId: event.pointerId,
+      start: position(event),
+      startWidth: shown(event.currentTarget),
+      max: props.max(),
+    };
   };
 
   const onPointerMove = (event: PointerEvent) => {
@@ -50,12 +67,12 @@ export default function Splitter(props: {
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent) => {
+  const onKeyDown = (event: KeyboardEvent & { currentTarget: HTMLElement }) => {
     const [less, more] = horizontal() ? ["ArrowDown", "ArrowUp"] : ["ArrowLeft", "ArrowRight"];
     const step = event.key === less ? -KEY_STEP : event.key === more ? KEY_STEP : 0;
     if (step !== 0) {
       event.preventDefault();
-      props.onResize(props.width + step, props.max());
+      props.onResize(shown(event.currentTarget) + step, props.max());
       props.onCommit?.();
     }
   };
