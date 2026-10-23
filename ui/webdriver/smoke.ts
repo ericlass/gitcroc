@@ -779,7 +779,13 @@ async function main() {
     const appLog = join(dir, "logs", "gitcroc", "gitcroc.log");
     if (failed && existsSync(appLog)) copyFileSync(appLog, join(ROOT, "target", "e2e", "gitcroc.log"));
     if (!failed) {
-      rmSync(dir, { recursive: true, force: true });
+      // Windows releases the files of the processes just killed a moment later: retry, and a folder that still
+      // cannot be removed is only reported, as the test has passed.
+      try {
+        rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
+      } catch (error) {
+        log(`could not remove ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 }
