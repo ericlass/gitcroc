@@ -305,6 +305,7 @@ test("ai_16_off_hides_resolve_all", async () => {
 
   fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
   const settings = within(await screen.findByRole("dialog", { name: "Settings" }));
+  fireEvent.click(settings.getByRole("tab", { name: "AI" }));
   fireEvent.click(settings.getByRole("checkbox", { name: "AI features" }));
   await settleAll();
 

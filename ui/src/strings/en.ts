@@ -76,6 +76,13 @@ export const strings = {
 
   settings: {
     title: "Settings",
+    tabs: {
+      label: "Settings sections",
+      appearance: "Appearance",
+      git: "Git",
+      updates: "Updates",
+      ai: "AI",
+    },
     theme: "Theme",
     themes: {
       system: "Follow the system",

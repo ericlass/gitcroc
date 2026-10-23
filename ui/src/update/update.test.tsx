@@ -14,10 +14,11 @@ afterEach(() => {
 
 const notice = () => screen.findByRole("button", { name: "gitcroc 0.2.0 is available" });
 
-/** Opens Settings from the toolbar and returns its Updates section. */
+/** Opens Settings from the toolbar and shows its Updates tab, and returns the section. */
 async function updatesSection() {
   fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
   const dialog = await screen.findByRole("dialog", { name: "Settings" });
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Updates" }));
   return within(dialog).getByRole("group", { name: "Updates" });
 }
 

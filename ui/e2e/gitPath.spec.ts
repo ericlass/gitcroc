@@ -10,6 +10,7 @@ test("PLAT-3 a git chosen through the file dialog reaches the app after a git_st
   await expect(page.getByRole("heading", { name: "gitcroc needs git" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "Git" }).click();
   const section = page.getByRole("group", { name: "Git" });
   await expect(section).toContainText("git version 2.51.0 at /opt/git/bin/git");
 

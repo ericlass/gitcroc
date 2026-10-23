@@ -66,7 +66,7 @@ sudo dnf install ./gitcroc-<version>-1.x86_64.rpm
 
 ## Updates
 
-gitcroc checks for a new version once a day while it runs, starting shortly after it opens. You can turn this off, or check by hand, in **Settings**, section **Updates** (see [Privacy](privacy.md#the-update-check)). Only the released packages check; a build you made yourself never does.
+gitcroc checks for a new version once a day while it runs, starting shortly after it opens. You can turn this off, or check by hand, in **Settings**, on the **Updates** tab (see [Privacy](privacy.md#the-update-check)). Only the released packages check; a build you made yourself never does.
 
 When a new version exists, the status bar at the bottom of the window shows **gitcroc &lt;version&gt; is available**. Click it to open **Update gitcroc**, which shows the versions, the publication date and the release notes. What happens next depends on your package:
 

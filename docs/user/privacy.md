@@ -14,7 +14,7 @@ Only when you have set up an AI provider, allowed it in the consent dialog, and 
 
 This is the only connection gitcroc makes on its own. Once a day while it runs, starting shortly after it opens, gitcroc downloads a small file from gitcroc's GitHub releases page that names the latest version. It sends nothing about you or your repositories; GitHub sees the request as it sees any download. When you install an update, the new version is downloaded from the same place.
 
-To turn it off, open **Settings** and uncheck **Check for updates automatically** in the **Updates** section. **Check now** still checks when you ask. A build you made yourself never checks.
+To turn it off, open **Settings** and uncheck **Check for updates automatically** on the **Updates** tab. **Check now** still checks when you ask. A build you made yourself never checks.
 
 ## Nothing else
 

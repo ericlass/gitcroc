@@ -88,6 +88,7 @@ test("UI-22 Fetch on a group from the palette goes through its preflight; a hard
   await page.goto("/?fake=groups");
   // Every repo of the fake would run, which starts the job at once: the setting shows the preflight all the same.
   await toolbar(page).getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "Git" }).click();
   await page.getByRole("checkbox", { name: "Always show the preflight dialog" }).check();
   await page.keyboard.press("Escape");
   await item(page, /^Backend/).click();
@@ -175,6 +176,7 @@ test("AI-16 UI-22 the palette has no AI entries while AI features are off", asyn
   await page.keyboard.press("Escape");
 
   await toolbar(page).getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "AI" }).click();
   await page.getByRole("checkbox", { name: "AI features" }).uncheck();
   await page.keyboard.press("Escape");
   await page.keyboard.press("Control+k");

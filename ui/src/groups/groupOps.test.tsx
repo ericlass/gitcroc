@@ -266,6 +266,7 @@ test("grp_11_retry_failed_targets_only_the_failed_repos", async () => {
 test("the group settings round-trip through the core, outside 1 to 32 refused", async () => {
   await appSetup();
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "Git" }));
   const settings = await screen.findByRole("group", { name: "Group operations" });
   const parallelism = within(settings).getByRole("spinbutton", { name: "Repos at once" }) as HTMLInputElement;
   expect(parallelism.value).toBe("8");

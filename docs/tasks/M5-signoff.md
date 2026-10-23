@@ -163,3 +163,4 @@ Each page of `docs/user/` read against the release candidate. Date: ______
 | [M5-24](M5-24-history-columns.md) History columns resize and move | Eric's request during the verification, 2026-10-23 | yes |
 | [M5-25](M5-25-tree-names-stay-whole.md) A repo's name stays whole beside a long branch name | Eric, by hand on Linux, 2026-10-23 | yes |
 | [M5-26](M5-26-palette-closes-on-outside-click.md) A click outside the command palette closes it | Eric, by hand on Linux, 2026-10-23 | yes |
+| [M5-27](M5-27-settings-tabs.md) Settings groups its settings in tabs | Eric's request during the verification, 2026-10-23 | yes |

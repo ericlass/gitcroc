@@ -45,7 +45,7 @@ gitcroc can ask an AI model to propose a resolution for each conflict. You use y
 
 ### Setting up a provider
 
-Open **Settings** and scroll to the **AI** section. **AI features** must be checked (it is by default). Under **Providers**, click **Add provider…** and pick the **Kind**:
+Open **Settings** and click the **AI** tab. **AI features** must be checked (it is by default). Under **Providers**, click **Add provider…** and pick the **Kind**:
 
 | Kind | You enter |
 | --- | --- |

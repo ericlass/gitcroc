@@ -66,10 +66,28 @@ const VIEWS: { name: string; fake: string; open: (page: Page) => Promise<void>; 
     },
   },
   {
-    name: "Settings with every section",
+    name: "Settings' Appearance tab",
     fake: "ai-conflict",
     open: async (page) => {
       await toolbar(page).getByRole("button", { name: "Settings" }).click();
+      await expect(page.getByRole("group", { name: "Code themes" })).toBeVisible();
+    },
+  },
+  {
+    name: "Settings' Git tab",
+    fake: "ai-conflict",
+    open: async (page) => {
+      await toolbar(page).getByRole("button", { name: "Settings" }).click();
+      await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "Git" }).click();
+      await expect(page.getByRole("group", { name: "Group operations" })).toBeVisible();
+    },
+  },
+  {
+    name: "Settings' AI tab",
+    fake: "ai-conflict",
+    open: async (page) => {
+      await toolbar(page).getByRole("button", { name: "Settings" }).click();
+      await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "AI" }).click();
       const section = page.getByRole("group", { name: "AI" });
       await expect(section.getByRole("list", { name: "AI providers" })).toBeVisible();
     },
@@ -79,6 +97,7 @@ const VIEWS: { name: string; fake: string; open: (page: Page) => Promise<void>; 
     fake: "ai",
     open: async (page) => {
       await toolbar(page).getByRole("button", { name: "Settings" }).click();
+      await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "AI" }).click();
       const section = page.getByRole("group", { name: "AI" });
       await section.getByRole("button", { name: "Add provider…" }).click();
       await expect(section.getByRole("form", { name: "New AI provider" })).toBeVisible();
@@ -112,6 +131,7 @@ const VIEWS: { name: string; fake: string; open: (page: Page) => Promise<void>; 
     fake: "groups",
     open: async (page) => {
       await toolbar(page).getByRole("button", { name: "Settings" }).click();
+      await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "Git" }).click();
       await page.getByRole("checkbox", { name: "Always show the preflight dialog" }).check();
       await page.keyboard.press("Escape");
       await item(page, /^Backend/).click();
@@ -158,12 +178,12 @@ const VIEWS: { name: string; fake: string; open: (page: Page) => Promise<void>; 
     },
   },
   {
-    name: "Settings' Updates section",
+    name: "Settings' Updates tab",
     fake: "update",
     open: async (page) => {
       await toolbar(page).getByRole("button", { name: "Settings" }).click();
+      await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "Updates" }).click();
       const section = page.getByRole("group", { name: "Updates" });
-      await section.scrollIntoViewIfNeeded();
       await expect(section).toContainText("gitcroc 0.2.0 is available (checked");
     },
   },
@@ -278,6 +298,7 @@ test("UI-22 dialog focus, Modal: Settings, the job list, the preflight and a dis
   await checkFocus(page, page.getByRole("dialog", { name: "Jobs" }), jobs);
 
   await settings.click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "Git" }).click();
   await page.getByRole("checkbox", { name: "Always show the preflight dialog" }).check();
   await page.keyboard.press("Escape");
   await item(page, /^Backend/).click();

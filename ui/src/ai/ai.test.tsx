@@ -115,6 +115,7 @@ test("ai_16_off_hides_the_ai_section_except_the_switch", async () => {
   fakeAi.enabled = false;
   render(() => <App />);
   fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "AI" }));
   const section = within(await screen.findByRole("group", { name: "AI" }));
   const toggle = section.getByRole("checkbox", { name: "AI features" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
@@ -206,6 +207,7 @@ test("sec_1_key_field_never_shows_the_key", async () => {
   await core.events.aiChanged.listen((event) => payloads.push(event.payload));
   render(() => <App />);
   fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "AI" }));
   const section = within(await screen.findByRole("group", { name: "AI" }));
   fireEvent.click(section.getByRole("button", { name: "Edit Hosted" }));
 
@@ -239,6 +241,7 @@ test("ai_1_the_kind_list_is_the_cores", async () => {
   fakeAi.kinds = ["anthropic", "openai", "claude_code", "codex", "mock"];
   render(() => <App />);
   fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "AI" }));
   const section = within(await screen.findByRole("group", { name: "AI" }));
   fireEvent.click(section.getByRole("button", { name: "Add provider…" }));
   const form = within(section.getByRole("form", { name: "New AI provider" }));
