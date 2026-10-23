@@ -65,7 +65,7 @@ jobs:
             *) echo "::error::signing is none, throwaway or project, not '$SIGNING'"; exit 1 ;;
           esac
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Installs the version pinned in rust-toolchain.toml.
       - name: Install Rust toolchain
@@ -95,12 +95,12 @@ jobs:
 
       # Installs the pnpm version in ui/package.json's packageManager field.
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: ui/package.json
 
       - name: Install Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -190,7 +190,7 @@ jobs:
           ls -l dist
 
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gitcroc-${{ steps.version.outputs.version }}-${{ matrix.platform }}
           path: dist/*

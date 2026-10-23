@@ -47,7 +47,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Installs the version pinned in rust-toolchain.toml.
       - name: Install Rust toolchain
@@ -87,7 +87,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install just
         uses: taiki-e/install-action@v2
@@ -96,12 +96,12 @@ jobs:
 
       # Installs the pnpm version in ui/package.json's packageManager field.
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: ui/package.json
 
       - name: Install Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -110,7 +110,7 @@ jobs:
       # Playwright's default browser directory on each platform. The lockfile
       # pins the Playwright version, which pins the browser build.
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/ms-playwright
@@ -133,7 +133,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Installs the version pinned in rust-toolchain.toml.
       - name: Install Rust toolchain
@@ -171,12 +171,12 @@ jobs:
 
       # Installs the pnpm version in ui/package.json's packageManager field.
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: ui/package.json
 
       - name: Install Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -195,7 +195,7 @@ jobs:
 
       - name: Upload the smoke test's failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: smoke-failure-${{ matrix.os }}
           path: |
