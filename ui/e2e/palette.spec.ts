@@ -49,6 +49,25 @@ test("UI-22 the palette opens by key and by button, closes by Escape and by the 
   await expect(palette(page)).toBeHidden();
 });
 
+test("UI-22 a click outside the palette closes it and gives the focus back; a click inside does not", async ({
+  page,
+}) => {
+  await page.goto("/?fake=tree");
+  await item(page, /^api/).click();
+  await page.keyboard.press("Control+k");
+  await expect(box(page)).toBeFocused();
+
+  // On the palette's own edge: it stays open.
+  await palette(page).click({ position: { x: 2, y: 2 } });
+  await expect(palette(page)).toBeVisible();
+
+  // Over the tree, outside the palette: it closes, and the click selects nothing there.
+  await page.mouse.click(8, 300);
+  await expect(palette(page)).toBeHidden();
+  await expect(tree(page)).toBeFocused();
+  await expect(item(page, /^api/)).toHaveAttribute("aria-selected", "true");
+});
+
 test("UI-22 the palette opens from inside the conflict editor", async ({ page }) => {
   await page.goto("/?fake=conflict");
   await item(page, /^api/).click();
