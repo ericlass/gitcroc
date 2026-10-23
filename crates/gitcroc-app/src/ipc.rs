@@ -44,6 +44,7 @@ use crate::platform::{
     FileManager, LaunchError, PlatformBrowser, PlatformFileManager, PlatformTerminal, Terminal,
     WebBrowser,
 };
+use crate::window::{MAIN_WINDOW, TitleBar, WindowAction};
 use tauri_plugin_dialog::DialogExt;
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
 
@@ -1505,12 +1506,38 @@ pub async fn settings_set_appearance(
     app: AppHandle,
     appearance: Appearance,
 ) -> Result<SettingsView, IpcError> {
+    let settings = app.state::<Arc<SettingsStore>>().inner().clone();
+    let system_title_bar = settings.view().settings.appearance.system_title_bar;
     // Saving touches the disk; keep it off the async workers (ARCH-7).
-    tauri::async_runtime::spawn_blocking(move || {
-        app.state::<Arc<SettingsStore>>().set_appearance(appearance)
-    })
-    .await?
-    .map_err(IpcError::from)
+    let view = tauri::async_runtime::spawn_blocking(move || settings.set_appearance(appearance))
+        .await?
+        .map_err(IpcError::from)?;
+    // The title bar follows its setting at once (UI-35).
+    let chosen = view.settings.appearance.system_title_bar;
+    if chosen != system_title_bar
+        && let Some(window) = app.get_webview_window(MAIN_WINDOW)
+    {
+        TitleBar::here(chosen).apply(&window)?;
+    }
+    Ok(view)
+}
+
+/// Does what a window button or the tab bar's empty space asks (UI-35).
+#[tauri::command]
+#[specta::specta]
+pub async fn window_control(
+    window: tauri::WebviewWindow,
+    action: WindowAction,
+) -> Result<(), IpcError> {
+    Ok(crate::window::control(&window, action)?)
+}
+
+/// Whether the window is maximized, so the maximize button can show restore
+/// instead (UI-35).
+#[tauri::command]
+#[specta::specta]
+pub async fn window_maximized(window: tauri::WebviewWindow) -> Result<bool, IpcError> {
+    Ok(window.is_maximized()?)
 }
 
 /// Saves the workspace's pane layout: the dock position and pane sizes
@@ -2988,6 +3015,8 @@ macro_rules! with_commands {
                 ai_resolve_all,
                 ai_proposal_get,
                 settings_set_appearance,
+                window_control,
+                window_maximized,
                 settings_set_groups,
                 group_drop,
                 group_retry_failed,
@@ -3100,6 +3129,8 @@ macro_rules! with_commands {
                 ai_resolve_all,
                 ai_proposal_get,
                 settings_set_appearance,
+                window_control,
+                window_maximized,
                 settings_set_groups,
                 group_drop,
                 group_retry_failed,

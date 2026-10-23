@@ -189,3 +189,29 @@ test("UI-6 UI-7 PLAT-1 a group dialog and its menu stay above the history", asyn
   await create.click();
   await expect(item(page, /^Pair/).locator(".tree-count")).toHaveText("2");
 });
+
+test("UI-3 a branch name too long for the tree is cut, not the repo's name", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 700 });
+  await page.goto("/?fake=long-branch");
+  const row = item(page, /^api/);
+  await expect(row.locator(".tree-head")).toHaveText("feature/a-branch-name-much-too-long-for-the-tree");
+
+  /** The element's left and right edges, and whether its text is cut. */
+  const measure = (locator: Locator) =>
+    locator.evaluate((element: HTMLElement) => {
+      const box = element.getBoundingClientRect();
+      return { left: box.left, right: box.right, cut: element.scrollWidth > element.clientWidth };
+    });
+  const [rowBox, label, head, dirty] = await Promise.all([
+    measure(row),
+    measure(row.locator(".tree-label")),
+    measure(row.locator(".tree-head")),
+    measure(row.locator(".tree-dirty")),
+  ]);
+  expect(label.cut).toBe(false);
+  expect(label.right).toBeLessThanOrEqual(head.left);
+  expect(head.cut).toBe(true);
+  // The counts and the dirty dot after the branch stay in the row.
+  expect(head.right).toBeLessThanOrEqual(dirty.left);
+  expect(dirty.right).toBeLessThanOrEqual(rowBox.right);
+});

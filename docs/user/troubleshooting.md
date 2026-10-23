@@ -10,7 +10,7 @@ gitcroc needs git 2.40 or newer. At start it looks for `git` on your `PATH`; on 
 
 Then click **Check again**.
 
-If the git you want is somewhere gitcroc does not look, click **Choose git…** and pick the program (`git.exe` on Windows). gitcroc checks its version and remembers it. You can change this later in **Settings**, section **Git**, which shows the git in use with its version and path. **Use automatic detection** goes back to searching by itself. If the git you chose disappears, Settings says "The chosen git was not found" and names the one gitcroc found instead.
+If the git you want is somewhere gitcroc does not look, click **Choose git…** and pick the program (`git.exe` on Windows). gitcroc checks its version and remembers it. You can change this later in **Settings**, on the **Git** tab, which shows the git in use with its version and path. **Use automatic detection** goes back to searching by itself. If the git you chose disappears, Settings says "The chosen git was not found" and names the one gitcroc found instead.
 
 ## Git refuses a repository: safe.directory and other safety errors
 
@@ -36,7 +36,7 @@ If gitcroc asks for the same password every time, set up a credential helper or 
 
 ## The keychain cannot be used
 
-gitcroc keeps AI keys only in your system's keychain. When it cannot reach it, the AI section of Settings says "The keychain cannot be used, so keys cannot be stored", with the reason, and providers that need a key cannot be saved with one. gitcroc never falls back to writing keys to a file.
+gitcroc keeps AI keys only in your system's keychain. When it cannot reach it, the **AI** tab of Settings says "The keychain cannot be used, so keys cannot be stored", with the reason, and providers that need a key cannot be saved with one. gitcroc never falls back to writing keys to a file.
 
 - **Linux:** gitcroc uses the Secret Service, which GNOME Keyring and KWallet (with its Secret Service support turned on) provide. Install and start one of them, and make sure it is unlocked; on a desktop without one, or over SSH, there may be none.
 - **macOS and Windows:** the Keychain and Credential Manager are always there. If one refuses, the reason in Settings comes from the system.

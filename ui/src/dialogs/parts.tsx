@@ -166,10 +166,17 @@ export function Frame(props: {
   title: string;
   class?: string;
   onClose: () => void;
+  /** A click on the backdrop; a dialog with nothing to lose, such as the palette, closes so. */
+  onBackdrop?: () => void;
   children: JSX.Element;
 }) {
   return (
-    <Modal labelledby={`${props.id}-title`} class={`dialog op-dialog ${props.class ?? ""}`} onEscape={props.onClose}>
+    <Modal
+      labelledby={`${props.id}-title`}
+      class={`dialog op-dialog ${props.class ?? ""}`}
+      onEscape={props.onClose}
+      onBackdrop={props.onBackdrop}
+    >
       <h2 id={`${props.id}-title`}>{props.title}</h2>
       {props.children}
     </Modal>

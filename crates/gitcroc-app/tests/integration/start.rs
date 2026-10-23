@@ -60,3 +60,22 @@ fn perf_3_the_window_is_shown_once_its_page_loads() {
         "the window is shown only on page load"
     );
 }
+
+/// UI-35: macOS keeps its window buttons over a transparent title bar with
+/// the title hidden. Tauri replaces the window list of `tauri.conf.json` with
+/// the one in `tauri.macos.conf.json`, so that window must be the same one
+/// apart from those two keys.
+#[test]
+fn ui_35_the_macos_window_is_the_main_one_with_an_overlay_title_bar() {
+    let json = |name: &str| -> Value {
+        let path = app_dir().join(name);
+        serde_json::from_str(&read(&path))
+            .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
+    };
+    let main = json("tauri.conf.json")["app"]["windows"].clone();
+    let mut macos = json("tauri.macos.conf.json")["app"]["windows"].clone();
+    let window = macos[0].as_object_mut().expect("a macOS window");
+    assert_eq!(window.remove("titleBarStyle"), Some(Value::from("Overlay")));
+    assert_eq!(window.remove("hiddenTitle"), Some(Value::Bool(true)));
+    assert_eq!(macos, main);
+}

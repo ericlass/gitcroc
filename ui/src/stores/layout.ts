@@ -1,10 +1,10 @@
-// Pane sizes, where the changes pane is docked and history column widths,
-// keyed by workspace id (ARCH-9, UI-19, UI-29). Nothing here knows which
-// workspace is shown; callers pass the id. The dock position and pane sizes
-// are kept in the workspace file by the core (section 10); this store starts
+// Pane sizes, where the changes pane is docked and the history's column
+// order and widths, keyed by workspace id (ARCH-9, UI-19, UI-29, UI-36).
+// Nothing here knows which workspace is shown; callers pass the id. They are
+// kept in the workspace file by the core (section 10); this store starts
 // from what the core read and sends it each change once a resize ends.
 import { createStore } from "solid-js/store";
-import { type Dock, type PaneLayout, type WorkspaceId, workspaceSetLayout } from "../ipc";
+import { type ColumnLayout, type Dock, type HistoryColumn, type PaneLayout, type WorkspaceId, workspaceSetLayout } from "../ipc";
 
 /**
  * Pane sizes in CSS pixels: the widths of the tree and of the history while
@@ -46,16 +46,25 @@ export interface HistoryColumns {
   hash: number;
 }
 
-export type HistoryColumn = keyof HistoryColumns;
+/** A history column with a width of its own: every one but the subject. */
+export type SizedColumn = keyof HistoryColumns;
 
 export const MIN_COLUMN_WIDTH = 32;
 
+/** What a resize leaves the subject at least (UI-36). */
+export const MIN_SUBJECT_WIDTH = 80;
+
 export const DEFAULT_HISTORY_COLUMNS: Readonly<HistoryColumns> = { graph: 80, author: 140, date: 128, hash: 72 };
+
+/** The history's columns left to right, until the user moves them (UI-9). */
+export const DEFAULT_COLUMN_ORDER: readonly HistoryColumn[] = ["graph", "subject", "author", "date", "hash"];
 
 export function createLayoutStore() {
   const [sizes, setSizes] = createStore<Record<WorkspaceId, PaneSizes>>({});
   const [docks, setDocks] = createStore<Record<WorkspaceId, Dock>>({});
-  const [columns, setColumns] = createStore<Record<WorkspaceId, HistoryColumns>>({});
+  // A workspace has an entry once its columns differ from the defaults; until then the file has none.
+  const [columns, setColumns] = createStore<Record<WorkspaceId, HistoryColumns | undefined>>({});
+  const [orders, setOrders] = createStore<Record<WorkspaceId, HistoryColumn[] | undefined>>({});
   /** Workspaces whose saved layout was applied. */
   const loaded = new Set<WorkspaceId>();
 
@@ -77,6 +86,23 @@ export function createLayoutStore() {
     if (layout.dock !== null) {
       setDocks(workspace, layout.dock);
     }
+    const saved = layout.columns;
+    if (saved !== null) {
+      const width = (column: SizedColumn) => Math.max(MIN_COLUMN_WIDTH, saved[column] ?? DEFAULT_HISTORY_COLUMNS[column]);
+      setColumns(workspace, { graph: width("graph"), author: width("author"), date: width("date"), hash: width("hash") });
+      if (saved.order !== null) {
+        setOrders(workspace, saved.order);
+      }
+    }
+  };
+
+  /** The workspace's columns for its file: none while they are the defaults. */
+  const columnLayout = (workspace: WorkspaceId): ColumnLayout | null => {
+    if (columns[workspace] === undefined && orders[workspace] === undefined) {
+      return null;
+    }
+    const order = orders[workspace];
+    return { order: order === undefined ? null : [...order], ...historyColumns(workspace) };
   };
 
   /**
@@ -86,7 +112,7 @@ export function createLayoutStore() {
    */
   const save = (workspace: WorkspaceId) => {
     const current = paneSizes(workspace);
-    const layout: PaneLayout = { dock: dock(workspace), ...current };
+    const layout: PaneLayout = { dock: dock(workspace), ...current, columns: columnLayout(workspace) };
     workspaceSetLayout(workspace, layout).catch(() => {});
   };
 
@@ -107,12 +133,31 @@ export function createLayoutStore() {
 
   const historyColumns = (workspace: WorkspaceId): HistoryColumns => columns[workspace] ?? DEFAULT_HISTORY_COLUMNS;
 
-  const setColumnWidth = (workspace: WorkspaceId, column: HistoryColumn, width: number) => {
-    setColumns(workspace, { ...historyColumns(workspace), [column]: Math.max(MIN_COLUMN_WIDTH, Math.round(width)) });
+  /** Sets a column's width, at most `max` when known: what the subject can give up (UI-36). */
+  const setColumnWidth = (workspace: WorkspaceId, column: SizedColumn, width: number, max?: number) => {
+    setColumns(workspace, { ...historyColumns(workspace), [column]: clampPaneWidth(width, max, MIN_COLUMN_WIDTH) });
   };
 
-  const resetColumn = (workspace: WorkspaceId, column: HistoryColumn) => {
+  const resetColumn = (workspace: WorkspaceId, column: SizedColumn) => {
     setColumns(workspace, { ...historyColumns(workspace), [column]: DEFAULT_HISTORY_COLUMNS[column] });
+  };
+
+  const columnOrder = (workspace: WorkspaceId): readonly HistoryColumn[] =>
+    orders[workspace] ?? DEFAULT_COLUMN_ORDER;
+
+  /** Moves `column` to place `to` of the order (UI-36), and saves. */
+  const moveColumn = (workspace: WorkspaceId, column: HistoryColumn, to: number) => {
+    const order = columnOrder(workspace).filter((other) => other !== column);
+    order.splice(Math.max(0, Math.min(order.length, to)), 0, column);
+    setOrders(workspace, order);
+    save(workspace);
+  };
+
+  /** The default order and widths (UI-36), saved: the file has no columns again. */
+  const resetColumns = (workspace: WorkspaceId) => {
+    setColumns(workspace, undefined);
+    setOrders(workspace, undefined);
+    save(workspace);
   };
 
   return {
@@ -126,6 +171,9 @@ export function createLayoutStore() {
     historyColumns,
     setColumnWidth,
     resetColumn,
+    columnOrder,
+    moveColumn,
+    resetColumns,
   };
 }
 

@@ -116,6 +116,7 @@ test("PLAT-3 Settings' Git section without a chosen git", async () => {
   fakeState.pickedGit = "/opt/git/bin/git";
   render(() => <App />);
   fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "Git" }));
   const section = await screen.findByRole("group", { name: "Git" });
 
   expect(section.textContent).toContain("git version 2.47.0 at /fake/bin/git");
@@ -129,6 +130,7 @@ test("PLAT-3 Settings' Git section with a chosen git that is missing", async () 
   fakeState.gitPath = "/opt/gone/git";
   render(() => <App />);
   fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "Git" }));
   const section = await screen.findByRole("group", { name: "Git" });
 
   expect(section.textContent).toContain("git version 2.47.0 at /fake/bin/git");
@@ -142,6 +144,7 @@ test("PLAT-3 Settings' Git section with a chosen git that is missing", async () 
 test("PLAT-3 a cancelled git dialog changes nothing; read-only settings refuse the choice", async () => {
   render(() => <App />);
   fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "Git" }));
   fireEvent.click(await screen.findByRole("button", { name: "Choose git…" }));
   await Promise.resolve();
   expect(fakeState.gitPath).toBeNull();
@@ -152,6 +155,7 @@ test("PLAT-3 a cancelled git dialog changes nothing; read-only settings refuse t
   cleanup();
   render(() => <App />);
   fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "Git" }));
   const section = await screen.findByRole("group", { name: "Git" });
   expect(section.hasAttribute("disabled")).toBe(true);
 });

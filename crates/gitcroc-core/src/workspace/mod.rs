@@ -94,6 +94,69 @@ pub struct PaneLayout {
     pub history: Option<u32>,
     /// The changes pane's height while it is docked at the bottom.
     pub changes: Option<u32>,
+    /// The history's columns (UI-36): `[layout.columns]`.
+    pub columns: Option<ColumnLayout>,
+}
+
+/// A column of the history (UI-9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryColumn {
+    Graph,
+    Subject,
+    Author,
+    Date,
+    Hash,
+}
+
+impl HistoryColumn {
+    /// Left to right, until the user moves them (UI-9).
+    pub const DEFAULT_ORDER: [HistoryColumn; 5] = [
+        HistoryColumn::Graph,
+        HistoryColumn::Subject,
+        HistoryColumn::Author,
+        HistoryColumn::Date,
+        HistoryColumn::Hash,
+    ];
+}
+
+/// The order and widths in CSS pixels of the history's columns (UI-36).
+/// The subject takes the width that is left, so it has none. A field
+/// missing from the file is `None`, and the UI uses its default.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct ColumnLayout {
+    pub order: Option<ColumnOrder>,
+    pub graph: Option<u32>,
+    pub author: Option<u32>,
+    pub date: Option<u32>,
+    pub hash: Option<u32>,
+}
+
+/// The history's columns left to right, each once. Read leniently, so a
+/// newer or hand-edited file keeps the workspace writable: names this build
+/// does not know and repeats are dropped, and missing columns follow in
+/// their default order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(transparent)]
+pub struct ColumnOrder(pub Vec<HistoryColumn>);
+
+impl<'de> Deserialize<'de> for ColumnOrder {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::IntoDeserializer;
+        let names = Vec::<String>::deserialize(deserializer)?;
+        let known = names.into_iter().filter_map(|name| {
+            let name: serde::de::value::StringDeserializer<serde::de::value::Error> =
+                name.into_deserializer();
+            HistoryColumn::deserialize(name).ok()
+        });
+        let mut order = Vec::with_capacity(HistoryColumn::DEFAULT_ORDER.len());
+        for column in known.chain(HistoryColumn::DEFAULT_ORDER) {
+            if !order.contains(&column) {
+                order.push(column);
+            }
+        }
+        Ok(Self(order))
+    }
 }
 
 /// A workspace as the UI sees it.

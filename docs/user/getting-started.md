@@ -10,7 +10,7 @@ With git found, gitcroc opens with no workspace: "No workspace is open. Open one
 
 From top to bottom, the window has:
 
-- **The tab bar.** One tab per open workspace. The **+** button at its end (**Open workspace**) lists your workspaces and offers **New workspace…** and **Import workspace…**. See [Workspaces and groups](workspaces-and-groups.md).
+- **The tab bar.** One tab per open workspace. The **+** button after the tabs (**Open workspace**) lists your workspaces and offers **New workspace…** and **Import workspace…**. See [Workspaces and groups](workspaces-and-groups.md). The tab bar is also the window's title bar: drag its empty space to move the window, and double-click it to maximize or restore the window. On Windows and Linux it ends with the minimize, maximize and close buttons; on macOS the system's window buttons sit at its left end. To have your system's title bar instead, see [Settings](settings-and-files.md#window).
 - **The toolbar.** **Fetch**, **Pull** and **Push**, each with an arrow beside it for its options; **Branch**, to create a branch; **Merge**, to merge or rebase; **Stash**; then **Command palette** and **Settings**. The buttons act on what is selected in the tree. A button that cannot act on the selection is greyed out, and its tooltip says why.
 - **Three panes**, each deciding what the next one shows:
   - **Tree** (left): your groups and repositories, and inside each repository its branches, remotes, tags and stashes.
@@ -33,6 +33,8 @@ Right-click a row, or select it and press Shift+F10 or the context menu key, for
 ### The history
 
 With a repository selected, the history shows the commit graph of all its local and remote branches, newest first, with the columns **Graph**, **Subject** (with labels for branches and tags), **Author**, **Date** and **Hash**. With a branch, tag or remote branch selected, it shows only the commits reachable from it; with a stash, the stash itself.
+
+To arrange the columns, drag the edge between two column headers to resize a column, or double-click the edge to give the column its default width. Drag a column's header to move the column. Clicking or right-clicking a header opens a menu with **Move left**, **Move right** and **Reset columns**, which brings back the default order and widths. Each workspace remembers its columns.
 
 When the repository has uncommitted changes, the first row is **Uncommitted changes (n)**, where n is the number of changed files.
 

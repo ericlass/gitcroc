@@ -4,6 +4,19 @@ All notable changes to gitcroc are documented in this file. The format follows [
 
 ## [Unreleased]
 
+### Added
+- **The tab bar is the title bar.** gitcroc draws its own title bar: drag the tab bar's empty space to move the window, and double-click it to maximize or restore the window. On Windows and Linux the minimize, maximize and close buttons sit at its right end; macOS keeps its own window buttons. Settings, **Window**, **Use the system title bar** brings back your system's title bar.
+- **Move history columns.** Drag a column's header in the history to move the column, or use **Move left** and **Move right** in the header's menu. **Reset columns** in the same menu restores the default order and widths.
+
+### Changed
+- **Settings has tabs.** The settings are grouped in four tabs, **Appearance**, **Git**, **Updates** and **AI**, so the dialog no longer needs scrolling. The light and dark code theme previews sit side by side.
+
+### Fixed
+- Resizing the history's columns works: the column edges are easier to grab and show a line, an edge follows the pointer on both sides of the subject, and each workspace keeps its column widths and order after a restart.
+- A click outside the command palette closes it, as Escape does.
+- A repository's name in the tree stays whole when the tree is narrow. Its branch name is shortened with an ellipsis instead of hiding the name.
+- The changes pane no longer leaves the window when the window gets smaller after the pane was made narrow. It shrinks to its minimum size instead, and gets its size back when the window grows again.
+
 ## [1.0.0-rc.1] - 2026-10-21
 
 The first release candidate of gitcroc 1.0: a Git client for Windows, macOS and Linux, made for projects that span many repositories. The [user guide](https://github.com/ericlass/gitcroc/blob/main/docs/user/README.md) describes everything below.

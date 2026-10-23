@@ -7,8 +7,9 @@
 // (AI-16), and Close. "+" lists the workspace files and offers New and Import. A tab
 // shows how many of its jobs run or wait, and a marker for a failed or
 // conflicted job the user has not seen (UI-32). The palette's next and
-// previous tab do what the arrow keys do (UI-22). The core keeps the tabs;
-// this sends what the user did.
+// previous tab do what the arrow keys do (UI-22). The tab bar is also the
+// window's title bar (UI-35, TitleBar.tsx). The core keeps the tabs; this
+// sends what the user did.
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { WorkspaceId } from "../ipc";
 import { matches, modalOpen, onMenuKey } from "../keys";
@@ -20,6 +21,7 @@ import type { WorkspaceStore } from "../stores/workspaces";
 import type { WorkspaceDialogs } from "../workspaces/WorkspaceDialogs";
 import WorkspaceMenu from "../workspaces/WorkspaceMenu";
 import { strings } from "../strings/en";
+import { type WindowChrome, WindowButtons } from "./TitleBar";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -30,6 +32,8 @@ export default function TabBar(props: {
   dialogs: WorkspaceDialogs;
   share: ShareStore;
   ai: AiStore;
+  /** The title bar the tab bar stands in for (UI-35). */
+  chrome: WindowChrome;
   /** Closes a tab; the caller asks first when it holds unsaved conflict edits (OPS-9). */
   onClose: (id: WorkspaceId) => void;
 }) {
@@ -182,7 +186,11 @@ export default function TabBar(props: {
 
   return (
     <>
-      <div class="tab-bar">
+      <div
+        class="tab-bar"
+        classList={{ "title-bar-mac": props.chrome.trafficLights() }}
+        onMouseDown={(event) => props.chrome.onPress(event)}
+      >
         <div role="tablist" aria-label={strings.tabs.label} class="tabs" ref={(element) => (list = element)}>
           <For each={views()}>
             {(view) => (
@@ -272,6 +280,9 @@ export default function TabBar(props: {
         >
           +
         </button>
+        {/* The empty space that moves the window (UI-35). */}
+        <div class="title-drag" onMouseDown={(event) => props.chrome.onPress(event)} />
+        <WindowButtons chrome={props.chrome} />
       </div>
       <Show when={error()}>
         {(text) => (

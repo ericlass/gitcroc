@@ -36,6 +36,7 @@ import type {
   SyncRequest,
   TagRequest,
   Theme,
+  WindowAction,
   WorkspaceId,
 } from "./bindings";
 import type { Core } from "./core";
@@ -102,6 +103,9 @@ export type {
   CommitMessage,
   CommitRequest,
   CommitRow,
+  ColumnLayout,
+  ColumnOrder,
+  HistoryColumn,
   HistoryRow,
   UnmergedKind,
   ConfigWarning,
@@ -219,6 +223,7 @@ export type {
   UpdateView,
   Upstream,
   WatchWarning,
+  WindowAction,
   WorkspaceId,
   WorkspaceListItem,
   WorkspaceTabs,
@@ -429,6 +434,10 @@ export const commitGraphDecline = (workspaceId: WorkspaceId, repoId: RepoId) =>
 export const settingsSetChanges = (changes: ChangesSettings) => unwrap(core.commands.settingsSetChanges(changes));
 export const settingsSetAppearance = (appearance: Appearance) =>
   unwrap(core.commands.settingsSetAppearance(appearance));
+/** Minimizes, maximizes or restores, closes or starts moving the window (UI-35). */
+export const windowControl = (action: WindowAction) => unwrap(core.commands.windowControl(action));
+/** Whether the window is maximized (UI-35). */
+export const windowMaximized = () => unwrap(core.commands.windowMaximized());
 /** Changes the group operations' settings; a parallelism outside 1 to 32 is refused. */
 export const settingsSetGroups = (groups: GroupSettings) => unwrap(core.commands.settingsSetGroups(groups));
 

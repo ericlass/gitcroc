@@ -49,6 +49,25 @@ test("UI-22 the palette opens by key and by button, closes by Escape and by the 
   await expect(palette(page)).toBeHidden();
 });
 
+test("UI-22 a click outside the palette closes it and gives the focus back; a click inside does not", async ({
+  page,
+}) => {
+  await page.goto("/?fake=tree");
+  await item(page, /^api/).click();
+  await page.keyboard.press("Control+k");
+  await expect(box(page)).toBeFocused();
+
+  // On the palette's own edge: it stays open.
+  await palette(page).click({ position: { x: 2, y: 2 } });
+  await expect(palette(page)).toBeVisible();
+
+  // Over the tree, outside the palette: it closes, and the click selects nothing there.
+  await page.mouse.click(8, 300);
+  await expect(palette(page)).toBeHidden();
+  await expect(tree(page)).toBeFocused();
+  await expect(item(page, /^api/)).toHaveAttribute("aria-selected", "true");
+});
+
 test("UI-22 the palette opens from inside the conflict editor", async ({ page }) => {
   await page.goto("/?fake=conflict");
   await item(page, /^api/).click();
@@ -69,6 +88,7 @@ test("UI-22 Fetch on a group from the palette goes through its preflight; a hard
   await page.goto("/?fake=groups");
   // Every repo of the fake would run, which starts the job at once: the setting shows the preflight all the same.
   await toolbar(page).getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "Git" }).click();
   await page.getByRole("checkbox", { name: "Always show the preflight dialog" }).check();
   await page.keyboard.press("Escape");
   await item(page, /^Backend/).click();
@@ -156,6 +176,7 @@ test("AI-16 UI-22 the palette has no AI entries while AI features are off", asyn
   await page.keyboard.press("Escape");
 
   await toolbar(page).getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "AI" }).click();
   await page.getByRole("checkbox", { name: "AI features" }).uncheck();
   await page.keyboard.press("Escape");
   await page.keyboard.press("Control+k");

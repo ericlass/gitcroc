@@ -631,6 +631,13 @@ old_size: number | null; new_size: number | null }) & { added?: never; new?: nev
 	 *  Font sizes outside 8 to 32 are moved to the nearest limit.
 	 */
 	settingsSetAppearance: (appearance: Appearance) => typedError<SettingsView, IpcError>(__TAURI_INVOKE("settings_set_appearance", { appearance })),
+	/**  Does what a window button or the tab bar's empty space asks (UI-35). */
+	windowControl: (action: WindowAction) => typedError<null, IpcError>(__TAURI_INVOKE("window_control", { action })),
+	/**
+	 *  Whether the window is maximized, so the maximize button can show restore
+	 *  instead (UI-35).
+	 */
+	windowMaximized: () => typedError<boolean, IpcError>(__TAURI_INVOKE("window_maximized")),
 	/**
 	 *  Changes the group operations' settings (section 5, steps 2 and 3) and
 	 *  saves them. A parallelism outside 1 to 32 is refused.
@@ -967,8 +974,8 @@ export type AppInfo = {
 };
 
 /**
- *  Code themes and fonts (UI-24, UI-26). Saved as top-level keys of the
- *  file.
+ *  Code themes, fonts and the title bar (UI-24, UI-26, UI-35). Saved as
+ *  top-level keys of the file.
  */
 export type Appearance = {
 	/**  Used while the app theme resolves to light. */
@@ -983,6 +990,11 @@ export type Appearance = {
 	code_font: string | null,
 	/**  In CSS pixels, [`MIN_FONT_SIZE`] to [`MAX_FONT_SIZE`]. */
 	code_font_size: number,
+	/**
+	 *  The system's title bar instead of the tab bar (UI-35); off by
+	 *  default.
+	 */
+	system_title_bar: boolean,
 };
 
 /**
@@ -1320,6 +1332,27 @@ export type CloneRequest = {
  *  their colors.
  */
 export type CodeTheme = "github_light" | "github_dark" | "solarized_light" | "solarized_dark" | "one_dark" | "dracula" | "nord" | "monokai";
+
+/**
+ *  The order and widths in CSS pixels of the history's columns (UI-36).
+ *  The subject takes the width that is left, so it has none. A field
+ *  missing from the file is `None`, and the UI uses its default.
+ */
+export type ColumnLayout = {
+	order: ColumnOrder | null,
+	graph: number | null,
+	author: number | null,
+	date: number | null,
+	hash: number | null,
+};
+
+/**
+ *  The history's columns left to right, each once. Read leniently, so a
+ *  newer or hand-edited file keeps the workspace writable: names this build
+ *  does not know and repeats are dropped, and missing columns follow in
+ *  their default order.
+ */
+export type ColumnOrder = HistoryColumn[];
 
 /**  A commit's header (UI-14). Text is decoded lossily (SEC-3). */
 export type CommitDetails = {
@@ -1763,6 +1796,9 @@ export type Head =
 /**  On a branch; `hash` is `None` while it has no commit yet. */
 { kind: "branch"; name: string; hash: string | null } | { kind: "detached"; hash: string };
 
+/**  A column of the history (UI-9). */
+export type HistoryColumn = "graph" | "subject" | "author" | "date" | "hash";
+
 /**  A commit of the history pane and the repo it is in. */
 export type HistoryRow = {
 	repo_id: RepoId,
@@ -2166,6 +2202,8 @@ export type PaneLayout = {
 	history: number | null,
 	/**  The changes pane's height while it is docked at the bottom. */
 	changes: number | null,
+	/**  The history's columns (UI-36): `[layout.columns]`. */
+	columns: ColumnLayout | null,
 };
 
 /**
@@ -3000,6 +3038,16 @@ export type WatchWarning = {
  *  changes made outside the app then show when the window regains focus.
  */
 export type WatchWarningEvent = WatchWarning;
+
+/**  What a window button or the tab bar asks of the window. */
+export type WindowAction = "minimize" | 
+/**  Maximizes the window, or restores it when it is maximized. */
+"toggle_maximize" | "close" | 
+/**
+ *  Moves the window with the mouse, from a press on the tab bar's empty
+ *  space until the button is released.
+ */
+"start_dragging";
 
 /**
  *  What an add job did, sent as event `workspace_add_report` when it ends,

@@ -74,6 +74,15 @@ While a dialog is open, only the palette's shortcut works; the others wait until
 | Ctrl+Space (Cmd+Space on macOS) | Add the commit to the selection, or take it out |
 | Shift+F10, context menu key | Open the commit menu |
 
+The column headers above the list are one stop in the Tab order:
+
+| Keys | What they do |
+| --- | --- |
+| Left, Right, Home, End | Move to another column header |
+| Enter, Space, Shift+F10, context menu key | Open the column's menu: **Move left**, **Move right**, **Reset columns** |
+
+The borders between the column headers can be focused with Tab; the **arrow keys** then resize the column.
+
 ## Changes pane
 
 | Keys | What they do |

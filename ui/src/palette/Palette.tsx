@@ -5,6 +5,7 @@
 // highlight and Enter runs its row: an operation runs what its place in the
 // window provides, a repo, group or branch is handed to the window to
 // select. An operation that cannot apply now says why and does nothing.
+// Escape, its key or a click outside it closes it.
 // The core finds, ranks and labels the rows (ARCH-6); names are text only
 // (SEC-3).
 import { createVirtualizer } from "@tanstack/solid-virtual";
@@ -175,7 +176,13 @@ export default function Palette(props: {
   };
 
   return (
-    <Frame id="palette" title={strings.palette.label} class="palette" onClose={() => props.onClose()}>
+    <Frame
+      id="palette"
+      title={strings.palette.label}
+      class="palette"
+      onClose={() => props.onClose()}
+      onBackdrop={() => props.onClose()}
+    >
       <input
         type="text"
         class="palette-input"

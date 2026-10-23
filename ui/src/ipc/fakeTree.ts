@@ -439,6 +439,24 @@ export function scenario(name: string, workspaceId: string): Scenario | null {
           ],
         };
   }
+  if (name === "long-branch") {
+    // The tree data set with api on a branch whose name does not fit beside it in the tree (UI-3).
+    const base = scenario("tree", workspaceId);
+    const branch = "feature/a-branch-name-much-too-long-for-the-tree";
+    return base === null
+      ? null
+      : {
+          ...base,
+          summaries: base.summaries.map((known) =>
+            known.repo_id === "r1" && known.summary !== null
+              ? {
+                  ...known,
+                  summary: { ...known.summary, head: { kind: "branch", name: branch, hash: known.summary.head.hash } },
+                }
+              : known,
+          ),
+        };
+  }
   if (name === "conflict") {
     // api is merging feature/login and stopped on two files (OPS-3).
     const base = scenario("tree", workspaceId);

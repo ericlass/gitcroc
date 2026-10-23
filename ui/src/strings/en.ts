@@ -76,6 +76,13 @@ export const strings = {
 
   settings: {
     title: "Settings",
+    tabs: {
+      label: "Settings sections",
+      appearance: "Appearance",
+      git: "Git",
+      updates: "Updates",
+      ai: "AI",
+    },
     theme: "Theme",
     themes: {
       system: "Follow the system",
@@ -92,6 +99,8 @@ export const strings = {
     codeFontPlaceholder: "System monospace font",
     fontSize: (font: string) => `${font} size`,
     pixels: "px",
+    windowSection: "Window",
+    systemTitleBar: "Use the system title bar",
     groupOperations: "Group operations",
     reposAtOnce: "Repos at once",
     alwaysShowPreflight: "Always show the preflight dialog",
@@ -240,6 +249,15 @@ export const strings = {
     names: { PageDown: "Page Down", PageUp: "Page Up", ",": "," } as Partial<Record<string, string>>,
     /** Keys and modifiers joined, as "Ctrl+Shift+Page Down". */
     join: (parts: string[]) => parts.join("+"),
+  },
+
+  window: {
+    /** The window buttons' group (UI-35). */
+    buttons: "Window controls",
+    minimize: "Minimize",
+    maximize: "Maximize",
+    restore: "Restore",
+    close: "Close window",
   },
 
   tabs: {
@@ -482,6 +500,12 @@ export const strings = {
     /** The graph column's name in a merged history. */
     repository: "Repository",
     resizeColumn: (column: string) => `Resize ${column}`,
+    /** The column headers (UI-36). */
+    columnHeaders: "History columns",
+    columnMenu: (column: string) => `${column} column`,
+    moveColumnLeft: "Move left",
+    moveColumnRight: "Move right",
+    resetColumns: "Reset columns",
     commitGraphOffer: "Commit-graph offer",
     commitGraphWhy:
       "This repo has no commit-graph file, so its history loads slowly. Git can write one now in the background; " +

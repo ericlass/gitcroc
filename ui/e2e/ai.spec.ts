@@ -6,6 +6,7 @@ test("AI-1 add an OpenAI-compatible provider, pick a fetched model, keep it thro
 }) => {
   await page.goto("/?fake=ai");
   await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("tab", { name: "AI" }).click();
   const section = page.getByRole("group", { name: "AI" });
   await expect(section.getByText("No AI provider yet.")).toBeVisible();
 

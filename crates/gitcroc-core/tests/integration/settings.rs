@@ -68,6 +68,7 @@ fn data_1_missing_file_gives_defaults() {
                     ui_font_size: 13,
                     code_font: None,
                     code_font_size: 13,
+                    system_title_bar: false,
                 },
                 groups: GroupSettings {
                     group_parallelism: 8,
@@ -261,6 +262,7 @@ fn ui_24_code_themes_and_fonts_are_remembered() {
         ui_font_size: 14,
         code_font: Some("JetBrains Mono".to_owned()),
         code_font_size: 12,
+        system_title_bar: false,
     };
     let view = store.set_appearance(appearance.clone()).unwrap();
     assert_eq!(view.settings.appearance, appearance);
@@ -387,4 +389,32 @@ fn plat_2_git_path_is_refused_when_read_only() {
         Err(SettingsError::ReadOnly)
     ));
     assert_eq!(store.git_path(), None);
+}
+
+#[test]
+fn ui_35_system_title_bar_defaults_off_and_round_trips() {
+    // A file from before the setting loads unchanged, with the app's own title bar.
+    let config = TempConfig::with_file("schema = 2\ntheme = \"dark\"\nui_font_size = 14\n");
+    let store = SettingsStore::load(&config);
+    let view = store.view();
+    assert_eq!(view.warning, None);
+    assert!(!view.settings.appearance.system_title_bar);
+    assert_eq!(view.settings.appearance.ui_font_size, 14);
+
+    let appearance = Appearance {
+        system_title_bar: true,
+        ..view.settings.appearance
+    };
+    let view = store.set_appearance(appearance).unwrap();
+    assert!(view.settings.appearance.system_title_bar);
+    let text = fs::read_to_string(config.file()).unwrap();
+    assert!(text.starts_with("schema = 2\n"), "{text}");
+    assert!(text.contains("system_title_bar = true\n"), "{text}");
+    assert!(
+        SettingsStore::load(&config)
+            .view()
+            .settings
+            .appearance
+            .system_title_bar
+    );
 }

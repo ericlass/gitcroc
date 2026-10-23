@@ -76,6 +76,7 @@ import type {
 } from "./bindings";
 import type { Core } from "./core";
 import { fakeUpdate, offered, offerUpdate, resetUpdate, updateCommands } from "./fakeUpdate";
+import { fakeWindow, resetWindow, windowCommands } from "./fakeWindow";
 import {
   applyChange,
   defaultDetails,
@@ -142,6 +143,7 @@ export const defaultAppearance: Appearance = {
   ui_font_size: 13,
   code_font: null,
   code_font_size: 13,
+  system_title_bar: false,
 };
 export const defaultGroupSettings: GroupSettings = { group_parallelism: 8, always_show_preflight: false };
 const defaultSettings: SettingsView = {
@@ -150,7 +152,7 @@ const defaultSettings: SettingsView = {
   read_only: false,
   warning: null,
 };
-export const emptyLayout: PaneLayout = { dock: null, tree: null, history: null, changes: null };
+export const emptyLayout: PaneLayout = { dock: null, tree: null, history: null, changes: null, columns: null };
 const defaultWorkspace: WorkspaceView = {
   id: "fake-workspace",
   name: "My workspace",
@@ -1622,6 +1624,7 @@ export function reset(): void {
   aiProposalReadyListeners.clear();
   resetFakeAi();
   resetGroups();
+  resetWindow();
 }
 
 // Playwright runs the fake build; `?fake=<name>` picks a data set.
@@ -1683,7 +1686,7 @@ if (picked === "no-tabs") {
 }
 // Playwright reads what reached the fake core, to tell which handler ran (UI-22).
 if (picked !== null && typeof window !== "undefined") {
-  Object.assign(window, { fakeCore: { state: fakeState, groups: fakeGroups, update: fakeUpdate } });
+  Object.assign(window, { fakeCore: { state: fakeState, groups: fakeGroups, update: fakeUpdate, window: fakeWindow } });
 }
 if (data) {
   fakeState.workspace = { ...defaultWorkspace, repos: data.repos, groups: data.groups ?? [] };
@@ -2318,6 +2321,7 @@ export const fake: Core = {
     },
     settingsGet: () => Promise.resolve({ status: "ok", data: fakeState.settings }),
     ...updateCommands(updateDeps),
+    ...windowCommands(),
     // Like the core: read-only settings refuse the change.
     settingsSetUpdateCheck: (enabled) => {
       if (fakeState.settings.read_only) {
