@@ -149,6 +149,23 @@ test("UI-36 the header and the rows follow the column order", async () => {
   expect(firstRowColumns()).toEqual(["history-hash", "history-graph", "history-author", "history-date", "history-subject"]);
 });
 
+test("UI-36 each cell has its width as its own style, and the uncommitted row starts where the subject does", async () => {
+  const { layout } = await showColumns();
+  const widthsOf = (selector: string) =>
+    [...document.querySelectorAll<HTMLElement>(selector)].map((cell) => cell.style.width);
+  // WebKitGTK does not redraw the scrolled rows for an inherited width, so no cell inherits one (M5-24).
+  layout.setColumnWidth(id(), "date", 100);
+  expect(widthsOf(".history-columns .history-cell")).toEqual(["80px", "", "140px", "100px", "72px"]);
+  expect(widthsOf("#history-row-0 .history-cell")).toEqual(["80px", "", "140px", "100px", "72px"]);
+
+  const pane = document.querySelector<HTMLElement>(".history-pane");
+  expect(pane?.style.getPropertyValue("--history-subject-left")).toBe("80px");
+  layout.moveColumn(id(), "hash", 0);
+  expect(pane?.style.getPropertyValue("--history-subject-left")).toBe(`${80 + 72}px`);
+  layout.moveColumn(id(), "subject", 0);
+  expect(pane?.style.getPropertyValue("--history-subject-left")).toBe("0px");
+});
+
 test("UI-36 an edge right of the subject resizes the column to its right, and the subject keeps its minimum", async () => {
   const real = HTMLElement.prototype.getBoundingClientRect;
   let author = () => 140;

@@ -1734,8 +1734,8 @@ button.history-column-label:focus-visible {
   box-sizing: border-box;
 }
 
+/* The sized columns' widths are each cell's own style (ColumnHeaders.tsx). */
 .history-graph {
-  width: var(--col-graph);
   padding: 0;
 }
 
@@ -1749,17 +1749,11 @@ button.history-column-label:focus-visible {
   text-overflow: ellipsis;
 }
 
-.history-author {
-  width: var(--col-author);
-}
-
 .history-date {
-  width: var(--col-date);
   font-variant-numeric: tabular-nums;
 }
 
 .history-hash {
-  width: var(--col-hash);
   font-family: var(--font-code);
 }
 
@@ -1810,7 +1804,7 @@ button.history-column-label:focus-visible {
 
 .history-uncommitted {
   flex: 1;
-  padding-left: calc(var(--col-graph) + 6px);
+  padding-left: calc(var(--history-subject-left, 0px) + 6px);
   font-style: italic;
 }
 
@@ -1823,7 +1817,7 @@ button.history-column-label:focus-visible {
   display: block;
   width: 60%;
   height: 8px;
-  margin-left: var(--col-graph);
+  margin-left: var(--history-subject-left, 0px);
   border-radius: var(--radius);
   background: var(--bg-3);
 }

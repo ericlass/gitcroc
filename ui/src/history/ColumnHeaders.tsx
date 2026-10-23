@@ -7,7 +7,13 @@
 import { createSignal, For, Show } from "solid-js";
 import type { HistoryColumn, WorkspaceId } from "../ipc";
 import Splitter from "../layout/Splitter";
-import { type LayoutStore, MIN_COLUMN_WIDTH, MIN_SUBJECT_WIDTH, type SizedColumn } from "../stores/layout";
+import {
+  type HistoryColumns,
+  type LayoutStore,
+  MIN_COLUMN_WIDTH,
+  MIN_SUBJECT_WIDTH,
+  type SizedColumn,
+} from "../stores/layout";
 import { strings } from "../strings/en";
 import ColumnMenu, { type ColumnAction } from "./ColumnMenu";
 
@@ -19,6 +25,16 @@ export const COLUMNS: Record<HistoryColumn, { label: string; class: string; size
   date: { label: strings.history.columns.date, class: "history-date", sized: "date" },
   hash: { label: strings.history.columns.hash, class: "history-hash", sized: "hash" },
 };
+
+/**
+ * A cell's width, as its own style: none for the subject, which takes the rest. Each cell has its width set, not
+ * inherited from the pane, because WebKitGTK leaves the rows of the scrolled list drawn at their old widths when
+ * only an inherited value changes (M5-24).
+ */
+export function cellStyle(widths: HistoryColumns, column: HistoryColumn): { width: string } | undefined {
+  const sized = COLUMNS[column].sized;
+  return sized === null ? undefined : { width: `${widths[sized]}px` };
+}
 
 export default function ColumnHeaders(props: {
   workspace: WorkspaceId;
@@ -132,6 +148,7 @@ export default function ColumnHeaders(props: {
           {(column) => (
             <span
               class={`history-cell ${COLUMNS[column].class}`}
+              style={cellStyle(widths(), column)}
               classList={{
                 "column-dragged": dragged() === column,
                 "drop-before": dragged() !== column && target()?.column === column && !target()?.after,

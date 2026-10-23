@@ -31,9 +31,9 @@ import { commitOf, type HistoryStore } from "../stores/history";
 import type { IntegrateStore } from "../stores/integrate";
 import type { ResetStore } from "../stores/reset";
 import type { TagStore } from "../stores/tag";
-import type { LayoutStore } from "../stores/layout";
+import type { HistoryColumns, LayoutStore } from "../stores/layout";
 import { isBlocked, type SummaryStore } from "../stores/summaries";
-import ColumnHeaders from "./ColumnHeaders";
+import ColumnHeaders, { cellStyle, COLUMNS } from "./ColumnHeaders";
 import CommitMenu, { type CommitAction, commitMenu } from "./CommitMenu";
 import Graph from "./Graph";
 import { formatDate, formatFullDate, historyRows, type ListRow } from "./rows";
@@ -75,7 +75,12 @@ function RefLabels(props: { refs: RefLabel[] }) {
  * A commit's cells in the column `order` (UI-36); `repo` names its repo in a merged history, which has it in place
  * of the graph (UI-9).
  */
-function CommitCells(props: { commit: HistoryRow; repo: string | null; order: readonly HistoryColumn[] }) {
+function CommitCells(props: {
+  commit: HistoryRow;
+  repo: string | null;
+  order: readonly HistoryColumn[];
+  widths: HistoryColumns;
+}) {
   const dateTitle = () =>
     `${strings.history.authored(formatFullDate(props.commit.author_time.seconds))}\n` +
     strings.history.committed(formatFullDate(props.commit.commit_time.seconds));
@@ -87,13 +92,17 @@ function CommitCells(props: { commit: HistoryRow; repo: string | null; order: re
             <Show
               when={props.repo}
               fallback={
-                <span class="history-cell history-graph">
+                <span class="history-cell history-graph" style={cellStyle(props.widths, "graph")}>
                   <Graph graph={props.commit.graph} height={ROW_HEIGHT} />
                 </span>
               }
             >
               {(repo) => (
-                <span class="history-cell history-graph history-repo" title={repo()}>
+                <span
+                  class="history-cell history-graph history-repo"
+                  style={cellStyle(props.widths, "graph")}
+                  title={repo()}
+                >
                   {repo()}
                 </span>
               )}
@@ -106,17 +115,23 @@ function CommitCells(props: { commit: HistoryRow; repo: string | null; order: re
             </span>
           </Match>
           <Match when={column === "author"}>
-            <span class="history-cell history-author" title={props.commit.author_email}>
+            <span
+              class="history-cell history-author"
+              style={cellStyle(props.widths, "author")}
+              title={props.commit.author_email}
+            >
               {props.commit.author_name}
             </span>
           </Match>
           <Match when={column === "date"}>
-            <span class="history-cell history-date" title={dateTitle()}>
+            <span class="history-cell history-date" style={cellStyle(props.widths, "date")} title={dateTitle()}>
               {formatDate(props.commit.author_time.seconds)}
             </span>
           </Match>
           <Match when={column === "hash"}>
-            <span class="history-cell history-hash">{props.commit.short_hash}</span>
+            <span class="history-cell history-hash" style={cellStyle(props.widths, "hash")}>
+              {props.commit.short_hash}
+            </span>
           </Match>
         </Switch>
       )}
@@ -145,6 +160,7 @@ function RowView(props: {
   row: ListRow;
   name: ((repo: RepoId) => string) | null;
   order: readonly HistoryColumn[];
+  widths: HistoryColumns;
 }) {
   return (
     <Switch>
@@ -163,6 +179,7 @@ function RowView(props: {
             commit={commit().commit}
             repo={props.name?.(commit().commit.repo_id) ?? null}
             order={props.order}
+            widths={props.widths}
           />
         )}
       </Match>
@@ -180,8 +197,9 @@ function HistoryList(props: {
   summaries: SummaryStore;
   name: (repo: RepoId) => string;
   members: () => RepoId[] | null;
-  /** The columns left to right (UI-36). */
+  /** The columns left to right, and their widths (UI-36). */
   order: () => readonly HistoryColumn[];
+  widths: () => HistoryColumns;
   /** The width of the list's vertical scrollbar, which the header leaves room for; 0 without one. */
   onScrollbar: (width: number) => void;
   branch: BranchStore;
@@ -598,7 +616,12 @@ function HistoryList(props: {
                         }
                       }}
                     >
-                      <RowView row={row()} name={merged() ? props.name : null} order={props.order()} />
+                      <RowView
+                        row={row()}
+                        name={merged() ? props.name : null}
+                        order={props.order()}
+                        widths={props.widths()}
+                      />
                     </div>
                   )}
                 </Show>
@@ -645,20 +668,24 @@ export default function HistoryPane(props: {
   const repo = (): RepoId | undefined => history().source?.repo ?? undefined;
   const columns = () => props.layout.historyColumns(props.workspace);
   const [scrollbar, setScrollbar] = createSignal(0);
-  const widths = () => {
-    const c = columns();
-    return {
-      "--col-graph": `${c.graph}px`,
-      "--col-author": `${c.author}px`,
-      "--col-date": `${c.date}px`,
-      "--col-hash": `${c.hash}px`,
-      "--history-scrollbar": `${scrollbar()}px`,
-    };
+  /** Where the subject starts: the uncommitted and loading rows begin their text there. */
+  const subjectLeft = () => {
+    const order = props.layout.columnOrder(props.workspace);
+    let left = 0;
+    for (const column of order.slice(0, order.indexOf("subject"))) {
+      const sized = COLUMNS[column].sized;
+      left += sized === null ? 0 : columns()[sized];
+    }
+    return left;
   };
+  const paneStyle = () => ({
+    "--history-subject-left": `${subjectLeft()}px`,
+    "--history-scrollbar": `${scrollbar()}px`,
+  });
   const empty = () => history().rows.length === 0 && history().done && history().error === null;
 
   return (
-    <div class="history-pane" style={widths()}>
+    <div class="history-pane" style={paneStyle()}>
       <Show
         when={history().source}
         fallback={<p class="placeholder">{strings.history.noSource}</p>}
@@ -716,6 +743,7 @@ export default function HistoryPane(props: {
           name={props.name}
           members={() => props.members?.() ?? null}
           order={() => props.layout.columnOrder(props.workspace)}
+          widths={columns}
           onScrollbar={setScrollbar}
           branch={props.branch}
           integrate={props.integrate}
