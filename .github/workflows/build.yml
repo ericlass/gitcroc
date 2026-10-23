@@ -50,8 +50,8 @@ jobs:
     env:
       INSTALL_LOGS: ${{ github.workspace }}/install-logs
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Test the outcome checker without starting an app
@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           echo "Runner: $RUNNER_OS $RUNNER_ARCH; image $ImageOS $ImageVersion" | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: gitcroc-*-${{ matrix.platform }}
           path: artifacts
@@ -83,7 +83,7 @@ jobs:
         run: bash .github/scripts/install-linux.sh "$PWD/artifacts" '${{ steps.version.outputs.version }}'
       - name: Upload install logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: install-logs-${{ matrix.platform }}
           path: ${{ env.INSTALL_LOGS }}

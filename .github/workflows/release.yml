@@ -42,7 +42,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Installs the version pinned in rust-toolchain.toml.
       - name: Install Rust toolchain
@@ -90,13 +90,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         run: rustup toolchain install
 
       - name: Download the bundles
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: gitcroc-${{ needs.prepare.outputs.version }}-*
           path: dist
@@ -137,7 +137,7 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the release
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gitcroc-${{ needs.prepare.outputs.version }}-release
           path: |
@@ -156,7 +156,7 @@ jobs:
       contents: write
     steps:
       - name: Download the release
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: gitcroc-${{ needs.prepare.outputs.version }}-release
           path: release
