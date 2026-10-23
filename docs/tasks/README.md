@@ -378,6 +378,7 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Updater key | Eric generates the key pair and stores the private key and its password as repository secrets; agents only ever see the public key. CI update tests use a throwaway key pair made inside the job | M5-12, M5-13, M5-15 |
 | Releases | A pushed tag `v<version>` builds a draft GitHub release with every package, `.sig` files, `SHA256SUMS` and `latest.json`; notes from `CHANGELOG.md`. Eric pushes tags and publishes; an agent never does | M5-13 |
 | Release candidate | `1.0.0-rc.1` before `1.0.0`, published as a pre-release; if a package format orders it wrongly, the scheme is asked about, not invented | M5-20 |
+| Title bar setting | `system_title_bar` (default off), a top-level key of `settings.toml` beside the fonts, schema unchanged | M5-23 |
 | Start line in the log | `gitcroc <version> started (<os> <arch>, <package>)` at each start, no paths; the install and update tests wait for it | M5-14 |
 | Website and screenshots | No website in v1: the README is the front page and GitHub Releases the download page. No screenshots | M5-18, M5-19 |
 | User docs | Markdown in `docs/user/`; `docs/install-unsigned.md` moves to `docs/user/install.md` | M5-18 |

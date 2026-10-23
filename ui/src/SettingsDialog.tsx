@@ -1,7 +1,7 @@
 // The Settings dialog: the theme (UI-23), code themes (UI-24), fonts
-// (UI-26), group operations (section 5), AI (section 7), the git in use,
-// which can be chosen by hand (PLAT-3), the update check (D12), and which
-// gitcroc is running.
+// (UI-26), the title bar (UI-35), group operations (section 5), AI (section
+// 7), the git in use, which can be chosen by hand (PLAT-3), the update check
+// (D12), and which gitcroc is running.
 import { For, onMount, Show } from "solid-js";
 import AiSection from "./ai/AiSection";
 import { Modal } from "./dialogs/parts";
@@ -167,6 +167,17 @@ export default function SettingsDialog(props: {
             </div>
           )}
         </For>
+      </fieldset>
+      <fieldset disabled={readOnly()}>
+        <legend>{strings.settings.windowSection}</legend>
+        <label class="choice">
+          <input
+            type="checkbox"
+            checked={appearance().system_title_bar}
+            onChange={(event) => void props.settings.setAppearance({ system_title_bar: event.currentTarget.checked })}
+          />
+          {strings.settings.systemTitleBar}
+        </label>
       </fieldset>
       <fieldset disabled={readOnly()}>
         <legend>{strings.settings.groupOperations}</legend>

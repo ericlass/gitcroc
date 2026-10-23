@@ -156,4 +156,7 @@ Each page of `docs/user/` read against the release candidate. Date: ______
 
 ## Follow-up tasks
 
-None yet.
+| Task | Found | Changes a package |
+| --- | --- | --- |
+| [M5-21](M5-21-changes-pane-stays-visible.md) The changes pane stays in the window | Eric, by hand on Linux, 2026-10-23 | yes |
+| [M5-23](M5-23-own-title-bar.md) The tab bar is the title bar | Eric's request during the verification, 2026-10-23 | yes |

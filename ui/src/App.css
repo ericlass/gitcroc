@@ -94,7 +94,7 @@ main:not(.main) {
 
 .tabs {
   display: flex;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow-x: auto;
 }
@@ -220,6 +220,62 @@ main:not(.main) {
   border: none;
   border-radius: 0;
   padding: 6px 12px;
+}
+
+/* The window's title bar (UI-35): the tab bar, or on screens without one a
+   bar with the app's name. Its empty space moves the window. */
+.title-drag {
+  flex: 1;
+  /* Room to grab the window however many tabs are open. */
+  min-width: 48px;
+}
+
+.title-bar {
+  display: flex;
+  align-items: stretch;
+  min-height: 32px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Presses go through the name to the bar, so it moves the window too. */
+.title-bar-name {
+  flex: 1;
+  align-self: center;
+  padding: 0 12px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+/* macOS: the system's window buttons sit over the bar's left end. */
+.title-bar-mac {
+  padding-left: 78px;
+}
+
+.window-buttons {
+  display: flex;
+  flex: none;
+}
+
+.window-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.window-button:hover {
+  background: var(--bg-3);
+}
+
+button.window-close:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--accent-text);
 }
 
 /* Toolbar */

@@ -24,7 +24,7 @@ export const DEFAULT_CHANGES_SETTINGS: Readonly<ChangesSettings> = {
   context: "three",
 };
 
-/** Code themes and fonts until the settings are read; the core's defaults. */
+/** Code themes, fonts and the title bar until the settings are read; the core's defaults. */
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   code_theme_light: "github_light",
   code_theme_dark: "github_dark",
@@ -32,6 +32,7 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   ui_font_size: 13,
   code_font: null,
   code_font_size: 13,
+  system_title_bar: false,
 };
 
 /** The group operations' settings until the settings are read; the core's defaults. */
@@ -45,8 +46,9 @@ export const FONT_SIZE_LIMITS = { min: 8, max: 32 } as const;
 
 /** The appearance part of the settings. */
 function appearanceOf(settings: Appearance): Appearance {
-  const { code_theme_light, code_theme_dark, ui_font, ui_font_size, code_font, code_font_size } = settings;
-  return { code_theme_light, code_theme_dark, ui_font, ui_font_size, code_font, code_font_size };
+  const { code_theme_light, code_theme_dark, ui_font, ui_font_size, code_font, code_font_size, system_title_bar } =
+    settings;
+  return { code_theme_light, code_theme_dark, ui_font, ui_font_size, code_font, code_font_size, system_title_bar };
 }
 
 /** The group operations' part of the settings. */
@@ -81,6 +83,8 @@ export function createSettingsStore() {
     changes: (): ChangesSettings => state.view?.settings.changes ?? DEFAULT_CHANGES_SETTINGS,
     /** Code themes and fonts (UI-24, UI-26): the saved ones, or the defaults until read. */
     appearance: (): Appearance => (state.view ? appearanceOf(state.view.settings) : DEFAULT_APPEARANCE),
+    /** Whether the system's title bar stands in for the tab bar (UI-35); `null` until read. */
+    systemTitleBar: (): boolean | null => state.view?.settings.system_title_bar ?? null,
     /** The group operations' settings: the saved ones, or the defaults until read. */
     groups: (): GroupSettings => (state.view ? groupsOf(state.view.settings) : DEFAULT_GROUP_SETTINGS),
     /** The app checks for updates by itself (D12): the saved choice, or on until read. */

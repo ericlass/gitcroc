@@ -92,6 +92,8 @@ export const strings = {
     codeFontPlaceholder: "System monospace font",
     fontSize: (font: string) => `${font} size`,
     pixels: "px",
+    windowSection: "Window",
+    systemTitleBar: "Use the system title bar",
     groupOperations: "Group operations",
     reposAtOnce: "Repos at once",
     alwaysShowPreflight: "Always show the preflight dialog",
@@ -240,6 +242,15 @@ export const strings = {
     names: { PageDown: "Page Down", PageUp: "Page Up", ",": "," } as Partial<Record<string, string>>,
     /** Keys and modifiers joined, as "Ctrl+Shift+Page Down". */
     join: (parts: string[]) => parts.join("+"),
+  },
+
+  window: {
+    /** The window buttons' group (UI-35). */
+    buttons: "Window controls",
+    minimize: "Minimize",
+    maximize: "Maximize",
+    restore: "Restore",
+    close: "Close window",
   },
 
   tabs: {

@@ -110,8 +110,8 @@ pub const MAX_FONT_SIZE: u32 = 32;
 /// The font size until the user picks one (UI-26).
 pub const DEFAULT_FONT_SIZE: u32 = 13;
 
-/// Code themes and fonts (UI-24, UI-26). Saved as top-level keys of the
-/// file.
+/// Code themes, fonts and the title bar (UI-24, UI-26, UI-35). Saved as
+/// top-level keys of the file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct Appearance {
     /// Used while the app theme resolves to light.
@@ -126,6 +126,9 @@ pub struct Appearance {
     pub code_font: Option<String>,
     /// In CSS pixels, [`MIN_FONT_SIZE`] to [`MAX_FONT_SIZE`].
     pub code_font_size: u32,
+    /// The system's title bar instead of the tab bar (UI-35); off by
+    /// default.
+    pub system_title_bar: bool,
 }
 
 impl Default for Appearance {
@@ -137,6 +140,7 @@ impl Default for Appearance {
             ui_font_size: DEFAULT_FONT_SIZE,
             code_font: None,
             code_font_size: DEFAULT_FONT_SIZE,
+            system_title_bar: false,
         }
     }
 }

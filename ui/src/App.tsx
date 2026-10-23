@@ -27,6 +27,7 @@ import { commandOf, createCommandStore } from "./palette/commands";
 import Palette from "./palette/Palette";
 import StatusBar from "./layout/StatusBar";
 import TabBar from "./layout/TabBar";
+import { createWindowChrome, TitleBar } from "./layout/TitleBar";
 import Toolbar, { type ToolbarReasons } from "./layout/Toolbar";
 import SettingsBanner from "./SettingsBanner";
 import SettingsDialog from "./SettingsDialog";
@@ -425,6 +426,8 @@ export default function App() {
   window.addEventListener("keydown", onAppKey, true);
   onCleanup(() => window.removeEventListener("keydown", onAppKey, true));
   createEffect(() => setMac(info()?.os === "macos"));
+  // The tab bar is the window's title bar unless the user chose the system's (UI-35).
+  const chrome = createWindowChrome(() => info()?.os, settings.systemTitleBar);
 
   // The toolbar's operations and the window's own, as their controls run them (UI-22).
   commands.provide(null, "app", {
@@ -589,21 +592,27 @@ export default function App() {
       </div>
       <Switch>
         <Match when={git.state.result === null}>
-          <main class="message-screen">
-            <p>{strings.app.lookingForGit}</p>
-          </main>
+          <div class="app">
+            <TitleBar chrome={chrome} name={info()?.name ?? ""} />
+            <main class="message-screen">
+              <p>{strings.app.lookingForGit}</p>
+            </main>
+          </div>
         </Match>
         <Match when={gitProblem()}>
           {(problem) => (
-            <GitSetup
-              problem={problem()}
-              os={info()?.os}
-              checking={git.state.checking}
-              error={git.state.error}
-              onRecheck={() => void git.recheck()}
-              onChoose={() => void git.choose()}
-              onAutomatic={() => void git.useAutomatic()}
-            />
+            <div class="app">
+              <TitleBar chrome={chrome} name={info()?.name ?? ""} />
+              <GitSetup
+                problem={problem()}
+                os={info()?.os}
+                checking={git.state.checking}
+                error={git.state.error}
+                onRecheck={() => void git.recheck()}
+                onChoose={() => void git.choose()}
+                onAutomatic={() => void git.useAutomatic()}
+              />
+            </div>
           )}
         </Match>
         <Match when={true}>
@@ -615,6 +624,7 @@ export default function App() {
               dialogs={workspaceDialogs}
               share={share}
               ai={ai}
+              chrome={chrome}
               onClose={closeTab}
             />
             <Show when={share.state.notice}>

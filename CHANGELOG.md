@@ -4,6 +4,12 @@ All notable changes to gitcroc are documented in this file. The format follows [
 
 ## [Unreleased]
 
+### Added
+- **The tab bar is the title bar.** gitcroc draws its own title bar: drag the tab bar's empty space to move the window, and double-click it to maximize or restore the window. On Windows and Linux the minimize, maximize and close buttons sit at its right end; macOS keeps its own window buttons. Settings, **Window**, **Use the system title bar** brings back your system's title bar.
+
+### Fixed
+- The changes pane no longer leaves the window when the window gets smaller after the pane was made narrow. It shrinks to its minimum size instead, and gets its size back when the window grows again.
+
 ## [1.0.0-rc.1] - 2026-10-21
 
 The first release candidate of gitcroc 1.0: a Git client for Windows, macOS and Linux, made for projects that span many repositories. The [user guide](https://github.com/ericlass/gitcroc/blob/main/docs/user/README.md) describes everything below.

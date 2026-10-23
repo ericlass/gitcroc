@@ -19,6 +19,10 @@ The colors of diffs and of the conflict editor, chosen apart from the app theme:
 - **Code font**: the font of diffs and the conflict editor. Leave it empty for the system monospace font.
 - **Code font size**: in pixels, 8 to 32; 13 by default.
 
+### Window
+
+**Use the system title bar**: show your system's title bar and window buttons above the tab bar. Off by default: the tab bar is the title bar, as described in [Getting started](getting-started.md). Turn it on if your desktop, such as a tiling window manager, works better with the system's own frame. The change applies at once.
+
 ### Group operations
 
 - **Repos at once**: how many repositories a group operation works on at the same time, 1 to 32; 8 by default.

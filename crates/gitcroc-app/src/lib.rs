@@ -10,6 +10,7 @@ mod smoke_dirs;
 pub mod update;
 #[cfg(any(feature = "update-test", test))]
 mod update_test;
+pub mod window;
 
 use std::sync::Arc;
 
@@ -113,6 +114,20 @@ pub fn run() -> Result<(), Error> {
             // Before the page loads, so its first `app_info` has it.
             app.manage(platform::PlatformFonts.read());
             ipc.mount_events(app);
+            // The tab bar is the title bar unless the user chose the
+            // system's (UI-35), set while the window is still hidden.
+            let system_title_bar = app
+                .state::<Arc<SettingsStore>>()
+                .view()
+                .settings
+                .appearance
+                .system_title_bar;
+            if let Some(window) = app.get_webview_window(window::MAIN_WINDOW)
+                && let Err(error) = window::TitleBar::here(system_title_bar).apply(&window)
+            {
+                app.state::<Arc<AppLog>>()
+                    .warn(&format!("cannot set the window's title bar: {error}"));
+            }
             // The watchers report through the app, so they start with it.
             app.manage(Arc::new(ipc::watchers(app.handle())));
             let log = app.state::<Arc<AppLog>>();

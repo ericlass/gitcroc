@@ -9,6 +9,7 @@ use std::path::Path;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::ipc::DesktopFonts;
+use crate::window::TitleBar;
 
 mod keychain;
 mod launch;
@@ -24,6 +25,8 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(not(target_os = "macos"))]
+pub use self::Decorations as PlatformWindowFrame;
 pub use keychain::{KEYCHAIN_SERVICE, KeychainError, MemoryKeychain, OsKeychain, keychain_account};
 pub use launch::{Launch, LaunchError, start};
 #[cfg(target_os = "linux")]
@@ -44,6 +47,8 @@ pub use macos::MacInstallation as PlatformInstallation;
 pub use macos::Open as PlatformBrowser;
 #[cfg(target_os = "macos")]
 pub use macos::TerminalApp as PlatformTerminal;
+#[cfg(target_os = "macos")]
+pub use macos::TitleBarStyle as PlatformWindowFrame;
 #[cfg(not(target_os = "linux"))]
 pub use other::NoDesktopFonts as PlatformFonts;
 #[cfg(unix)]
@@ -69,6 +74,30 @@ pub trait FileManager {
 pub trait WebBrowser {
     /// What opens `url` in it.
     fn open(url: &str) -> Launch;
+}
+
+/// What the system draws around the window (UI-35).
+pub trait WindowFrame {
+    /// Gives `window` the title bar `bar`; the window keeps the system's
+    /// resizing.
+    fn apply<R: tauri::Runtime>(
+        window: &tauri::WebviewWindow<R>,
+        bar: TitleBar,
+    ) -> tauri::Result<()>;
+}
+
+/// Windows and Linux: the system's decorations, or none while the tab bar
+/// has the window buttons.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Decorations;
+
+impl WindowFrame for Decorations {
+    fn apply<R: tauri::Runtime>(
+        window: &tauri::WebviewWindow<R>,
+        bar: TitleBar,
+    ) -> tauri::Result<()> {
+        window.set_decorations(bar == TitleBar::System)
+    }
 }
 
 /// The package the running app came from (PLAT-4); see [`package`].

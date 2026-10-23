@@ -1,11 +1,12 @@
 //! macOS: the file manager, the browser and the terminal, all through
-//! `open`, and the package.
+//! `open`, the package, and the window's title bar.
 
 use std::path::Path;
 
 use gitcroc_core::Package;
 
-use super::{FileManager, Installation, Launch, Terminal, WebBrowser};
+use super::{FileManager, Installation, Launch, Terminal, WebBrowser, WindowFrame};
+use crate::window::TitleBar;
 
 /// `open`, which shows a folder in Finder.
 #[derive(Debug, Clone, Copy, Default)]
@@ -45,5 +46,24 @@ pub struct MacInstallation;
 impl Installation for MacInstallation {
     fn package() -> Package {
         super::package::macos_package(tauri::utils::platform::bundle_type())
+    }
+}
+
+/// The system's title bar, transparent over the page while the tab bar is
+/// the title bar, with its window buttons kept (UI-35). Its title is hidden
+/// by `tauri.macos.conf.json`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TitleBarStyle;
+
+impl WindowFrame for TitleBarStyle {
+    fn apply<R: tauri::Runtime>(
+        window: &tauri::WebviewWindow<R>,
+        bar: TitleBar,
+    ) -> tauri::Result<()> {
+        window.set_title_bar_style(if bar == TitleBar::System {
+            tauri::TitleBarStyle::Visible
+        } else {
+            tauri::TitleBarStyle::Overlay
+        })
     }
 }

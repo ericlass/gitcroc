@@ -4,7 +4,7 @@
 
 A workspace is a named set of repositories and groups, typically one per project. You can have as many workspaces as you like, and several open at once, each in its own tab: a Java project and a C# project side by side, for example. A workspace is open in at most one tab; opening it again switches to its tab.
 
-The **+** button at the end of the tab bar (**Open workspace**) lists every workspace, marking those already **(open)**, and offers:
+The **+** button after the tabs (**Open workspace**) lists every workspace, marking those already **(open)**, and offers:
 
 - **New workspace…**: type a name and click **Create**.
 - **Import workspace…**: open a workspace file someone shared with you (see [Sharing a workspace](#sharing-a-workspace)).
