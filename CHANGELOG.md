@@ -6,8 +6,10 @@ All notable changes to gitcroc are documented in this file. The format follows [
 
 ### Added
 - **The tab bar is the title bar.** gitcroc draws its own title bar: drag the tab bar's empty space to move the window, and double-click it to maximize or restore the window. On Windows and Linux the minimize, maximize and close buttons sit at its right end; macOS keeps its own window buttons. Settings, **Window**, **Use the system title bar** brings back your system's title bar.
+- **Move history columns.** Drag a column's header in the history to move the column, or use **Move left** and **Move right** in the header's menu. **Reset columns** in the same menu restores the default order and widths.
 
 ### Fixed
+- Resizing the history's columns works: the column edges are easier to grab and show a line, an edge follows the pointer on both sides of the subject, and each workspace keeps its column widths and order after a restart.
 - The changes pane no longer leaves the window when the window gets smaller after the pane was made narrow. It shrinks to its minimum size instead, and gets its size back when the window grows again.
 
 ## [1.0.0-rc.1] - 2026-10-21

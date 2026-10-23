@@ -152,7 +152,7 @@ const defaultSettings: SettingsView = {
   read_only: false,
   warning: null,
 };
-export const emptyLayout: PaneLayout = { dock: null, tree: null, history: null, changes: null };
+export const emptyLayout: PaneLayout = { dock: null, tree: null, history: null, changes: null, columns: null };
 const defaultWorkspace: WorkspaceView = {
   id: "fake-workspace",
   name: "My workspace",

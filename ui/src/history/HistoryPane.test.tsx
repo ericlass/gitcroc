@@ -64,7 +64,7 @@ async function setup(options: { changes?: number } = {}) {
       reset={createResetStore()}
     />
   ));
-  return { history, selection, summaries };
+  return { history, selection, summaries, layout };
 }
 
 /** The rendered rows, top to bottom, as their text. */
@@ -114,6 +114,129 @@ test("UI-9 history columns", async () => {
   expect(row.getByText(commit.short_hash)).toBeDefined();
   // The column header can be resized.
   expect(screen.getByRole("separator", { name: "Resize Author" })).toBeDefined();
+});
+
+/** The column headers, left to right, as their text. */
+const headerTexts = () =>
+  within(screen.getByRole("toolbar", { name: "History columns" }))
+    .getAllByRole("button")
+    .map((header) => header.textContent ?? "");
+
+/** The first row's cells, left to right, by their column class. */
+const firstRowColumns = () =>
+  [...(document.querySelector("#history-row-0")?.children ?? [])].map(
+    (cell) => [...cell.classList].find((name) => name !== "history-cell") ?? "",
+  );
+
+async function showColumns() {
+  fakeState.histories = { r1: { length: 5, prefix: "api" } };
+  const shown = await setup();
+  shown.history.show(id(), sourceOf("repo:r1", repoItem));
+  await settle();
+  return shown;
+}
+
+test("UI-36 the header and the rows follow the column order", async () => {
+  const { layout } = await showColumns();
+  expect(headerTexts()).toEqual(["Graph", "Subject", "Author", "Date", "Hash"]);
+  expect(firstRowColumns()).toEqual(["history-graph", "history-subject", "history-author", "history-date", "history-hash"]);
+
+  layout.moveColumn(id(), "hash", 0);
+  layout.moveColumn(id(), "subject", 4);
+  await settle();
+  expect(headerTexts()).toEqual(["Hash", "Graph", "Author", "Date", "Subject"]);
+  expect(firstRowColumns()).toEqual(["history-hash", "history-graph", "history-author", "history-date", "history-subject"]);
+});
+
+test("UI-36 an edge right of the subject resizes the column to its right, and the subject keeps its minimum", async () => {
+  const real = HTMLElement.prototype.getBoundingClientRect;
+  let author = () => 140;
+  vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function (this: HTMLElement) {
+    if (this.classList.contains("history-scroller")) {
+      return new DOMRect(0, 0, 600, 480);
+    }
+    // The subject's header has 40 px more than its minimum, and gives up what the author column takes.
+    return this.matches(".history-columns .history-subject")
+      ? new DOMRect(0, 0, 120 - (author() - 140), 20)
+      : real.call(this);
+  });
+  const { layout } = await showColumns();
+  author = () => layout.historyColumns(id()).author;
+  const graphEdge = screen.getByRole("separator", { name: "Resize Graph" });
+  const authorEdge = screen.getByRole("separator", { name: "Resize Author" });
+  // Left of the subject, the edge is the column's right one; right of it, its left one.
+  expect(graphEdge.classList.contains("splitter-before")).toBe(false);
+  expect(authorEdge.classList.contains("splitter-before")).toBe(true);
+
+  // Moving the edge left makes the column right of it wider, up to what the subject can give up.
+  fireEvent.keyDown(authorEdge, { key: "ArrowLeft" });
+  expect(layout.historyColumns(id()).author).toBe(140 + 16);
+  for (let step = 0; step < 4; step++) {
+    fireEvent.keyDown(authorEdge, { key: "ArrowLeft" });
+  }
+  expect(layout.historyColumns(id()).author).toBe(140 + 40);
+  fireEvent.keyDown(authorEdge, { key: "ArrowRight" });
+  expect(layout.historyColumns(id()).author).toBe(140 + 40 - 16);
+
+  // Moved right of the subject, the graph's edge is on its left too.
+  layout.moveColumn(id(), "graph", 4);
+  await settle();
+  expect(screen.getByRole("separator", { name: "Resize Graph" }).classList.contains("splitter-before")).toBe(true);
+  // Each edge between two columns has one splitter; the subject has none.
+  expect(screen.getAllByRole("separator")).toHaveLength(4);
+});
+
+test("UI-36 the header menu moves and resets columns", async () => {
+  const { layout } = await showColumns();
+  const header = (name: string) =>
+    within(screen.getByRole("toolbar", { name: "History columns" })).getByRole("button", { name });
+
+  fireEvent.contextMenu(header("Graph"));
+  let menu = screen.getByRole("menu", { name: "Graph column" });
+  expect(within(menu).getByRole("menuitem", { name: "Move left" }).hasAttribute("disabled")).toBe(true);
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Move right" }));
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(headerTexts()).toEqual(["Subject", "Graph", "Author", "Date", "Hash"]);
+  expect(document.activeElement).toBe(header("Graph"));
+
+  fireEvent.contextMenu(header("Hash"));
+  menu = screen.getByRole("menu", { name: "Hash column" });
+  expect(within(menu).getByRole("menuitem", { name: "Move right" }).hasAttribute("disabled")).toBe(true);
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Move left" }));
+  expect(headerTexts()).toEqual(["Subject", "Graph", "Author", "Hash", "Date"]);
+
+  layout.setColumnWidth(id(), "author", 300);
+  fireEvent.contextMenu(header("Author"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Reset columns" }));
+  expect(headerTexts()).toEqual(["Graph", "Subject", "Author", "Date", "Hash"]);
+  expect(layout.historyColumns(id()).author).toBe(140);
+});
+
+test("UI-36 the headers are one tab stop and the keyboard opens their menu", async () => {
+  await showColumns();
+  const toolbar = screen.getByRole("toolbar", { name: "History columns" });
+  const headers = () => within(toolbar).getAllByRole("button");
+  expect(headers().map((header) => header.tabIndex)).toEqual([0, -1, -1, -1, -1]);
+
+  headers()[0]?.focus();
+  fireEvent.keyDown(document.activeElement ?? toolbar, { key: "ArrowRight" });
+  expect(document.activeElement?.textContent).toBe("Subject");
+  fireEvent.keyDown(document.activeElement ?? toolbar, { key: "End" });
+  expect(document.activeElement?.textContent).toBe("Hash");
+  expect(headers().map((header) => header.tabIndex)).toEqual([-1, -1, -1, -1, 0]);
+
+  fireEvent.keyDown(document.activeElement ?? toolbar, { key: "F10", shiftKey: true });
+  await settle();
+  expect(document.activeElement?.textContent).toBe("Move left");
+  fireEvent.click(document.activeElement ?? toolbar);
+  expect(headerTexts()).toEqual(["Graph", "Subject", "Author", "Hash", "Date"]);
+  expect(document.activeElement?.textContent).toBe("Hash");
+
+  fireEvent.keyDown(document.activeElement ?? toolbar, { key: "ContextMenu" });
+  expect(screen.getByRole("menu", { name: "Hash column" })).toBeDefined();
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(document.activeElement?.textContent).toBe("Hash");
 });
 
 test("PERF-1 the rows on screen are reused as the list scrolls", async () => {

@@ -493,6 +493,12 @@ export const strings = {
     /** The graph column's name in a merged history. */
     repository: "Repository",
     resizeColumn: (column: string) => `Resize ${column}`,
+    /** The column headers (UI-36). */
+    columnHeaders: "History columns",
+    columnMenu: (column: string) => `${column} column`,
+    moveColumnLeft: "Move left",
+    moveColumnRight: "Move right",
+    resetColumns: "Reset columns",
     commitGraphOffer: "Commit-graph offer",
     commitGraphWhy:
       "This repo has no commit-graph file, so its history loads slowly. Git can write one now in the background; " +

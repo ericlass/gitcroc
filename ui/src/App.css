@@ -1648,26 +1648,72 @@ button.danger:hover:not(:disabled) {
   border-bottom: 1px solid var(--border);
 }
 
+/* The edges reach into the next header, so a header does not clip them (UI-36). */
 .history-columns .history-cell {
   position: relative;
-  padding-top: 2px;
-  padding-bottom: 2px;
+  padding: 0;
+  overflow: visible;
 }
 
-.history-column-label {
+.history-columns .history-cell.column-dragged {
+  opacity: 0.5;
+}
+
+.history-columns .history-cell.drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.history-columns .history-cell.drop-after {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+button.history-column-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 2px 6px;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 0;
 }
 
+button.history-column-label:hover:not(:disabled) {
+  background: var(--bg-3);
+}
+
+button.history-column-label:focus-visible {
+  outline-offset: -2px;
+}
+
+/* An 8 px edge with a line in the middle, on the column's side away from the subject. */
 .column-splitter {
   position: absolute;
   top: 0;
-  right: -3px;
+  right: -4px;
   bottom: 0;
-  width: 6px;
+  width: 8px;
   cursor: col-resize;
   touch-action: none;
   z-index: 1;
+}
+
+.column-splitter.splitter-before {
+  right: auto;
+  left: -4px;
+}
+
+.column-splitter::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 3.5px;
+  width: 1px;
+  background: var(--border);
 }
 
 .column-splitter:hover,

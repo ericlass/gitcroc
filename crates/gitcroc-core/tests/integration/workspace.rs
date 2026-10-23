@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use gitcroc_core::{
-    AddReport, ConfigDir, ConfigWarning, DEFAULT_WORKSPACE_NAME, Dock, GitRepo, GitRunner, Head,
-    JobId, JobProgress, PaneLayout, RepoId, StatusReader, WORKSPACES_DIR, WorkspaceError,
-    WorkspaceId, Workspaces, add_path, repo_summary,
+    AddReport, ColumnLayout, ColumnOrder, ConfigDir, ConfigWarning, DEFAULT_WORKSPACE_NAME, Dock,
+    GitRepo, GitRunner, Head, HistoryColumn, JobId, JobProgress, PaneLayout, RepoId, StatusReader,
+    WORKSPACES_DIR, WorkspaceError, WorkspaceId, Workspaces, add_path, repo_summary,
 };
 use repo_gen::{Fixture, Repo};
 
@@ -673,6 +673,7 @@ fn ui_19_pane_layout_round_trips_in_workspace_file() {
         tree: Some(300),
         history: Some(520),
         changes: Some(240),
+        columns: None,
     };
     store.set_layout(&id, layout.clone()).unwrap();
     assert_eq!(store.view(&id).unwrap().layout, layout);
@@ -695,6 +696,61 @@ fn ui_19_pane_layout_round_trips_in_workspace_file() {
             dock: Some(Dock::Right),
             ..PaneLayout::default()
         }
+    );
+}
+
+#[test]
+fn ui_36_history_columns_round_trip_in_workspace_file() {
+    use HistoryColumn::{Author, Date, Graph, Hash, Subject};
+    let config = TempConfig::new();
+    let text =
+        "schema = 1\nname = \"Platform\"\n\n[[repo]]\nid = \"r1\"\npath = \"/somewhere/api\"\n";
+    let path = config.write("ws", text);
+    let store = Workspaces::load(&config);
+    let id = WorkspaceId("ws".to_owned());
+
+    let layout = PaneLayout {
+        dock: Some(Dock::Right),
+        columns: Some(ColumnLayout {
+            order: Some(ColumnOrder(vec![Subject, Graph, Hash, Author, Date])),
+            graph: Some(96),
+            author: None,
+            date: Some(150),
+            hash: Some(80),
+        }),
+        ..PaneLayout::default()
+    };
+    store.set_layout(&id, layout.clone()).unwrap();
+    assert_eq!(store.view(&id).unwrap().layout, layout);
+    let saved = fs::read_to_string(&path).unwrap();
+    assert!(saved.starts_with(text), "{saved}");
+    assert!(
+        saved.ends_with(
+            "\n[layout]\ndock = \"right\"\n\n[layout.columns]\n\
+             order = [\"subject\", \"graph\", \"hash\", \"author\", \"date\"]\n\
+             graph = 96\ndate = 150\nhash = 80\n"
+        ),
+        "{saved}"
+    );
+    assert_eq!(Workspaces::load(&config).view(&id).unwrap().layout, layout);
+
+    // A newer build's column, a repeat and a missing column: the order keeps
+    // the known columns once, and the missing ones follow in their default
+    // order. The workspace stays writable (DATA-1).
+    config.write(
+        "ws",
+        &format!(
+            "{text}\n[layout.columns]\norder = [\"hash\", \"committer\", \"subject\", \"hash\"]\n"
+        ),
+    );
+    let lenient = Workspaces::load(&config).view(&id).unwrap();
+    assert!(!lenient.read_only);
+    assert_eq!(
+        lenient.layout.columns,
+        Some(ColumnLayout {
+            order: Some(ColumnOrder(vec![Hash, Subject, Graph, Author, Date])),
+            ..ColumnLayout::default()
+        })
     );
 }
 

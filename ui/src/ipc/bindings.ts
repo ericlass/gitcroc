@@ -1333,6 +1333,27 @@ export type CloneRequest = {
  */
 export type CodeTheme = "github_light" | "github_dark" | "solarized_light" | "solarized_dark" | "one_dark" | "dracula" | "nord" | "monokai";
 
+/**
+ *  The order and widths in CSS pixels of the history's columns (UI-36).
+ *  The subject takes the width that is left, so it has none. A field
+ *  missing from the file is `None`, and the UI uses its default.
+ */
+export type ColumnLayout = {
+	order: ColumnOrder | null,
+	graph: number | null,
+	author: number | null,
+	date: number | null,
+	hash: number | null,
+};
+
+/**
+ *  The history's columns left to right, each once. Read leniently, so a
+ *  newer or hand-edited file keeps the workspace writable: names this build
+ *  does not know and repeats are dropped, and missing columns follow in
+ *  their default order.
+ */
+export type ColumnOrder = HistoryColumn[];
+
 /**  A commit's header (UI-14). Text is decoded lossily (SEC-3). */
 export type CommitDetails = {
 	hash: string,
@@ -1775,6 +1796,9 @@ export type Head =
 /**  On a branch; `hash` is `None` while it has no commit yet. */
 { kind: "branch"; name: string; hash: string | null } | { kind: "detached"; hash: string };
 
+/**  A column of the history (UI-9). */
+export type HistoryColumn = "graph" | "subject" | "author" | "date" | "hash";
+
 /**  A commit of the history pane and the repo it is in. */
 export type HistoryRow = {
 	repo_id: RepoId,
@@ -2178,6 +2202,8 @@ export type PaneLayout = {
 	history: number | null,
 	/**  The changes pane's height while it is docked at the bottom. */
 	changes: number | null,
+	/**  The history's columns (UI-36): `[layout.columns]`. */
+	columns: ColumnLayout | null,
 };
 
 /**

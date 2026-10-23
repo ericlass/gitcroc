@@ -141,10 +141,11 @@ pub use update::{
 };
 pub use watch::{DEBOUNCE, MAX_DELAY, RepoChange, WatchWarning, WatchedPath, Watchers};
 pub use workspace::{
-    AddReport, DEFAULT_WORKSPACE_NAME, Dock, ExportReport, GroupId, GroupView, ImportReport,
-    MAX_GROUP_NAME, MAX_WORKSPACE_NAME, MissingRepo, PaneLayout, Refusal, RepoId, RepoView,
-    SCAN_DEPTH, UNGROUPED_NAME, WORKSPACE_SCHEMA, WORKSPACES_DIR, WorkspaceError,
-    WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces, add_path,
+    AddReport, ColumnLayout, ColumnOrder, DEFAULT_WORKSPACE_NAME, Dock, ExportReport, GroupId,
+    GroupView, HistoryColumn, ImportReport, MAX_GROUP_NAME, MAX_WORKSPACE_NAME, MissingRepo,
+    PaneLayout, Refusal, RepoId, RepoView, SCAN_DEPTH, UNGROUPED_NAME, WORKSPACE_SCHEMA,
+    WORKSPACES_DIR, WorkspaceError, WorkspaceListItem, WorkspaceTabs, WorkspaceView, Workspaces,
+    add_path,
 };
 
 /// Locks `mutex`, also when a thread panicked while holding it. Every

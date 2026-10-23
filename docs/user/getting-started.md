@@ -34,6 +34,8 @@ Right-click a row, or select it and press Shift+F10 or the context menu key, for
 
 With a repository selected, the history shows the commit graph of all its local and remote branches, newest first, with the columns **Graph**, **Subject** (with labels for branches and tags), **Author**, **Date** and **Hash**. With a branch, tag or remote branch selected, it shows only the commits reachable from it; with a stash, the stash itself.
 
+To arrange the columns, drag the edge between two column headers to resize a column, or double-click the edge to give the column its default width. Drag a column's header to move the column. Clicking or right-clicking a header opens a menu with **Move left**, **Move right** and **Reset columns**, which brings back the default order and widths. Each workspace remembers its columns.
+
 When the repository has uncommitted changes, the first row is **Uncommitted changes (n)**, where n is the number of changed files.
 
 Type in **Search subject, author or hash** to show only the commits that match.

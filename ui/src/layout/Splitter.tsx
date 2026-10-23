@@ -1,5 +1,6 @@
 // A splitter that resizes the pane or column beside it. A vertical one
-// resizes what is to its left; a horizontal one what is below it. Drag it,
+// resizes what is to its left, or to its right when it sits `before` it; a
+// horizontal one what is below it. Drag it,
 // or focus it and use the arrow keys; double-click resets it. Between panes,
 // both start from the size shown, which is less than the set one while a
 // small window shrinks the pane.
@@ -12,6 +13,8 @@ export default function Splitter(props: {
   class?: string;
   /** `vertical` (the default) resizes a width, `horizontal` the height of the pane below. */
   orientation?: "vertical" | "horizontal";
+  /** A vertical splitter at the left edge of what it resizes: moving left makes it wider. */
+  before?: boolean;
   label: string;
   /** The size it controls: a width, or a height when horizontal. */
   width: number;
@@ -27,7 +30,8 @@ export default function Splitter(props: {
 
   const horizontal = () => props.orientation === "horizontal";
   // A horizontal splitter sits above its pane: moving up makes it taller.
-  const position = (event: PointerEvent) => (horizontal() ? -event.clientY : event.clientX);
+  const position = (event: PointerEvent) =>
+    horizontal() ? -event.clientY : props.before === true ? -event.clientX : event.clientX;
 
   const shown = (splitter: HTMLElement) => {
     if (props.class !== undefined) {
@@ -68,7 +72,11 @@ export default function Splitter(props: {
   };
 
   const onKeyDown = (event: KeyboardEvent & { currentTarget: HTMLElement }) => {
-    const [less, more] = horizontal() ? ["ArrowDown", "ArrowUp"] : ["ArrowLeft", "ArrowRight"];
+    const [less, more] = horizontal()
+      ? ["ArrowDown", "ArrowUp"]
+      : props.before === true
+        ? ["ArrowRight", "ArrowLeft"]
+        : ["ArrowLeft", "ArrowRight"];
     const step = event.key === less ? -KEY_STEP : event.key === more ? KEY_STEP : 0;
     if (step !== 0) {
       event.preventDefault();
@@ -85,7 +93,7 @@ export default function Splitter(props: {
       aria-valuenow={props.width}
       aria-valuemin={props.min}
       tabindex="0"
-      class={`${props.class ?? "splitter"}${horizontal() ? " splitter-horizontal" : ""}`}
+      class={`${props.class ?? "splitter"}${horizontal() ? " splitter-horizontal" : ""}${props.before === true ? " splitter-before" : ""}`}
       data-pane={props.pane}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

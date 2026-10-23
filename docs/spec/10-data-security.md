@@ -7,7 +7,7 @@ All app data lives in the per-user config, cache and log directories of the plat
 | File | Location | Content |
 | --- | --- | --- |
 | `settings.toml` | Config dir | App settings, provider list (without keys), theme choices |
-| `workspaces/<uuid>.toml` | Config dir | One workspace: name, repos, groups, pane layout |
+| `workspaces/<uuid>.toml` | Config dir | One workspace: name, repos, groups, pane layout and history columns |
 | `cache.db` | Cache dir | Repo summaries (PERF-3). Safe to delete |
 | `gitcroc.log` | Log dir | Rotating, 5 files of 10 MB. Git commands run and their exit codes; no file contents |
 
