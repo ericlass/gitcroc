@@ -289,6 +289,10 @@ main:not(.main) {
   overflow: hidden;
 }
 
+/* When the window is too small for the panes' set sizes, the pane that
+   fills the rest shrinks to its minimum first, then the history, then the
+   tree, which keeps room for the others' minimums. No pane leaves the
+   window (M5-21). The set sizes stay, for a larger window. */
 .pane {
   flex: 0 0 auto;
   min-width: 200px;
@@ -298,6 +302,18 @@ main:not(.main) {
 
 .pane-fill {
   flex: 1 1 0;
+}
+
+.panes > .pane-history {
+  flex-shrink: 1;
+}
+
+.pane-tree {
+  max-width: calc(100% - 2 * (200px + var(--splitter-width)));
+}
+
+.panes-bottom > .pane-tree {
+  max-width: calc(100% - 200px - var(--splitter-width));
 }
 
 .placeholder {
@@ -1777,7 +1793,7 @@ button.danger:hover:not(:disabled) {
 .pane-stack {
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  min-width: 200px;
   overflow: hidden;
 }
 
@@ -1785,8 +1801,13 @@ button.danger:hover:not(:disabled) {
   min-width: 0;
 }
 
-.pane-stack > .pane-history {
+.pane-stack > .pane-history,
+.pane-stack > .pane-changes {
   min-height: 120px;
+}
+
+.pane-stack > .pane-changes {
+  flex-shrink: 1;
 }
 
 .splitter-horizontal {
