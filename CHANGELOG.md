@@ -10,6 +10,7 @@ All notable changes to gitcroc are documented in this file. The format follows [
 
 ### Fixed
 - Resizing the history's columns works: the column edges are easier to grab and show a line, an edge follows the pointer on both sides of the subject, and each workspace keeps its column widths and order after a restart.
+- A repository's name in the tree stays whole when the tree is narrow. Its branch name is shortened with an ellipsis instead of hiding the name.
 - The changes pane no longer leaves the window when the window gets smaller after the pane was made narrow. It shrinks to its minimum size instead, and gets its size back when the window grows again.
 
 ## [1.0.0-rc.1] - 2026-10-21

@@ -557,7 +557,13 @@ button.window-close:hover:not(:disabled) {
   color: var(--text-secondary);
 }
 
+/* When the row is too narrow, the branch gives up its room before the name
+   does: its shrink factor dwarfs the name's, and it can shrink to nothing. */
 .tree-head {
+  flex: 0 100000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text-secondary);
 }
 
