@@ -1,7 +1,8 @@
 # Plan: replace the Tauri UI with a native GPUI UI
 
-Status: plan accepted with its five recommended decisions (Eric,
-2026-10-26). The spec changes with task M6-01 (DEV-1, DEV-3). The tasks are
+Status: accepted, with its five recommended decisions (Eric, 2026-10-26),
+and recorded in [ADR 0004](../adr/0004-native-ui-with-gpui.md). The spec
+changes with task M6-01 (DEV-1, DEV-3). The tasks are
 milestone M6 in `docs/tasks/README.md`; M6-01 to M6-04 have task files, and
 the rest follow once the spikes have reported.
 
