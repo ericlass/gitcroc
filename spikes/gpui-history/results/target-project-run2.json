@@ -1,0 +1,11 @@
+{
+  "repo": "/home/bertas/Dev/Rust/gitcroc/spikes/gpui-history/../../target/bench-data/target-project/repos/repo-01",
+  "refresh_ms": 6.945,
+  "window_px": [1920, 1003],
+  "scale_factor": 1,
+  "px_per_frame": 100,
+  "scenarios": [
+    {"name": "history-scroll", "frames": 1191, "fps": 144.0, "p50_ms": 6.95, "p95_ms": 6.95, "p99_ms": 6.96, "max_ms": 7.31, "janky_pct": 0.00, "cpu_p50_ms": 3.92, "cpu_p95_ms": 4.16, "cpu_max_ms": 4.99, "longest_blank_ms": 0.0, "distance_px": 119061, "items": 5000, "reached_end": true},
+    {"name": "diff-scroll", "frames": 3000, "fps": 144.0, "p50_ms": 6.94, "p95_ms": 6.95, "p99_ms": 6.96, "max_ms": 7.00, "janky_pct": 0.00, "cpu_p50_ms": 3.22, "cpu_p95_ms": 3.58, "cpu_max_ms": 6.10, "longest_blank_ms": 0.0, "distance_px": 300000, "items": 216059, "reached_end": false}
+  ]
+}

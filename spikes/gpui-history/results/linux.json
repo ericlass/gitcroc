@@ -1,0 +1,11 @@
+{
+  "repo": "/home/bertas/Dev/Rust/gitcroc/target/bench-data/big-history/linux",
+  "refresh_ms": 6.945,
+  "window_px": [1920, 1003],
+  "scale_factor": 1,
+  "px_per_frame": 100,
+  "scenarios": [
+    {"name": "history-scroll", "frames": 5000, "fps": 143.8, "p50_ms": 6.94, "p95_ms": 6.95, "p99_ms": 6.96, "max_ms": 62.51, "janky_pct": 0.02, "cpu_p50_ms": 3.13, "cpu_p95_ms": 3.39, "cpu_max_ms": 54.40, "longest_blank_ms": 0.0, "distance_px": 500000, "items": 21000, "reached_end": false},
+    {"name": "diff-scroll", "frames": 10, "fps": 144.0, "p50_ms": 6.95, "p95_ms": 6.95, "p99_ms": 6.95, "max_ms": 6.95, "janky_pct": 0.00, "cpu_p50_ms": 4.19, "cpu_p95_ms": 4.28, "cpu_max_ms": 4.28, "longest_blank_ms": 0.0, "distance_px": 901, "items": 92, "reached_end": true}
+  ]
+}

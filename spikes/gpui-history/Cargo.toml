@@ -1,0 +1,16 @@
+# Throwaway spike: the history view and a commit diff in GPUI + gpui-kit,
+# to measure scrolling against the Tauri UI. Not part of the workspace.
+[package]
+name = "gpui-history-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+gitcroc-git = { path = "../../crates/gitcroc-git" }
+gpui-kit = "=0.8.1"
+
+[profile.release]
+debug = "line-tables-only"
