@@ -178,13 +178,68 @@ platforms, and every requirement ID has a test (QA-3).
 | [M5-18](M5-18-user-docs.md) | User documentation in `docs/user/`, link test | M5-09, M5-11, M5-12, M5-13 |
 | [M5-19](M5-19-readme.md) | README as front page and download page | M5-18 |
 | [M5-20](M5-20-release-candidate.md) | 1.0.0-rc.1, coverage enforcing over the whole spec, M5 sign-off | M5-01 to M5-19 |
-| [M5-30](M5-30-v1-0-0.md) | v1.0.0 released; the release candidate updates to it | M5-20 and its follow-ups |
+| [M5-30](M5-30-v1-0-0.md) | v1.0.0 released; the release candidate updates to it | M5-20 and its follow-ups, M6-31 |
 
 M5-01, M5-02, M5-04, M5-07 and M5-16 need nothing from other M5 tasks and can
 start together; M5-01 goes first among them, before anything is released. The
 string tasks (M5-04 to M5-06) touch every UI area, so the other UI tasks wait
 for them. M5-11 can run beside M5-07 to M5-10, and M5-12 follows it, since both change Settings. Follow-ups found by the release
 candidate are numbered M5-21 to M5-29, so they come before M5-30 in file order.
+
+M5-30 is held until M6 ends: v1.0.0 ships with the GPUI UI, after 1.0.0-rc.2
+(decision 1 of `docs/plans/native-ui-gpui.md`, 2026-10-26).
+
+## M6 Native UI
+
+Milestone goal (`docs/plans/native-ui-gpui.md`; section 13 once M6-01 is
+merged): the whole UI is rewritten in Rust with GPUI, and Tauri and the web
+front end are removed. Done when every UI requirement has a GPUI test, the
+section 9 budgets are met with the new scroll budget, and 1.0.0-rc.1 updates
+to 1.0.0-rc.2 on all three platforms.
+
+The Tauri app stays the shipped app until M6-30. Until then the new UI builds
+as `gitcroc-next` and is not packaged. Task files from M6-05 on are written
+once the spikes M6-02 to M6-04 have reported, because their findings shape
+M6-06, M6-19, M6-25, M6-28 and M6-29. Rows marked † will be split into
+several pull requests (DEV-4).
+
+| Task | Delivers | Depends on |
+| --- | --- | --- |
+| [M6-01](M6-01-spec-and-adr.md) | Spec edits for GPUI, ADR 0004 | none |
+| [M6-02](M6-02-conflict-editor-spike.md) | Spike: the conflict editor on gpui-component's editor, or its fallback | none |
+| [M6-03](M6-03-ci-and-packaging-spike.md) | Spike: GPUI tests and windows on the hosted runners; packages without Tauri | none |
+| [M6-04](M6-04-accessibility-spike.md) | Spike: screen readers and accessibility tests with GPUI | none |
+| M6-05 † | `gitcroc-app` services and event channel without Tauri; Tauri commands become wrappers | M6-01 |
+| M6-06 | `gitcroc-ui` skeleton: window, own title bar, panes, status bar, strings, keymap, macOS menus, CI job | M6-03, M6-05 |
+| M6-07 | App tokens, accent color, fonts, 8 code themes on `syntect`, contrast tests | M6-06 |
+| M6-08 | Git setup screen and git path | M6-06 |
+| M6-09 | Workspace tabs and workspace dialogs | M6-06 |
+| M6-10 | Tree pane: rows, summaries, filter, selection | M6-09 |
+| M6-11 † | History pane from the spike: columns, search, merged list, summary strip | M6-10 |
+| M6-12 | Changes pane: commit header, file lists, parent selector | M6-11 |
+| M6-13 † | Diff view: both modes, highlighting, wrap, options, binary and image, Load diff, docking | M6-07, M6-12 |
+| M6-14 | `just bench-ui` on GPUI; single-repo budgets | M6-13 |
+| M6-15 | Status bar, job list, notifications, askpass dialog | M6-06 |
+| M6-16 | Stage, unstage and discard; commit and amend; fsmonitor offer | M6-13, M6-15 |
+| M6-17 | Tree and history context menus; branch dialogs | M6-11, M6-15 |
+| M6-18 † | Sync, integrate, stash, tag, reset and remote dialogs | M6-17 |
+| M6-19 † | Conflict banner and conflict editor | M6-02, M6-16 |
+| M6-20 | Clone, add folder, missing repos | M6-15 |
+| M6-21 | Groups in the tree, drag between groups, group dialogs | M6-17 |
+| M6-22 | Preflight dialog, result report, group commit | M6-16, M6-21 |
+| M6-23 † | AI settings, providers, consent, proposals, Resolve all | M6-19 |
+| M6-24 | Command palette and keyboard pass | M6-18 to M6-23 |
+| M6-25 | Accessibility pass, to the bar decided after M6-04 | M6-04, M6-24 |
+| M6-26 | Settings dialog, all four tabs | M6-07, M6-23 |
+| M6-27 | Updater without Tauri; rc.1 updates to the GPUI build | M6-05 |
+| M6-28 | Packaging and release workflow without Tauri; install tests | M6-03, M6-27 |
+| M6-29 | Smoke test, idle memory, full budget run, user docs | M6-24 to M6-28 |
+| M6-30 | The switch: `gitcroc` is the GPUI binary; `ui/`, Tauri, specta, `gtk` and Node removed | `just coverage M6` empty |
+| M6-31 | 1.0.0-rc.2 and the M6 sign-off | M6-30 |
+
+M6-01 to M6-04 need nothing from each other and can start together. After
+M6-06, three lanes touch separate files: M6-08; M6-09 to M6-14; and M6-15 to
+M6-20.
 
 ## Choices made in these tasks that the spec does not cover
 
@@ -198,6 +253,9 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | JS package manager | pnpm, Node LTS pinned in `.nvmrc` | M0-04 |
 | Styling | Plain CSS with CSS variables, one stylesheet per component; no CSS framework | M0-04, M0-07 |
 | App identifier | `dev.gitcroc.desktop` (ADR 0002) | M0-04, M5-01 |
+| How M6 is developed | Side by side on `main`: the GPUI UI grows as `gitcroc-next` beside the shipped Tauri app until M6-30; no long-lived branch | M6-05 to M6-30 |
+| Look of the GPUI UI | Today's tokens ported, plus the OS accent color and native window controls; not gpui-component's default theme | M6-07 |
+| Spikes | Standalone crates under `spikes/`, outside the workspace, each on its own `spike/` branch and never merged | M6-02 to M6-04 |
 | Config directory name | `gitcroc` under the platform config, cache and log dirs | M0-07 |
 | CI service | GitHub Actions | M0-03 |
 | Task file headings | "Implements" and "Respects" inside the Spec section, so the coverage script knows which IDs a milestone must test | M0-02 |
