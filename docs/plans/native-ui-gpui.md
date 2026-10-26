@@ -1,9 +1,9 @@
 # Plan: replace the Tauri UI with a native GPUI UI
 
-Status: proposal, 2026-10-26. Nothing in `docs/spec/` changes until task
-M6-01 is approved (DEV-1, DEV-3). This plan becomes milestone M6, one task
-file per row of the task table below, written once the open decisions are
-answered.
+Status: plan accepted with its five recommended decisions (Eric,
+2026-10-26). The spec changes with task M6-01 (DEV-1, DEV-3). The tasks are
+milestone M6 in `docs/tasks/README.md`; M6-01 to M6-04 have task files, and
+the rest follow once the spikes have reported.
 
 ## Why
 
@@ -226,7 +226,7 @@ separate files. In all, about 40 pull requests once the † rows are split.
 | Build time and binary size grow (wgpu, naga, syntect) | Measured in M6-03; CI caches; release builds only in the build workflows. |
 | Licences | GPUI and gpui-component are Apache-2.0, `syntect` is MIT, so all are compatible with MIT; `cargo deny` checks in M6-06. |
 
-## Decisions needed before M6-01
+## Decisions (accepted 2026-10-26)
 
 1. **v1.0.0 on Tauri or on GPUI.** Recommended: hold v1.0.0 (M5-30) and
    release the GPUI build as 1.0.0-rc.2, then 1.0.0. Releasing 1.0.0 on
