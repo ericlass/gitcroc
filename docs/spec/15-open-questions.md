@@ -4,7 +4,7 @@ All ten questions are answered. The answers below are summaries; the decision lo
 
 - [x] **Name.** gitcroc. Still to do before the first public commit: check it is free on GitHub, crates.io and as a domain.
 - [x] **License (D14).** MIT.
-- [x] **Front-end framework (D2).** SolidJS, chosen for performance.
+- [x] **Front-end framework (D2).** GPUI, chosen for performance after a spike (ADR 0004).
 - [x] **Bundling git (D13).** No. System git is required on every platform, including Windows.
 - [x] **Code signing.** Windows and macOS ship unsigned for now (SEC-7).
 - [x] **Interactive rebase.** Not in v1 (section 2).

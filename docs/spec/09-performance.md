@@ -20,13 +20,13 @@ The generated sets are produced by a script in the project so every run uses ide
 | Cold start: tree visible from cache | 1 s |
 | Full status refresh of all 20 repos after start | 2 s |
 | Select the largest repo: first page of history visible | 200 ms |
-| Scroll history at any speed | 60 fps; no row blank for more than 100 ms |
+| Scroll history or a diff at any speed | The display's refresh rate, up to 144 Hz, with under 1% of frames over 1.5 refresh intervals; no row blank for more than 100 ms |
 | Select a commit with under 5,000 changed lines: file list and first diff visible | 150 ms |
 | Switch selection between two repos, or between two tabs: first paint | 100 ms |
 | Select a group of all 20 repos: first page of merged history | 300 ms |
 | Working copy status of the 60,000-file repo, git defaults | 500 ms |
 | UI input latency while any job runs | 50 ms |
-| Memory, workspace idle, including the webview | 400 MB |
+| Memory, workspace idle, the whole process | 400 MB |
 
 These numbers are proposed targets. Milestone M1 measures the single-repo rows and M3 the multi-repo rows (section 13). A budget that proves wrong is changed here by an explicit decision, never silently missed.
 
@@ -36,11 +36,11 @@ On macOS the budgets are verified on Apple silicon only. Intel Mac builds ship i
 
 ## Rules that make the budgets reachable
 
-- **PERF-1** Every list and tree is virtualized. The DOM never holds more rows than fit on screen plus a small overscan.
+- **PERF-1** Every list and tree is virtualized. The UI never lays out more rows than fit on screen plus a small overscan.
 - **PERF-2** History is walked lazily in pages (ARCH-8). Graph lanes are computed per page as the user scrolls. Nothing ever requires walking the full history first, including the commit count.
 - **PERF-3** The last known summary of every repo (branch, ahead and behind, dirty flag) is cached in SQLite and shown at startup marked as stale until refreshed.
 - **PERF-4** Background refresh shares the job pool at low priority, ordered: selected repo, then repos visible in the tree, then the rest.
 - **PERF-5** The merged history of a target set is a lazy k-way merge of per-repo walks by commit date. Only the page on screen is materialized.
 - **PERF-6** File watching covers `HEAD`, the index and the refs of every repo's `.git`. The working tree is watched recursively only for the one selected repo. This keeps 200 repos inside OS watcher limits. Workspaces in background tabs are not watched at all (UI-30).
 - **PERF-7** For repos over 50,000 files the app offers, once, to enable `core.fsmonitor` and `core.untrackedCache`. It never changes git config without asking.
-- **PERF-8** The benchmark harness lives in `gitcroc-cli`, runs nightly in CI on Linux, and fails the build when a core-side budget regresses by more than 20%. UI-side budgets (frame rate, first paint) are measured by a scripted run before each release.
+- **PERF-8** The benchmark harness lives in `gitcroc-cli`, runs nightly in CI on Linux, and fails the build when a core-side budget regresses by more than 20%. UI-side budgets (frame rate, first paint) are measured by a scripted run, `just bench-ui` in the app's `perf-trace` build, before each release.

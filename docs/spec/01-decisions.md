@@ -13,7 +13,7 @@ Three rules keep the spec free of contradictions:
 | ID | Topic | Decision | Source |
 | --- | --- | --- | --- |
 | D1 | Core language | Rust, stable toolchain | Eric |
-| D2 | UI stack | Tauri 2 shell, TypeScript + SolidJS front end in the system webview | Eric chose Tauri and asked for the fastest UI layer; SolidJS replaces the earlier proposed default |
+| D2 | UI stack | Native Rust UI with GPUI (through gpui-kit and gpui-component); no webview | Eric, 2026-10-26, after the GPUI spike (ADR 0004); replaces Tauri 2 with SolidJS |
 | D3 | Git engine | Hybrid: `gix` (gitoxide) for reads, the installed `git` CLI for every write and every network operation | Eric |
 | D4 | AI access | API keys (Anthropic, OpenAI-compatible endpoints incl. local models) plus installed agent CLIs (Claude Code, Codex) | Eric |
 | D5 | Scale target | First target, which gates v1: a project of about 20 repos with about 200,000 files and 2 million lines of code in total. Stretch, measured but not gating: 200 repos per workspace, single repos up to 1.5 million commits or 500,000 tracked files | Eric chose "both"; first target is his largest real project; stretch numbers are proposed |
