@@ -1,0 +1,72 @@
+# Throwaway spike (M6-03): GPUI tests and a real GPUI window on GitHub's
+# hosted runners, and the packages of section 11 without Tauri's bundler.
+# Not part of the workspace.
+[package]
+name = "gpui-ci-spike"
+version = "0.0.1"
+edition = "2024"
+publish = false
+description = "gitcroc GPUI CI and packaging spike"
+license = "MIT"
+default-run = "gpui-ci-spike"
+
+[workspace]
+
+[dependencies]
+gpui-kit = "=0.8.1"
+log = { version = "0.4", features = ["std"] }
+# The update signatures (src/update.rs).
+base64 = "0.22"
+minisign = "0.10"
+
+[dev-dependencies]
+gpui-kit = { version = "=0.8.1", features = ["test-support"] }
+minisign-verify = "0.3"
+
+# cargo-packager: NSIS and a portable zip on Windows, .app and .dmg on macOS,
+# AppImage and .deb on Linux. The build itself runs before packaging, in the
+# workflow, so the macOS universal binary can be made with lipo first.
+[package.metadata.packager]
+product-name = "gitcroc-gpui-spike"
+identifier = "dev.gitcroc.gpuispike"
+publisher = "gitcroc"
+category = "DeveloperTool"
+description = "gitcroc GPUI CI and packaging spike"
+out-dir = "dist"
+binaries = [{ path = "gpui-ci-spike", main = true }]
+# gitcroc's own icons, as tauri.conf.json lists them.
+icons = [
+    "../../crates/gitcroc-app/icons/32x32.png",
+    "../../crates/gitcroc-app/icons/128x128.png",
+    "../../crates/gitcroc-app/icons/128x128@2x.png",
+    "../../crates/gitcroc-app/icons/icon.icns",
+    "../../crates/gitcroc-app/icons/icon.ico",
+]
+
+[package.metadata.packager.nsis]
+installer-mode = "currentUser"
+
+[package.metadata.packager.deb]
+# Linked (ldd) and loaded at run time (dlopen); see README.md.
+depends = ["libc6 (>= 2.35)", "libxcb1", "libxkbcommon0", "libxkbcommon-x11-0", "libvulkan1", "libegl1", "libwayland-client0", "libwayland-egl1"]
+
+[package.metadata.packager.macos]
+signing-identity = "-"
+minimum-system-version = "11.0"
+
+# cargo-generate-rpm: the .rpm.
+[package.metadata.generate-rpm]
+name = "gitcroc-gpui-spike"
+assets = [
+    { source = "target/release/gpui-ci-spike", dest = "/usr/bin/gpui-ci-spike", mode = "755" },
+]
+
+# Fedora's names for the libraries of the .deb.
+[package.metadata.generate-rpm.requires]
+libxcb = "*"
+libxkbcommon = "*"
+libxkbcommon-x11 = "*"
+vulkan-loader = "*"
+libglvnd-egl = "*"
+libwayland-client = "*"
+libwayland-egl = "*"

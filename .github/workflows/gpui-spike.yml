@@ -1,0 +1,420 @@
+# M6-03 spike, throwaway: do GPUI tests and a real GPUI window run on
+# GitHub's hosted runners, and can cargo-packager and cargo-generate-rpm
+# build every package of section 11 without Tauri's bundler? Runs only by
+# hand and on pushes to spike/** branches, never on pull requests. Findings
+# are in spikes/gpui-ci/README.md; M6-06 and M6-28 build the real jobs.
+name: GPUI spike
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['spike/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Software rendering is slow; the app gives up after this many seconds.
+  FRAMES_TIMEOUT: "300"
+
+defaults:
+  run:
+    shell: bash
+    working-directory: spikes/gpui-ci
+
+jobs:
+  # 1. Headless tests: GPUI's test platform, no window server and no GPU.
+  tests:
+    name: headless tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - name: Install Linux build packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spikes/gpui-ci
+          key: tests-${{ matrix.os }}
+          cache-on-failure: true
+      - name: cargo test with no display
+        run: env -u DISPLAY -u WAYLAND_DISPLAY ci/timed.sh "cargo-test-${{ runner.os }}" cargo test --locked
+
+  # 2, 5 and 6 on Linux: the release build, a real window three ways, the
+  # AppImage, .deb and .rpm. ubuntu-22.04 has glibc 2.35, the floor of D6.
+  linux:
+    name: linux (window and packages)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@0.11.8,cargo-generate-rpm@0.21.1
+      # Build: xkbcommon and xcb. Run: Xvfb, Mesa's lavapipe and llvmpipe,
+      # Weston. libfuse2 for the AppImage.
+      - name: Install Linux packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev \
+            xvfb mesa-vulkan-drivers libegl1 libegl-mesa0 libgl1-mesa-dri libwayland-egl1 weston libfuse2
+          ls /usr/share/vulkan/icd.d/
+      - uses: Swatinem/rust-cache@v2
+        id: cache
+        with:
+          workspaces: spikes/gpui-ci
+          key: release-linux
+          cache-on-failure: true
+      - name: Build the release binary
+        run: |
+          echo "cache hit: ${{ steps.cache.outputs.cache-hit }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          ci/timed.sh build-release-linux cargo build --release --locked
+      - name: Sizes and runtime libraries
+        run: |
+          bin=target/release/gpui-ci-spike
+          ci/sizes.sh binary-linux "$bin"
+          strip "$bin"
+          cp "$bin" metrics/gpui-ci-spike-stripped
+          ci/sizes.sh binary-linux-stripped metrics/gpui-ci-spike-stripped
+          rm metrics/gpui-ci-spike-stripped
+          ldd "$bin" | tee metrics/ldd.txt
+          echo "dlopen candidates:" | tee metrics/dlopen.txt
+          strings -n 6 "$bin" | grep -oE 'lib[A-Za-z0-9_+-]+\.so(\.[0-9]+)*' | sort -u | tee -a metrics/dlopen.txt
+          objdump -T "$bin" | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -n 1 | tee metrics/glibc.txt
+
+      - name: Window, Xvfb, lavapipe (software Vulkan)
+        run: |
+          export VK_ICD_FILENAMES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -n 1)
+          SPIKE_VERBOSE=1 xvfb-run -a -s "-screen 0 1280x1024x24" \
+            ci/frames.sh xvfb-lavapipe target/release/gpui-ci-spike --frames 300 --timeout "$FRAMES_TIMEOUT"
+      - name: Window, Xvfb, Vulkan hidden (GL on llvmpipe)
+        run: |
+          export VK_ICD_FILENAMES=/nonexistent.json
+          SPIKE_VERBOSE=1 xvfb-run -a -s "-screen 0 1280x1024x24" \
+            ci/frames.sh xvfb-gl target/release/gpui-ci-spike --frames 300 --timeout "$FRAMES_TIMEOUT"
+      - name: Window, headless Weston (Wayland), lavapipe
+        continue-on-error: true
+        run: |
+          weston --version
+          export XDG_RUNTIME_DIR=$(mktemp -d)
+          chmod 700 "$XDG_RUNTIME_DIR"
+          # Weston 10 and later take --backend=headless; 9 takes the module.
+          backend=headless
+          weston --help 2>&1 | grep -q 'headless-backend.so' && backend=headless-backend.so
+          weston --backend="$backend" --socket=spike --width=1280 --height=1024 --idle-time=0 > metrics/weston.log 2>&1 &
+          for _ in $(seq 50); do [ -S "$XDG_RUNTIME_DIR/spike" ] && break; sleep 0.2; done
+          export VK_ICD_FILENAMES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -n 1)
+          env -u DISPLAY WAYLAND_DISPLAY=spike SPIKE_VERBOSE=1 \
+            ci/frames.sh weston-lavapipe target/release/gpui-ci-spike --frames 300 --timeout "$FRAMES_TIMEOUT"
+
+      - name: Package the AppImage and .deb (cargo-packager)
+        run: ci/timed.sh package-appimage-deb cargo packager --release --formats appimage,deb
+      - name: Package the .rpm (cargo-generate-rpm)
+        run: ci/timed.sh package-rpm cargo generate-rpm -o dist/
+      - name: Package sizes
+        run: ci/sizes.sh packages-linux dist/*.AppImage dist/*.deb dist/*.rpm
+      - name: Install the .deb and start it
+        run: |
+          dpkg-deb -I dist/*.deb | tee metrics/deb-control.txt
+          sudo apt-get install -y ./dist/*.deb
+          export VK_ICD_FILENAMES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -n 1)
+          xvfb-run -a ci/frames.sh deb-installed /usr/bin/gpui-ci-spike --frames 60 --timeout "$FRAMES_TIMEOUT"
+      - name: Start the AppImage
+        run: |
+          export VK_ICD_FILENAMES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -n 1)
+          xvfb-run -a ci/frames.sh appimage dist/*.AppImage --frames 60 --timeout "$FRAMES_TIMEOUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rpm
+          path: spikes/gpui-ci/dist/*.rpm
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: update-linux
+          path: spikes/gpui-ci/dist/*.AppImage
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: metrics-linux
+          path: spikes/gpui-ci/metrics/
+          if-no-files-found: warn
+
+  # 5 on Fedora: the .rpm, installed with dnf in a container, since the
+  # Ubuntu runner cannot install it.
+  rpm:
+    name: rpm (Fedora container)
+    needs: linux
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    timeout-minutes: 30
+    steps:
+      - name: Install git and tar for checkout
+        working-directory: /
+        run: dnf install -y git tar
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: rpm
+          path: spikes/gpui-ci/dist
+      - name: Install the .rpm with dnf
+        run: |
+          cat /etc/os-release | grep PRETTY_NAME | tee -a "$GITHUB_STEP_SUMMARY"
+          dnf install -y ./dist/*.rpm xorg-x11-server-Xvfb mesa-vulkan-drivers mesa-dri-drivers
+          rpm -qi gitcroc-gpui-spike
+          rpm -qR gitcroc-gpui-spike
+      - name: Start it under Xvfb, no fonts installed
+        continue-on-error: true
+        run: |
+          fc-list 2>/dev/null | wc -l || true
+          Xvfb :99 -screen 0 1280x1024x24 &
+          sleep 2
+          export VK_ICD_FILENAMES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -n 1)
+          DISPLAY=:99 ci/frames.sh rpm-no-fonts /usr/bin/gpui-ci-spike --frames 60 --timeout "$FRAMES_TIMEOUT"
+      - name: Start it under Xvfb with a font
+        run: |
+          dnf install -y dejavu-sans-fonts
+          pgrep Xvfb || { Xvfb :99 -screen 0 1280x1024x24 & sleep 2; }
+          export VK_ICD_FILENAMES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -n 1)
+          DISPLAY=:99 ci/frames.sh rpm-installed /usr/bin/gpui-ci-spike --frames 60 --timeout "$FRAMES_TIMEOUT"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: metrics-rpm
+          path: spikes/gpui-ci/metrics/
+          if-no-files-found: warn
+
+  # 3 and 5 on Windows: Direct3D 11, NSIS (current user) and a portable zip.
+  windows:
+    name: windows (window and packages)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@0.11.8
+      - uses: Swatinem/rust-cache@v2
+        id: cache
+        with:
+          workspaces: spikes/gpui-ci
+          key: release-windows
+          cache-on-failure: true
+      - name: Build the release binary
+        run: |
+          echo "cache hit: ${{ steps.cache.outputs.cache-hit }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          ci/timed.sh build-release-windows cargo build --release --locked
+      # MSVC keeps debug info in a separate .pdb; the .exe has none to strip.
+      - name: Sizes
+        run: ci/sizes.sh binary-windows target/release/gpui-ci-spike.exe
+      - name: Window, Direct3D 11
+        run: SPIKE_VERBOSE=1 ci/frames.sh windows-d3d11 target/release/gpui-ci-spike.exe --frames 300 --timeout "$FRAMES_TIMEOUT"
+
+      - name: Package NSIS (cargo-packager)
+        run: ci/timed.sh package-nsis cargo packager --release --formats nsis
+      - name: Package the portable zip
+        run: |
+          mkdir -p portable/gitcroc-gpui-spike-portable
+          cp target/release/gpui-ci-spike.exe portable/gitcroc-gpui-spike-portable/
+          7z a dist/gitcroc-gpui-spike-0.0.1-windows-x64-portable.zip ./portable/gitcroc-gpui-spike-portable
+          ci/sizes.sh packages-windows dist/*-setup.exe dist/*.zip
+      - name: Install NSIS for the current user, silently
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist/*-setup.exe | Select-Object -First 1
+          Start-Process -Wait -FilePath $setup.FullName -ArgumentList '/S'
+          $out = 'metrics/nsis-install.txt'
+          "install directory: $env:LOCALAPPDATA\gitcroc-gpui-spike" | Tee-Object -FilePath $out
+          Get-ChildItem "$env:LOCALAPPDATA\gitcroc-gpui-spike" | Format-Table Name, Length | Out-String | Tee-Object -FilePath $out -Append
+          foreach ($key in @(
+              'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\gitcroc-gpui-spike',
+              'HKCU:\Software\gitcroc\gitcroc-gpui-spike')) {
+            "== $key" | Tee-Object -FilePath $out -Append
+            Get-ItemProperty -Path $key | Format-List | Out-String | Tee-Object -FilePath $out -Append
+          }
+          Get-Content $out | Out-File -Append $env:GITHUB_STEP_SUMMARY
+      - name: Start the installed app
+        run: |
+          app="$(cygpath -u "$LOCALAPPDATA")/gitcroc-gpui-spike/gpui-ci-spike.exe"
+          ci/frames.sh nsis-installed "$app" --frames 60 --timeout "$FRAMES_TIMEOUT"
+      - name: Start the portable app
+        run: |
+          7z x -oportable-check dist/*.zip
+          ci/frames.sh zip portable-check/gitcroc-gpui-spike-portable/gpui-ci-spike.exe --frames 60 --timeout "$FRAMES_TIMEOUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: update-windows
+          path: spikes/gpui-ci/dist/*-setup.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: metrics-windows
+          path: spikes/gpui-ci/metrics/
+          if-no-files-found: warn
+
+  # 4 and 5 on macOS: Metal, the universal binary, .app and .dmg (ad hoc).
+  macos:
+    name: macos (window and packages)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust toolchain and both targets
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@0.11.8
+      - uses: Swatinem/rust-cache@v2
+        id: cache
+        with:
+          workspaces: spikes/gpui-ci
+          key: release-macos
+          cache-on-failure: true
+      - name: Build both release binaries
+        run: |
+          echo "cache hit: ${{ steps.cache.outputs.cache-hit }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          ci/timed.sh build-release-macos-arm64 cargo build --release --locked --target aarch64-apple-darwin
+          ci/timed.sh build-release-macos-x86_64 cargo build --release --locked --target x86_64-apple-darwin
+      - name: Universal binary (lipo) and sizes
+        run: |
+          out=target/universal-apple-darwin/release
+          mkdir -p "$out"
+          lipo -create -output "$out/gpui-ci-spike" \
+            target/aarch64-apple-darwin/release/gpui-ci-spike target/x86_64-apple-darwin/release/gpui-ci-spike
+          lipo -info "$out/gpui-ci-spike" | tee metrics/lipo.txt
+          ci/sizes.sh binary-macos target/aarch64-apple-darwin/release/gpui-ci-spike "$out/gpui-ci-spike"
+          strip "$out/gpui-ci-spike"
+          ci/sizes.sh binary-macos-stripped "$out/gpui-ci-spike"
+          otool -L "$out/gpui-ci-spike" | tee metrics/otool.txt
+      - name: Window, Metal
+        run: |
+          system_profiler SPDisplaysDataType | tee metrics/displays.txt
+          # The linker's ad hoc signature; the stripped universal binary is
+          # signed again by cargo-packager.
+          SPIKE_VERBOSE=1 ci/frames.sh macos-metal target/aarch64-apple-darwin/release/gpui-ci-spike --frames 300 --timeout "$FRAMES_TIMEOUT"
+
+      - name: Package .app and .dmg (cargo-packager, ad hoc signed)
+        run: ci/timed.sh package-app-dmg cargo packager --release --target universal-apple-darwin --formats app,dmg
+      - name: Sign the .dmg ad hoc, and check both signatures
+        run: |
+          codesign --force -s - dist/*.dmg
+          app=$(ls -d dist/*.app | head -n 1)
+          codesign -dv --verbose=2 "$app" 2>&1 | tee metrics/codesign-app.txt
+          codesign --verify --deep --strict "$app"
+          codesign -dv dist/*.dmg 2>&1 | tee metrics/codesign-dmg.txt
+          tar -czf "$app.tar.gz" -C dist "$(basename "$app")"
+          ci/sizes.sh packages-macos dist/*.dmg "$app.tar.gz"
+      - name: Install from the .dmg and start it
+        run: |
+          hdiutil attach dist/*.dmg -mountpoint /Volumes/spike -nobrowse
+          mkdir -p ~/Applications
+          cp -R /Volumes/spike/*.app ~/Applications/
+          hdiutil detach /Volumes/spike
+          app=$(ls -d ~/Applications/gitcroc-gpui-spike.app)
+          lipo -info "$app"/Contents/MacOS/*
+          ci/frames.sh dmg-installed "$app/Contents/MacOS/gpui-ci-spike" --frames 60 --timeout "$FRAMES_TIMEOUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: update-macos
+          path: spikes/gpui-ci/dist/*.app.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: metrics-macos
+          path: spikes/gpui-ci/metrics/
+          if-no-files-found: warn
+
+  # 6. Update packages: one throwaway key signs all three, as a release
+  # would, and minisign-verify checks them as tauri-plugin-updater does.
+  update:
+    name: update signatures
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - name: Install Linux build packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spikes/gpui-ci
+          key: update
+          cache-on-failure: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: update-*
+          path: spikes/gpui-ci/updates
+          merge-multiple: true
+      - name: Sign with a throwaway key
+        run: |
+          ls -l updates
+          cargo run --locked --example sign_update -- updates/out 0.0.1 updates/*
+          cat updates/out/latest.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Verify with minisign-verify
+        run: |
+          files=$(ls updates/*-setup.exe updates/*.app.tar.gz updates/*.AppImage | paste -sd: -)
+          SPIKE_UPDATE_DIR=updates/out SPIKE_UPDATE_FILES="$files" \
+            cargo test --locked --test update_signature -- --nocapture
+      - uses: actions/upload-artifact@v7
+        with:
+          name: update-manifest
+          path: |
+            spikes/gpui-ci/updates/out/
+            spikes/gpui-ci/updates/*.sig
+
+  # cargo deny with the workspace's deny.toml. Findings are expected; the
+  # job reports them and passes.
+  deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo deny check
+        run: |
+          mkdir -p metrics
+          if cargo deny --config ../../deny.toml check > metrics/deny.txt 2>&1; then
+            echo "cargo deny: clean" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::cargo deny found licences or advisories; see the summary"
+          fi
+          tail -n 3 metrics/deny.txt
+          grep -E '^(error|warning)\[' metrics/deny.txt | grep -v duplicate | sort | uniq -c | tee -a "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: metrics-deny
+          path: spikes/gpui-ci/metrics/
