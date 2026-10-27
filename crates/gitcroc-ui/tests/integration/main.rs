@@ -12,6 +12,7 @@ mod colors;
 mod git_setup;
 mod strings;
 mod support;
+mod tabs;
 mod theme;
 mod title_bar;
 mod window;

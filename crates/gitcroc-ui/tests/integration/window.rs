@@ -52,8 +52,8 @@ fn arch_6_window_reads_state_again_after_lag(cx: &mut TestAppContext) {
 
     settle(&mut cx, |_, cx| title(&window, cx) == "Latest");
     cx.update(|_, cx| {
-        let tabs = window.read(cx).tabs();
-        assert_eq!(tabs, &app.workspace_get());
+        let tabs = window.read(cx).tabs(cx);
+        assert_eq!(tabs, app.workspace_get());
     });
 }
 

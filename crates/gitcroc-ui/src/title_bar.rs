@@ -1,5 +1,5 @@
-//! The window's own title bar (UI-35): the row the tab bar will fill
-//! (M6-09), with the window buttons on Windows and Linux and room for the
+//! The window's own title bar (UI-35): the row the tab bar fills, with the
+//! window buttons on Windows and Linux and room for the
 //! system's traffic lights on macOS. A drag on its empty space moves the
 //! window and a double-click maximizes or restores it. With
 //! `system_title_bar` on, the system draws the title bar and this row has
@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    App, ClickEvent, Context, Decorations, InteractiveElement, IntoElement, MouseButton,
+    AnyView, App, ClickEvent, Context, Decorations, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Pixels, Render, Role, SharedString, StatefulInteractiveElement, Styled,
     TestSupportExt, Window, WindowControlArea, div, px, svg,
 };
@@ -185,6 +185,9 @@ pub struct TitleBar {
     platform: Platform,
     system_title_bar: bool,
     title: SharedString,
+    /// The tab bar, in place of the title; screens without tabs, such as
+    /// the git setup screen, show the title.
+    tab_bar: Option<AnyView>,
     /// The left button went down on the empty space; the next move of the
     /// pointer starts moving the window.
     pressed: Rc<Cell<bool>>,
@@ -201,11 +204,18 @@ impl TitleBar {
             platform,
             system_title_bar,
             title: strings::APP_NAME.into(),
+            tab_bar: None,
             pressed: Rc::new(Cell::new(false)),
         }
     }
 
-    /// Shows `title`: the active workspace's name until the tab bar comes.
+    /// Shows the tab bar in place of the title, or the title again.
+    pub fn set_tab_bar(&mut self, tab_bar: Option<AnyView>, cx: &mut Context<Self>) {
+        self.tab_bar = tab_bar;
+        cx.notify();
+    }
+
+    /// The title it shows while there is no tab bar.
     pub fn set_title(&mut self, title: SharedString, cx: &mut Context<Self>) {
         if self.title != title {
             self.title = title;
@@ -311,6 +321,7 @@ impl Render for TitleBar {
                         .w(TRAFFIC_LIGHTS_WIDTH),
                 )
             })
+            .children(self.tab_bar.clone())
             .child(
                 div()
                     .id("title-bar-space")
@@ -326,7 +337,9 @@ impl Render for TitleBar {
                     .when(own_frame && self.platform == Platform::Windows, |this| {
                         this.window_control_area(WindowControlArea::Drag)
                     })
-                    .child(self.title.clone()),
+                    .when(self.tab_bar.is_none(), |this| {
+                        this.child(self.title.clone())
+                    }),
             )
             .children(layout.buttons.iter().map(|button| self.button(*button, cx)))
     }

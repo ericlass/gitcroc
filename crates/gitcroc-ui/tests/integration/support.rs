@@ -56,14 +56,17 @@ pub fn open<V: Render>(
 
 /// Opens the main window on the fixture's app, on Linux with gitcroc's
 /// own title bar, and waits until it shows what git detection found: the
-/// main window or the setup screen (PLAT-3).
+/// main window, the workspaces to open (UI-27), or the setup screen
+/// (PLAT-3).
 pub fn main_window(
     cx: &mut TestAppContext,
     fixture: &Fixture,
 ) -> (VisualTestContext, Entity<GitcrocWindow>) {
     let (mut cx, window) = opened_main_window(cx, fixture);
     settle(&mut cx, |window, _| {
-        window.try_find("toolbar").is_some() || window.try_find("git-setup").is_some()
+        ["toolbar", "workspace-start", "git-setup"]
+            .into_iter()
+            .any(|id| window.try_find(id).is_some())
     });
     (cx, window)
 }
@@ -73,18 +76,19 @@ pub fn opened_main_window(
     cx: &mut TestAppContext,
     fixture: &Fixture,
 ) -> (VisualTestContext, Entity<GitcrocWindow>) {
+    opened_main_window_with(cx, fixture, Rc::new(FakeControls::default()))
+}
+
+/// The main window on the fixture's app, as it first draws, asking
+/// `controls` what its title bar asks.
+pub fn opened_main_window_with(
+    cx: &mut TestAppContext,
+    fixture: &Fixture,
+    controls: Rc<FakeControls>,
+) -> (VisualTestContext, Entity<GitcrocWindow>) {
     let services = fixture.services.clone();
     open(cx, move |window, cx| {
-        cx.new(|cx| {
-            GitcrocWindow::new(
-                services,
-                Rc::new(FakeControls::default()),
-                Platform::Linux,
-                false,
-                window,
-                cx,
-            )
-        })
+        cx.new(|cx| GitcrocWindow::new(services, controls, Platform::Linux, false, window, cx))
     })
 }
 
