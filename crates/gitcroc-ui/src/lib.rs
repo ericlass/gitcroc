@@ -3,6 +3,7 @@
 //! own (ARCH-6). `gitcroc-next` runs it until M6-30.
 
 pub mod dialogs;
+pub mod git_setup;
 pub mod icons;
 pub mod keys;
 pub mod menus;

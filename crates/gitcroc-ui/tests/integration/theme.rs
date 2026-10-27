@@ -2,22 +2,18 @@
 //! (UI-26). The contrast pairs are those of rc.1's `tokens.test.ts` and
 //! `codeThemes.test.ts`, under WCAG 2.2 AA (README "Accessibility target").
 
-use std::rc::Rc;
-
 use gitcroc_core::{Appearance, CodeTheme, Settings, Theme as ThemeSetting};
 use gitcroc_ui::theme::code_themes::{CODE_THEMES, CodeThemeColors, code_theme, syntect_theme};
 use gitcroc_ui::theme::contrast::{NON_TEXT, TEXT, contrast};
 use gitcroc_ui::theme::fonts::{Family, NoFonts, check_installed, family};
 use gitcroc_ui::theme::tokens::{Color, Tokens};
 use gitcroc_ui::theme::{ActiveTokens, AppTheme, contrast::accent_for};
-use gitcroc_ui::title_bar::Platform;
-use gitcroc_ui::window::GitcrocWindow;
 use gpui_component::{Theme, ThemeMode};
-use gpui_kit::{AppContext, Hsla, SharedString, TestAppContext, px};
+use gpui_kit::{Hsla, SharedString, TestAppContext, px};
 use syntect::easy::HighlightLines;
 use syntect::parsing::SyntaxSet;
 
-use crate::support::{FakeControls, Fixture, open};
+use crate::support::{Fixture, main_window};
 
 /// Whether `a` and `b` are the same colour, to the precision of `Hsla`.
 fn same(a: Hsla, b: Hsla) -> bool {
@@ -222,25 +218,6 @@ fn ui_23_theme_setting_light_dark_and_system(cx: &mut TestAppContext) {
         AppTheme::set_system_accent(None, cx);
         assert_eq!(cx.tokens(), &Tokens::DARK);
     });
-}
-
-fn main_window(
-    cx: &mut TestAppContext,
-    fixture: &Fixture,
-) -> (gpui_kit::VisualTestContext, gpui_kit::Entity<GitcrocWindow>) {
-    let services = fixture.services.clone();
-    open(cx, move |window, cx| {
-        cx.new(|cx| {
-            GitcrocWindow::new(
-                services,
-                Rc::new(FakeControls::default()),
-                Platform::Linux,
-                false,
-                window,
-                cx,
-            )
-        })
-    })
 }
 
 #[gpui::test]

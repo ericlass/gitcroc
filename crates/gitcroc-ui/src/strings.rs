@@ -70,6 +70,43 @@ pub mod keys {
     }
 }
 
+/// The git setup screen (PLAT-3, D13), and the message before it.
+pub mod git_setup {
+    pub const LOOKING_FOR_GIT: &str = "Looking for git…";
+    pub const TITLE: &str = "gitcroc needs git";
+    pub const NOT_FOUND: &str = "git was not found.";
+    pub const NOWHERE_TO_LOOK: &str = "There was nowhere to look: PATH is empty.";
+    pub const LOOKED_AT: &str = "Looked for it at:";
+    pub fn too_old(found: &str, path: &str, required: &str) -> String {
+        format!("Found git {found} at {path}, but gitcroc needs git {required} or newer.")
+    }
+    pub fn unparseable(path: &str) -> String {
+        format!("Found git at {path}, but could not read its version. It reported:")
+    }
+    pub const CHECKING: &str = "Checking…";
+    pub const CHECK_AGAIN: &str = "Check again";
+    pub const CHOOSE_GIT: &str = "Choose git…";
+    pub const USE_AUTOMATIC: &str = "Use automatic detection";
+    pub fn chosen_missing(chosen: &str) -> String {
+        format!("The chosen git was not found at {chosen}.")
+    }
+    /// One line per platform, keyed by `AppInfo::os`.
+    pub fn install_hint(os: &str) -> &'static str {
+        match os {
+            "windows" => {
+                "Install Git for Windows from git-scm.com, or run: winget install --id Git.Git -e"
+            }
+            "macos" => "Install a current git with Homebrew: brew install git",
+            "linux" => {
+                "Install a current git with your package manager; on older Ubuntu releases, use \
+                 the git-core PPA."
+            }
+            _ => DEFAULT_HINT,
+        }
+    }
+    pub const DEFAULT_HINT: &str = "Install a current git from git-scm.com.";
+}
+
 /// The code themes (UI-24), as the Settings dialog lists them.
 pub mod code_themes {
     pub const GITHUB_LIGHT: &str = "GitHub Light";
