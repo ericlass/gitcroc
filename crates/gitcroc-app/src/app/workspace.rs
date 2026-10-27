@@ -3,12 +3,21 @@
 use std::path::PathBuf;
 
 use gitcroc_core::{
-    AddReport, GitRunner, JobId, JobProgress, MissingRepo, PaneLayout, Refusal, RepoId,
-    SummaryView, TrackedJob, WatchWarning, WorkspaceError, WorkspaceId, WorkspaceListItem,
+    AddReport, GitRunner, ImportReport, JobId, JobProgress, MissingRepo, PaneLayout, Refusal,
+    RepoId, SummaryView, TrackedJob, WatchWarning, WorkspaceError, WorkspaceId, WorkspaceListItem,
     WorkspaceTabs, WorkspaceView, Workspaces, add_path, refresh_workspace,
 };
 
 use super::{App, AppError, AppEvent};
+use crate::platform::FileFilter;
+
+/// What the export and import dialogs offer: workspace files (DATA-2).
+fn workspace_files() -> FileFilter {
+    FileFilter {
+        name: "Workspace".to_owned(),
+        extensions: vec!["toml".to_owned()],
+    }
+}
 
 impl App {
     /// The open workspaces in tab order, the active one, and the saved tabs
@@ -171,6 +180,96 @@ impl App {
     ) -> Result<JobId, AppError> {
         let git = self.prepare_add(&workspace_id).await?;
         Ok(self.spawn_add(workspace_id, path, git))
+    }
+
+    /// Opens the folder dialog and returns at once. When the user picks a
+    /// folder, an add job starts as for `workspace_add_path`; when they
+    /// cancel, nothing happens.
+    pub async fn workspace_pick_and_add(&self, workspace_id: WorkspaceId) -> Result<(), AppError> {
+        let git = self.prepare_add(&workspace_id).await?;
+        let picked = self.inner.dialogs.pick_folder("Add repositories");
+        let app = self.clone();
+        self.inner.runtime.spawn(async move {
+            if let Some(path) = picked.await {
+                app.spawn_add(workspace_id, path, git);
+            }
+        });
+        Ok(())
+    }
+
+    /// Opens the save dialog and returns at once. When the user picks a
+    /// file, the workspace is written there with paths relative to it
+    /// (DATA-2), and `WorkspaceExported` says how it went; when they
+    /// cancel, nothing is sent.
+    pub fn workspace_export(&self, workspace_id: WorkspaceId) -> Result<(), AppError> {
+        let view = self.workspaces().view(&workspace_id)?;
+        let picked = self.inner.dialogs.save_file(
+            "Export workspace",
+            &format!("{}.toml", file_name(&view.name)),
+            Some(&workspace_files()),
+        );
+        let app = self.clone();
+        self.inner.runtime.spawn(async move {
+            let Some(path) = picked.await else {
+                return;
+            };
+            let workspaces = app.workspaces().clone();
+            let id = workspace_id.clone();
+            let result = app
+                .blocking(move || workspaces.export(&id, &path))
+                .await
+                .map_err(|error| error.message)
+                .and_then(|result| result.map_err(|error| error.to_string()));
+            let (report, error) = match result {
+                Ok(report) => (Some(report), None),
+                Err(error) => (None, Some(error)),
+            };
+            app.send(AppEvent::WorkspaceExported {
+                workspace_id,
+                report,
+                error,
+            });
+        });
+        Ok(())
+    }
+
+    /// Opens the open dialog and returns at once. When the user picks a
+    /// workspace file, it is imported into a new workspace that opens as the
+    /// active tab (DATA-2), and `WorkspaceImported` names the repos whose
+    /// folder is missing; when they cancel, nothing is sent.
+    pub async fn workspace_import(&self) -> Result<(), AppError> {
+        let git = self.usable_git().await?;
+        let picked = self
+            .inner
+            .dialogs
+            .pick_file("Import workspace", Some(&workspace_files()));
+        let app = self.clone();
+        self.inner.runtime.spawn(async move {
+            let Some(path) = picked.await else {
+                return;
+            };
+            let (report, error) = match app.import_file(path, git).await {
+                Ok(report) => (Some(report), None),
+                Err(error) => (None, Some(error.message)),
+            };
+            app.send(AppEvent::WorkspaceImported { report, error });
+        });
+        Ok(())
+    }
+
+    /// Imports the workspace file at `path` and opens it as the active tab.
+    async fn import_file(&self, path: PathBuf, git: GitRunner) -> Result<ImportReport, AppError> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.change_tabs(move |workspaces| {
+            let report = workspaces.import(&path, &git)?;
+            let opened = report.workspace_id.clone();
+            let _ = sender.send(report);
+            Ok(Some(opened))
+        })
+        .await?;
+        receiver
+            .try_recv()
+            .map_err(|error| AppError::internal(format!("the import did not report: {error}")))
     }
 
     /// Checks an add can start: the workspace takes changes and git is
@@ -349,4 +448,18 @@ impl App {
         self.spawn_watch_sync(view.id.clone());
         Ok(view)
     }
+}
+
+/// `name` with the characters a file name cannot have on some platform
+/// replaced, for the save dialog's suggestion.
+fn file_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect()
 }

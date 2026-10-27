@@ -41,6 +41,25 @@ impl App {
         Ok(())
     }
 
+    /// Opens the file dialog for the git executable and returns at once.
+    /// The file picked is chosen as with `settings_set_git_path`; a
+    /// cancelled dialog changes nothing, and a setting that could not be
+    /// saved is logged.
+    pub fn git_pick_path(&self) {
+        let app = self.clone();
+        let picked = self.inner.dialogs.pick_file("Choose git", None);
+        self.inner.runtime.spawn(async move {
+            let Some(path) = picked.await else {
+                return;
+            };
+            if let Err(error) = app.settings_set_git_path(Some(path)).await {
+                app.inner
+                    .log
+                    .warn(&format!("the chosen git was not saved: {}", error.message));
+            }
+        });
+    }
+
     /// The settings, and why they are read-only if they are (DATA-1).
     pub fn settings_get(&self) -> SettingsView {
         self.inner.settings.view()

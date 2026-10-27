@@ -2,9 +2,12 @@
 //! `IpcError`, with the same codes and messages.
 
 use gitcroc_core::{
-    CommitGraphError, GroupError, HistoryViewError, JobError, SettingsError, TreeError,
-    WorkspaceError,
+    BranchError, ChangesError, CloneError, CommitGraphError, FsmonitorError, GroupError,
+    HistoryViewError, IntegrateError, JobError, RemoteError, ResetError, SettingsError, StashError,
+    StatusError, StatusReadError, SyncError, TagError, TreeError, WorkspaceError,
 };
+
+use crate::platform::LaunchError;
 
 /// The error every [`crate::app::App`] method returns.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -159,5 +162,64 @@ impl From<GroupError> for AppError {
             | GroupError::NotEnded
             | GroupError::NothingFailed => Self::refused(error.to_string()),
         }
+    }
+}
+
+/// `From` for the error of an operation on a repo, which has the variants
+/// `Workspace`, `Job` and `Status`: git's refusal to read `$what` keeps
+/// git's message for the user (SEC-6).
+macro_rules! from_op_error {
+    ($error:ident, $what:literal) => {
+        impl From<$error> for AppError {
+            fn from(error: $error) -> Self {
+                match error {
+                    $error::Workspace(error) | $error::Job(JobError::Workspace(error)) => {
+                        error.into()
+                    }
+                    $error::Status(StatusReadError::Read(StatusError::Refused { message })) => {
+                        Self {
+                            git_stderr: Some(message),
+                            ..Self::internal(concat!("git refused to read ", $what))
+                        }
+                    }
+                    other => Self::internal(other.to_string()),
+                }
+            }
+        }
+    };
+}
+
+from_op_error!(BranchError, "the repo");
+
+from_op_error!(SyncError, "the repo");
+
+from_op_error!(IntegrateError, "the repo");
+
+from_op_error!(TagError, "the repo");
+
+from_op_error!(ResetError, "the repo");
+
+from_op_error!(RemoteError, "the repo");
+
+from_op_error!(FsmonitorError, "the repo");
+
+from_op_error!(StashError, "the repo");
+
+from_op_error!(ChangesError, "the working copy");
+
+impl From<CloneError> for AppError {
+    fn from(error: CloneError) -> Self {
+        match error {
+            CloneError::Workspace(error) | CloneError::Job(JobError::Workspace(error)) => {
+                error.into()
+            }
+            other => Self::internal(other.to_string()),
+        }
+    }
+}
+
+impl From<LaunchError> for AppError {
+    fn from(error: LaunchError) -> Self {
+        Self::internal(error.to_string())
     }
 }
