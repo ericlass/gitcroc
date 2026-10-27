@@ -363,25 +363,62 @@ fn all_test_code(root: &Path) -> Result<Vec<String>, Error> {
     Ok(code)
 }
 
+/// The milestone that rewrites the UI in GPUI, and where its tests live.
+const PORT_MILESTONE: &str = "M6";
+const OLD_UI: &str = "ui";
+const NEW_UI: &str = "crates/gitcroc-ui";
+
+/// The spec IDs a test of the old UI mentions and no test of the new one
+/// does: what is still to port.
+fn unported(spec_ids: &[String], old_ui: &[String], new_ui: &[String]) -> Vec<String> {
+    let ids: BTreeSet<&String> = spec_ids.iter().collect();
+    ids.into_iter()
+        .filter(|id| old_ui.iter().any(|code| mentions(code, id)))
+        .filter(|id| !new_ui.iter().any(|code| mentions(code, id)))
+        .cloned()
+        .collect()
+}
+
+/// Every requirement ID `docs/spec/*.md` defines.
+fn spec_ids(root: &Path) -> Result<Vec<String>, Error> {
+    let mut ids = Vec::new();
+    for (_, text) in read_markdown(&root.join("docs/spec"), |_| true)? {
+        ids.extend(parse_spec(&text));
+    }
+    Ok(ids)
+}
+
 /// Reads `docs/tasks/<milestone>-*.md` and the test code under `crates/` and
 /// `ui/` of the repository at `root`, and reports the milestone's coverage.
+/// For M6 the missing IDs also include every spec ID that a test under
+/// `ui/` mentions and no test under `crates/gitcroc-ui/` does, so the list
+/// is what the GPUI UI has still to port; M6-30 starts when it is empty.
 pub fn run(root: &Path, milestone: &str) -> Result<Report, Error> {
     let prefix = format!("{milestone}-");
     let tasks = read_tasks(root, |name| name.starts_with(&prefix))?;
     if tasks.is_empty() {
         return Err(Error::NoTasks(milestone.to_owned()));
     }
-    Ok(report(&tasks, &all_test_code(root)?))
+    let mut out = report(&tasks, &all_test_code(root)?);
+    if milestone == PORT_MILESTONE {
+        let old_ui = collect_test_code(&root.join(OLD_UI))?;
+        let new_ui = collect_test_code(&root.join(NEW_UI))?;
+        let missing: BTreeSet<String> = out
+            .missing
+            .drain(..)
+            .chain(unported(&spec_ids(root)?, &old_ui, &new_ui))
+            .collect();
+        out.covered.retain(|id| !missing.contains(id));
+        out.missing = missing.into_iter().collect();
+    }
+    Ok(out)
 }
 
 /// Reads every requirement ID defined in `docs/spec/*.md`, the "No test
 /// needed:" lines of every task file in `docs/tasks/` and the test code, and
 /// reports the coverage of the whole spec.
 pub fn run_spec(root: &Path) -> Result<Report, Error> {
-    let mut ids = Vec::new();
-    for (_, text) in read_markdown(&root.join("docs/spec"), |_| true)? {
-        ids.extend(parse_spec(&text));
-    }
+    let ids = spec_ids(root)?;
     let tasks = read_tasks(root, |name| name != "README")?;
     Ok(spec_report(&ids, &tasks, &all_test_code(root)?))
 }
@@ -569,6 +606,50 @@ Respects: D6, section 4 \"Crates\" table
             report.no_test_needed,
             [("D1".to_owned(), "M5-02".to_owned(), "first".to_owned())]
         );
+    }
+
+    /// Writes `files` (path, text) under a new temporary folder.
+    fn tree(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for (path, text) in files {
+            let path = dir.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn qa_3_m6_lists_ui_tests_not_yet_ported() {
+        let spec = "- **UI-1** The tree.\n- **UI-2** The history.\n- **UI-3** The title bar.\n- **ARCH-6** Events.\n";
+        let dir = tree(&[
+            ("docs/spec/08-ui.md", spec),
+            ("docs/tasks/M6-06-skeleton.md", "Implements: UI-3, ARCH-6\n"),
+            ("docs/tasks/M5-01-old.md", "Implements: UI-2\n"),
+            (
+                "ui/src/tree.test.ts",
+                "test('ui_1 rows'); test('UI-2 columns');",
+            ),
+            ("ui/src/tree.ts", "// UI-3, not a test"),
+            (
+                "crates/gitcroc-ui/tests/history.rs",
+                "fn ui_2_columns() {}\nfn ui_3_buttons() {}",
+            ),
+            // UI-1 has a test, but not in the GPUI UI.
+            (
+                "crates/gitcroc-core/tests/tree.rs",
+                "fn ui_1_rows_of_the_core() {}",
+            ),
+        ]);
+
+        let m6 = run(dir.path(), "M6").unwrap();
+        assert_eq!(m6.missing, ["ARCH-6", "UI-1"]);
+        assert_eq!(m6.covered, ["UI-3"]);
+
+        // Other milestones are as before.
+        let m5 = run(dir.path(), "M5").unwrap();
+        assert_eq!(m5.missing, Vec::<String>::new());
+        assert_eq!(m5.covered, ["UI-2"]);
     }
 
     #[test]

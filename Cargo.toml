@@ -6,6 +6,7 @@ members = [
     "crates/gitcroc-ai",
     "crates/gitcroc-app",
     "crates/gitcroc-cli",
+    "crates/gitcroc-ui",
     "tools/req-coverage",
     "tools/release-manifest",
     "tools/repo-gen",
@@ -22,6 +23,7 @@ publish = false
 gitcroc-git = { path = "crates/gitcroc-git" }
 gitcroc-core = { path = "crates/gitcroc-core" }
 gitcroc-ai = { path = "crates/gitcroc-ai" }
+gitcroc-app = { path = "crates/gitcroc-app" }
 # Test fixtures and reference data (QA-2); a dev-dependency only.
 repo-gen = { path = "tools/repo-gen" }
 
@@ -92,9 +94,20 @@ windows = { version = "0.62.2", default-features = false, features = ["Win32_Sys
 # v1 API, which picks the platform's store.
 keyring = "4.2.0"
 
+# The native UI (section 4 "Stack", M6-06), at the exact versions the M6
+# spikes used. gpui-kit is GPUI itself; gpui-component is its component
+# library. gpui-kit's default `assets` feature only registers the Lucide
+# icons, which gpui-component depends on anyway; the UI supplies its own
+# icons, so it is off.
+gpui-kit = { version = "=0.8.1", default-features = false, features = ["component"] }
+gpui-component = "=0.8.1"
+
 # Test-only, except serde_json, which gitcroc-cli uses for its output
 cargo_metadata = "0.23.1"
 serde_json = "1.0.154"
+# The D15 scan of gitcroc-ui's source.
+syn = { version = "2.0.119", features = ["full", "visit"] }
+proc-macro2 = "1.0.107"
 
 # QA-4: no unsafe anywhere; no unwrap/expect outside tests. The tests' allowance
 # lives in clippy.toml. Every crate opts in with `[lints] workspace = true`;

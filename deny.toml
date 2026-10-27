@@ -17,6 +17,12 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "unmaintained zvariant, via keyring's zbus 5 Secret Service store on Linux" },
     { id = "RUSTSEC-2026-0371", reason = "unmaintained zbus_names, via keyring's zbus 5 Secret Service store on Linux" },
     { id = "RUSTSEC-2026-0372", reason = "unmaintained zvariant_derive, via keyring's zbus 5 Secret Service store on Linux" },
+    # These four are unmaintained, not vulnerable, and come with GPUI, the UI
+    # toolkit (section 4 "Stack", M6-03, M6-06).
+    { id = "RUSTSEC-2024-0384", reason = "unmaintained instant, via gpui-component and gpui-base" },
+    { id = "RUSTSEC-2025-0134", reason = "unmaintained rustls-pemfile, via gpui-pre-reqwest, which gpui-kit-assets uses on WebAssembly only" },
+    { id = "RUSTSEC-2026-0206", reason = "unmaintained rustybuzz, via usvg and resvg, GPUI's SVG renderer" },
+    { id = "RUSTSEC-2026-0192", reason = "unmaintained ttf-parser, via fontdb, cosmic-text and usvg: GPUI's fonts and SVGs" },
 ]
 
 [licenses]
@@ -31,6 +37,9 @@ allow = [
     "Zlib",
     "Unicode-3.0",
     "MPL-2.0",
+    # enum-iterator and enum-iterator-derive, which gpui-component uses
+    # (M6-06): a public-domain-like license, compatible with MIT.
+    "0BSD",
 ]
 confidence-threshold = 0.93
 # The allowlist is the policy; not every license is in use yet.
@@ -40,6 +49,13 @@ unused-allowed-license = "allow"
 # domain dedication, compatible with MIT. Allowed for this crate only (M1-11).
 [[licenses.exceptions]]
 crate = "notify"
+allow = ["CC0-1.0"]
+
+# tiny-keccak, which ahash reaches through const-random (GPUI's X11 input
+# methods, zed-xim, M6-06), is CC0-1.0, like notify. Allowed for this crate
+# only.
+[[licenses.exceptions]]
+crate = "tiny-keccak"
 allow = ["CC0-1.0"]
 
 # webpki-root-certs, the Mozilla root certificates that rustls-platform-verifier

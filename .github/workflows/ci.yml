@@ -1,5 +1,7 @@
 # QA-1 and QA-5: every pull request runs `just check` on all three
 # platforms, through `just check-rust`, so local and CI checks cannot drift.
+# The GPUI UI's tests are headless and need no display or GPU; a real
+# window is started once per runner after them (M6-03, M6-06).
 # The smoke test (section 12) comes back with M6-29. The jobs named
 # `check (<os>)` that the ruleset of main requires wait for the others.
 name: CI
@@ -31,7 +33,8 @@ jobs:
         # ubuntu-22.04 has glibc 2.35, the Linux floor of D6.
         os: [ubuntu-22.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # GPUI makes a cold build several minutes longer (M6-03).
+    timeout-minutes: 45
     steps:
       # D13: integration tests rely on git 2.40 or newer.
       - name: Check git version
@@ -57,11 +60,38 @@ jobs:
         with:
           tool: just@1.58.0,cargo-deny@0.20.2
 
+      # GPUI's build needs these on Linux (M6-03): xkbcommon and xcb for X11
+      # and Wayland input, fontconfig and freetype for font-kit. Xvfb and
+      # Mesa's lavapipe are for the first-frame step; no Wayland, where
+      # headless Weston has no seat and GPUI panics.
+      - name: Install GPUI's Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev \
+            libfontconfig-dev libfreetype-dev \
+            xvfb mesa-vulkan-drivers
+
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
 
       - name: just check-rust
         run: just check-rust
+
+      # A real window opens and presents a frame (M6-03): under Xvfb with
+      # lavapipe on Linux, on WARP on Windows, on Metal on macOS. The test
+      # build has already built the binary.
+      - name: gitcroc-next presents its first frame
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          cargo build -p gitcroc-ui --bin gitcroc-next
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a target/debug/gitcroc-next --exit-after-first-frame
+          else
+            target/debug/gitcroc-next --exit-after-first-frame
+          fi
 
       # D11, SEC-1: a unique test service, never gitcroc's credentials.
       # Linux hosted runners have no Secret Service; that check stays local.

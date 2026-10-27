@@ -17,6 +17,13 @@ check-rust:
     just coverage M5
     just coverage spec
 
+# The GPUI app, `gitcroc-next` (M6-06), which M6-30 makes `gitcroc`. It
+# reads and writes the same settings, workspaces and cache as an installed
+# 1.0.0-rc.1, so it can be tried on real workspaces. Do not run both apps at
+# once: each keeps its own copy of that state and writes it back.
+dev-next:
+    cargo run -p gitcroc-ui --bin gitcroc-next
+
 # The old web front end (ui/), the reference the M6 tasks port from, in a
 # browser with its fake core. It is not part of `just check`; M6-30 deletes
 # it.

@@ -2,7 +2,9 @@
 //!
 //! Lists the requirement IDs on the "Implements:" lines of
 //! `docs/tasks/<milestone>-*.md` that no test under `crates/` or `ui/`
-//! mentions (QA-3). With `spec` instead of a milestone, lists every ID defined
+//! mentions (QA-3). For M6, also every spec ID that a test under `ui/`
+//! mentions and no test under `crates/gitcroc-ui/` does: what the GPUI UI
+//! has still to port. With `spec` instead of a milestone, lists every ID defined
 //! in `docs/spec/` that no test mentions and no task marks "No test needed:".
 //! Exits 1 if there are any, unless `--report-only` is given, and 2 on a usage
 //! or read error.
