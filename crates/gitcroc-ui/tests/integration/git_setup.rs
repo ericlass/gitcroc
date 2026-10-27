@@ -197,11 +197,12 @@ fn plat_3_choose_git_gets_past_the_setup_screen(cx: &mut TestAppContext) {
     );
     click(&mut cx, "git-setup-choose");
     settle(&mut cx, |window, _| window.try_find("toolbar").is_some());
-    let saved = fixture.settings_file();
-    assert!(saved.contains("git_path"), "{saved}");
-    assert!(
-        saved.contains(&*new.path().to_string_lossy().replace('\\', "\\\\")),
-        "{saved}"
+    // Read as TOML: a Windows path is saved as a literal string, with its
+    // backslashes as they are.
+    let saved: toml::Table = toml::from_str(&fixture.settings_file()).unwrap();
+    assert_eq!(
+        saved.get("git_path").and_then(toml::Value::as_str),
+        new.path().to_str()
     );
 }
 
