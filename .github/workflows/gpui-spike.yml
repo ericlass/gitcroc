@@ -45,7 +45,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libfontconfig-dev libfreetype-dev
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: spikes/gpui-ci
@@ -363,7 +363,7 @@ jobs:
       - name: Install Linux build packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libfontconfig-dev libfreetype-dev
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: spikes/gpui-ci
