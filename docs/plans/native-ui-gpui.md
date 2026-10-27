@@ -3,8 +3,8 @@
 Status: accepted, with its five recommended decisions (Eric, 2026-10-26),
 and recorded in [ADR 0004](../adr/0004-native-ui-with-gpui.md). The spec
 changes with task M6-01 (DEV-1, DEV-3). The tasks are
-milestone M6 in `docs/tasks/README.md`; M6-01 to M6-04 have task files, and
-the rest follow once the spikes have reported.
+milestone M6 in `docs/tasks/README.md`; M6-01 to M6-06 and M6-27 have task
+files, and the rest follow in batches by lane.
 
 ## Why
 
@@ -55,8 +55,9 @@ gitcroc-core, gitcroc-ai, gitcroc-git   (unchanged)
 - `gitcroc-ui` is the only crate that depends on GPUI. ARCH-5 gains this
   clause.
 - During the migration, `gitcroc-app` still serves the Tauri app. The Tauri
-  commands become one-line wrappers over the service methods, so the shipped
-  app keeps working until the switch.
+  shell moves into a temporary crate, `gitcroc-tauri`, and its commands
+  become one-line wrappers over the service methods, so the shipped app keeps
+  working until the switch, which deletes that crate.
 
 ### Threads and state
 
@@ -136,7 +137,7 @@ updater key and listed in the same `latest.json`. Installed 1.0.0-rc.1 apps
 then update to it through Tauri's updater: it runs the NSIS installer,
 replaces the `.app` and replaces the AppImage, none of which cares what UI
 the new build uses. Config, cache and workspace files don't change format, so
-nothing needs migrating. M6-27 tests this path on CI runners, as M5-15 did.
+nothing needs migrating. M6-28 tests this path on CI runners, as M5-15 did.
 
 ## Spec changes (M6-01, its own pull request)
 
@@ -176,7 +177,7 @@ new UI builds as `gitcroc-next` and is not packaged.
 | M6-03 | Spike: CI. GPUI headless tests on all three runners; a real window under xvfb with lavapipe and with WARP; `cargo-packager` builds NSIS, dmg, AppImage and deb of a hello window; build time and binary size | — |
 | M6-04 | Spike: accessibility. Orca, NVDA and VoiceOver read a labelled button and a list row; can a test read the AccessKit tree | — |
 | **Foundation** | | |
-| M6-05 † | `gitcroc-app` service API and event bus without Tauri; the Tauri commands become wrappers (about 3 PRs: workspace, tree and history; changes and operations; AI, update and askpass) | M6-01 |
+| M6-05 † | `gitcroc-app` service API and event bus without Tauri; the Tauri shell moves to a temporary `gitcroc-tauri` crate and its commands become wrappers (4 PRs: the move; workspace, tree and history; changes and operations; AI, update and askpass) | M6-01 |
 | M6-06 | `gitcroc-ui` skeleton: window, own title bar, three panes, status bar, strings, keymap scaffold, macOS menus, CI test job, `cargo deny` | M6-03, M6-05 |
 | M6-07 | App tokens light, dark and system; accent colour; fonts; 8 code themes on `syntect`; contrast tests (UI-23 to UI-26) | M6-06 |
 | **Read-only parity (M1)** | | |
@@ -203,8 +204,8 @@ new UI builds as `gitcroc-next` and is not packaged.
 | M6-24 | Command palette and keyboard pass (UI-22) | M6-18 to M6-23 |
 | M6-25 | Accessibility pass, as far as M6-04 found testable | M6-24 |
 | M6-26 | Settings dialog, all four tabs | M6-07, M6-23 |
-| M6-27 | Updater without Tauri; update from 1.0.0-rc.1 tested on CI runners | M6-05 |
-| M6-28 | Packaging and release workflow; install tests | M6-27 |
+| M6-27 | Updater without Tauri, used by the Tauri app at once so its update test proves it on CI runners | M6-05 |
+| M6-28 | Packaging and release workflow; install tests; update from 1.0.0-rc.1 to the GPUI build tested on CI runners | M6-27 |
 | M6-29 | Smoke test on Linux and Windows; idle memory; full budget run; user doc screenshots | M6-24 to M6-28 |
 | M6-30 | The switch: `gitcroc` is the GPUI binary; `ui/`, Tauri, specta, `gtk` and Node leave the repo and CI; coverage scans Rust only | `just coverage M6` empty |
 | M6-31 | Release candidate 1.0.0-rc.2 and the M6 sign-off | M6-30 |

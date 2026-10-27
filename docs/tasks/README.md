@@ -200,7 +200,8 @@ to 1.0.0-rc.2 on all three platforms.
 The Tauri app stays the shipped app until M6-30. Until then the new UI builds
 as `gitcroc-next` and is not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. Rows marked † will be split into
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05, M6-06 and M6-27 have theirs;
+the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
 | Task | Delivers | Depends on |
@@ -209,8 +210,8 @@ several pull requests (DEV-4).
 | [M6-02](M6-02-conflict-editor-spike.md) | Spike: the conflict editor on gpui-component's editor, or its fallback | none |
 | [M6-03](M6-03-ci-and-packaging-spike.md) | Spike: GPUI tests and windows on the hosted runners; packages without Tauri | none |
 | [M6-04](M6-04-accessibility-spike.md) | Spike: screen readers and accessibility tests with GPUI | none |
-| M6-05 † | `gitcroc-app` services and event channel without Tauri; Tauri commands become wrappers | M6-01 |
-| M6-06 | `gitcroc-ui` skeleton: window, own title bar, panes, status bar, strings, keymap, macOS menus, CI job | M6-03, M6-05 |
+| [M6-05](M6-05-services-without-tauri.md) † | `gitcroc-app` services and event channel without Tauri; the Tauri shell moves to `gitcroc-tauri`, its commands become wrappers (4 PRs) | M6-01 |
+| [M6-06](M6-06-gpui-skeleton.md) | `gitcroc-ui` skeleton: window, own title bar, panes, status bar, strings, keymap, macOS menus, CI job, `cargo deny`, `just coverage M6` | M6-03, M6-05 |
 | M6-07 | App tokens, accent color, fonts, 8 code themes on `syntect`, contrast tests | M6-06 |
 | M6-08 | Git setup screen and git path | M6-06 |
 | M6-09 | Workspace tabs and workspace dialogs | M6-06 |
@@ -231,8 +232,8 @@ several pull requests (DEV-4).
 | M6-24 | Command palette and keyboard pass | M6-18 to M6-23 |
 | M6-25 | Accessibility pass, to the bar decided after M6-04 | M6-04, M6-24 |
 | M6-26 | Settings dialog, all four tabs | M6-07, M6-23 |
-| M6-27 | Updater without Tauri; rc.1 updates to the GPUI build | M6-05 |
-| M6-28 | Packaging and release workflow without Tauri; install tests | M6-03, M6-27 |
+| [M6-27](M6-27-updater-without-tauri.md) | Updater without Tauri, used by the Tauri app at once and proven by its update test | M6-05 |
+| M6-28 | Packaging and release workflow without Tauri; install tests; rc.1 updates to the GPUI build on the runners | M6-03, M6-27 |
 | M6-29 | Smoke test, idle memory, full budget run, user docs | M6-24 to M6-28 |
 | M6-30 | The switch: `gitcroc` is the GPUI binary; `ui/`, Tauri, specta, `gtk` and Node removed | `just coverage M6` empty |
 | M6-31 | 1.0.0-rc.2 and the M6 sign-off | M6-30 |
@@ -319,6 +320,9 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Look of the GPUI UI | Today's tokens ported, plus the OS accent color and native window controls; not gpui-component's default theme | M6-07 |
 | Spikes | Standalone crates under `spikes/`, outside the workspace, each on its own `spike/` branch and never merged | M6-02 to M6-04 |
 | Conflict editor | gpui-component's code editor, one buffer; the base and the AI proposal in a card beside the hunk (Eric, 2026-10-27, after M6-02) | M6-19, M6-23 |
+| The Tauri shell during M6 | Moves out of `gitcroc-app` into a temporary crate, `crates/gitcroc-tauri`, so `gitcroc-app` has no UI toolkit from M6-05 on and `gitcroc-ui` never links Tauri; M6-30 deletes the crate | M6-05, M6-30 |
+| Updater proof | The Tauri app uses the new updater from M6-27, so the existing update test proves it; rc.1 installing the GPUI packages is tested with those packages in M6-28 | M6-27, M6-28 |
+| `gitcroc-next` and user files | Reads and writes the same config, cache and workspace files as the shipped app; running both at once is not supported | M6-06 |
 | Config directory name | `gitcroc` under the platform config, cache and log dirs | M0-07 |
 | CI service | GitHub Actions | M0-03 |
 | Task file headings | "Implements" and "Respects" inside the Spec section, so the coverage script knows which IDs a milestone must test | M0-02 |
