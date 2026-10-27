@@ -32,6 +32,8 @@ tikv-jemalloc-ctl.workspace = true
 gitcroc-ai = { workspace = true, features = ["mock"] }
 gitcroc-git.workspace = true
 repo-gen.workspace = true
+# The tests' runtimes; Tauri brought this feature in for every platform.
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [features]
 # The scripted AI provider for the smoke test (M4-12), which M6-29 brings
