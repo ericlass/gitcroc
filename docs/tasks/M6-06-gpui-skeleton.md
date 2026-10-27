@@ -63,9 +63,13 @@ Respects: ARCH-5, ARCH-6, ARCH-7, ARCH-9, UI-19, UI-21, UI-22, D15, PLAT-1, SEC-
   - `just coverage M6` then lists what is still to port. M6-30 starts when that list is empty.
 - **CI** (`ci.yml`), following what M6-03's runner jobs proved:
   - **`check-rust` on all three runners:**
-    - builds and tests `gitcroc-ui` with the rest of the workspace, with the Linux packages `gitcroc-ui` needs;
+    - builds and tests `gitcroc-ui` with the rest of the workspace;
+    - on Linux it installs `libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libfontconfig-dev libfreetype-dev`;
     - its headless tests need no display or GPU.
-  - **On each runner where M6-03 showed a real window works:** `gitcroc-next --exit-after-first-frame` starts and presents a frame. On Linux this runs under `xvfb-run` with Mesa's lavapipe. Where it doesn't work, the step is left out with a comment linking the M6-03 finding.
+  - **On all three runners** (M6-03 showed a real window works on each), `gitcroc-next --exit-after-first-frame` starts and presents a frame:
+    - on Linux, under `xvfb-run` with `mesa-vulkan-drivers` (lavapipe), not under Wayland, where headless Weston has no seat;
+    - on Windows, on WARP;
+    - on macOS, on Metal.
   - **Build time:** record in the PR how much longer `check-rust` takes than on `main`, with the cache warm.
 - **`just dev-next`** runs `gitcroc-next`. `just check` covers the crate through `cargo test --workspace`.
 

@@ -270,7 +270,15 @@ notes are what later tasks need from them.
   2. Rows, headers, the base and AI proposal cards, and conflict colours.
   3. The banner, file switching, and Mark resolved and Continue through the job services.
 
-**M6-03, CI and packaging** (`spike/gpui-ci`, `27a024c`, 2026-10-26; the runner jobs have not run, because Eric has not yet allowed the push)
+**M6-03, CI and packaging** (`spike/gpui-ci`, `d40bb5a`; [run 1](https://github.com/ericlass/gitcroc/actions/runs/40455723553) and [run 2](https://github.com/ericlass/gitcroc/actions/runs/40457533100), 2026-10-27)
+- **On the hosted runners (run 2, every job passed):**
+  - **Headless tests:** `cargo test` passes on all three runners with no display and no GPU. ubuntu-latest needs `libfontconfig-dev libfreetype-dev`; their absence failed run 1.
+  - **Real window, on all three runners:** Linux under Xvfb with lavapipe, and with GL on llvmpipe; Windows on WARP (Direct3D 11); macOS on Metal.
+  - **Not Wayland:** under headless Weston GPUI panics, because the compositor has no `wl_seat`. CI uses Xvfb; Wayland is checked by hand.
+  - **Packages:** NSIS (installed for the current user), the portable zip, the universal `.dmg` (ad hoc signed), the AppImage, the `.deb` and the `.rpm` all install and start.
+  - **Fonts:** with no font installed, GPUI panics at its first text. The Linux packages must depend on a font, or the app must ship one (M6-07, M6-28).
+  - **Update signatures:** the NSIS installer, `.app.tar.gz` and AppImage are signed in Tauri's format and verified with `minisign-verify`.
+  - **Build times:** a cold release build takes 3 to 6.5 minutes and a cached one under 30 s. Packages are 6 to 14 MiB.
 - **Proven locally:**
   - **Tests without a display:** headless GPUI tests run with no display and no GPU.
   - **Real window:** one runs under Xvfb with lavapipe, and wgpu falls back to GL on llvmpipe by itself.
