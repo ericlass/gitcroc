@@ -31,7 +31,7 @@ migration a UI rewrite, not a rewrite of the app.
 | `ui/src` | 28,000 TS, 2,800 CSS | Rewritten in Rust and GPUI. Its stores (5,000 lines) port to view models almost one to one. |
 | `ui/src` tests, `ui/e2e`, the fake core | 10,200 + 3,300 + 3,100 | Rewritten as GPUI tests against the real core on `repo-gen` fixtures. There is no fake core any more. |
 | `ui/bench`, `ui/webdriver` | — | Replaced by in-app runners behind the `perf-trace` and `e2e` features, as in the spike. |
-| Tauri, tauri-specta, specta, the dialog and updater plugins, `gtk`, Node, pnpm, Vite, Playwright, tauri-driver, the WebView2 bootstrapper | — | Removed at the switch (M6-30). Two `cargo deny` advisory ignores go with them. |
+| Tauri, tauri-specta, specta, the dialog and updater plugins, `gtk`, Node, pnpm, Vite, Playwright, tauri-driver, the WebView2 bootstrapper | — | Tauri, its plugins, `gtk`, Playwright, tauri-driver and the bootstrapper go in M6-05; specta, Node, pnpm and Vite at the switch (M6-30). Two `cargo deny` advisory ignores go with Tauri. |
 
 ## Architecture
 
@@ -54,10 +54,10 @@ gitcroc-core, gitcroc-ai, gitcroc-git   (unchanged)
   tests in `crates/gitcroc-app/tests/` keep running headless.
 - `gitcroc-ui` is the only crate that depends on GPUI. ARCH-5 gains this
   clause.
-- During the migration, `gitcroc-app` still serves the Tauri app. The Tauri
-  shell moves into a temporary crate, `gitcroc-tauri`, and its commands
-  become one-line wrappers over the service methods, so the shipped app keeps
-  working until the switch, which deletes that crate.
+- The Tauri app is not kept during the migration (Eric, 2026-10-27):
+  1.0.0-rc.1 is its last release. M6-05 deletes the Tauri shell and the IPC
+  layer, and ports the command bodies to the service methods. `ui/` stays in
+  the tree, out of CI, as the reference the tasks port from, until M6-30.
 
 ### Threads and state
 
@@ -107,8 +107,8 @@ gitcroc-core, gitcroc-ai, gitcroc-git   (unchanged)
   GPU, and simulate keystrokes, clicks and drags. They replace Vitest and
   Playwright. They drive the real core on `repo-gen` fixtures (QA-2) and the
   existing mock AI provider. Test names keep the requirement IDs (QA-3).
-- **Parity tracking.** `req-coverage` gains a path filter. While both UIs
-  exist, `just coverage M6` lists every UI requirement that has a test under
+- **Parity tracking.** `req-coverage` gains a path filter. While `ui/`
+  exists, `just coverage M6` lists every UI requirement that has a test under
   `ui/` but none under `crates/gitcroc-ui`. When that list is empty, the
   rewrite is complete. At the switch the tool stops scanning `ui/`.
 - **Smoke test** (M5-16 replacement). The `e2e` feature adds a scenario runner
@@ -166,8 +166,9 @@ nothing needs migrating. M6-28 tests this path on CI runners, as M5-15 did.
 
 Each row is one pull request of about 400 changed lines outside tests
 (DEV-4). Rows marked † are larger and will be split when their task files
-are written. The Tauri app stays the shipped app until M6-30. Until then the
-new UI builds as `gitcroc-next` and is not packaged.
+are written. From M6-05 there is no Tauri app on `main`; 1.0.0-rc.1 stays
+the released app until rc.2. Until M6-30 the new UI builds as `gitcroc-next`,
+and until M6-28 it is not packaged.
 
 | Task | Delivers | Depends on |
 | --- | --- | --- |
@@ -177,7 +178,7 @@ new UI builds as `gitcroc-next` and is not packaged.
 | M6-03 | Spike: CI. GPUI headless tests on all three runners; a real window under xvfb with lavapipe and with WARP; `cargo-packager` builds NSIS, dmg, AppImage and deb of a hello window; build time and binary size | — |
 | M6-04 | Spike: accessibility. Orca, NVDA and VoiceOver read a labelled button and a list row; can a test read the AccessKit tree | — |
 | **Foundation** | | |
-| M6-05 † | `gitcroc-app` service API and event bus without Tauri; the Tauri shell moves to a temporary `gitcroc-tauri` crate and its commands become wrappers (4 PRs: the move; workspace, tree and history; changes and operations; AI, update and askpass) | M6-01 |
+| M6-05 † | `gitcroc-app` service API and event bus without Tauri; the Tauri shell, its workflows and the IPC layer are deleted (4 PRs: Tauri leaves; workspace, tree and history; changes and operations; AI, update and askpass) | M6-01 |
 | M6-06 | `gitcroc-ui` skeleton: window, own title bar, three panes, status bar, strings, keymap scaffold, macOS menus, CI test job, `cargo deny` | M6-03, M6-05 |
 | M6-07 | App tokens light, dark and system; accent colour; fonts; 8 code themes on `syntect`; contrast tests (UI-23 to UI-26) | M6-06 |
 | **Read-only parity (M1)** | | |
@@ -204,10 +205,10 @@ new UI builds as `gitcroc-next` and is not packaged.
 | M6-24 | Command palette and keyboard pass (UI-22) | M6-18 to M6-23 |
 | M6-25 | Accessibility pass, as far as M6-04 found testable | M6-24 |
 | M6-26 | Settings dialog, all four tabs | M6-07, M6-23 |
-| M6-27 | Updater without Tauri, used by the Tauri app at once so its update test proves it on CI runners | M6-05 |
-| M6-28 | Packaging and release workflow; install tests; update from 1.0.0-rc.1 to the GPUI build tested on CI runners | M6-27 |
+| M6-27 | Updater without Tauri, proven by tests on every platform | M6-05 |
+| M6-28 | Packaging and release workflow; install tests; on CI runners, the GPUI build updates itself, and 1.0.0-rc.1 updates to it | M6-27 |
 | M6-29 | Smoke test on Linux and Windows; idle memory; full budget run; user doc screenshots | M6-24 to M6-28 |
-| M6-30 | The switch: `gitcroc` is the GPUI binary; `ui/`, Tauri, specta, `gtk` and Node leave the repo and CI; coverage scans Rust only | `just coverage M6` empty |
+| M6-30 | The switch: `gitcroc` is the GPUI binary; `ui/`, specta and Node leave the repo; coverage scans Rust only | `just coverage M6` empty |
 | M6-31 | Release candidate 1.0.0-rc.2 and the M6 sign-off | M6-30 |
 
 Parallel lanes: M6-02, M6-03 and M6-04 can run together, and beside M6-01.
@@ -224,7 +225,7 @@ separate files. In all, about 40 pull requests once the † rows are split.
 | Accessibility is younger than in a browser; the axe checks of M5-10 have no equivalent | M6-04, then an explicit spec decision on what M6-25 must meet. |
 | Linux needs Vulkan; X11 reports no refresh rate (seen in the spike) | Document the requirement. Use wgpu's GL fallback if M6-03 shows it works. On X11, take the refresh interval from measured frames. |
 | Plain GPUI text cannot be selected | Read-only inputs where copying matters: hashes, messages, paths. Copy items in context menus. |
-| The NSIS upgrade from the Tauri install lands beside it instead of over it | Match Tauri's install directory and registry keys; M6-27 tests it on Windows. |
+| The NSIS upgrade from the Tauri install lands beside it instead of over it | Match Tauri's install directory and registry keys; M6-28 tests it on Windows. |
 | Build time and binary size grow (wgpu, naga, syntect) | Measured in M6-03; CI caches; release builds only in the build workflows. |
 | Licences | GPUI and gpui-component are Apache-2.0, `syntect` is MIT, so all are compatible with MIT; `cargo deny` checks in M6-06. |
 

@@ -19,8 +19,9 @@ Respects: ARCH-5, ARCH-6, ARCH-7, ARCH-9, UI-19, UI-21, UI-22, D15, PLAT-1, SEC-
     - `test-support` as a dev-dependency feature only.
   - **gpui-kit's default `assets` feature** is turned off if the app builds without it, because it brings in an HTTP client (M6-03 finding). If the app can't build without it, record why.
 - **Startup** (`main.rs`):
-  - **Runtime:** a multi-thread tokio runtime is built, and `App::start` gets its handle and the same config, cache and log directories as the Tauri app. GPUI runs on the main thread.
-  - **Same files as the Tauri app:** `gitcroc-next` reads and writes the same settings and workspaces as the shipped app, so it can be tried on real workspaces. The core writes files atomically (DATA-1). Running both apps at once is not supported, and the `just dev-next` recipe's comment says so.
+  - **Askpass first:** when git starts the binary as its askpass helper, `main` runs `askpass::helper` and exits before any window, as the Tauri binary did (D10).
+  - **Runtime:** a multi-thread tokio runtime is built, and `App::start` gets its handle and the same config, cache and log directories as 1.0.0-rc.1. GPUI runs on the main thread.
+  - **Same files as rc.1:** `gitcroc-next` reads and writes the same settings and workspaces as an installed rc.1, so it can be tried on real workspaces. The core writes files atomically (DATA-1). Running both apps at once is not supported, and the `just dev-next` recipe's comment says so.
   - **Dialogs:** a `Dialogs` implementation on `cx.prompt_for_paths` and `cx.prompt_for_new_path`.
 - **The event bridge:**
   - One task per window receives `AppEvent`s and updates the GPUI entities on the main thread.
@@ -46,7 +47,7 @@ Respects: ARCH-5, ARCH-6, ARCH-7, ARCH-9, UI-19, UI-21, UI-22, D15, PLAT-1, SEC-
 - **The keymap (UI-22).**
   - GPUI actions, and `KeyBinding`s with key contexts. `secondary-` gives Cmd on macOS and Ctrl elsewhere.
   - The bindings live in one table, the same shape as `ui/src/keys.ts`.
-  - The test that checks every shortcut is listed in `docs/user/keyboard.md` is ported. While the web front end still exists, it checks the bindings that `gitcroc-ui` has.
+  - The test that checks every shortcut is listed in `docs/user/keyboard.md` is ported. Until M6-30 it checks the bindings that `gitcroc-ui` has.
 - **macOS menus:** App (About, Quit), Edit (Undo, Redo, Cut, Copy, Paste, Select All) and Window (Minimize, Zoom), through `cx.set_menus`. This makes Cmd+Q, copy and paste work in inputs.
 - **The theme:** until M6-07 the skeleton uses gpui-component's theme and follows the system's light or dark appearance. No colour is written in a view.
 - **`cargo deny`** (`deny.toml`), from M6-03's findings, each entry with a comment naming the crate that needs it:
