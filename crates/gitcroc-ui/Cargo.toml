@@ -1,0 +1,36 @@
+[package]
+name = "gitcroc-ui"
+description = "gitcroc's native UI, on GPUI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+default-run = "gitcroc-next"
+
+# The GPUI app, beside the released Tauri app until M6-30 makes it
+# `gitcroc`. Not packaged and not released before then.
+[[bin]]
+name = "gitcroc-next"
+path = "src/main.rs"
+
+[dependencies]
+gitcroc-app.workspace = true
+gitcroc-core.workspace = true
+gpui-kit.workspace = true
+gpui-component.workspace = true
+# The runtime the app's work runs on (ARCH-7), and the channels to it.
+tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+# The home folder a save dialog starts in.
+directories.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["time"] }
+syn.workspace = true
+# The scan's line numbers.
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+
+[lints]
+workspace = true

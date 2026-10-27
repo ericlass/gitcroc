@@ -1,6 +1,7 @@
 //! Commit headers, changed files and file diffs on fixture repos (UI-14,
 //! UI-16, UI-17, UI-18, ARCH-8, PLAT-2, SEC-3).
 
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 
 use gitcroc_git::GitRepo;
@@ -261,10 +262,17 @@ fn arch_8_diff_is_one_file_at_a_time() {
     let list = serde_json::to_value(&files).unwrap();
     let json = list.to_string();
     assert!(!json.contains("alpha-content") && !json.contains("beta-content"));
-    let keys: Vec<&String> = list[0].as_object().unwrap().keys().collect();
+    // A set: with serde_json's `preserve_order`, which GPUI turns on in a
+    // workspace build, the keys come in field order.
+    let keys: BTreeSet<&str> = list[0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     assert_eq!(
         keys,
-        [
+        BTreeSet::from([
             "added",
             "id",
             "mode_change",
@@ -272,7 +280,7 @@ fn arch_8_diff_is_one_file_at_a_time() {
             "path",
             "removed",
             "status"
-        ]
+        ])
     );
 
     // A diff holds its own file only.

@@ -451,15 +451,22 @@ All notable changes to gitcroc are documented in this file.
             signature,
         )
         .unwrap();
-        let platforms: Vec<&String> = manifest["platforms"].as_object().unwrap().keys().collect();
+        // A set: with serde_json's `preserve_order`, which GPUI turns on in a
+        // workspace build, the keys come in the order they were written.
+        let platforms: std::collections::BTreeSet<&str> = manifest["platforms"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         assert_eq!(
             platforms,
-            [
+            std::collections::BTreeSet::from([
                 "darwin-aarch64",
                 "darwin-x86_64",
                 "linux-x86_64",
                 "windows-x86_64"
-            ]
+            ])
         );
         let text = manifest.to_string();
         for only_notifies in [".deb", ".rpm", "portable.zip", ".dmg"] {

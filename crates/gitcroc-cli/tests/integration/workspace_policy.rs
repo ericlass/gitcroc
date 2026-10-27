@@ -9,12 +9,13 @@ use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, PackageId};
 
 const CORE_CRATES: [&str; 3] = ["gitcroc-git", "gitcroc-core", "gitcroc-ai"];
 
-const MEMBERS: [&str; 5] = [
+const MEMBERS: [&str; 6] = [
     "gitcroc-git",
     "gitcroc-core",
     "gitcroc-ai",
     "gitcroc-app",
     "gitcroc-cli",
+    "gitcroc-ui",
 ];
 
 /// Developer tools in the workspace. They depend on no workspace crate, and
@@ -23,13 +24,17 @@ const MEMBERS: [&str; 5] = [
 const TOOLS: [&str; 3] = ["req-coverage", "release-manifest", "repo-gen"];
 
 /// Internal dependency edges allowed by the Crates table in spec section 4.
-const ALLOWED_EDGES: [(&str, &str); 6] = [
+const ALLOWED_EDGES: [(&str, &str); 10] = [
     ("gitcroc-core", "gitcroc-git"),
     ("gitcroc-app", "gitcroc-git"),
     ("gitcroc-app", "gitcroc-core"),
     ("gitcroc-app", "gitcroc-ai"),
     ("gitcroc-cli", "gitcroc-core"),
     ("gitcroc-cli", "gitcroc-ai"),
+    ("gitcroc-ui", "gitcroc-app"),
+    ("gitcroc-ui", "gitcroc-core"),
+    ("gitcroc-ui", "gitcroc-git"),
+    ("gitcroc-ui", "gitcroc-ai"),
 ];
 
 fn workspace_root() -> PathBuf {
@@ -55,8 +60,12 @@ fn names_by_id(meta: &Metadata) -> HashMap<&PackageId, &str> {
         .collect()
 }
 
+/// Tauri and its webview, `wry`. `tauri-winrt-notification` is not Tauri:
+/// it is a small binding of Windows' toast notifications, which
+/// `notify-rust` uses on Windows; GPUI's Linux platform reaches it through
+/// `notify-rust`, on a path no build takes.
 fn is_tauri_crate(name: &str) -> bool {
-    name.starts_with("tauri") || name == "wry"
+    (name.starts_with("tauri") && name != "tauri-winrt-notification") || name == "wry"
 }
 
 /// The bindings of the system webviews: WebKitGTK and WebView2.
@@ -66,7 +75,13 @@ fn is_webview_crate(name: &str) -> bool {
 
 /// GTK and GPUI, the toolkits the app's API must not use.
 fn is_ui_toolkit_crate(name: &str) -> bool {
-    name == "gtk" || name.starts_with("gtk-") || name == "gpui" || name.starts_with("gpui-")
+    name == "gtk" || name.starts_with("gtk-") || is_gpui_crate(name)
+}
+
+/// GPUI and the crates built on it: `gpui-kit`, `gpui-component`, the
+/// `gpui-pre-*` family.
+fn is_gpui_crate(name: &str) -> bool {
+    name == "gpui" || name.starts_with("gpui-") || name.starts_with("gpui_")
 }
 
 /// Every package reachable from `root` in the resolved graph, all dependency
@@ -93,6 +108,7 @@ fn arch_5_tauri_name_check_matches_tauri_and_wry() {
     assert!(is_tauri_crate("tauri-build"));
     assert!(is_tauri_crate("tauri-specta"));
     assert!(is_tauri_crate("wry"));
+    assert!(!is_tauri_crate("tauri-winrt-notification"));
     assert!(!is_tauri_crate("gix"));
     assert!(!is_tauri_crate("thiserror"));
 }
@@ -253,8 +269,7 @@ fn d1_toolchain_is_a_pinned_stable_release() {
 }
 
 /// D2: no webview. No crate of the workspace reaches Tauri, `wry` or a
-/// system webview's bindings, on any platform. M6-06 adds that the UI is
-/// GPUI at the pinned versions.
+/// system webview's bindings, on any platform.
 #[test]
 fn d2_no_crate_depends_on_a_webview() {
     let webviews: BTreeSet<&str> = metadata()
@@ -267,6 +282,41 @@ fn d2_no_crate_depends_on_a_webview() {
         webviews.is_empty(),
         "D2: the workspace reaches {webviews:?}"
     );
+}
+
+/// D2: the UI is GPUI, through gpui-kit and gpui-component at the exact
+/// versions the M6 spikes proved (M6-06).
+#[test]
+fn d2_the_ui_is_gpui_at_the_pinned_versions() {
+    let manifest = read_toml(&workspace_root().join("Cargo.toml"));
+    for name in ["gpui-kit", "gpui-component"] {
+        let dependency = lookup(&manifest, &["workspace", "dependencies", name])
+            .unwrap_or_else(|| panic!("D2: no workspace dependency {name}"));
+        let version = dependency
+            .as_str()
+            .or_else(|| dependency.get("version").and_then(|v| v.as_str()));
+        assert_eq!(version, Some("=0.8.1"), "D2: {name}");
+        let resolved: Vec<String> = metadata()
+            .packages
+            .iter()
+            .filter(|p| p.name.as_str() == name)
+            .map(|p| p.version.to_string())
+            .collect();
+        assert_eq!(resolved, ["0.8.1"], "D2: {name}");
+    }
+    let ui = metadata()
+        .workspace_packages()
+        .into_iter()
+        .find(|p| p.name.as_str() == "gitcroc-ui")
+        .expect("gitcroc-ui is a workspace member");
+    let direct: BTreeSet<&str> = ui
+        .dependencies
+        .iter()
+        .filter(|dep| dep.kind == DependencyKind::Normal)
+        .map(|dep| dep.name.as_str())
+        .filter(|name| is_gpui_crate(name))
+        .collect();
+    assert_eq!(direct, BTreeSet::from(["gpui-component", "gpui-kit"]));
 }
 
 #[test]
@@ -314,12 +364,35 @@ fn arch_5_app_crate_has_no_ui_toolkit() {
     );
 }
 
+/// ARCH-5: GPUI is the UI's alone. No other crate of the workspace has a
+/// GPUI crate in its dependency tree, of any kind and on any platform.
+#[test]
+fn arch_5_only_the_ui_crate_depends_on_gpui() {
+    let meta = metadata();
+    let names = names_by_id(meta);
+    for pkg in meta.workspace_packages() {
+        let gpui: BTreeSet<&str> = transitive_deps(meta, &pkg.id)
+            .into_iter()
+            .map(|id| names[id])
+            .filter(|name| is_gpui_crate(name))
+            .collect();
+        if pkg.name.as_str() == "gitcroc-ui" {
+            assert!(gpui.contains("gpui-kit"), "gitcroc-ui reaches {gpui:?}");
+        } else {
+            assert!(gpui.is_empty(), "ARCH-5: {} depends on {gpui:?}", pkg.name);
+        }
+    }
+}
+
 #[test]
 fn arch_5_ui_toolkit_name_check_matches_gtk_and_gpui() {
     assert!(is_ui_toolkit_crate("gtk"));
     assert!(is_ui_toolkit_crate("gtk-sys"));
     assert!(is_ui_toolkit_crate("gpui"));
     assert!(is_ui_toolkit_crate("gpui-component"));
+    assert!(is_ui_toolkit_crate("gpui-pre-platform"));
+    assert!(is_gpui_crate("gpui-kit"));
+    assert!(!is_gpui_crate("gix"));
     assert!(!is_ui_toolkit_crate("gix"));
     assert!(!is_ui_toolkit_crate("glib"));
 }
@@ -442,8 +515,9 @@ fn http_clients(reached: BTreeSet<&str>) -> Vec<&str> {
 
 /// D12: the app makes no network calls of its own except the user's AI
 /// calls and the update check. Of the project's crates only `gitcroc-ai`
-/// depends on an HTTP client directly, and `gitcroc-app` reaches one only
-/// through `gitcroc-ai`; the update source without Tauri comes with M6-27.
+/// depends on an HTTP client directly, and `gitcroc-app` and `gitcroc-ui`
+/// reach one only through `gitcroc-ai`; the update source without Tauri
+/// comes with M6-27. GPUI's `gpui-pre-http-client` holds traits, no client.
 /// Git's network operations run the git CLI (ARCH-1), and `gix` has no
 /// network client (D3).
 #[test]
@@ -487,11 +561,13 @@ fn d12_only_the_ai_and_update_code_open_connections() {
         }
         seen.into_iter().map(|id| names[id]).collect()
     };
-    assert_eq!(
-        http_clients(reached("gitcroc-app", &["gitcroc-ai"])),
-        Vec::<&str>::new(),
-        "D12: gitcroc-app reaches an HTTP client past gitcroc-ai"
-    );
+    for name in ["gitcroc-app", "gitcroc-ui"] {
+        assert_eq!(
+            http_clients(reached(name, &["gitcroc-ai"])),
+            Vec::<&str>::new(),
+            "D12: {name} reaches an HTTP client past gitcroc-ai"
+        );
+    }
     for name in ["gitcroc-git", "gitcroc-core"] {
         assert_eq!(
             http_clients(reached(name, &[])),
