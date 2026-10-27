@@ -7,6 +7,7 @@
 
 mod ai;
 mod ai_providers;
+mod app;
 mod askpass;
 mod keychain;
 mod platform;
