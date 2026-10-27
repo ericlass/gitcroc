@@ -357,6 +357,11 @@ async fn arch_6_app_sends_fresh_state_after_a_job() {
     let repo = fixture.repo("api").unwrap();
     repo.commit_file("README.md", "hello\n", "First").unwrap();
     repo.write("README.md", "hello again\n").unwrap();
+    // The app's git reads the runner's config, which may have no identity;
+    // the repo's own config gives it one.
+    repo.git(["config", "user.name", "Test"]).unwrap();
+    repo.git(["config", "user.email", "test@example.com"])
+        .unwrap();
     let mut started = start(EVENT_CAPACITY).await;
     let workspace = active(&started.app);
     let repo_id = add(&mut started, &workspace, fixture.path())
