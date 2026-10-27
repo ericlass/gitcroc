@@ -6,14 +6,20 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use gitcroc_app::app::{App, AppEvent, AppSetup, EVENT_CAPACITY};
-use gitcroc_app::platform::{DesktopFonts, DialogFuture, Dialogs, FileFilter};
+use gitcroc_ai::{ApiKey, Provider, ProviderSpec};
+use gitcroc_app::ai::{AiBackend, BoxFuture, DetectedCli, ModelsResult, SelfTest};
+use gitcroc_app::app::{App, AppErrorCode, AppEvent, AppSetup, EVENT_CAPACITY};
+use gitcroc_app::askpass::PromptKind;
+use gitcroc_app::platform::{DesktopFonts, DialogFuture, Dialogs, FileFilter, MemoryKeychain};
+use gitcroc_app::update::NoUpdates;
 use gitcroc_core::{
     CacheDir, ChangeAction, ChangeRequest, ChangeStart, ChangeTarget, ChangesContent,
-    ChangesTarget, CommitMessage, CommitRequest, ConfigDir, FileList, FileRef, GitStatus,
-    HistoryTarget, LogDir, Outcome, RepoId, WorkspaceId,
+    ChangesTarget, CommitMessage, CommitRequest, ConfigDir, FileList, FileRef, GitStatus, GroupOp,
+    HistoryTarget, LogDir, Outcome, ProviderEntry, ProviderKind, Prune, RepoId, StartPoint, SyncOp,
+    SyncRequest, SyncStart, TargetSet, WorkspaceId,
 };
 use repo_gen::RepoSpec;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 
@@ -104,6 +110,36 @@ impl Dialogs for FakeDialogs {
 
 /// A started app, its first subscriber, its dialogs, and the directory it
 /// keeps its files in.
+/// Reaches no AI provider: detects no CLI and runs none, so no test calls
+/// a real one.
+struct NoProviders;
+
+impl AiBackend for NoProviders {
+    fn detect(&self) -> Vec<DetectedCli> {
+        Vec::new()
+    }
+
+    fn self_test<'a>(&'a self, _kind: ProviderKind, _path: &'a Path) -> BoxFuture<'a, SelfTest> {
+        Box::pin(async {
+            SelfTest::Failed {
+                reason: "no providers in tests".to_owned(),
+            }
+        })
+    }
+
+    fn list_models<'a>(
+        &'a self,
+        _entry: &'a ProviderEntry,
+        _key: Option<ApiKey>,
+    ) -> BoxFuture<'a, ModelsResult> {
+        Box::pin(async { ModelsResult::NotOffered })
+    }
+
+    fn provider(&self, _spec: ProviderSpec) -> Result<Box<dyn Provider>, String> {
+        Err("no providers in tests".to_owned())
+    }
+}
+
 struct Started {
     app: App,
     events: Receiver<AppEvent>,
@@ -125,6 +161,10 @@ async fn start(capacity: usize) -> Started {
         fonts: DesktopFonts::default(),
         event_capacity: capacity,
         dialogs: dialogs.clone(),
+        keychain: Arc::new(MemoryKeychain::default()),
+        ai: Arc::new(NoProviders),
+        updates: Arc::new(NoUpdates),
+        askpass_helper: PathBuf::from(env!("CARGO_BIN_EXE_askpass-helper")),
     });
     let mut events = app.subscribe();
     // The result is kept before it is sent, so while the state still says
@@ -617,4 +657,179 @@ async fn data_2_workspaces_export_and_import_through_dialogs() {
             },
         ]
     );
+}
+
+const PASSWORD: &str = "s3cret-for-askpass";
+
+/// A host that wants a password: it answers every request with 401 and
+/// keeps each request's `Authorization` header. Returns a repo URL on it.
+async fn refusing_host() -> (String, Arc<Mutex<Vec<Option<String>>>>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/api.git", listener.local_addr().unwrap());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let kept = seen.clone();
+    tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let kept = kept.clone();
+            tokio::spawn(async move {
+                let mut stream = tokio::io::BufReader::new(stream);
+                let mut authorization = None;
+                loop {
+                    let mut line = String::new();
+                    if stream.read_line(&mut line).await.unwrap() == 0 || line == "\r\n" {
+                        break;
+                    }
+                    if let Some((name, value)) = line.split_once(':')
+                        && name.eq_ignore_ascii_case("authorization")
+                    {
+                        authorization = Some(value.trim().to_owned());
+                    }
+                }
+                kept.lock().unwrap().push(authorization);
+                stream
+                    .get_mut()
+                    .write_all(
+                        b"HTTP/1.1 401 Unauthorized\r\n\
+                          WWW-Authenticate: Basic realm=\"gitcroc\"\r\n\
+                          Content-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .await
+                    .unwrap();
+            });
+        }
+    });
+    (url, seen)
+}
+
+/// D10: git's prompts during a fetch arrive as `AskpassPrompt` events,
+/// naming the job and the repo, and `askpass_answer` sends each answer to
+/// git, which sends it to the host.
+#[tokio::test(flavor = "multi_thread")]
+async fn d10_askpass_prompt_round_trips_through_app_events() {
+    let (url, seen) = refusing_host().await;
+    let fixture = repo_gen::Fixture::new().unwrap();
+    let repo = fixture.repo("api").unwrap();
+    repo.commit_file("README.md", "hello\n", "First").unwrap();
+    repo.git(["remote", "add", "origin", &url]).unwrap();
+    // No credential helper or proxy of the runner's config answers or
+    // gets in the way: git asks its askpass helper.
+    repo.git(["config", "credential.helper", ""]).unwrap();
+    repo.git(["config", "http.proxy", ""]).unwrap();
+    let mut started = start(EVENT_CAPACITY).await;
+    let workspace = active(&started.app);
+    let repo_id = add(&mut started, &workspace, fixture.path())
+        .await
+        .remove(0);
+
+    let start = started
+        .app
+        .op_sync(
+            workspace,
+            SyncRequest {
+                repo_id,
+                op: SyncOp::Fetch {
+                    prune: Prune::NoPrune,
+                },
+                confirmed: false,
+            },
+        )
+        .await
+        .unwrap();
+    let SyncStart::Started { job_id } = start else {
+        panic!("{start:?}");
+    };
+
+    let mut asked = Vec::new();
+    for answer in ["alice", PASSWORD] {
+        let AppEvent::AskpassPrompt(prompt) = next(&mut started.events, |event| {
+            matches!(event, AppEvent::AskpassPrompt(_))
+        })
+        .await
+        else {
+            unreachable!()
+        };
+        started
+            .app
+            .askpass_answer(prompt.prompt_id, Some(answer.to_owned()));
+        asked.push(prompt);
+    }
+    // The host refuses the password too, so the fetch fails.
+    assert_eq!(
+        ended(&mut started.events, job_id).await,
+        Some(Outcome::Failed)
+    );
+
+    let kinds: Vec<PromptKind> = asked.iter().map(|prompt| prompt.kind).collect();
+    assert_eq!(kinds, [PromptKind::Text, PromptKind::Secret]);
+    assert!(asked[0].text.starts_with("Username for "), "{asked:?}");
+    assert_eq!(asked[1].repo_names, ["api"]);
+    assert!(asked[1].job_label.starts_with("Fetch"), "{asked:?}");
+    // base64 of `alice:s3cret-for-askpass`.
+    let sent = Some("Basic YWxpY2U6czNjcmV0LWZvci1hc2twYXNz".to_owned());
+    assert!(seen.lock().unwrap().contains(&sent), "{seen:?}");
+}
+
+/// GRP-5: a group operation on a multi-selection runs through its
+/// preflight, whose result arrives as `PreflightReady`, then its job; a
+/// dropped preflight cannot start.
+#[tokio::test(flavor = "multi_thread")]
+async fn grp_5_group_operation_runs_on_the_target_set_through_app_events() {
+    let fixture = repo_gen::Fixture::new().unwrap();
+    let repos: Vec<_> = ["api", "web"]
+        .into_iter()
+        .map(|name| {
+            let repo = fixture.repo(name).unwrap();
+            repo.commit_file("README.md", "hello\n", "First").unwrap();
+            repo
+        })
+        .collect();
+    let mut started = start(EVENT_CAPACITY).await;
+    let workspace = active(&started.app);
+    let repo_ids = add(&mut started, &workspace, fixture.path()).await;
+    assert_eq!(repo_ids.len(), 2);
+    let target = TargetSet::Repos { repo_ids };
+    let op = GroupOp::CreateBranch {
+        name: "feature".to_owned(),
+        start: StartPoint::Head,
+        switch: false,
+    };
+
+    let preflight = started
+        .app
+        .group_preflight(workspace.clone(), target.clone(), op.clone())
+        .await
+        .unwrap();
+    let AppEvent::PreflightReady(ready) = next(
+        &mut started.events,
+        |event| matches!(event, AppEvent::PreflightReady(ready) if ready.preflight_id == preflight),
+    )
+    .await
+    else {
+        unreachable!()
+    };
+    assert_eq!(ready.repos.len(), 2, "{ready:?}");
+    let job = started.app.group_start(preflight, true).await.unwrap();
+    assert_eq!(
+        ended(&mut started.events, job).await,
+        Some(Outcome::Succeeded)
+    );
+    for repo in &repos {
+        let branches = repo.git(["branch", "--list", "feature"]).unwrap();
+        assert!(branches.contains("feature"), "{branches:?}");
+    }
+
+    let dropped = started
+        .app
+        .group_preflight(workspace, target, op)
+        .await
+        .unwrap();
+    next(
+        &mut started.events,
+        |event| matches!(event, AppEvent::PreflightReady(ready) if ready.preflight_id == dropped),
+    )
+    .await;
+    started.app.group_drop(dropped);
+    let error = started.app.group_start(dropped, true).await.unwrap_err();
+    assert_eq!(error.code, AppErrorCode::Refused, "{error:?}");
 }

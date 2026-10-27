@@ -4,6 +4,8 @@
 //! with no UI toolkit. Methods are `async` or return at once; disk and git
 //! work runs off the caller's thread, and anything slow is a job (ARCH-7).
 
+mod ai;
+mod askpass;
 mod changes;
 mod conflict;
 mod error;
@@ -12,14 +14,17 @@ mod history;
 mod ops;
 mod settings;
 mod tree;
+mod update;
 mod workspace;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gitcroc_core::{
-    AppInfo, AppLog, CacheDir, Changes, ConfigDir, GitRunner, GitSetup, GitStatus, Histories,
-    JobEvents, JobView, Jobs, LogDir, Palettes, RepoChange, RepoId, SettingsStore, Summaries,
-    SummaryCache, SummaryView, TabSwitch, Trees, WatchWarning, Watchers, WorkspaceId, Workspaces,
+    AiJobs, AppInfo, AppLog, CacheDir, Changes, ConfigDir, GitRunner, GitSetup, GitStatus,
+    GroupOps, Histories, JobEvents, JobView, Jobs, LogDir, Palettes, RepoChange, RepoId,
+    SettingsStore, Summaries, SummaryCache, SummaryView, TabSwitch, Trees, UpdateSetup,
+    UpdateSource, Updates, WatchWarning, Watchers, WorkspaceId, Workspaces,
 };
 use tokio::runtime::Handle;
 use tokio::sync::broadcast;
@@ -28,7 +33,10 @@ pub use error::{AppError, AppErrorCode};
 use event::Hub;
 pub use event::{AppEvent, EVENT_CAPACITY, RepoRef};
 
-use crate::platform::{DesktopFonts, Dialogs, Installation, PlatformInstallation};
+use crate::ai::{AiBackend, AiProviders};
+use crate::askpass::EventAskpassUi;
+use crate::platform::{DesktopFonts, Dialogs, Installation, Keychain, PlatformInstallation};
+use crate::update::{CHECKS, SystemClock};
 
 /// What [`App::start`] needs from the binary that runs it.
 pub struct AppSetup<'a> {
@@ -42,6 +50,17 @@ pub struct AppSetup<'a> {
     pub fonts: DesktopFonts,
     /// The file dialogs the calls that ask for a path open (SEC-2).
     pub dialogs: Arc<dyn Dialogs>,
+    /// Where AI keys live (SEC-1, D11): the OS keychain, or memory in the
+    /// `e2e` build and the tests.
+    pub keychain: Arc<dyn Keychain>,
+    /// What reaches the AI providers: `ProviderCalls`, or a fake.
+    pub ai: Arc<dyn AiBackend>,
+    /// Where updates come from (PLAT-4): `NoUpdates` until M6-27.
+    pub updates: Arc<dyn UpdateSource>,
+    /// The program git starts as its askpass helper (D10): the app's own
+    /// executable, which runs `askpass::helper` first, or the tests'
+    /// `askpass-helper`.
+    pub askpass_helper: PathBuf,
     /// [`EVENT_CAPACITY`], or less in tests of lag.
     pub event_capacity: usize,
 }
@@ -64,15 +83,21 @@ struct Inner {
     changes: Arc<Changes>,
     watchers: Arc<Watchers>,
     jobs: Arc<Jobs>,
+    groups: Arc<GroupOps>,
+    askpass: Arc<EventAskpassUi>,
+    updates: Arc<Updates>,
+    ai: Arc<AiProviders>,
+    ai_jobs: Arc<AiJobs>,
     fonts: DesktopFonts,
     dialogs: Arc<dyn Dialogs>,
 }
 
 impl App {
-    /// Loads the settings and workspaces, starts watching the active one and
-    /// detects git in the background, in the order the Tauri shell did.
-    /// Detection reports as `GitStatus` events, then the active workspace's
-    /// summaries are read again.
+    /// Loads the settings and workspaces, opens the askpass socket, starts
+    /// the update schedule and the AI providers, starts watching the active
+    /// workspace and detects git in the background, in the order the Tauri
+    /// shell did. Detection reports as `GitStatus` events, then the active
+    /// workspace's summaries are read again.
     pub fn start(setup: AppSetup<'_>) -> Self {
         // Every git process the app runs goes to `gitcroc.log` (section 10).
         let log = Arc::new(AppLog::open(setup.logs));
@@ -111,7 +136,59 @@ impl App {
                 watchers: watchers.clone(),
             }),
         );
-        log.started(&AppInfo::current().version, PlatformInstallation::package());
+        let version = AppInfo::current().version;
+        log.started(&version, PlatformInstallation::package());
+        // Network writes ask through the UI (D10). Without the socket they
+        // run without, and git fails as it would.
+        let askpass = Arc::new(askpass_ui(&hub));
+        match crate::askpass::serve(setup.askpass_helper, askpass.clone(), &setup.runtime) {
+            Ok(server) => {
+                jobs.use_askpass(server);
+            }
+            Err(error) => log.warn(&format!("git cannot ask for credentials: {error}")),
+        }
+        let preflights = hub.clone();
+        let groups = GroupOps::new(
+            hub.workspaces.clone(),
+            hub.summaries.clone(),
+            settings.clone(),
+            jobs.clone(),
+            move |ready| preflights.send(AppEvent::PreflightReady(ready.clone())),
+        );
+        // Checks only in release builds, after the startup refresh (D12).
+        let updates = Updates::new(UpdateSetup {
+            source: setup.updates,
+            clock: Arc::new(SystemClock),
+            settings: settings.clone(),
+            events: Arc::new(AppUpdateEvents {
+                hub: hub.clone(),
+                log: log.clone(),
+            }),
+            package: PlatformInstallation::package(),
+            checks: CHECKS,
+            current_version: version,
+        });
+        setup.runtime.spawn(updates.clone().run_schedule());
+        // With AI on, the CLI providers are detected and self-tested in the
+        // background (AI-2, AI-16).
+        let ai_events = Arc::new(AppAiEvents(hub.clone()));
+        let ai = AiProviders::new(
+            settings.clone(),
+            setup.keychain,
+            setup.ai,
+            ai_events.clone(),
+            log.clone(),
+            setup.runtime.clone(),
+        );
+        // Proposal jobs (M4-08), which turning AI off cancels (AI-16).
+        let ai_jobs = AiJobs::new(
+            jobs.clone(),
+            hub.workspaces.clone(),
+            settings.clone(),
+            ai_events,
+        );
+        ai.use_jobs(ai_jobs.clone());
+        ai.start();
         let app = Self {
             inner: Arc::new(Inner {
                 hub,
@@ -124,6 +201,11 @@ impl App {
                 changes: Arc::new(Changes::new()),
                 watchers,
                 jobs,
+                groups,
+                askpass,
+                updates,
+                ai,
+                ai_jobs,
                 fonts: setup.fonts,
                 dialogs: setup.dialogs,
             }),
@@ -207,7 +289,8 @@ impl App {
     /// starts and when it is done. With a usable git, the active
     /// workspace's summaries are then read again (PERF-3); until then the
     /// cached ones stand. The other tabs are read when they become active
-    /// (UI-30).
+    /// (UI-30). When that refresh has ended, or there was none, the updater
+    /// may check.
     fn spawn_git_detection(&self) {
         let app = self.clone();
         self.inner.runtime.spawn(async move {
@@ -215,17 +298,20 @@ impl App {
             let chosen = app.inner.settings.git_path();
             let status = app.inner.git.detect_chosen(chosen.as_deref()).await;
             app.send(AppEvent::GitStatus(status));
-            let Ok(git) = app.usable_git().await else {
-                return;
-            };
-            let workspaces = app.workspaces();
-            let active = workspaces
-                .active()
-                .and_then(|active| workspaces.view(&active).ok());
-            if let Some(workspace) = active {
-                let repos: Vec<RepoId> = workspace.repos.into_iter().map(|repo| repo.id).collect();
-                app.inner.hub.refresh(workspace.id, repos, git).await;
+            if let Ok(git) = app.usable_git().await {
+                let workspaces = app.workspaces();
+                let active = workspaces
+                    .active()
+                    .and_then(|active| workspaces.view(&active).ok());
+                if let Some(workspace) = active {
+                    let repos: Vec<RepoId> =
+                        workspace.repos.into_iter().map(|repo| repo.id).collect();
+                    app.inner.hub.refresh(workspace.id, repos, git).await;
+                }
             }
+            // The first update check waits for the startup refresh, so it
+            // never delays the cold start (section 9, D12).
+            app.inner.updates.startup_ended();
         });
     }
 }
@@ -251,6 +337,56 @@ impl JobEvents for AppJobEvents {
 
     fn hold_watch(&self, workspace: &WorkspaceId, repo: &RepoId, held: bool) {
         self.watchers.hold(workspace, repo, held);
+    }
+}
+
+/// The askpass prompts (D10): sent as `AskpassPrompt`, withdrawn ones as
+/// `AskpassClosed`.
+fn askpass_ui(hub: &Hub) -> EventAskpassUi {
+    let (shown, closed) = (hub.clone(), hub.clone());
+    EventAskpassUi::new(
+        move |prompt| shown.send(AppEvent::AskpassPrompt(prompt.clone())),
+        move |prompt_id| closed.send(AppEvent::AskpassClosed { prompt_id }),
+    )
+}
+
+/// The AI providers' views and replies, and the proposal jobs' results, sent
+/// as `AppEvent`s.
+struct AppAiEvents(Hub);
+
+impl crate::ai::AiSink for AppAiEvents {
+    fn changed(&self, view: &crate::ai::AiView) {
+        self.0.send(AppEvent::AiChanged(view.clone()));
+    }
+
+    fn models(&self, reply: &crate::ai::AiModelsReply) {
+        self.0.send(AppEvent::AiModels(reply.clone()));
+    }
+
+    fn self_test(&self, reply: &crate::ai::AiSelfTestReply) {
+        self.0.send(AppEvent::AiSelfTest(reply.clone()));
+    }
+}
+
+impl gitcroc_core::AiEvents for AppAiEvents {
+    fn proposal_ready(&self, ready: &gitcroc_core::AiProposalReady) {
+        self.0.send(AppEvent::AiProposalReady(ready.clone()));
+    }
+}
+
+/// The updater's views, sent as `UpdateStatusChanged`, and its log lines.
+struct AppUpdateEvents {
+    hub: Hub,
+    log: Arc<AppLog>,
+}
+
+impl gitcroc_core::UpdateEvents for AppUpdateEvents {
+    fn changed(&self, view: &gitcroc_core::UpdateView) {
+        self.hub.send(AppEvent::UpdateStatusChanged(view.clone()));
+    }
+
+    fn log(&self, message: &str) {
+        self.log.warn(message);
     }
 }
 
