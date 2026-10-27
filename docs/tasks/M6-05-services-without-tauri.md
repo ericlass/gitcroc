@@ -22,9 +22,10 @@ From PR 1 until M6-06 there is no app to run. PRs 2 to 4 port the command bodies
 ### PR 1: Tauri leaves
 - **ADR 0004** gets a dated note: the Tauri app is removed in M6-05, not at the switch (Eric, 2026-10-27). It goes in a docs commit of its own.
 - **Deleted from `crates/gitcroc-app`:**
-  - the `gitcroc` binary, `lib.rs`'s `run()`, `ipc.rs`, `window.rs`, `update.rs`, `update_test.rs` and `smoke_dirs.rs`;
+  - the `gitcroc` binary, `lib.rs`'s `run()`, `ipc.rs`, `window.rs`, `update_test.rs` and `smoke_dirs.rs`;
+  - from `update.rs`, the Tauri update source and events. `CHECKS`, `RELEASES_PAGE` and the system clock stay;
   - `build.rs`, the `tauri*.json` files, `capabilities/`, `gen/`, `windows-app-manifest.xml` and the `ipc_bindings` example;
-  - the `update-test`, `perf-trace` and `e2e` features;
+  - the `update-test` and `perf-trace` features. `e2e` stays for the mock AI provider, which M6-29's smoke test uses again;
   - from `platform/`: `WindowFrame` and its implementations, `GtkFonts`, and the `bundle_type()` calls.
 - **What stays in `gitcroc-app`:**
   - the platform traits and their implementations, apart from those above;
@@ -41,7 +42,7 @@ From PR 1 until M6-06 there is no app to run. PRs 2 to 4 port the command bodies
   - `specta` stays for the core crates' derives until M6-30.
 - **Tests:**
   - Deleted with what they test:
-    - `build.rs`, `ipc.rs`, `security.rs`, `start.rs` and `update_test.rs` from `crates/gitcroc-app/tests/integration/`;
+    - `build.rs`, `ipc.rs`, `security.rs`, `start.rs` and `update_test.rs` from `crates/gitcroc-app/tests/integration/`. The D12 and download page tests of `build.rs` move to `update.rs`;
     - `fonts.rs`, whose names come back with M6-07.
   - The package tests in `update.rs` switch to `BundleKind`.
   - The command behaviour that `ipc.rs` tested comes back with its service in PRs 2 to 4.
@@ -57,8 +58,10 @@ From PR 1 until M6-06 there is no app to run. PRs 2 to 4 port the command bodies
 - **Workflows:**
   - `ci.yml` keeps `check-rust` on the three runners, without WebKitGTK's packages. The `check-ui` and `smoke` jobs go.
   - `build.yml`, `bundles.yml`, `release.yml` and `update-test.yml` go, with the `.github/scripts/` they run. M6-28 writes the GPUI app's own, starting from these in history.
-  - `bench.yml` stays if it runs only the core's `just bench`.
+  - `bench.yml` stays: it runs only the core's `just bench`.
 - **Workspace policy** (`crates/gitcroc-cli/tests/integration/workspace_policy.rs`):
+  - D6 and D14 check `ci.yml` and the crates only. Their checks of the bundles (a universal macOS build, macOS 12, the bundle's license) come back with M6-28.
+  - QA-5's list of `just check` commands is QA-1's, which is Rust only.
   - The D2 test checks that no crate depends on a webview: `tauri`, `wry`, `webkit2gtk` or `webview2-com`. M6-06 adds that `gitcroc-ui` uses GPUI at the pinned versions.
   - New test `arch_5_app_crate_has_no_ui_toolkit`.
 - **`CLAUDE.md`:** the stack line, the commands and the IPC invariant are updated.
