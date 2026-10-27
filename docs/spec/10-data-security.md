@@ -42,8 +42,8 @@ repos = ["r1", "r2"]
 
 ## Security
 
-- **SEC-1** AI keys are stored only in the OS keychain (D11). They never appear in config files, logs, IPC payloads to the UI, or error messages.
-- **SEC-2** The webview loads only bundled assets, under a content security policy that forbids remote scripts, styles and frames. Tauri capabilities expose only the app's own commands; the UI cannot run arbitrary processes or read arbitrary files.
+- **SEC-1** AI keys are stored only in the OS keychain (D11). They never appear in config files, logs, anything handed to the UI, or error messages.
+- **SEC-2** The app loads no code, page or style from anywhere but its own binary; the only files it downloads are update packages, verified before use (SEC-7). Repo text is drawn as text (SEC-3).
 - **SEC-3** Everything from a repo is untrusted input: file names, commit messages, branch names, diff content. It is rendered as text, never as HTML, and never interpolated into a command line (ARCH-3).
 - **SEC-4** Branch and tag names typed by the user are validated against git's ref format rules in the core before any command runs.
 - **SEC-5** Repo text placed in an AI prompt is wrapped as clearly delimited data. A prompt injection can at worst produce a bad proposal, which the user reviews (D9, AI-9).

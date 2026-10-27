@@ -1,23 +1,24 @@
 # 4. Architecture and tech stack
 
-The app is a Rust core that owns all git, job and AI logic, wrapped by a thin Tauri shell, with a SolidJS front end that only renders state and sends commands.
+The app is a Rust core that owns all git, job and AI logic, with a native UI in Rust and GPUI on top that only renders state and calls the core's services.
 
 ```text
 +--------------------------------------------------------------------+
-| ui/ (SolidJS + TypeScript)                                         |
-| renders state and sends commands; no business logic, no truth      |
+| gitcroc-ui (GPUI views)                                            |
+| renders state and calls services; no business logic, no truth      |
 +--------------------------------------------------------------------+
         ^
-        |  typed IPC: commands down, state and progress events up
+        |  in-process calls down; state and progress events up an
+        |  event channel
         v
 +----------------------------------------------+  +------------------+
-| gitcroc-app (Tauri shell)                    |  | gitcroc-cli      |
-| commands and events, askpass, window state   |  | headless: tests, |
+| gitcroc-app                                  |  | gitcroc-cli      |
+| services, platform, askpass, updater         |  | headless: tests, |
 |                                              |  | bench            |
 +----------------------------------------------+  +------------------+
         |                                                  |
         v                                                  v
-+ - - - Rust crates with no Tauri dependency (ARCH-5) - - - - - - - -+
++ - - - Rust crates with no UI toolkit (ARCH-5) - - - - - - - - - - -+
 |                                                                    |
 |  +-----------------------------------+   +----------------------+  |
 |  | gitcroc-core                      |   | gitcroc-ai           |  |
@@ -57,7 +58,7 @@ As of October 2026, gitoxide still lists push, merge and rebase as unfinished in
 
 | Layer | Choice | Notes |
 | --- | --- | --- |
-| Shell | [Tauri 2](https://tauri.app/release/tauri/) (2.11.x is current) | System webview: WebView2, WKWebView, WebKitGTK 4.1 |
+| Shell | GPUI, through gpui-kit and gpui-component, at pinned exact versions | Direct3D 11 on Windows, Metal on macOS, Vulkan or GL through wgpu on Linux |
 | Core language | Rust stable, edition 2024 | `tokio` for async and process handling |
 | Git reads | `gix` | Uses commit-graph files when present |
 | Git writes | System `git` 2.40+ (D13) | Detected at startup; a setup screen appears if missing or too old |
@@ -65,10 +66,9 @@ As of October 2026, gitoxide still lists push, merge and rebase as unfinished in
 | Local cache | SQLite via `rusqlite` | Disposable; deleting it loses nothing |
 | Secrets | `keyring` | OS keychain (D11) |
 | HTTP for AI | `reqwest` with rustls | Streaming responses |
-| Front end | TypeScript (strict), SolidJS, Vite | State in Solid stores; no virtual DOM; no business logic |
-| Lists | TanStack Virtual | Every list and tree is virtualized |
-| Diff and code view | CodeMirror 6 with `@codemirror/merge` | Inline and side-by-side, themes, syntax highlighting |
-| IPC types | `tauri-specta` | TypeScript types are generated from Rust; hand-written IPC types are forbidden |
+| Front end | Rust GPUI views | View models are GPUI entities; no business logic |
+| Lists | GPUI `uniform_list` and `list` | Every list and tree is virtualized |
+| Diff and code view | GPUI views of our own, highlighted by `syntect` | Inline and side-by-side, themes, syntax highlighting |
 
 ## Crates
 
@@ -77,14 +77,14 @@ As of October 2026, gitoxide still lists push, merge and rebase as unfinished in
 | `gitcroc-git` | Read API (`gix`), CLI runner, output parsers, conflict state detection | nothing internal |
 | `gitcroc-core` | Workspace, group and repo model, job engine, preflight, result reports, config, cache | `gitcroc-git` |
 | `gitcroc-ai` | Providers, prompt building, response validation | nothing internal |
-| `gitcroc-app` | Tauri commands and events, askpass helper, window state. Wires core and AI together | all of the above |
+| `gitcroc-app` | Services and their event channel; no UI toolkit. Askpass helper, window state, updater. Wires core and AI together | all of the above |
+| `gitcroc-ui` | GPUI views and the `gitcroc` binary | all of the above |
 | `gitcroc-cli` | Headless binary exposing core operations as JSON, used by tests and benchmarks | `gitcroc-core`, `gitcroc-ai` |
-| `ui/` | The SolidJS app | generated IPC types only |
 
-- **ARCH-5** `gitcroc-git`, `gitcroc-core` and `gitcroc-ai` MUST NOT depend on Tauri. Everything they do must be testable from `gitcroc-cli`.
-- **ARCH-6** The front end holds no source of truth. After any job, the core emits fresh state and the UI re-renders from it.
-- **ARCH-7** No IPC call may block. Anything slower than 50 ms is a job that reports progress by events.
-- **ARCH-8** Lists cross IPC in pages (history: 500 commits per page; diffs: one file at a time). Nothing unbounded is ever serialized.
+- **ARCH-5** `gitcroc-git`, `gitcroc-core` and `gitcroc-ai` MUST NOT depend on Tauri. Everything they do must be testable from `gitcroc-cli`. Only `gitcroc-ui` depends on GPUI.
+- **ARCH-6** The UI holds no source of truth. After any job, the core emits fresh state and the UI re-renders from it.
+- **ARCH-7** No work over 2 ms runs on the UI thread. Anything slower than 50 ms is a job that reports progress by events.
+- **ARCH-8** Lists reach the UI in pages (history: 500 commits per page; diffs: one file at a time), so that memory stays bounded however large a repo is. Nothing unbounded is ever handed to the UI at once.
 
 * **ARCH-9** All session state is keyed by workspace, in the core and in the UI: selection, history position, pane layout, conflict editor state, watchers. There is no global "current repo" or "current workspace" variable anywhere. This holds from M0, before tabs exist, so that tabs (UI-27) need no rework.
 

@@ -1,6 +1,6 @@
 # gitcroc
 
-Cross-platform Git client for multi-repo projects. Rust core, Tauri 2 shell, SolidJS UI.
+Cross-platform Git client for multi-repo projects. Rust core; Tauri 2 shell and SolidJS UI, being replaced by GPUI in milestone M6 (docs/plans/native-ui-gpui.md).
 Spec: docs/spec/ (source of truth). Decisions: docs/spec/01-decisions.md and docs/adr/.
 
 ## Commands

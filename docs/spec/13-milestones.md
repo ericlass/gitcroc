@@ -1,6 +1,6 @@
 # 13. Milestones
 
-Six milestones, each ending in something runnable, in this order because each one depends on the one before.
+Seven milestones, each ending in something runnable, in this order because each one depends on the one before.
 
 | Milestone | Delivers | Done when |
 | --- | --- | --- |
@@ -9,6 +9,7 @@ Six milestones, each ending in something runnable, in this order because each on
 | M2 Single-repo writes | Every operation in section 6, job engine, status bar and job list, askpass helper, conflict state with the manual conflict editor (OPS-1 to OPS-9) | Each operation has integration tests for success, failure and conflict; a merge conflict can be resolved and continued by hand |
 | M3 Multi-repo | Workspaces, workspace tabs (UI-27 to UI-33), groups, multi-selection, preflight, group operations including group commit, result report, merged history, summary strip, import and export | The mixed-branch scenario passes as a test; all section 9 budgets are met on `target-project`, and the stretch results for `many-repos` are reported |
 | M4 AI conflict resolution | Providers, settings, consent, proposals in the conflict editor, Resolve all, CLI providers | All AI requirements have tests against the mock provider; the fixture set (AI-15) runs against one API provider and one CLI provider |
-| M5 Release | Installers, updater, command palette complete, accessibility and keyboard pass, user docs, website or README | v1.0.0 installs and updates on all three platforms; every requirement ID has a test (QA-3) |
+| M5 Release | Installers, updater, command palette complete, accessibility and keyboard pass, user docs, website or README | v1.0.0 installs and updates on all three platforms; every requirement ID has a test (QA-3). v1.0.0 waits for M6, so that it ships with the GPUI UI |
+| M6 Native UI | The whole UI rewritten in GPUI, Tauri and the web front end removed, 1.0.0-rc.2 | Every UI requirement has a GPUI test, the section 9 budgets are met with the new scroll budget, and rc.1 updates to rc.2 on all three platforms |
 
 Risk is front-loaded on purpose: M1 proves the performance claim on the hardest data before any feature work depends on it. If M1 misses its budgets, the stack decisions D2 and D3 are revisited before M2 starts.
