@@ -4,9 +4,12 @@
 //! with no UI toolkit. Methods are `async` or return at once; disk and git
 //! work runs off the caller's thread, and anything slow is a job (ARCH-7).
 
+mod changes;
+mod conflict;
 mod error;
 mod event;
 mod history;
+mod ops;
 mod settings;
 mod tree;
 mod workspace;
@@ -25,7 +28,7 @@ pub use error::{AppError, AppErrorCode};
 use event::Hub;
 pub use event::{AppEvent, EVENT_CAPACITY, RepoRef};
 
-use crate::platform::{DesktopFonts, Installation, PlatformInstallation};
+use crate::platform::{DesktopFonts, Dialogs, Installation, PlatformInstallation};
 
 /// What [`App::start`] needs from the binary that runs it.
 pub struct AppSetup<'a> {
@@ -37,6 +40,8 @@ pub struct AppSetup<'a> {
     pub runtime: Handle,
     /// The desktop's fonts, read by the UI before the start (UI-26).
     pub fonts: DesktopFonts,
+    /// The file dialogs the calls that ask for a path open (SEC-2).
+    pub dialogs: Arc<dyn Dialogs>,
     /// [`EVENT_CAPACITY`], or less in tests of lag.
     pub event_capacity: usize,
 }
@@ -52,6 +57,7 @@ struct Inner {
     hub: Hub,
     runtime: Handle,
     git: Arc<GitSetup>,
+    log: Arc<AppLog>,
     settings: Arc<SettingsStore>,
     palettes: Arc<Palettes>,
     histories: Arc<Histories>,
@@ -59,6 +65,7 @@ struct Inner {
     watchers: Arc<Watchers>,
     jobs: Arc<Jobs>,
     fonts: DesktopFonts,
+    dialogs: Arc<dyn Dialogs>,
 }
 
 impl App {
@@ -110,6 +117,7 @@ impl App {
                 hub,
                 runtime: setup.runtime,
                 git,
+                log,
                 settings,
                 palettes: Arc::new(Palettes::new()),
                 histories: Arc::new(Histories::default()),
@@ -117,6 +125,7 @@ impl App {
                 watchers,
                 jobs,
                 fonts: setup.fonts,
+                dialogs: setup.dialogs,
             }),
         };
         if let Some(active) = app.inner.hub.workspaces.active() {

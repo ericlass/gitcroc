@@ -4,7 +4,8 @@
 //! implementation, which `plat_1_platform_code_sits_behind_traits` checks.
 
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -73,6 +74,32 @@ pub trait Terminal {
     /// What may open a terminal in folder `path`, in the order to try: the
     /// first one that is installed is started.
     fn open_in(path: &Path) -> Vec<Launch>;
+}
+
+/// What a [`Dialogs`] call resolves to: the path the user picked, or `None`
+/// when they cancelled.
+pub type DialogFuture = Pin<Box<dyn Future<Output = Option<PathBuf>> + Send>>;
+
+/// The kind of file a dialog offers, such as a workspace file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileFilter {
+    pub name: String,
+    /// Without the dot, as `toml`.
+    pub extensions: Vec<String>,
+}
+
+/// The native file dialogs, opened by the app's own calls and never by the
+/// UI with a path of its choosing (SEC-2). The UI implements it with its
+/// toolkit; tests answer with a fake.
+pub trait Dialogs: Send + Sync {
+    /// A folder to open.
+    fn pick_folder(&self, title: &str) -> DialogFuture;
+
+    /// An existing file to open, of `filter`'s kind when there is one.
+    fn pick_file(&self, title: &str, filter: Option<&FileFilter>) -> DialogFuture;
+
+    /// A file to write, suggested as `file_name`.
+    fn save_file(&self, title: &str, file_name: &str, filter: Option<&FileFilter>) -> DialogFuture;
 }
 
 /// The desktop's UI and monospace font families, read once at startup
