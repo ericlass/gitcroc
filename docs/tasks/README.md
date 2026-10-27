@@ -320,8 +320,8 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Look of the GPUI UI | Today's tokens ported, plus the OS accent color and native window controls; not gpui-component's default theme | M6-07 |
 | Spikes | Standalone crates under `spikes/`, outside the workspace, each on its own `spike/` branch and never merged | M6-02 to M6-04 |
 | Conflict editor | gpui-component's code editor, one buffer; the base and the AI proposal in a card beside the hunk (Eric, 2026-10-27, after M6-02) | M6-19, M6-23 |
-| The Tauri shell during M6 | Moves out of `gitcroc-app` into a temporary crate, `crates/gitcroc-tauri`, so `gitcroc-app` has no UI toolkit from M6-05 on and `gitcroc-ui` never links Tauri; M6-30 deletes the crate | M6-05, M6-30 |
-| Updater proof | The Tauri app uses the new updater from M6-27, so the existing update test proves it; rc.1 installing the GPUI packages is tested with those packages in M6-28 | M6-27, M6-28 |
+| The Tauri shell during M6 | Moves out of `gitcroc-app` into a temporary crate, `crates/gitcroc-tauri`, so `gitcroc-app` has no UI toolkit from M6-05 on and `gitcroc-ui` never links Tauri; M6-30 deletes the crate (Eric, 2026-10-27) | M6-05, M6-30 |
+| Updater proof | The Tauri app uses the new updater from M6-27, so the existing update test proves it; rc.1 installing the GPUI packages is tested with those packages in M6-28 (Eric, 2026-10-27) | M6-27, M6-28 |
 | `gitcroc-next` and user files | Reads and writes the same config, cache and workspace files as the shipped app; running both at once is not supported | M6-06 |
 | Config directory name | `gitcroc` under the platform config, cache and log dirs | M0-07 |
 | CI service | GitHub Actions | M0-03 |
