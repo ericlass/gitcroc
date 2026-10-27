@@ -1,10 +1,10 @@
 //! The updater's app half (PLAT-4): when this build checks, where the
-//! packages that only notify send the user, and the system clock. The update
-//! source comes with M6-27, and the service with `App` (M6-05).
+//! packages that only notify send the user, the system clock, and the source
+//! the app uses until M6-27 provides the real one. The service is `App`'s.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use gitcroc_core::UpdateClock;
+use gitcroc_core::{UpdateClock, UpdateFound, UpdateFuture, UpdateProgress, UpdateSource};
 
 /// Whether this build checks for updates: release builds only. Debug builds
 /// and the `e2e` build never do, so no test or smoke run reaches the network
@@ -30,5 +30,20 @@ impl UpdateClock for SystemClock {
 
     fn sleep(&self, duration: Duration) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         Box::pin(tokio::time::sleep(duration))
+    }
+}
+
+/// A source that never finds an update, so nothing is ever installed. The
+/// app's until M6-27 reads the release manifest without Tauri.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoUpdates;
+
+impl UpdateSource for NoUpdates {
+    fn check(&self) -> UpdateFuture<'_, Option<UpdateFound>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn install(&self, _progress: UpdateProgress) -> UpdateFuture<'_, ()> {
+        Box::pin(async { Err("no update was found".to_owned()) })
     }
 }

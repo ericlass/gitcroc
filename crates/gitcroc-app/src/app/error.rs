@@ -4,9 +4,10 @@
 use gitcroc_core::{
     BranchError, ChangesError, CloneError, CommitGraphError, FsmonitorError, GroupError,
     HistoryViewError, IntegrateError, JobError, RemoteError, ResetError, SettingsError, StashError,
-    StatusError, StatusReadError, SyncError, TagError, TreeError, WorkspaceError,
+    StatusError, StatusReadError, SyncError, TagError, TreeError, UpdateError, WorkspaceError,
 };
 
+use crate::ai::AiError;
 use crate::platform::LaunchError;
 
 /// The error every [`crate::app::App`] method returns.
@@ -74,6 +75,22 @@ impl From<SettingsError> for AppError {
                 AppErrorCode::Refused
             }
             SettingsError::Write { .. } | SettingsError::Encode(_) => AppErrorCode::Internal,
+        };
+        Self::new(code, error.to_string())
+    }
+}
+
+impl From<AiError> for AppError {
+    fn from(error: AiError) -> Self {
+        let code = match error {
+            AiError::Settings(error) => return error.into(),
+            AiError::Off => AppErrorCode::AiOff,
+            AiError::Invalid(_)
+            | AiError::Keychain(_)
+            | AiError::NeedsKey
+            | AiError::TakesNoKey(_)
+            | AiError::NotOffered(_)
+            | AiError::ConsentChanged { .. } => AppErrorCode::Refused,
         };
         Self::new(code, error.to_string())
     }
@@ -221,5 +238,17 @@ impl From<CloneError> for AppError {
 impl From<LaunchError> for AppError {
     fn from(error: LaunchError) -> Self {
         Self::internal(error.to_string())
+    }
+}
+
+impl From<UpdateError> for AppError {
+    fn from(error: UpdateError) -> Self {
+        match error {
+            UpdateError::Job(JobError::Workspace(error)) => error.into(),
+            UpdateError::Job(JobError::NoRepo) => Self::internal(error.to_string()),
+            UpdateError::NoUpdate | UpdateError::OnlyNotifies | UpdateError::JobsRunning => {
+                Self::refused(error.to_string())
+            }
+        }
     }
 }

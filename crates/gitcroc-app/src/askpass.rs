@@ -1,16 +1,17 @@
 //! Prompts git and ssh cannot answer silently (D10, section 4
 //! "Authentication prompts"). The helper is the gitcroc executable itself:
-//! git starts it as `GIT_ASKPASS` or `SSH_ASKPASS` with
-//! [`ADDRESS_VAR`] and [`TOKEN_VAR`] set, and in that mode it opens no
-//! window. It sends git's prompt and the job's token to the running app
-//! over a local socket ([`crate::platform::LocalSockets`]), prints the
-//! answer on stdout and exits; a missing app, a token the app did not
-//! issue, or a cancelled dialog make it exit with status 1, which git takes
-//! as no answer.
+//! git starts it as `GIT_ASKPASS` or `SSH_ASKPASS` with [`ADDRESS_VAR`] and
+//! [`TOKEN_VAR`] set, and in that mode it opens no window; the tests start
+//! `askpass-helper` instead. It sends git's prompt and the job's token to
+//! the running app over a local socket
+//! ([`crate::platform::LocalSockets`]), prints the answer on stdout and
+//! exits; a missing app, a token the app did not issue, or a cancelled
+//! dialog make it exit with status 1, which git takes as no answer.
 //!
-//! The app asks the user through an [`AskpassUi`]: a dialog of its window,
-//! or the tests' fake. The answer goes to the helper and nowhere else: it is
-//! never stored, logged or cached (D10, SEC-1).
+//! The app asks the user through an [`AskpassUi`]: the app's events, which
+//! the UI shows as a dialog, or the tests' fake. The answer goes to the
+//! helper and nowhere else: it is never stored, logged or cached (D10,
+//! SEC-1).
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write as _};
@@ -76,7 +77,7 @@ pub struct AskpassPrompt {
 /// The future of an answer: `None` when the user cancelled.
 pub type Answer<'a> = Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>>;
 
-/// Asks the user (PLAT-1): the app's dialog, or a fake in the tests.
+/// Asks the user (PLAT-1): the app's events, or a fake in the tests.
 pub trait AskpassUi: Send + Sync {
     /// Asks `prompt`. Dropped before it resolves, as when the job ended
     /// meanwhile, the question is withdrawn.
@@ -244,13 +245,13 @@ impl AskpassIssuer for AskpassServer {
     }
 }
 
-/// Serves this executable as the helper on a new platform socket, asking
-/// through `ui`. Runs on the app's async runtime, `runtime`.
+/// Serves helper `program` on a new platform socket, asking through `ui`.
+/// Runs on the app's async runtime, `runtime`.
 pub fn serve(
+    program: PathBuf,
     ui: Arc<dyn AskpassUi>,
     runtime: &tokio::runtime::Handle,
 ) -> std::io::Result<Arc<AskpassServer>> {
-    let program = std::env::current_exe()?;
     let _entered = runtime.enter();
     let listener = PlatformSockets::listen()?;
     Ok(AskpassServer::start(listener, program, ui))
@@ -284,22 +285,22 @@ fn ask_app<S: LocalSockets>(address: &str, token: String, prompt: String) -> Opt
     serde_json::from_str::<Reply>(&line).ok()?.answer
 }
 
-/// Asks in the app's window: each prompt goes to the UI as event
-/// `askpass_prompt` and is answered by command `askpass_answer`; one
-/// withdrawn is closed with event `askpass_closed`.
-pub struct WindowAskpassUi {
+/// Asks through the app's events: each prompt goes to the UI as
+/// `AskpassPrompt` and is answered by `App::askpass_answer`; one withdrawn
+/// is closed with `AskpassClosed`.
+pub struct EventAskpassUi {
     pending: Mutex<HashMap<u32, oneshot::Sender<Option<String>>>>,
     show: Box<dyn Fn(&AskpassPrompt) + Send + Sync>,
     close: Arc<dyn Fn(u32) + Send + Sync>,
 }
 
-impl std::fmt::Debug for WindowAskpassUi {
+impl std::fmt::Debug for EventAskpassUi {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WindowAskpassUi").finish_non_exhaustive()
+        f.debug_struct("EventAskpassUi").finish_non_exhaustive()
     }
 }
 
-impl WindowAskpassUi {
+impl EventAskpassUi {
     /// Shows prompts with `show` and closes withdrawn ones with `close`.
     pub fn new(
         show: impl Fn(&AskpassPrompt) + Send + Sync + 'static,
@@ -326,7 +327,7 @@ impl WindowAskpassUi {
     }
 }
 
-impl AskpassUi for WindowAskpassUi {
+impl AskpassUi for EventAskpassUi {
     fn ask(&self, prompt: AskpassPrompt) -> Answer<'_> {
         let id = prompt.prompt_id;
         let (sender, receiver) = oneshot::channel();
@@ -341,9 +342,9 @@ impl AskpassUi for WindowAskpassUi {
     }
 }
 
-/// A prompt shown in the window; dropped while still open, it is closed.
+/// A prompt sent to the UI; dropped while still open, it is closed.
 struct Open<'a> {
-    ui: &'a WindowAskpassUi,
+    ui: &'a EventAskpassUi,
     id: u32,
 }
 

@@ -1,13 +1,14 @@
 //! Operations on one repo (section 6): branches, sync, integrate, stash,
-//! tags, reset, remotes, fsmonitor, clone, and the repo's folder.
+//! tags, reset, remotes, fsmonitor, clone, and the repo's folder. Then the
+//! group operations (section 5).
 
 use std::path::PathBuf;
 
 use gitcroc_core::{
-    BranchChoices, BranchRequest, BranchStart, CloneRequest, IntegrateRequest, IntegrateStart,
-    JobId, PushChoices, RemoteRequest, RemoteStart, RemoteUrlsView, RepoId, ResetRequest,
-    ResetStart, StashRequest, StashStart, SyncRequest, SyncStart, TagRequest, TagStart,
-    WorkspaceId,
+    BranchChoices, BranchRequest, BranchStart, CloneRequest, GroupOp, IntegrateRequest,
+    IntegrateStart, JobId, PreflightId, PushChoices, RemoteRequest, RemoteStart, RemoteUrlsView,
+    RepoId, ResetRequest, ResetStart, StashRequest, StashStart, SyncRequest, SyncStart, TagRequest,
+    TagStart, TargetSet, WorkspaceId,
 };
 
 use super::{App, AppError, AppEvent};
@@ -375,5 +376,56 @@ impl App {
         self.blocking(move || crate::platform::start(&candidates))
             .await??;
         Ok(())
+    }
+}
+
+/// Group operations (section 5).
+impl App {
+    /// Starts the preflight of group operation `op` on `target` (section 5,
+    /// step 1) and returns its id at once (ARCH-7); the result arrives as
+    /// `PreflightReady`, with whether the user must confirm. Refused for an
+    /// operation that is not available yet.
+    pub async fn group_preflight(
+        &self,
+        workspace_id: WorkspaceId,
+        target: TargetSet,
+        op: GroupOp,
+    ) -> Result<PreflightId, AppError> {
+        let operation = op.operation()?;
+        let git = self.usable_git().await?;
+        Ok(self
+            .inner
+            .groups
+            .preflight(git, &workspace_id, &target, operation)?)
+    }
+
+    /// Starts the job of preflight `preflight_id` (section 5, step 3) and
+    /// returns its id at once. Refused without `confirmed` when the
+    /// preflight said the user must confirm, for a preflight used already,
+    /// and when the workspace's repos or groups changed since it ran.
+    /// Sub-jobs arrive in the job's `JobProgress` events, and its report
+    /// with `JobEnded`.
+    pub async fn group_start(
+        &self,
+        preflight_id: PreflightId,
+        confirmed: bool,
+    ) -> Result<JobId, AppError> {
+        let git = self.usable_git().await?;
+        Ok(self.inner.groups.start(git, preflight_id, confirmed)?)
+    }
+
+    /// Drops preflight `preflight_id`, as the user cancelled its dialog.
+    pub fn group_drop(&self, preflight_id: PreflightId) {
+        self.inner.groups.drop_preflight(preflight_id);
+    }
+
+    /// Retry failed (GRP-11): starts a new preflight of ended group job
+    /// `job_id`'s operation, with the same options, on the repos its report
+    /// has as *failed*, and returns its id at once; the result arrives as
+    /// `PreflightReady`. The core builds the target set from the report
+    /// (GRP-5).
+    pub async fn group_retry_failed(&self, job_id: JobId) -> Result<PreflightId, AppError> {
+        let git = self.usable_git().await?;
+        Ok(self.inner.groups.retry_failed(git, job_id)?)
     }
 }
