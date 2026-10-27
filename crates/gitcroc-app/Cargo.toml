@@ -23,6 +23,10 @@ keyring.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = { workspace = true, features = ["background_threads"] }
+# The desktop's fonts through the settings portal (UI-26).
+ashpd.workspace = true
+async-io.workspace = true
+futures-lite.workspace = true
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 tikv-jemalloc-ctl.workspace = true

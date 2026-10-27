@@ -23,6 +23,10 @@ ignore = [
     { id = "RUSTSEC-2025-0134", reason = "unmaintained rustls-pemfile, via gpui-pre-reqwest, which gpui-kit-assets uses on WebAssembly only" },
     { id = "RUSTSEC-2026-0206", reason = "unmaintained rustybuzz, via usvg and resvg, GPUI's SVG renderer" },
     { id = "RUSTSEC-2026-0192", reason = "unmaintained ttf-parser, via fontdb, cosmic-text and usvg: GPUI's fonts and SVGs" },
+    # Unmaintained, not vulnerable: syntect (UI-24, M6-07) loads its bundled
+    # syntax definitions through bincode 1, and no syntect release has
+    # replaced it.
+    { id = "RUSTSEC-2025-0141", reason = "unmaintained bincode 1, via syntect's bundled syntaxes for code highlighting" },
 ]
 
 [licenses]

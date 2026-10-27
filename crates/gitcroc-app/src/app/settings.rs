@@ -19,6 +19,12 @@ impl App {
             .with_code_font(fonts.code.clone())
     }
 
+    /// Writes a warning from the UI to the app's log, such as a font it
+    /// could not use (UI-26).
+    pub fn log_warning(&self, message: &str) {
+        self.inner.log.warn(message);
+    }
+
     /// The latest git detection result; `Checking` until the first one is
     /// done.
     pub async fn git_status(&self) -> GitStatus {

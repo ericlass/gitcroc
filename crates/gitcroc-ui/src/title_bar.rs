@@ -8,7 +8,6 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use gpui_component::ActiveTheme;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     App, ClickEvent, Context, Decorations, InteractiveElement, IntoElement, MouseButton,
@@ -18,6 +17,7 @@ use gpui_kit::{
 
 use crate::icons;
 use crate::strings;
+use crate::theme::ActiveTokens;
 
 /// The title bar's height; on macOS the traffic lights are centred in it.
 pub const TITLE_BAR_HEIGHT: Pixels = px(34.);
@@ -219,11 +219,11 @@ impl TitleBar {
 
     fn button(&self, button: WindowButton, cx: &App) -> impl IntoElement {
         let controls = self.controls.clone();
-        let theme = cx.theme();
-        let (hover, active) = if button == WindowButton::Close {
-            (theme.danger, theme.danger_active)
+        let tokens = cx.tokens();
+        let (hover, active, icon) = if button == WindowButton::Close {
+            (tokens.danger, tokens.danger, tokens.text_primary)
         } else {
-            (theme.secondary_hover, theme.secondary_active)
+            (tokens.bg_3, tokens.border, tokens.text_primary)
         };
         // No focus handle: like the system's buttons, they are not in the
         // Tab order, and the system's shortcuts work instead.
@@ -259,12 +259,7 @@ impl TitleBar {
                     WindowButton::Close => controls.close(window, cx),
                 }
             })
-            .child(
-                svg()
-                    .path(button.icon())
-                    .size(px(16.))
-                    .text_color(theme.foreground),
-            )
+            .child(svg().path(button.icon()).size(px(16.)).text_color(icon))
     }
 }
 
@@ -273,7 +268,7 @@ impl Render for TitleBar {
         let own_frame = !self.system_title_bar && self.controls.client_decorated(window);
         let layout =
             TitleBarLayout::of(self.platform, own_frame, self.controls.is_maximized(window));
-        let theme = cx.theme();
+        let tokens = *cx.tokens();
         let (down, up, out, moved) = (
             self.pressed.clone(),
             self.pressed.clone(),
@@ -289,9 +284,9 @@ impl Render for TitleBar {
             .items_center()
             .w_full()
             .h(TITLE_BAR_HEIGHT)
-            .bg(theme.title_bar)
+            .bg(tokens.bg_2)
             .border_b_1()
-            .border_color(theme.title_bar_border)
+            .border_color(tokens.border)
             .when(own_frame, |this| {
                 this.on_mouse_down(MouseButton::Left, move |_, _, _| down.set(true))
                     .on_mouse_up(MouseButton::Left, move |_, _, _| up.set(false))

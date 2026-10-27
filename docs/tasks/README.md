@@ -201,7 +201,7 @@ The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
 rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
 not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05, M6-06 and M6-27 have theirs;
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-07 and M6-27 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
@@ -213,7 +213,7 @@ several pull requests (DEV-4).
 | [M6-04](M6-04-accessibility-spike.md) | Spike: screen readers and accessibility tests with GPUI | none |
 | [M6-05](M6-05-services-without-tauri.md) † | `gitcroc-app` services and event channel without Tauri; the Tauri shell, its workflows and the IPC layer are deleted (4 PRs) | M6-01 |
 | [M6-06](M6-06-gpui-skeleton.md) | `gitcroc-ui` skeleton: window, own title bar, panes, status bar, strings, keymap, macOS menus, CI job, `cargo deny`, `just coverage M6` | M6-03, M6-05 |
-| M6-07 | App tokens, accent color, fonts, 8 code themes on `syntect`, contrast tests | M6-06 |
+| [M6-07](M6-07-theme-and-fonts.md) | App tokens, accent color, fonts, 8 code themes on `syntect`, contrast tests | M6-06 |
 | M6-08 | Git setup screen and git path | M6-06 |
 | M6-09 | Workspace tabs and workspace dialogs | M6-06 |
 | M6-10 | Tree pane: rows, summaries, filter, selection | M6-09 |
@@ -327,6 +327,9 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | App identifier | `dev.gitcroc.desktop` (ADR 0002) | M0-04, M5-01 |
 | How M6 is developed | On `main`, with no long-lived branch: the GPUI UI grows as `gitcroc-next` until M6-30 | M6-05 to M6-30 |
 | Look of the GPUI UI | Today's tokens ported, plus the OS accent color and native window controls; not gpui-component's default theme | M6-07 |
+| Code themes in M6 | Ported from `codeThemes.ts` as Rust data, with syntect themes built from it; not `.tmTheme` files, which have no word-level or conflict colours (Eric, 2026-10-27) | M6-07 |
+| The OS accent and contrast | Its hue is kept and its lightness changed until every accent pair passes; the token accent when none does (Eric, 2026-10-27) | M6-07 |
+| No font installed | The app exits with a message instead of GPUI's panic; the Linux packages depend on a font. No font is embedded (Eric, 2026-10-27) | M6-07, M6-28 |
 | Spikes | Standalone crates under `spikes/`, outside the workspace, each on its own `spike/` branch and never merged | M6-02 to M6-04 |
 | Conflict editor | gpui-component's code editor, one buffer; the base and the AI proposal in a card beside the hunk (Eric, 2026-10-27, after M6-02) | M6-19, M6-23 |
 | The Tauri app during M6 | Not kept: 1.0.0-rc.1 is its last release. M6-05 deletes the shell, its workflows and the IPC layer; no app runs on `main` until M6-06, and none is released until M6-28 (Eric, 2026-10-27) | M6-05 |

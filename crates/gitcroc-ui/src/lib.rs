@@ -8,6 +8,7 @@ pub mod keys;
 pub mod menus;
 pub mod services;
 pub mod strings;
+pub mod theme;
 pub mod title_bar;
 pub mod window;
 
@@ -23,10 +24,11 @@ use crate::services::Services;
 use crate::title_bar::{Platform, SystemControls};
 use crate::window::GitcrocWindow;
 
-/// Sets GPUI up for the app: the component library, the keymap, and the
-/// app's actions and menus.
+/// Sets GPUI up for the app: the component library and its theme, the
+/// keymap, and the app's actions and menus.
 pub fn init(cx: &mut App) {
     gpui_kit::init(cx);
+    theme::AppTheme::init(cx);
     keys::bind(cx);
     menus::init(cx);
 }
