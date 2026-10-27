@@ -103,7 +103,7 @@ impl Installation for WindowsInstallation {
             .ok()
             .and_then(|exe| Some(exe.parent()?.join(super::package::WINDOWS_UNINSTALLER)))
             .is_some_and(|path| path.is_file());
-        super::package::windows_package(tauri::utils::platform::bundle_type(), uninstaller)
+        super::package::windows_package(super::package::bundle_kind(), uninstaller)
     }
 }
 

@@ -1,5 +1,7 @@
 # Releasing gitcroc
 
+> **No releases from `main` during M6.** The Tauri app and its release workflow were removed in M6-05, and M6-28 writes the GPUI app's own. Until then this file describes how 1.0.0-rc.1 was released. A fix for rc.1 would be released this way from a branch off the `v1.0.0-rc.1` tag, whose workflows are still there.
+
 A release is a pushed tag. The Release workflow (`.github/workflows/release.yml`) builds every package, signs the update packages and prepares a **draft** release. Nothing is published until you publish the draft.
 
 Pushing tags and publishing releases is Eric's job. An agent never does either; it prepares the version bump and the changelog in a pull request.

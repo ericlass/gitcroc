@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-/// Where the releases are downloaded from; the updater's endpoint in
-/// `tauri.conf.json` is this repository's latest release.
+/// Where the releases are downloaded from; the updater's endpoint, in
+/// 1.0.0-rc.1's `tauri.conf.json` and in the app's own update source
+/// (M6-27), is this repository's latest release.
 pub const RELEASES: &str = "https://github.com/ericlass/gitcroc/releases/download";
 
 /// The page that explains how to open the unsigned builds (SEC-7).
@@ -143,8 +144,9 @@ fn check_date(date: &str) -> Result<(), Error> {
     }
 }
 
-/// The packages of a release, by file name, as Tauri names them; the
-/// portable zip as `bundles.yml` names it.
+/// The packages of a release, by file name, as Tauri's bundler named them
+/// for 1.0.0-rc.1; the portable zip as its `bundles.yml` named it. M6-28's
+/// packaging keeps these names.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Packages {
     /// The Windows NSIS installer, which also is its own update package.

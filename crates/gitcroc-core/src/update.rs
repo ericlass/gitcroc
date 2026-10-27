@@ -1,6 +1,6 @@
 //! The update check and auto-update (PLAT-4, D12, SEC-7), without Tauri
-//! (ARCH-5): `gitcroc-app` implements [`UpdateSource`] with Tauri's updater
-//! plugin, which verifies each package with the project's public key.
+//! (ARCH-5): `gitcroc-app` implements [`UpdateSource`], verifying each
+//! package with the project's public key (M6-27).
 //!
 //! Only release bundles check (D12). The first check runs once the active
 //! workspace's startup refresh has ended, so it never delays the cold start
@@ -71,7 +71,7 @@ pub type UpdateFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, String>> + 
 pub type UpdateProgress = Box<dyn Fn(u64, Option<u64>) + Send + Sync>;
 
 /// Where updates come from: the release manifest, read and verified by
-/// Tauri's updater plugin in `gitcroc-app`, or a fake in tests.
+/// `gitcroc-app` (M6-27), or a fake in tests.
 pub trait UpdateSource: Send + Sync {
     /// Asks for a newer version than the running one; `None` when there is
     /// none.

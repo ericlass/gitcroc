@@ -55,16 +55,11 @@ fn recipe_with_dependencies(name: &str) -> Vec<String> {
 }
 
 /// The commands QA-1 requires, as `just check` runs them.
-const QA_1: [&str; 9] = [
+const QA_1: [&str; 4] = [
     "cargo fmt --check",
     "cargo clippy --workspace --all-targets -- -D warnings",
     "cargo test --workspace",
     "cargo deny check",
-    "pnpm --dir ui install --frozen-lockfile",
-    "pnpm --dir ui exec tsc --noEmit",
-    "pnpm --dir ui exec eslint .",
-    "pnpm --dir ui exec vitest run",
-    "pnpm --dir ui exec playwright test",
 ];
 
 #[test]

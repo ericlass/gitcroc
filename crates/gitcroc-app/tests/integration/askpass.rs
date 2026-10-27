@@ -1,7 +1,7 @@
 //! The askpass helper (D10): git's prompts reach the user through the
-//! running app and the answer goes to git and nowhere else. These run the
-//! real `gitcroc` executable as git's helper, against a fake dialog. Nothing
-//! here waits for a time.
+//! running app and the answer goes to git and nowhere else. These run
+//! `askpass-helper`, which does what the app's binary does first, as git's
+//! helper, against a fake dialog. Nothing here waits for a time.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -52,9 +52,9 @@ impl AskpassUi for FakeUi {
     }
 }
 
-/// The `gitcroc` executable, which git starts as its helper.
+/// The helper binary, which git starts as its helper in place of the app.
 fn helper() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_gitcroc"))
+    PathBuf::from(env!("CARGO_BIN_EXE_askpass-helper"))
 }
 
 async fn git() -> GitRunner {

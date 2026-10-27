@@ -71,3 +71,13 @@ requirement is implemented by the M6 task that cites it.
   the GPUI build through the same manifest and key (PLAT-4).
 - Risk: GPUI is pre-1.0, and its API changes often. Its versions are pinned,
   and each upgrade is a task of its own.
+
+## Note, 2026-10-27
+
+Eric decided that the Tauri app is not kept during the migration: 1.0.0-rc.1
+is its last release. M6-05 deletes the Tauri shell, its workflows and the
+IPC layer instead of keeping them until M6-30, so decision 4's "side by
+side" and the sentence "Until M6-30 the Tauri app is still what ships" no
+longer hold. The GPUI UI is still developed on `main` as `gitcroc-next`, and
+`ui/` stays in the tree, out of CI, as the reference the tasks port from,
+until M6-30 deletes it.

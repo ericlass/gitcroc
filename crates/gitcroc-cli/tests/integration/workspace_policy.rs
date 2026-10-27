@@ -59,6 +59,16 @@ fn is_tauri_crate(name: &str) -> bool {
     name.starts_with("tauri") || name == "wry"
 }
 
+/// The bindings of the system webviews: WebKitGTK and WebView2.
+fn is_webview_crate(name: &str) -> bool {
+    name.starts_with("webkit2gtk") || name.starts_with("webview2")
+}
+
+/// GTK and GPUI, the toolkits the app's API must not use.
+fn is_ui_toolkit_crate(name: &str) -> bool {
+    name == "gtk" || name.starts_with("gtk-") || name == "gpui" || name.starts_with("gpui-")
+}
+
 /// Every package reachable from `root` in the resolved graph, all dependency
 /// kinds and all target platforms included.
 fn transitive_deps<'a>(meta: &'a Metadata, root: &'a PackageId) -> HashSet<&'a PackageId> {
@@ -242,65 +252,76 @@ fn d1_toolchain_is_a_pinned_stable_release() {
     );
 }
 
-/// D2: a Tauri 2 shell, and a SolidJS front end in strict TypeScript with no
-/// other UI framework.
+/// D2: no webview. No crate of the workspace reaches Tauri, `wry` or a
+/// system webview's bindings, on any platform. M6-06 adds that the UI is
+/// GPUI at the pinned versions.
 #[test]
-fn d2_shell_is_tauri_2_and_ui_is_solid_and_strict_typescript() {
-    let root = workspace_root();
-    let manifest = read_toml(&root.join("Cargo.toml"));
-    let tauri = lookup(
-        &manifest,
-        &["workspace", "dependencies", "tauri", "version"],
-    )
-    .and_then(|v| v.as_str())
-    .expect("the workspace pins tauri");
-    assert_eq!(tauri.split('.').next(), Some("2"), "D2: tauri {tauri}");
-    let resolved: Vec<u64> = metadata()
+fn d2_no_crate_depends_on_a_webview() {
+    let webviews: BTreeSet<&str> = metadata()
         .packages
         .iter()
-        .filter(|p| p.name.as_str() == "tauri")
-        .map(|p| p.version.major)
+        .map(|p| p.name.as_str())
+        .filter(|name| is_tauri_crate(name) || is_webview_crate(name))
         .collect();
-    assert_eq!(resolved, [2], "D2: one tauri, at major version 2");
+    assert!(
+        webviews.is_empty(),
+        "D2: the workspace reaches {webviews:?}"
+    );
+}
 
-    let package = read_json(&root.join("ui/package.json"));
-    let mut names: Vec<&str> = Vec::new();
-    for section in [
-        "dependencies",
-        "devDependencies",
-        "peerDependencies",
-        "optionalDependencies",
-    ] {
-        if let Some(deps) = package.get(section).and_then(|v| v.as_object()) {
-            names.extend(deps.keys().map(String::as_str));
+#[test]
+fn d2_webview_name_check_matches_the_system_webviews() {
+    assert!(is_webview_crate("webkit2gtk"));
+    assert!(is_webview_crate("webkit2gtk-sys"));
+    assert!(is_webview_crate("webview2-com"));
+    assert!(!is_webview_crate("gix"));
+}
+
+/// ARCH-5: the app's API has no UI toolkit in it: no Tauri crate, `wry`,
+/// GTK or GPUI among `gitcroc-app`'s normal dependencies.
+#[test]
+fn arch_5_app_crate_has_no_ui_toolkit() {
+    let meta = metadata();
+    let names = names_by_id(meta);
+    let resolve = meta.resolve.as_ref().expect("metadata includes resolve");
+    let nodes: HashMap<_, _> = resolve.nodes.iter().map(|n| (&n.id, n)).collect();
+    let app = meta
+        .workspace_packages()
+        .into_iter()
+        .find(|p| p.name.as_str() == "gitcroc-app")
+        .expect("gitcroc-app is a workspace member");
+    let mut seen = HashSet::new();
+    let mut queue = VecDeque::from([&app.id]);
+    while let Some(id) = queue.pop_front() {
+        for dep in &nodes[id].deps {
+            let normal = dep
+                .dep_kinds
+                .iter()
+                .any(|kind| kind.kind == DependencyKind::Normal);
+            if normal && seen.insert(&dep.pkg) {
+                queue.push_back(&dep.pkg);
+            }
         }
     }
-    for needed in ["solid-js", "typescript"] {
-        assert!(
-            names.contains(&needed),
-            "D2: ui/package.json lacks {needed}"
-        );
-    }
-    let others = [
-        "react",
-        "react-dom",
-        "vue",
-        "svelte",
-        "preact",
-        "@angular/core",
-    ];
-    let found: Vec<&&str> = names
-        .iter()
-        .filter(|name| others.contains(name) || name.starts_with("@angular/"))
+    let toolkits: BTreeSet<&str> = seen
+        .into_iter()
+        .map(|id| names[id])
+        .filter(|name| is_tauri_crate(name) || is_ui_toolkit_crate(name))
         .collect();
-    assert!(found.is_empty(), "D2: other UI frameworks: {found:?}");
-
-    let tsconfig = read_json(&root.join("ui/tsconfig.json"));
-    assert_eq!(
-        tsconfig.pointer("/compilerOptions/strict"),
-        Some(&serde_json::Value::Bool(true)),
-        "D2: ui/tsconfig.json is not strict"
+    assert!(
+        toolkits.is_empty(),
+        "ARCH-5: gitcroc-app depends on {toolkits:?}"
     );
+}
+
+#[test]
+fn arch_5_ui_toolkit_name_check_matches_gtk_and_gpui() {
+    assert!(is_ui_toolkit_crate("gtk"));
+    assert!(is_ui_toolkit_crate("gtk-sys"));
+    assert!(is_ui_toolkit_crate("gpui"));
+    assert!(is_ui_toolkit_crate("gpui-component"));
+    assert!(!is_ui_toolkit_crate("gix"));
+    assert!(!is_ui_toolkit_crate("glib"));
 }
 
 /// D3, the half the ARCH-1 and ARCH-2 tests leave: `gix` reads for
@@ -422,8 +443,9 @@ fn http_clients(reached: BTreeSet<&str>) -> Vec<&str> {
 /// D12: the app makes no network calls of its own except the user's AI
 /// calls and the update check. Of the project's crates only `gitcroc-ai`
 /// depends on an HTTP client directly, and `gitcroc-app` reaches one only
-/// through `gitcroc-ai` and the updater plugin. Git's network operations run
-/// the git CLI (ARCH-1), and `gix` has no network client (D3).
+/// through `gitcroc-ai`; the update source without Tauri comes with M6-27.
+/// Git's network operations run the git CLI (ARCH-1), and `gix` has no
+/// network client (D3).
 #[test]
 fn d12_only_the_ai_and_update_code_open_connections() {
     let meta = metadata();
@@ -465,15 +487,10 @@ fn d12_only_the_ai_and_update_code_open_connections() {
         }
         seen.into_iter().map(|id| names[id]).collect()
     };
-    let app = reached("gitcroc-app", &[]);
-    assert!(app.contains("tauri-plugin-updater"), "D12: no updater");
     assert_eq!(
-        http_clients(reached(
-            "gitcroc-app",
-            &["gitcroc-ai", "tauri-plugin-updater"]
-        )),
+        http_clients(reached("gitcroc-app", &["gitcroc-ai"])),
         Vec::<&str>::new(),
-        "D12: gitcroc-app reaches an HTTP client past gitcroc-ai and the updater"
+        "D12: gitcroc-app reaches an HTTP client past gitcroc-ai"
     );
     for name in ["gitcroc-git", "gitcroc-core"] {
         assert_eq!(
@@ -509,13 +526,13 @@ fn job_runners(workflow: &str, job: &str) -> Vec<String> {
 }
 
 /// D6: CI tests and builds on Windows, macOS and Linux, the Linux floor
-/// glibc 2.35 (Ubuntu 22.04), macOS from 12 on Intel and Apple silicon.
+/// glibc 2.35 (Ubuntu 22.04). The packages' checks (macOS from 12, a
+/// universal binary) left with Tauri's bundler and come back with M6-28.
 #[test]
 fn d6_builds_and_tests_on_windows_macos_and_linux() {
     let root = workspace_root();
     let workflows = root.join(".github/workflows");
     let ci = read_text(&workflows.join("ci.yml"));
-    let build = read_text(&workflows.join("bundles.yml"));
     let platforms = |runners: &[String]| -> BTreeSet<&'static str> {
         runners
             .iter()
@@ -533,31 +550,15 @@ fn d6_builds_and_tests_on_windows_macos_and_linux() {
             .collect()
     };
     let all = BTreeSet::from(["linux", "macos", "windows"]);
-    for (file, text, job) in [
-        ("ci.yml", &ci, "rust"),
-        ("ci.yml", &ci, "ui"),
-        ("bundles.yml", &build, "build"),
-    ] {
-        let runners = job_runners(text, job);
-        assert_eq!(
-            platforms(&runners),
-            all,
-            "D6: {file} job {job} runs on {runners:?}"
-        );
-        assert!(
-            runners.iter().any(|os| os == "ubuntu-22.04"),
-            "D6: {file} job {job} has no ubuntu-22.04 runner"
-        );
-    }
-    assert!(
-        build.contains("target: universal-apple-darwin"),
-        "D6: the macOS build is not universal"
-    );
-
-    let config = read_json(&root.join("crates/gitcroc-app/tauri.conf.json"));
+    let runners = job_runners(&ci, "rust");
     assert_eq!(
-        config.pointer("/bundle/macOS/minimumSystemVersion"),
-        Some(&serde_json::Value::from("12.0"))
+        platforms(&runners),
+        all,
+        "D6: ci.yml job rust runs on {runners:?}"
+    );
+    assert!(
+        runners.iter().any(|os| os == "ubuntu-22.04"),
+        "D6: ci.yml job rust has no ubuntu-22.04 runner"
     );
 }
 
@@ -575,8 +576,8 @@ fn d6_runners_are_read_from_inline_lists_and_include_entries() {
     assert_eq!(job_runners(workflow, "after"), Vec::<String>::new());
 }
 
-/// D14: MIT, in `LICENSE`, in every crate and in the bundle; the UI states
-/// no other license.
+/// D14: MIT, in `LICENSE` and in every crate; the old front end states no
+/// other license. The packages' license comes back with M6-28.
 #[test]
 fn d14_license_is_mit() {
     let root = workspace_root();
@@ -614,10 +615,5 @@ fn d14_license_is_mit() {
     assert!(
         matches!(ui, None | Some("MIT")),
         "D14: ui/package.json license {ui:?}"
-    );
-    let config = read_json(&root.join("crates/gitcroc-app/tauri.conf.json"));
-    assert_eq!(
-        config.pointer("/bundle/license"),
-        Some(&serde_json::Value::from("MIT"))
     );
 }

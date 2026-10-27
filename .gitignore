@@ -16,9 +16,6 @@ ui/playwright-report/
 ui/blob-report/
 ui/playwright/.cache/
 
-# Tauri
-crates/gitcroc-app/gen/schemas/
-
 # Editors and OS
 .idea/
 .vscode/
