@@ -86,7 +86,7 @@ gitcroc-core, gitcroc-ai, gitcroc-git   (unchanged)
 | History (UI-9 to UI-13, UI-36) | The spike's list and graph painter. Column headers can be resized and moved; search input; summary strip; merged list. |
 | Changes, commit header (UI-14, UI-16) | Header text sits in read-only inputs so it can be selected and copied, since plain GPUI text cannot be selected. |
 | Diff (UI-17, UI-18) | The spike's own list, not gpui-component's Diff, whose scroll state is private. Inline and side-by-side modes; `syntect` highlighting off-thread, cached per line. Wrap mode uses `list` with measured heights. Hunk controls; image diffs from bytes with `img()` (no base64); "Load diff" collapse. |
-| Conflict editor (OPS-2 to OPS-9, AI-11) | gpui-component's code editor input with hunk decorations and per-hunk buttons, if spike M6-02 proves it works. The fallback is one editable block per hunk between read-only context. |
+| Conflict editor (OPS-2 to OPS-9, AI-11) | gpui-component's code editor, one buffer, as spike M6-02 proved. Headers with the Take buttons are drawn over the marker lines; the base and the AI proposal are a card beside the hunk (decided 2026-10-27). |
 | Dialogs (about 25) | One dialog scaffold on gpui-component Dialog and Form. Validation stays in the core: branch and tag names, remote names, clone targets. |
 | Jobs, status bar (UI-21) | Status bar and job list as today; notifications for results. |
 | Palette (UI-22) | The core palette (`palette.rs`) behind an input and a list in an overlay. |

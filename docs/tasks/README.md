@@ -241,6 +241,68 @@ M6-01 to M6-04 need nothing from each other and can start together. After
 M6-06, three lanes touch separate files: M6-08; M6-09 to M6-14; and M6-15 to
 M6-20.
 
+### Spike findings
+
+Each spike's crate and README stay on its own branch, never merged. These
+notes are what later tasks need from them.
+
+**M6-02, the conflict editor** (`spike/gpui-conflict`, `192aeb8`, 2026-10-26)
+- **Decided** (Eric, 2026-10-27): M6-19 builds on gpui-component's code editor, in one buffer. The base and the AI proposal go in a card beside the hunk, not in a block under it.
+- **Measured** on a 10,000-line, 50-hunk file at 144 Hz:
+  - 143.5 fps;
+  - CPU 2.9 ms a frame at p95;
+  - 6.6 ms typing latency;
+  - 22–29 ms from opening to first paint.
+  The fallback of one block per hunk dropped 9–10% of frames and typed in 27.6 ms.
+- **The editor supports 6 of the 10 items as they are.** The other 4 need workarounds:
+  - **Hunk anchors:** an empty take needs a one-byte ghost anchor before the hunk.
+  - **Conflict colours:** the editor's background is made transparent, and full-width rows are painted under it.
+  - **Headers:** headers with their Take buttons are drawn over the marker lines, from the editor's scroll offset.
+  - **Focus:** focus is given back when the editor is shown again.
+- **Keep in M6-19:**
+  - Soft wrap and folding off, because the overlays assume rows of one line height. Test overlay positions against `EditorState::range_to_bounds`.
+  - Check IME composition with a composing input method on all platforms.
+  - Find the one 50 ms frame when the end of the document first comes into view.
+- **Split M6-19 into three PRs:**
+  1. Buffer, anchors, takes, accept and undo, keys, read-back, kept state.
+  2. Rows, headers, the base and AI proposal cards, and conflict colours.
+  3. The banner, file switching, and Mark resolved and Continue through the job services.
+
+**M6-03, CI and packaging** (`spike/gpui-ci`, `27a024c`, 2026-10-26; the runner jobs have not run, because Eric has not yet allowed the push)
+- **Proven locally:**
+  - **Tests without a display:** headless GPUI tests run with no display and no GPU.
+  - **Real window:** one runs under Xvfb with lavapipe, and wgpu falls back to GL on llvmpipe by itself.
+  - **Linux packages:** the AppImage and `.deb` start. The `.rpm` builds.
+  - **Update signatures:** signatures in Tauri's format are made and verified without Tauri.
+- **Packages and dependencies:**
+  - **Sizes:** the binary is 36.6 MiB stripped; the AppImage is 13.5 MiB.
+  - **Runtime libraries:**
+    - linked: `libxcb`, `libxkbcommon` and `libxkbcommon-x11`;
+    - opened at run time: `libvulkan`, `libEGL` and the Wayland client libraries.
+  - **Fonts:** no fontconfig or freetype.
+  - **Release build:** it stays on ubuntu-22.04 for glibc 2.35.
+- **For M6-06's `cargo deny`:**
+  - **Licences:** allow 0BSD (enum-iterator), and add an exception for CC0-1.0 (tiny-keccak).
+  - **Advisories:** ignore four "unmaintained" advisories, for instant, rustls-pemfile, rustybuzz and ttf-parser.
+  - **HTTP client:** turn off gpui-kit's default `assets` feature if possible, since it brings in an HTTP client.
+- **For M6-27 and M6-28:**
+  - **NSIS template:** cargo-packager's NSIS installer finds the Tauri install's directory and registry keys, so it installs over it. It needs a custom template that adds Tauri's `/UPDATE` and `/ARGS` handling and the `MainBinaryName` value.
+  - **Signing:** sign with our own step, which keeps the `version:` check, not with cargo-packager's signer.
+
+**M6-04, accessibility** (`spike/gpui-a11y`, `e99c9bb`, 2026-10-26)
+- **What Orca 46 reads on Linux X11:**
+  - buttons, the checkbox, the selected history row and the status announcements;
+  - dialogs keep focus correctly.
+  Windows and macOS weren't tested; NVDA and VoiceOver scripts for Eric are in the README.
+- **Gaps:**
+  - **Tests:** `#[gpui::test]` cannot read the accessibility tree. A real window under Xvfb with an AT-SPI bus can, and only on Linux.
+  - **Long lists:** only visible rows are exposed, so a row's name must carry its position.
+  - **Text fields:** they don't expose their text.
+  - **Tree rows on Linux:** AccessKit's Linux adapter has no expanded state or level for them.
+  - **gpui-component widgets:** its tree, dialogs, title bar buttons and toasts lack names or roles.
+  - **Not available:** an axe equivalent, and a forced-colours signal.
+- **Open decision before M6-25:** the README proposes a bar of nine tested musts. Five points are lower than M5-10's, and they need a spec decision (DEV-2).
+
 ## Choices made in these tasks that the spec does not cover
 
 Each is a default so the tasks have no gaps. Veto any of them before the first
@@ -256,6 +318,7 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | How M6 is developed | Side by side on `main`: the GPUI UI grows as `gitcroc-next` beside the shipped Tauri app until M6-30; no long-lived branch | M6-05 to M6-30 |
 | Look of the GPUI UI | Today's tokens ported, plus the OS accent color and native window controls; not gpui-component's default theme | M6-07 |
 | Spikes | Standalone crates under `spikes/`, outside the workspace, each on its own `spike/` branch and never merged | M6-02 to M6-04 |
+| Conflict editor | gpui-component's code editor, one buffer; the base and the AI proposal in a card beside the hunk (Eric, 2026-10-27, after M6-02) | M6-19, M6-23 |
 | Config directory name | `gitcroc` under the platform config, cache and log dirs | M0-07 |
 | CI service | GitHub Actions | M0-03 |
 | Task file headings | "Implements" and "Respects" inside the Spec section, so the coverage script knows which IDs a milestone must test | M0-02 |
