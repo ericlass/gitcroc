@@ -27,9 +27,11 @@ impl CacheDir for Dirs {
     }
 }
 
+/// The process's one command log, which the askpass tests read: git's
+/// command log is set once per process, by whichever test starts first.
 impl LogDir for Dirs {
     fn log_dir(&self) -> Option<PathBuf> {
-        Some(self.0.join("logs"))
+        Some(crate::askpass::log_dir().to_owned())
     }
 }
 
