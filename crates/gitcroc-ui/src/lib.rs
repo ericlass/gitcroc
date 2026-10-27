@@ -2,16 +2,21 @@
 //! `gitcroc-app`, with no source of truth and no business logic of their
 //! own (ARCH-6). `gitcroc-next` runs it until M6-30.
 
+pub mod dialog;
 pub mod dialogs;
 pub mod git_setup;
 pub mod icons;
 pub mod keys;
+pub mod menu;
 pub mod menus;
 pub mod services;
 pub mod strings;
+pub mod tab_bar;
 pub mod theme;
 pub mod title_bar;
 pub mod window;
+pub mod workspace_menu;
+pub mod workspaces;
 
 use std::rc::Rc;
 
@@ -26,11 +31,15 @@ use crate::title_bar::{Platform, SystemControls};
 use crate::window::GitcrocWindow;
 
 /// Sets GPUI up for the app: the component library and its theme, the
-/// keymap, and the app's actions and menus.
+/// keymap and the keys of menus, dialogs and tabs, and the app's actions
+/// and menus.
 pub fn init(cx: &mut App) {
     gpui_kit::init(cx);
     theme::AppTheme::init(cx);
     keys::bind(cx);
+    menu::bind(cx);
+    dialog::bind(cx);
+    tab_bar::bind(cx);
     menus::init(cx);
 }
 
@@ -73,6 +82,9 @@ pub fn open_window(
     cx: &mut App,
 ) -> Result<(AnyWindowHandle, Entity<GitcrocWindow>)> {
     let options = window_options(system_title_bar, cx);
+    // Inside the component library's root, which moves the focus with Tab
+    // and Shift+Tab, keeps it inside a dialog, and draws the window's
+    // frame where the window draws its own.
     gpui_kit::open_window(options, cx, move |window, cx| {
         cx.new(|cx| {
             GitcrocWindow::new(

@@ -1,32 +1,41 @@
-//! The main window: the title bar, the toolbar, the three panes (tree,
-//! history, changes) and the status bar, each an empty view for its task to
-//! fill. Its state comes from the app (ARCH-6): one task per window receives
-//! the app's events and updates it on the main thread, and reads the state
-//! again when it fell behind. Until git detection finds a usable git, the
-//! window shows that it is looking, then the setup screen (PLAT-3).
+//! The main window: the title bar with the workspace tabs, the toolbar, the
+//! three panes (tree, history, changes) and the status bar, each pane an
+//! empty view for its task to fill. Its state comes from the app (ARCH-6):
+//! one task per window receives the app's events and updates it on the
+//! main thread, and reads the state again when it fell behind. Until git
+//! detection finds a usable git, the window shows that it is looking, then
+//! the setup screen (PLAT-3); with no tab open, the workspaces to open
+//! (UI-27). Dialogs are drawn over everything.
 
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use gitcroc_app::app::AppEvent;
 use gitcroc_core::{GitStatus, PaneLayout, WorkspaceId, WorkspaceTabs};
+use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::resizable::{
     ResizablePanelEvent, ResizableState, h_resizable, resizable_panel,
 };
-use gpui_component::window_border;
 use gpui_kit::{
-    AnyElement, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, Role, SharedString, StatefulInteractiveElement,
-    Styled, Subscription, Task, TestSupportExt, Window, div, px,
+    AnyElement, AnyView, AppContext, Context, Entity, FocusHandle, Focusable, Hsla,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Role, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Task, TestSupportExt, Window, div, px,
 };
 use tokio::sync::broadcast::error::RecvError;
 
+use crate::dialog::{Closed, Modal, NameDialog, Question};
 use crate::git_setup::GitSetup;
-use crate::keys::{self, Minimize, NextRegion, PreviousRegion, Zoom};
+use crate::keys::{
+    self, Minimize, MoveTabLeft, MoveTabRight, NextRegion, NextTab, PreviousRegion, PreviousTab,
+    Zoom,
+};
 use crate::services::Services;
 use crate::strings;
+use crate::tab_bar::{TabBar, TabBarEvent};
 use crate::theme::{ActiveTokens, AppTheme};
 use crate::title_bar::{Platform, TitleBar, WindowControls};
+use crate::workspace_menu::{Choice, WorkspaceStart};
+use crate::workspaces::Workspaces;
 
 /// The tree's and the history's widths until the workspace saves its own
 /// (UI-19); the changes pane takes the rest.
@@ -101,11 +110,17 @@ impl Git {
     }
 }
 
+/// The dialog over the window: there is at most one.
+struct OpenDialog {
+    view: AnyView,
+    /// Where the focus goes back to when it closes.
+    restore: Option<FocusHandle>,
+    _closed: Subscription,
+}
+
 /// The window's root view.
 pub struct GitcrocWindow {
     services: Services,
-    platform: Platform,
-    system_title_bar: bool,
     title_bar: Entity<TitleBar>,
     tree: Entity<Pane>,
     history: Entity<Pane>,
@@ -114,7 +129,15 @@ pub struct GitcrocWindow {
     toolbar_focus: FocusHandle,
     status_focus: FocusHandle,
     controls: Rc<dyn WindowControls>,
-    tabs: WorkspaceTabs,
+    workspaces: Entity<Workspaces>,
+    tab_bar: Entity<TabBar>,
+    /// Shown while no tab is open (UI-27).
+    start: Option<Entity<WorkspaceStart>>,
+    dialog: Option<OpenDialog>,
+    /// Why the core refused a tab change, until dismissed.
+    refused: Option<SharedString>,
+    /// The note on workspace files not found at start was dismissed (UI-33).
+    missing_dismissed: bool,
     /// Keyed by workspace, `None` while none is open.
     layouts: HashMap<Option<WorkspaceId>, Layout>,
     git: Git,
@@ -123,7 +146,7 @@ pub struct GitcrocWindow {
     /// `AppInfo::os`, for the setup screen's install hint.
     os: String,
     _bridge: Task<()>,
-    _appearance: Subscription,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl GitcrocWindow {
@@ -138,7 +161,8 @@ impl GitcrocWindow {
         cx: &mut Context<Self>,
     ) -> Self {
         // In memory, loaded at start: what the first frame shows.
-        let tabs = services.app().workspace_get();
+        let workspaces = cx.new(|_| Workspaces::new(services.clone()));
+        let tab_bar = cx.new(|cx| TabBar::new(workspaces.clone(), cx));
         let title_bar = cx.new(|_| TitleBar::new(controls.clone(), platform, system_title_bar));
         let mut events = services.app().subscribe();
         let bridge = cx.spawn_in(window, async move |this, cx| {
@@ -167,10 +191,21 @@ impl GitcrocWindow {
             AppTheme::sync_window_appearance(window, cx);
         });
         let os = info.os.clone();
+        let subscriptions = vec![
+            appearance,
+            cx.observe_in(&workspaces, window, |this, _, window, cx| {
+                this.show_tabs(window, cx)
+            }),
+            cx.subscribe_in(&tab_bar, window, |this, _, event, window, cx| match event {
+                TabBarEvent::Chose(choice) => this.choose(choice.clone(), window, cx),
+                TabBarEvent::Refused(error) => {
+                    this.refused = Some(error.clone());
+                    cx.notify();
+                }
+            }),
+        ];
         let mut this = Self {
             services,
-            platform,
-            system_title_bar,
             title_bar,
             tree: cx.new(|cx| Pane::new("tree", strings::regions::TREE, cx)),
             history: cx.new(|cx| Pane::new("history", strings::regions::HISTORY, cx)),
@@ -179,15 +214,20 @@ impl GitcrocWindow {
             toolbar_focus: cx.focus_handle(),
             status_focus: cx.focus_handle(),
             controls,
-            tabs,
+            workspaces,
+            tab_bar,
+            start: None,
+            dialog: None,
+            refused: None,
+            missing_dismissed: false,
             layouts: HashMap::new(),
             git: Git::default(),
             git_setup: None,
             os,
             _bridge: bridge,
-            _appearance: appearance,
+            _subscriptions: subscriptions,
         };
-        this.show_tabs(cx);
+        this.show_tabs(window, cx);
         this.read_git(window, cx);
         // The keys work only while something has the focus: the title bar
         // has it until git's result shows what is under it.
@@ -196,8 +236,8 @@ impl GitcrocWindow {
     }
 
     /// The open workspaces and the active one, as the window shows them.
-    pub fn tabs(&self) -> &WorkspaceTabs {
-        &self.tabs
+    pub fn tabs(&self, cx: &gpui_kit::App) -> WorkspaceTabs {
+        self.workspaces.read(cx).tabs().clone()
     }
 
     pub fn title_bar(&self) -> &Entity<TitleBar> {
@@ -216,14 +256,12 @@ impl GitcrocWindow {
                 self.record_git(status, window, cx);
             }
             Ok(AppEvent::WorkspacesChanged(tabs)) => {
-                self.tabs = tabs;
-                self.show_tabs(cx);
+                self.workspaces
+                    .update(cx, |workspaces, cx| workspaces.set_tabs(tabs, cx));
             }
             Ok(AppEvent::WorkspaceChanged(view)) => {
-                if let Some(open) = self.tabs.open.iter_mut().find(|open| open.id == view.id) {
-                    *open = view;
-                    self.show_tabs(cx);
-                }
+                self.workspaces
+                    .update(cx, |workspaces, cx| workspaces.set_view(view, cx));
             }
             // Events were dropped: what the window shows is read again.
             Err(RecvError::Lagged(_)) => {
@@ -240,12 +278,10 @@ impl GitcrocWindow {
         let call = self
             .services
             .with_app(|app| async move { app.workspace_get() });
-        cx.spawn(async move |this, cx| {
+        let workspaces = self.workspaces.downgrade();
+        cx.spawn(async move |_, cx| {
             if let Some(tabs) = call.await {
-                let _ = this.update(cx, |this, cx| {
-                    this.tabs = tabs;
-                    this.show_tabs(cx);
-                });
+                let _ = workspaces.update(cx, |workspaces, cx| workspaces.set_tabs(tabs, cx));
             }
         })
         .detach();
@@ -298,34 +334,224 @@ impl GitcrocWindow {
             (None, _) => {
                 self.git_setup = None;
                 if !was_usable && self.git.usable() {
-                    window.focus(&self.tree.focus_handle(cx), cx);
+                    self.show_tabs(window, cx);
+                    self.focus_main(window, cx);
+                    return;
                 }
             }
         }
-        self.show_tabs(cx);
+        self.show_tabs(window, cx);
     }
 
-    fn show_tabs(&mut self, cx: &mut Context<Self>) {
-        // Screens without tabs show the app's name (UI-35).
+    /// Shows the tabs, or the screen without them, after the tabs or git
+    /// changed.
+    fn show_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let usable = self.git.usable();
+        let tabs = self.workspaces.read(cx).tabs().clone();
+        // Screens without tabs show the app's name (UI-35); the title also
+        // names the active workspace for the system.
         let title: SharedString = self
-            .active_view()
-            .filter(|_| self.git.usable())
+            .workspaces
+            .read(cx)
+            .active()
+            .filter(|_| usable)
             .map_or(strings::APP_NAME.into(), |view| view.name.clone().into());
-        self.title_bar
-            .update(cx, |title_bar, cx| title_bar.set_title(title, cx));
+        let tab_bar: Option<AnyView> = usable.then(|| self.tab_bar.clone().into());
+        self.title_bar.update(cx, |title_bar, cx| {
+            title_bar.set_title(title, cx);
+            title_bar.set_tab_bar(tab_bar, cx);
+        });
+        // With every tab closed, the workspaces to open (UI-27).
+        if tabs.active.is_none() && usable {
+            if self.start.is_none() {
+                let workspaces = self.workspaces.clone();
+                let start = cx.new(|cx| WorkspaceStart::new(&workspaces, cx));
+                // It ends with the start screen, which the window outlives.
+                cx.subscribe_in(&start, window, |this, _, choice, window, cx| {
+                    this.choose(choice.clone(), window, cx);
+                })
+                .detach();
+                self.start = Some(start);
+            }
+        } else {
+            self.start = None;
+        }
         cx.notify();
     }
 
-    fn active_view(&self) -> Option<&gitcroc_core::WorkspaceView> {
-        let active = self.tabs.active.as_ref()?;
-        self.tabs.open.iter().find(|view| &view.id == active)
+    /// Gives the focus to the first region under the title bar.
+    fn focus_main(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.start {
+            Some(start) => window.focus(&start.focus_handle(cx), cx),
+            None => window.focus(&self.tree.focus_handle(cx), cx),
+        }
+    }
+
+    /// Carries out what a menu entry or the start screen chose.
+    fn choose(&mut self, choice: Choice, window: &mut Window, cx: &mut Context<Self>) {
+        let workspaces = self.workspaces.clone();
+        match choice {
+            Choice::New => {
+                let send = Box::new(move |name: String, cx: &mut gpui_kit::App| {
+                    Workspaces::create(&workspaces, name, cx)
+                });
+                let dialog = cx.new(|cx| {
+                    NameDialog::new(
+                        strings::workspaces::NEW_DIALOG,
+                        strings::workspaces::CREATE,
+                        "",
+                        send,
+                        window,
+                        cx,
+                    )
+                });
+                self.open_dialog(dialog, window, cx);
+            }
+            Choice::Rename(id, name) => {
+                let send = Box::new(move |new_name: String, cx: &mut gpui_kit::App| {
+                    Workspaces::rename(&workspaces, id.clone(), new_name, cx)
+                });
+                let dialog = cx.new(|cx| {
+                    NameDialog::new(
+                        strings::workspaces::rename_dialog(&name),
+                        strings::workspaces::RENAME,
+                        &name,
+                        send,
+                        window,
+                        cx,
+                    )
+                });
+                self.open_dialog(dialog, window, cx);
+            }
+            Choice::Delete(id, name) => {
+                let send = Box::new(move |(), cx: &mut gpui_kit::App| {
+                    Workspaces::delete(&workspaces, id.clone(), cx)
+                });
+                let dialog = cx.new(|cx| {
+                    Question::new(
+                        strings::workspaces::delete_dialog(&name),
+                        vec![strings::workspaces::DELETE_WHAT.into()],
+                        strings::workspaces::DELETE,
+                        send,
+                        cx,
+                    )
+                });
+                self.open_dialog(dialog, window, cx);
+            }
+            Choice::Open(id, name) => {
+                let sent = Workspaces::open(&workspaces, id, cx);
+                cx.spawn_in(window, async move |this, cx| {
+                    let result = sent.await;
+                    let _ = this.update_in(cx, |this, window, cx| match result {
+                        Ok(()) => this.focus_main(window, cx),
+                        Err(error) => {
+                            let error = strings::workspaces::cannot_open(&name, &error);
+                            if let Some(start) = &this.start {
+                                start.update(cx, |start, cx| start.set_error(error.into(), cx));
+                            }
+                        }
+                    });
+                })
+                .detach();
+            }
+            Choice::Import => {
+                let sent = Workspaces::import(&workspaces, cx);
+                self.refuse_with(sent, strings::workspaces::cannot_import, cx);
+            }
+            Choice::Export(id) => {
+                let sent = Workspaces::export(&workspaces, id, cx);
+                self.refuse_with(sent, strings::workspaces::cannot_export, cx);
+            }
+            Choice::Close(id) => self
+                .tab_bar
+                .update(cx, |tab_bar, cx| tab_bar.close(id, window, cx)),
+        }
+    }
+
+    /// Shows a refusal of `sent`, worded by `say`, below the title bar.
+    fn refuse_with(
+        &mut self,
+        sent: Task<Result<(), SharedString>>,
+        say: fn(&str) -> String,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            if let Err(error) = sent.await {
+                let _ = this.update(cx, |this, cx| {
+                    this.refused = Some(say(&error).into());
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Shows `dialog` over the window, with the focus in it.
+    fn open_dialog<V: Modal>(
+        &mut self,
+        dialog: Entity<V>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let closed = cx.subscribe_in(&dialog, window, |this, _, _: &Closed, window, cx| {
+            if let Some(open) = this.dialog.take()
+                && let Some(restore) = open.restore
+            {
+                window.focus(&restore, cx);
+            }
+            cx.notify();
+        });
+        let restore = window.focused(cx);
+        dialog.update(cx, |dialog, cx| dialog.focus_first(window, cx));
+        self.dialog = Some(OpenDialog {
+            view: dialog.into(),
+            restore,
+            _closed: closed,
+        });
+        cx.notify();
+    }
+
+    /// The tab shortcuts work while no dialog or menu is open (UI-22).
+    fn tabs_reachable(&self, cx: &gpui_kit::App) -> bool {
+        self.git.usable() && self.dialog.is_none() && !self.tab_bar.read(cx).menu_open()
+    }
+
+    fn next_tab(&mut self, _: &NextTab, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs_reachable(cx) {
+            self.tab_bar.update(cx, |tab_bar, cx| {
+                tab_bar.activate_beside_active(1, window, cx)
+            });
+        }
+    }
+
+    fn previous_tab(&mut self, _: &PreviousTab, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs_reachable(cx) {
+            self.tab_bar.update(cx, |tab_bar, cx| {
+                tab_bar.activate_beside_active(-1, window, cx)
+            });
+        }
+    }
+
+    fn move_tab_right(&mut self, _: &MoveTabRight, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs_reachable(cx) {
+            self.tab_bar
+                .update(cx, |tab_bar, cx| tab_bar.move_active(1, window, cx));
+        }
+    }
+
+    fn move_tab_left(&mut self, _: &MoveTabLeft, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs_reachable(cx) {
+            self.tab_bar
+                .update(cx, |tab_bar, cx| tab_bar.move_active(-1, window, cx));
+        }
     }
 
     /// The active workspace's pane sizes, made from its saved layout the
     /// first time it is shown.
     fn layout(&mut self, cx: &mut Context<Self>) -> &Layout {
-        let key = self.tabs.active.clone();
-        let saved = self.active_view().map(|view| view.layout.clone());
+        let workspaces = self.workspaces.read(cx);
+        let key = workspaces.tabs().active.clone();
+        let saved = workspaces.active().map(|view| view.layout.clone());
         let services = self.services.clone();
         self.layouts.entry(key.clone()).or_insert_with(|| {
             let saved = saved.unwrap_or_default();
@@ -345,10 +571,9 @@ impl GitcrocWindow {
                     tree: Some(f32::from(*tree).round() as u32),
                     history: Some(f32::from(*history).round() as u32),
                     ..this
-                        .tabs
-                        .open
-                        .iter()
-                        .find(|view| view.id == workspace_id)
+                        .workspaces
+                        .read(cx)
+                        .view(&workspace_id)
                         .map(|view| view.layout.clone())
                         .unwrap_or_default()
                 };
@@ -369,7 +594,9 @@ impl GitcrocWindow {
 
     /// The regions on screen that F6 moves between, in order (UI-22).
     fn regions(&self, cx: &gpui_kit::App) -> Vec<FocusHandle> {
-        if self.git.usable() {
+        if let Some(start) = self.start.as_ref().filter(|_| self.git.usable()) {
+            vec![self.title_focus.clone(), start.focus_handle(cx)]
+        } else if self.git.usable() {
             vec![
                 self.title_focus.clone(),
                 self.toolbar_focus.clone(),
@@ -395,7 +622,11 @@ impl GitcrocWindow {
             .map_or(if step > 0 { 0 } else { count - 1 }, |at| {
                 (at as isize + step).rem_euclid(count)
             });
-        if let Some(region) = regions.get(next as usize) {
+        // In the tab bar, the focus lands on the active tab, or on "+".
+        if next == 0 && self.git.usable() {
+            self.tab_bar
+                .update(cx, |tab_bar, cx| tab_bar.focus(window, cx));
+        } else if let Some(region) = regions.get(next as usize) {
             window.focus(region, cx);
         }
     }
@@ -467,6 +698,98 @@ impl GitcrocWindow {
         ]
     }
 
+    /// What a dialog sits on: the window, dimmed, which it keeps from the
+    /// pointer.
+    fn dialog_layer(&self, cx: &Context<Self>) -> Option<AnyElement> {
+        let open = self.dialog.as_ref()?;
+        let tokens = cx.tokens();
+        let backdrop = Hsla::from(tokens.backdrop).opacity(tokens.backdrop_opacity);
+        Some(
+            div()
+                .id("dialog-layer")
+                .absolute()
+                .inset_0()
+                .occlude()
+                .bg(backdrop)
+                .flex()
+                .items_center()
+                .justify_center()
+                .p_4()
+                .child(open.view.clone())
+                .into_any_element(),
+        )
+    }
+
+    /// The notes under the title bar: a refused tab change, and workspace
+    /// files not found at start (UI-33). Each is dismissed by its button.
+    fn notes(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let mut notes = Vec::new();
+        if let Some(refused) = &self.refused {
+            notes.push(self.note(
+                "tab-refusal",
+                refused.clone(),
+                cx.listener(|this, _, _, cx| {
+                    this.refused = None;
+                    cx.notify();
+                }),
+                cx,
+            ));
+        }
+        let missing = &self.workspaces.read(cx).tabs().missing;
+        if !missing.is_empty() && !self.missing_dismissed {
+            let text = strings::app::missing_workspaces(&missing.join(", "));
+            notes.push(self.note(
+                "missing-workspaces",
+                text.into(),
+                cx.listener(|this, _, _, cx| {
+                    this.missing_dismissed = true;
+                    cx.notify();
+                }),
+                cx,
+            ));
+        }
+        notes
+    }
+
+    fn note(
+        &self,
+        id: &'static str,
+        text: SharedString,
+        dismiss: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut gpui_kit::App) + 'static,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let tokens = cx.tokens();
+        div()
+            .id(id)
+            .test_support()
+            .role(Role::Alert)
+            .aria_label(text.clone())
+            .flex()
+            .flex_row()
+            .flex_shrink_0()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .py_1()
+            .bg(tokens.warning_bg)
+            .text_color(tokens.text_primary)
+            .border_b_1()
+            .border_color(tokens.border)
+            // A long text, such as a long path, wraps and leaves the
+            // button in the window.
+            .child(div().flex_1().min_w_0().child(text))
+            .child(
+                div().flex_shrink_0().child(
+                    Button::new(gpui_kit::ElementId::Name(format!("{id}-dismiss").into()))
+                        .ghost()
+                        .compact()
+                        .label(strings::common::DISMISS)
+                        .on_click(dismiss),
+                ),
+            )
+            .into_any_element()
+    }
+
     /// What the window shows while git is not usable: that it is looking,
     /// or the setup screen (PLAT-3).
     fn git_screen(&self) -> AnyElement {
@@ -491,10 +814,19 @@ impl GitcrocWindow {
 
 impl Render for GitcrocWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let body = if self.git.usable() {
-            self.main_regions(cx)
-        } else {
-            vec![self.git_screen()]
+        let body = match (&self.start, self.git.usable()) {
+            (_, false) => vec![self.git_screen()],
+            (Some(start), true) => {
+                let start = div().flex_1().min_h_0().child(start.clone());
+                let mut body = self.notes(cx);
+                body.push(start.into_any_element());
+                body
+            }
+            (None, true) => {
+                let mut body = self.notes(cx);
+                body.extend(self.main_regions(cx));
+                body
+            }
         };
         let tokens = *cx.tokens();
         let content = div()
@@ -504,6 +836,11 @@ impl Render for GitcrocWindow {
             .on_action(cx.listener(Self::previous_region))
             .on_action(cx.listener(Self::minimize))
             .on_action(cx.listener(Self::zoom))
+            .on_action(cx.listener(Self::next_tab))
+            .on_action(cx.listener(Self::previous_tab))
+            .on_action(cx.listener(Self::move_tab_right))
+            .on_action(cx.listener(Self::move_tab_left))
+            .relative()
             .flex()
             .flex_col()
             .size_full()
@@ -518,13 +855,10 @@ impl Render for GitcrocWindow {
                     .aria_label(strings::regions::TITLE_BAR)
                     .child(self.title_bar.clone()),
             )
-            .children(body);
-        // On Linux, a window that draws its own frame draws its edges and
-        // shadow too, and is resized from them.
-        if self.platform == Platform::Linux && !self.system_title_bar {
-            window_border().child(content).into_any_element()
-        } else {
-            content.into_any_element()
-        }
+            .children(body)
+            .children(self.dialog_layer(cx));
+        // The root `open_window` puts around the window draws the frame's
+        // edges and shadow where the window draws its own frame.
+        content
     }
 }

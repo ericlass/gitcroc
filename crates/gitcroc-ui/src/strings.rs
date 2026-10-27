@@ -50,6 +50,10 @@ pub mod menus {
 pub mod keys {
     pub const NEXT_REGION: &str = "Move the focus to the next region";
     pub const PREVIOUS_REGION: &str = "Move the focus to the previous region";
+    pub const NEXT_TAB: &str = "Next tab";
+    pub const PREVIOUS_TAB: &str = "Previous tab";
+    pub const MOVE_TAB_RIGHT: &str = "Move the tab to the right";
+    pub const MOVE_TAB_LEFT: &str = "Move the tab to the left";
     /// Modifiers, as each platform writes them.
     pub const CTRL: &str = "Ctrl";
     pub const CMD: &str = "Cmd";
@@ -67,6 +71,88 @@ pub mod keys {
     /// Keys and modifiers joined, as "Ctrl+Shift+Page Down".
     pub fn join(parts: &[&str]) -> String {
         parts.join("+")
+    }
+}
+
+/// Words many places share.
+pub mod common {
+    pub const CANCEL: &str = "Cancel";
+    pub const DISMISS: &str = "Dismiss";
+}
+
+/// The window's own messages.
+pub mod app {
+    pub fn missing_workspaces(files: &str) -> String {
+        format!("These workspace files were not found, so their tabs were not restored: {files}")
+    }
+    pub const NO_WORKSPACE: &str = "No workspace is open. Open one or create a new one.";
+}
+
+/// What the dialogs share.
+pub mod dialogs {
+    pub const NAME: &str = "Name";
+}
+
+/// The workspace tabs (UI-27, UI-28).
+pub mod tabs {
+    pub const LABEL: &str = "Workspaces";
+    pub fn close(workspace: &str) -> String {
+        format!("Close {workspace}")
+    }
+    pub const OPEN: &str = "Open workspace";
+    pub const OPEN_TITLE: &str = "Open or create a workspace";
+    pub const ACTIONS: &str = "Tab actions";
+    pub const RENAME: &str = "Rename…";
+    pub const EXPORT: &str = "Export workspace…";
+    pub const CLOSE_TAB: &str = "Close";
+}
+
+/// The workspace files, their menu and their dialogs (UI-28).
+pub mod workspaces {
+    pub const LABEL: &str = "Workspaces";
+    pub const MENU: &str = "Open workspace";
+    pub const OPEN: &str = "(open)";
+    pub const READ_ONLY: &str = "(read-only)";
+    /// A workspace's name with a mark after it, as "Java (open)".
+    pub fn marked(name: &str, mark: &str) -> String {
+        format!("{name} {mark}")
+    }
+    pub fn newer_schema(found: u32) -> String {
+        format!("From a newer gitcroc (schema {found}); it opens read-only.")
+    }
+    pub fn unreadable(reason: &str) -> String {
+        format!("Cannot be read: {reason}. It opens read-only.")
+    }
+    pub const NO_CONFIG_DIR: &str = "There is no config directory; changes are not saved.";
+    pub const DELETE_ENTRY: &str = "Delete…";
+    pub fn delete_label(workspace: &str) -> String {
+        format!("Delete {workspace}…")
+    }
+    pub const NEW_ENTRY: &str = "New workspace…";
+    pub const IMPORT_ENTRY: &str = "Import workspace…";
+    pub fn cannot_list(error: &str) -> String {
+        format!("Cannot list the workspaces: {error}")
+    }
+    pub fn cannot_open(workspace: &str, error: &str) -> String {
+        format!("Cannot open {workspace}: {error}")
+    }
+    pub const NEW_DIALOG: &str = "New workspace";
+    pub const CREATE: &str = "Create";
+    pub fn rename_dialog(workspace: &str) -> String {
+        format!("Rename {workspace}")
+    }
+    pub const RENAME: &str = "Rename";
+    pub fn delete_dialog(workspace: &str) -> String {
+        format!("Delete the workspace {workspace}?")
+    }
+    pub const DELETE: &str = "Delete";
+    pub const DELETE_WHAT: &str =
+        "Its workspace file is deleted. The repositories on disk are not touched.";
+    pub fn cannot_export(error: &str) -> String {
+        format!("Cannot export the workspace: {error}")
+    }
+    pub fn cannot_import(error: &str) -> String {
+        format!("Cannot import a workspace: {error}")
     }
 }
 

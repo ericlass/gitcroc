@@ -26,6 +26,14 @@ actions!(
         Minimize,
         /// Maximizes or restores the window (the macOS Window menu).
         Zoom,
+        /// Activates the tab right of the active one (UI-22).
+        NextTab,
+        /// Activates the tab left of the active one.
+        PreviousTab,
+        /// Moves the active tab one place right.
+        MoveTabRight,
+        /// Moves the active tab one place left.
+        MoveTabLeft,
     ]
 );
 
@@ -51,6 +59,13 @@ impl Keys {
             secondary: false,
             shift: false,
             alt: false,
+        }
+    }
+
+    const fn secondary(self) -> Self {
+        Self {
+            secondary: true,
+            ..self
         }
     }
 
@@ -110,6 +125,10 @@ impl Keys {
 pub enum Shortcut {
     NextRegion,
     PreviousRegion,
+    NextTab,
+    PreviousTab,
+    MoveTabRight,
+    MoveTabLeft,
 }
 
 impl Shortcut {
@@ -118,6 +137,10 @@ impl Shortcut {
         match self {
             Self::NextRegion => strings::keys::NEXT_REGION,
             Self::PreviousRegion => strings::keys::PREVIOUS_REGION,
+            Self::NextTab => strings::keys::NEXT_TAB,
+            Self::PreviousTab => strings::keys::PREVIOUS_TAB,
+            Self::MoveTabRight => strings::keys::MOVE_TAB_RIGHT,
+            Self::MoveTabLeft => strings::keys::MOVE_TAB_LEFT,
         }
     }
 
@@ -126,14 +149,28 @@ impl Shortcut {
         match self {
             Self::NextRegion => Box::new(NextRegion),
             Self::PreviousRegion => Box::new(PreviousRegion),
+            Self::NextTab => Box::new(NextTab),
+            Self::PreviousTab => Box::new(PreviousTab),
+            Self::MoveTabRight => Box::new(MoveTabRight),
+            Self::MoveTabLeft => Box::new(MoveTabLeft),
         }
     }
 }
 
 /// The app-wide shortcuts and their keys.
-pub const KEYMAP: [(Shortcut, Keys); 2] = [
+pub const KEYMAP: [(Shortcut, Keys); 6] = [
     (Shortcut::NextRegion, Keys::plain("f6")),
     (Shortcut::PreviousRegion, Keys::plain("f6").shift()),
+    (Shortcut::NextTab, Keys::plain("pagedown").secondary()),
+    (Shortcut::PreviousTab, Keys::plain("pageup").secondary()),
+    (
+        Shortcut::MoveTabRight,
+        Keys::plain("pagedown").secondary().shift(),
+    ),
+    (
+        Shortcut::MoveTabLeft,
+        Keys::plain("pageup").secondary().shift(),
+    ),
 ];
 
 /// Binds the shortcuts of [`KEYMAP`], and on macOS the keys of the App and
