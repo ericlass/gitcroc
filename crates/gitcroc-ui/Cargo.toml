@@ -23,6 +23,19 @@ gpui-component.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 # The home folder a save dialog starts in.
 directories.workspace = true
+# The code themes' highlighting (UI-24).
+syntect.workspace = true
+# The theme files gpui-component reads, built from the tokens (UI-23).
+serde_json.workspace = true
+
+# The accent colour (UI-23): the appearance portal.
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd.workspace = true
+futures-lite.workspace = true
+
+# The accent colour (UI-23): `UISettings`, a WinRT API without `unsafe`.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = ["UI_ViewManagement"] }
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }

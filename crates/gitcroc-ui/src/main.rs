@@ -5,7 +5,8 @@
 //! It reads and writes the same settings, workspaces, cache and log as an
 //! installed 1.0.0-rc.1. With `--exit-after-first-frame` it exits 0 once the
 //! window has presented a frame, or 1 when none came within two minutes:
-//! CI's check that a real window opens.
+//! CI's check that a real window opens. Without any font installed it
+//! exits 1 with a message, before GPUI would panic at the first text.
 
 // No console window behind the app in Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -23,11 +24,13 @@ use gitcroc_app::update::NoUpdates;
 use gitcroc_core::{PlatformCacheDir, PlatformConfigDir, PlatformLogDir};
 use gitcroc_ui::icons::Icons;
 use gitcroc_ui::services::Services;
+use gitcroc_ui::theme::{AppTheme, accent, fonts};
 
 /// How long `--exit-after-first-frame` waits for the frame.
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(120);
 
 static PRESENTED: AtomicBool = AtomicBool::new(false);
+static NO_FONTS: AtomicBool = AtomicBool::new(false);
 
 fn main() -> ExitCode {
     // Started by git as its askpass helper (D10): no window.
@@ -83,6 +86,16 @@ fn main() -> ExitCode {
     }
     gpui_kit::application().with_assets(Icons).run(move |cx| {
         gitcroc_ui::init(cx);
+        if let Err(error) = fonts::check_installed(AppTheme::global(cx).installed_fonts()) {
+            eprintln!("{error}");
+            services.app().log_warning(&error.to_string());
+            NO_FONTS.store(true, Ordering::SeqCst);
+            // A quit asked for before the event loop runs is lost on
+            // Linux: a task quits from inside it.
+            cx.spawn(async |cx| cx.update(|cx| cx.quit())).detach();
+            return;
+        }
+        accent::follow(cx);
         dialog_requests.serve(cx);
         // Closing the last window quits, as on every platform but
         // macOS's custom; gitcroc has one window.
@@ -115,6 +128,9 @@ fn main() -> ExitCode {
     });
     // Jobs still running are abandoned, as when the Tauri app closed.
     runtime.shutdown_background();
+    if NO_FONTS.load(Ordering::SeqCst) {
+        return ExitCode::FAILURE;
+    }
     if first_frame && !PRESENTED.load(Ordering::SeqCst) {
         return ExitCode::FAILURE;
     }

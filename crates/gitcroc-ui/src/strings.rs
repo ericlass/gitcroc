@@ -69,3 +69,26 @@ pub mod keys {
         parts.join("+")
     }
 }
+
+/// The code themes (UI-24), as the Settings dialog lists them.
+pub mod code_themes {
+    pub const GITHUB_LIGHT: &str = "GitHub Light";
+    pub const GITHUB_DARK: &str = "GitHub Dark";
+    pub const SOLARIZED_LIGHT: &str = "Solarized Light";
+    pub const SOLARIZED_DARK: &str = "Solarized Dark";
+    pub const ONE_DARK: &str = "One Dark";
+    pub const DRACULA: &str = "Dracula";
+    pub const NORD: &str = "Nord";
+    pub const MONOKAI: &str = "Monokai";
+}
+
+/// Messages from the start, before any window.
+pub mod startup {
+    /// No font is installed, so no text can be drawn (UI-26).
+    pub const NO_FONTS: &str = "gitcroc cannot start: no font is installed. Install a font \
+        package, such as fonts-dejavu-core or dejavu-sans-fonts, and start gitcroc again.";
+    /// A font from the settings or the desktop that is not installed.
+    pub fn missing_font(family: &str) -> String {
+        format!("the font {family:?} is not installed; using the default instead")
+    }
+}

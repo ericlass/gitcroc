@@ -21,10 +21,14 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(not(target_os = "linux"))]
+pub use self::NoDesktopFonts as PlatformFonts;
 pub use keychain::{KEYCHAIN_SERVICE, KeychainError, MemoryKeychain, OsKeychain, keychain_account};
 pub use launch::{Launch, LaunchError, start};
 #[cfg(target_os = "linux")]
 pub use linux::LinuxInstallation as PlatformInstallation;
+#[cfg(target_os = "linux")]
+pub use linux::PortalFonts as PlatformFonts;
 #[cfg(target_os = "linux")]
 pub use linux::Terminals as PlatformTerminal;
 #[cfg(target_os = "linux")]
@@ -117,12 +121,13 @@ pub trait DesktopFontSource {
     fn read(&self) -> DesktopFonts;
 }
 
-/// Reads no fonts, so the UI uses its own. Every platform's until the fonts
-/// are read without GTK (M6-07).
+/// Reads no fonts, so the UI uses its own: on Windows and macOS GPUI's
+/// system UI font is the desktop's, and gpui-component picks an installed
+/// monospace font.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct PlatformFonts;
+pub struct NoDesktopFonts;
 
-impl DesktopFontSource for PlatformFonts {
+impl DesktopFontSource for NoDesktopFonts {
     fn read(&self) -> DesktopFonts {
         DesktopFonts::default()
     }

@@ -12,7 +12,7 @@ use gitcroc_core::{PaneLayout, WorkspaceId, WorkspaceTabs};
 use gpui_component::resizable::{
     ResizablePanelEvent, ResizableState, h_resizable, resizable_panel,
 };
-use gpui_component::{ActiveTheme, Theme, window_border};
+use gpui_component::window_border;
 use gpui_kit::{
     AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     ParentElement, Pixels, Render, Role, SharedString, StatefulInteractiveElement, Styled,
@@ -23,6 +23,7 @@ use tokio::sync::broadcast::error::RecvError;
 use crate::keys::{self, Minimize, NextRegion, PreviousRegion, Zoom};
 use crate::services::Services;
 use crate::strings;
+use crate::theme::{ActiveTokens, AppTheme};
 use crate::title_bar::{Platform, TitleBar, WindowControls};
 
 /// The tree's and the history's widths until the workspace saves its own
@@ -121,10 +122,19 @@ impl GitcrocWindow {
                 }
             }
         });
-        // Until M6-07 the window follows the system's light or dark mode.
-        Theme::sync_system_appearance(Some(window), cx);
+        // The theme, code themes and fonts of the settings (UI-23, UI-24,
+        // UI-26), over the system's light or dark mode.
+        let info = services.app().app_info();
+        AppTheme::set_desktop_fonts(info.ui_font, info.code_font, cx);
+        AppTheme::apply_settings(&services.app().settings_get().settings, cx);
+        for family in AppTheme::global(cx).missing_fonts() {
+            services
+                .app()
+                .log_warning(&strings::startup::missing_font(family));
+        }
+        AppTheme::sync_window_appearance(window, cx);
         let appearance = cx.observe_window_appearance(window, |_, window, cx| {
-            Theme::sync_system_appearance(Some(window), cx);
+            AppTheme::sync_window_appearance(window, cx);
         });
         let mut this = Self {
             services,
@@ -301,7 +311,7 @@ impl Render for GitcrocWindow {
         let layout = self.layout(cx);
         let (state, tree_width, history_width) =
             (layout.state.clone(), layout.tree, layout.history);
-        let theme = cx.theme();
+        let tokens = *cx.tokens();
         let content = div()
             .id("gitcroc-window")
             .key_context(keys::WINDOW_CONTEXT)
@@ -312,8 +322,8 @@ impl Render for GitcrocWindow {
             .flex()
             .flex_col()
             .size_full()
-            .bg(theme.background)
-            .text_color(theme.foreground)
+            .bg(tokens.bg_1)
+            .text_color(tokens.text_primary)
             .child(
                 div()
                     .id("title-region")
@@ -332,8 +342,9 @@ impl Render for GitcrocWindow {
                     .aria_label(strings::regions::TOOLBAR)
                     .flex_shrink_0()
                     .h(TOOLBAR_HEIGHT)
+                    .bg(tokens.bg_2)
                     .border_b_1()
-                    .border_color(theme.border),
+                    .border_color(tokens.border),
             )
             .child(
                 div().flex_1().min_h_0().child(
@@ -357,8 +368,9 @@ impl Render for GitcrocWindow {
                     .aria_label(strings::regions::STATUS_BAR)
                     .flex_shrink_0()
                     .h(STATUS_BAR_HEIGHT)
+                    .bg(tokens.bg_2)
                     .border_t_1()
-                    .border_color(theme.border),
+                    .border_color(tokens.border),
             );
         // On Linux, a window that draws its own frame draws its edges and
         // shadow too, and is resized from them.
