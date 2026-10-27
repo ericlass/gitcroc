@@ -117,8 +117,10 @@ impl LogDir for Dirs {
     }
 }
 
-/// The command log of this test process, in a directory of its own.
-fn log_dir() -> &'static Path {
+/// The command log of this test process, in a directory of its own. Git's
+/// command log is set once per process, so every test that starts an app
+/// logs here too.
+pub(crate) fn log_dir() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
         let dir = tempfile::tempdir().unwrap().keep();

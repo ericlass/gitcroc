@@ -11,9 +11,9 @@ Respects: ARCH-5, ARCH-6, ARCH-7, ARCH-8, ARCH-9, PLAT-1, D2, D10, D12, SEC-2, Q
 
 ## Split into four pull requests (DEV-4)
 1. **Tauri leaves.** The Tauri shell, its workflows and the IPC layer are deleted. `ui/` stays as a reference, out of CI.
-2. **`App`, `AppEvent` and the first services:** app info, git setup, settings, workspaces, tree, palette, groups, history and jobs.
+2. **`App`, `AppEvent` and the first services:** app info, git setup and git detection, settings, workspaces, tree, palette, groups, history, jobs and watchers. Jobs, tab switches and adding repos need the watchers and a detected git, so both come here rather than in PR 4.
 3. **Changes and operations:** changes, diffs, staging, commit, branch, sync, integrate, stash, tag, reset, remote, clone, conflicts, fsmonitor and commit-graph. It also adds the `Dialogs` trait.
-4. **The rest:** AI, askpass, updates, watchers, group operations and git detection.
+4. **The rest:** AI, askpass, updates and group operations.
 
 From PR 1 until M6-06 there is no app to run. PRs 2 to 4 port the command bodies of `crates/gitcroc-app/src/ipc.rs` as it was before PR 1 (`git show <PR 1's parent>:crates/gitcroc-app/src/ipc.rs`), with the tests that went with them.
 
@@ -78,7 +78,7 @@ From PR 1 until M6-06 there is no app to run. PRs 2 to 4 port the command bodies
     - It does what `run()`'s `setup` closure did, in the same order: load, log, askpass socket, updater schedule, AI start, watching and git detection.
   - **Methods** are grouped by area into modules, as `ipc.rs` was: `app`, `workspace`, `tree`, `history`, `changes`, `ops`, `conflict`, `ai`, `update` and `askpass`.
     - Each takes the same arguments as its Tauri command did, without `AppHandle` or `State`.
-    - Each returns `Result<T, AppError>`.
+    - Each returns `Result<T, AppError>`, or the value alone when it cannot fail, such as `settings_get`.
     - `AppError` is `IpcError` under a new name, with the same codes and messages.
   - **ARCH-7:**
     - Every method is `async`, or returns at once.
