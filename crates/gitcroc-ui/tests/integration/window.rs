@@ -1,7 +1,6 @@
 //! The main window: its state from the app's events (ARCH-6), its calls off
 //! the UI thread (ARCH-7), and its regions (UI-22).
 
-use std::rc::Rc;
 use std::sync::mpsc;
 use std::thread::ThreadId;
 use std::time::Duration;
@@ -9,7 +8,6 @@ use std::time::Duration;
 use gitcroc_app::app::AppEvent;
 use gitcroc_core::GitStatus;
 use gitcroc_ui::services::Services;
-use gitcroc_ui::title_bar::Platform;
 use gitcroc_ui::window::GitcrocWindow;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
@@ -18,27 +16,8 @@ use gpui_kit::{
 };
 use tokio::sync::broadcast::error::RecvError;
 
-use crate::support::{FakeControls, Fixture, open, settle};
+use crate::support::{Fixture, main_window, open, settle};
 use gitcroc_ui::keys::KEYMAP;
-
-fn main_window(
-    cx: &mut TestAppContext,
-    fixture: &Fixture,
-) -> (VisualTestContext, gpui_kit::Entity<GitcrocWindow>) {
-    let services = fixture.services.clone();
-    open(cx, move |window, cx| {
-        cx.new(|cx| {
-            GitcrocWindow::new(
-                services,
-                Rc::new(FakeControls::default()),
-                Platform::Linux,
-                false,
-                window,
-                cx,
-            )
-        })
-    })
-}
 
 fn title(window: &gpui_kit::Entity<GitcrocWindow>, cx: &gpui_kit::App) -> String {
     let title_bar = window.read(cx).title_bar().clone();

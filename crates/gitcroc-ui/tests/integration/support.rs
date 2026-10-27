@@ -1,22 +1,25 @@
 //! What the UI tests share: a window of their own, controls that record
-//! what the title bar asks, and an app in a temporary folder.
+//! what the title bar asks, an app in a temporary folder, and fake gits.
 
 use std::cell::{Cell, RefCell};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use gitcroc_app::ai::ProviderCalls;
 use gitcroc_app::app::{App as GitcrocApp, AppSetup};
-use gitcroc_app::platform::{DesktopFonts, MemoryKeychain};
+use gitcroc_app::platform::{DesktopFonts, DialogFuture, Dialogs, FileFilter, MemoryKeychain};
 use gitcroc_app::update::NoUpdates;
 use gitcroc_core::{CacheDir, ConfigDir, GitStatus, LogDir};
+use std::rc::Rc;
+
 use gitcroc_ui::services::Services;
-use gitcroc_ui::title_bar::WindowControls;
+use gitcroc_ui::title_bar::{Platform, WindowControls};
+use gitcroc_ui::window::GitcrocWindow;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
-    AnyWindowHandle, App, Bounds, Entity, Render, TestAppContext, VisualTestContext, Window,
-    WindowBounds, WindowOptions, point, px, size,
+    AnyWindowHandle, App, AppContext, Bounds, Entity, Render, TestAppContext, VisualTestContext,
+    Window, WindowBounds, WindowOptions, point, px, size,
 };
 use tokio::runtime::Runtime;
 
@@ -49,6 +52,40 @@ pub fn open<V: Render>(
     cx.run_until_parked();
     cx.update(|window, cx| window.render_frame(cx));
     (cx, view)
+}
+
+/// Opens the main window on the fixture's app, on Linux with gitcroc's
+/// own title bar, and waits until it shows what git detection found: the
+/// main window or the setup screen (PLAT-3).
+pub fn main_window(
+    cx: &mut TestAppContext,
+    fixture: &Fixture,
+) -> (VisualTestContext, Entity<GitcrocWindow>) {
+    let (mut cx, window) = opened_main_window(cx, fixture);
+    settle(&mut cx, |window, _| {
+        window.try_find("toolbar").is_some() || window.try_find("git-setup").is_some()
+    });
+    (cx, window)
+}
+
+/// The main window on the fixture's app, as it first draws.
+pub fn opened_main_window(
+    cx: &mut TestAppContext,
+    fixture: &Fixture,
+) -> (VisualTestContext, Entity<GitcrocWindow>) {
+    let services = fixture.services.clone();
+    open(cx, move |window, cx| {
+        cx.new(|cx| {
+            GitcrocWindow::new(
+                services,
+                Rc::new(FakeControls::default()),
+                Platform::Linux,
+                false,
+                window,
+                cx,
+            )
+        })
+    })
 }
 
 /// Runs the window's tasks until `done` holds. Work on the app's runtime
@@ -132,24 +169,90 @@ impl LogDir for Dirs {
     }
 }
 
+/// File dialogs that answer every request with one path, or cancel.
+struct Answering(Option<PathBuf>);
+
+impl Answering {
+    fn answer(&self) -> DialogFuture {
+        Box::pin(std::future::ready(self.0.clone()))
+    }
+}
+
+impl Dialogs for Answering {
+    fn pick_folder(&self, _: &str) -> DialogFuture {
+        self.answer()
+    }
+
+    fn pick_file(&self, _: &str, _: Option<&FileFilter>) -> DialogFuture {
+        self.answer()
+    }
+
+    fn save_file(&self, _: &str, _: &str, _: Option<&FileFilter>) -> DialogFuture {
+        self.answer()
+    }
+}
+
+/// How a [`Fixture`] starts its app.
+pub struct Options {
+    /// The event channel's capacity.
+    pub capacity: usize,
+    /// The settings file's text, if there is one.
+    pub settings: Option<String>,
+    /// Whether to wait for the first git detection.
+    pub wait_for_git: bool,
+    /// What the file dialogs answer; `None` cancels.
+    pub picked: Option<PathBuf>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            capacity: gitcroc_app::app::EVENT_CAPACITY,
+            settings: None,
+            wait_for_git: true,
+            picked: None,
+        }
+    }
+}
+
+/// A settings file that chooses the git at `path` (PLAT-3), with `schema`.
+pub fn settings_with_git(path: &Path, schema: u32) -> String {
+    let git = toml::Value::String(path.to_str().unwrap().to_owned());
+    format!("schema = {schema}\ngit_path = {git}\n")
+}
+
 /// An app on its own runtime, with its files in a temporary folder.
 pub struct Fixture {
     pub runtime: Runtime,
     pub services: Services,
-    _dir: tempfile::TempDir,
+    dir: tempfile::TempDir,
 }
 
 impl Fixture {
     /// Starts the app with an event channel of `capacity`, and waits for its
     /// git detection.
     pub fn start(capacity: usize) -> Self {
+        Self::start_with(Options {
+            capacity,
+            ..Options::default()
+        })
+    }
+
+    pub fn start_with(options: Options) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let dirs = Dirs(dir.path().to_owned());
+        if let Some(settings) = &options.settings {
+            std::fs::create_dir_all(dir.path().join("config")).unwrap();
+            std::fs::write(
+                dir.path().join("config").join(gitcroc_core::SETTINGS_FILE),
+                settings,
+            )
+            .unwrap();
+        }
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .unwrap();
-        let (dialogs, _) = gitcroc_ui::dialogs::dialogs();
         let app = {
             let _entered = runtime.enter();
             GitcrocApp::start(AppSetup {
@@ -158,28 +261,129 @@ impl Fixture {
                 logs: &dirs,
                 runtime: runtime.handle().clone(),
                 fonts: DesktopFonts::default(),
-                dialogs: Arc::new(dialogs),
+                dialogs: Arc::new(Answering(options.picked)),
                 keychain: Arc::new(MemoryKeychain::default()),
                 ai: Arc::new(ProviderCalls),
                 updates: Arc::new(NoUpdates),
                 askpass_helper: PathBuf::new(),
-                event_capacity: capacity,
+                event_capacity: options.capacity,
             })
         };
-        runtime.block_on(async {
-            while matches!(app.git_status().await, GitStatus::Checking) {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        });
+        if options.wait_for_git {
+            runtime.block_on(async {
+                while matches!(app.git_status().await, GitStatus::Checking) {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            });
+        }
         let services = Services::new(app, runtime.handle().clone());
         Self {
             runtime,
             services,
-            _dir: dir,
+            dir,
         }
     }
 
     pub fn app(&self) -> &GitcrocApp {
         self.services.app()
     }
+
+    /// The settings file's text.
+    pub fn settings_file(&self) -> String {
+        std::fs::read_to_string(
+            self.dir
+                .path()
+                .join("config")
+                .join(gitcroc_core::SETTINGS_FILE),
+        )
+        .unwrap()
+    }
+}
+
+/// A script that answers `git --version` like git would (QA-2), as the
+/// core's detection tests do, with the version in a file beside it so a
+/// test can change it. A blocked one answers only once released, so a
+/// test sees detection running without depending on timing.
+pub struct FakeGit {
+    dir: tempfile::TempDir,
+    path: PathBuf,
+}
+
+impl FakeGit {
+    pub fn new(version: &str) -> Self {
+        let git = Self::blocked(version);
+        git.release();
+        git
+    }
+
+    pub fn blocked(version: &str) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        #[cfg(windows)]
+        let path = {
+            let path = dir.path().join("git.cmd");
+            std::fs::write(
+                &path,
+                "@echo off\r\n:wait\r\nif not exist \"%~dp0release\" goto wait\r\n\
+                 set /p version=<\"%~dp0version\"\r\necho git version %version%\r\n",
+            )
+            .unwrap();
+            path
+        };
+        #[cfg(not(windows))]
+        let path = {
+            use std::os::unix::fs::PermissionsExt;
+            let path = dir.path().join("git");
+            std::fs::write(
+                &path,
+                "#!/bin/sh\ndir=$(dirname \"$0\")\n\
+                 if [ \"$1\" = --version ]; then\n\
+                 while [ ! -e \"$dir/release\" ]; do sleep 0.01; done\n\
+                 fi\n\
+                 echo \"git version $(cat \"$dir/version\")\"\n",
+            )
+            .unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let git = Self { dir, path };
+        git.set_version(version);
+        #[cfg(not(windows))]
+        wait_until_runnable(&git.path);
+        git
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn set_version(&self, version: &str) {
+        std::fs::write(self.dir.path().join("version"), version).unwrap();
+    }
+
+    pub fn release(&self) {
+        std::fs::write(self.dir.path().join("release"), "").unwrap();
+    }
+
+    /// Makes the next `--version` wait until [`Self::release`].
+    pub fn block(&self) {
+        std::fs::remove_file(self.dir.path().join("release")).unwrap();
+    }
+}
+
+/// A child forked by another test thread while the script was open for
+/// writing holds that handle until it execs, and running the script fails
+/// with "Text file busy" meanwhile; one successful run, without
+/// `--version` so it never waits, means no such handle is left.
+#[cfg(not(windows))]
+fn wait_until_runnable(path: &Path) {
+    for _ in 0..1000 {
+        match std::process::Command::new(path).output() {
+            Err(error) if error.raw_os_error() == Some(26) => std::thread::yield_now(),
+            result => {
+                result.unwrap();
+                return;
+            }
+        }
+    }
+    panic!("{} stays busy", path.display());
 }
