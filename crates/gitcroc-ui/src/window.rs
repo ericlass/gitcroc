@@ -775,13 +775,17 @@ impl GitcrocWindow {
             .text_color(tokens.text_primary)
             .border_b_1()
             .border_color(tokens.border)
-            .child(div().flex_1().child(text))
+            // A long text, such as a long path, wraps and leaves the
+            // button in the window.
+            .child(div().flex_1().min_w_0().child(text))
             .child(
-                Button::new(gpui_kit::ElementId::Name(format!("{id}-dismiss").into()))
-                    .ghost()
-                    .compact()
-                    .label(strings::common::DISMISS)
-                    .on_click(dismiss),
+                div().flex_shrink_0().child(
+                    Button::new(gpui_kit::ElementId::Name(format!("{id}-dismiss").into()))
+                        .ghost()
+                        .compact()
+                        .label(strings::common::DISMISS)
+                        .on_click(dismiss),
+                ),
             )
             .into_any_element()
     }

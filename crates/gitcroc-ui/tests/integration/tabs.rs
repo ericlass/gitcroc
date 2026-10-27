@@ -575,9 +575,12 @@ fn ui_22_dialogs_trap_the_focus_and_close_with_escape(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn ui_33_missing_workspace_files_are_named_until_dismissed(cx: &mut TestAppContext) {
+    // A name long enough that the note must wrap to keep its button in
+    // the window, as macOS's long temporary paths need.
+    let long = "a-workspace-whose-file-name-is-long-enough-to-fill-the-window".repeat(4);
     let fixture = Fixture::start_with(Options {
         settings: Some(format!(
-            "schema = {SETTINGS_SCHEMA}\n[session]\ntabs = [\"gone\"]\nactive = \"gone\"\n"
+            "schema = {SETTINGS_SCHEMA}\n[session]\ntabs = [\"gone\", \"{long}\"]\nactive = \"gone\"\n"
         )),
         ..Options::default()
     });
