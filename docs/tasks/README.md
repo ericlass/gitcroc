@@ -201,7 +201,7 @@ The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
 rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
 not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-07 and M6-27 have theirs;
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-08 and M6-27 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
@@ -214,7 +214,7 @@ several pull requests (DEV-4).
 | [M6-05](M6-05-services-without-tauri.md) † | `gitcroc-app` services and event channel without Tauri; the Tauri shell, its workflows and the IPC layer are deleted (4 PRs) | M6-01 |
 | [M6-06](M6-06-gpui-skeleton.md) | `gitcroc-ui` skeleton: window, own title bar, panes, status bar, strings, keymap, macOS menus, CI job, `cargo deny`, `just coverage M6` | M6-03, M6-05 |
 | [M6-07](M6-07-theme-and-fonts.md) | App tokens, accent color, fonts, 8 code themes on `syntect`, contrast tests | M6-06 |
-| M6-08 | Git setup screen and git path | M6-06 |
+| [M6-08](M6-08-git-setup.md) | Git setup screen and git path | M6-06 |
 | M6-09 | Workspace tabs and workspace dialogs | M6-06 |
 | M6-10 | Tree pane: rows, summaries, filter, selection | M6-09 |
 | M6-11 † | History pane from the spike: columns, search, merged list, summary strip | M6-10 |
