@@ -7,14 +7,10 @@ all-features = true
 [advisories]
 yanked = "deny"
 ignore = [
-    # Tauri's Linux backend (D2) uses WebKitGTK 4.1, whose gtk-rs 0.18 bindings
-    # pull in glib-macros, which uses this proc macro at build time. No
-    # alternative exists until Tauri moves off GTK 3.
-    { id = "RUSTSEC-2024-0370", reason = "build-time only, via glib-macros 0.18 under Tauri on Linux" },
-    # paste is unmaintained, not vulnerable. specta's `function` feature, which
-    # tauri-specta needs for typed commands (section 4 "Stack"), uses this proc
-    # macro at build time.
-    { id = "RUSTSEC-2024-0436", reason = "unmaintained build-time proc macro, via specta's function feature for tauri-specta" },
+    # paste is unmaintained, not vulnerable. tikv-jemalloc-ctl, which the
+    # allocator's test reads (M5-17), uses this proc macro at build time; it
+    # is a dev-dependency only.
+    { id = "RUSTSEC-2024-0436", reason = "unmaintained build-time proc macro, via the dev-dependency tikv-jemalloc-ctl" },
     # These zbus 5 crates are unmaintained, not vulnerable: they were merged
     # into zbus 6. keyring's Linux store (D11) reaches the Secret Service
     # through zbus 5, and no release of it uses zbus 6 yet.

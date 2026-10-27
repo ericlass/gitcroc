@@ -245,13 +245,15 @@ impl AskpassIssuer for AskpassServer {
 }
 
 /// Serves this executable as the helper on a new platform socket, asking
-/// through `ui`. Runs on the app's async runtime.
-pub fn serve(ui: Arc<dyn AskpassUi>) -> std::io::Result<Arc<AskpassServer>> {
+/// through `ui`. Runs on the app's async runtime, `runtime`.
+pub fn serve(
+    ui: Arc<dyn AskpassUi>,
+    runtime: &tokio::runtime::Handle,
+) -> std::io::Result<Arc<AskpassServer>> {
     let program = std::env::current_exe()?;
-    tauri::async_runtime::block_on(async move {
-        let listener = PlatformSockets::listen()?;
-        Ok(AskpassServer::start(listener, program, ui))
-    })
+    let _entered = runtime.enter();
+    let listener = PlatformSockets::listen()?;
+    Ok(AskpassServer::start(listener, program, ui))
 }
 
 /// The helper mode: when git started this process as its askpass helper,

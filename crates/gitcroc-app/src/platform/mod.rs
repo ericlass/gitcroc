@@ -8,29 +8,20 @@ use std::path::Path;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::ipc::DesktopFonts;
-use crate::window::TitleBar;
-
 mod keychain;
 mod launch;
 #[cfg(target_os = "linux")]
-pub mod linux;
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
-#[cfg(not(target_os = "linux"))]
-mod other;
 pub mod package;
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
 mod windows;
 
-#[cfg(not(target_os = "macos"))]
-pub use self::Decorations as PlatformWindowFrame;
 pub use keychain::{KEYCHAIN_SERVICE, KeychainError, MemoryKeychain, OsKeychain, keychain_account};
 pub use launch::{Launch, LaunchError, start};
-#[cfg(target_os = "linux")]
-pub use linux::GtkFonts as PlatformFonts;
 #[cfg(target_os = "linux")]
 pub use linux::LinuxInstallation as PlatformInstallation;
 #[cfg(target_os = "linux")]
@@ -47,10 +38,6 @@ pub use macos::MacInstallation as PlatformInstallation;
 pub use macos::Open as PlatformBrowser;
 #[cfg(target_os = "macos")]
 pub use macos::TerminalApp as PlatformTerminal;
-#[cfg(target_os = "macos")]
-pub use macos::TitleBarStyle as PlatformWindowFrame;
-#[cfg(not(target_os = "linux"))]
-pub use other::NoDesktopFonts as PlatformFonts;
 #[cfg(unix)]
 pub use unix::UnixSockets as PlatformSockets;
 #[cfg(windows)]
@@ -76,30 +63,6 @@ pub trait WebBrowser {
     fn open(url: &str) -> Launch;
 }
 
-/// What the system draws around the window (UI-35).
-pub trait WindowFrame {
-    /// Gives `window` the title bar `bar`; the window keeps the system's
-    /// resizing.
-    fn apply<R: tauri::Runtime>(
-        window: &tauri::WebviewWindow<R>,
-        bar: TitleBar,
-    ) -> tauri::Result<()>;
-}
-
-/// Windows and Linux: the system's decorations, or none while the tab bar
-/// has the window buttons.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Decorations;
-
-impl WindowFrame for Decorations {
-    fn apply<R: tauri::Runtime>(
-        window: &tauri::WebviewWindow<R>,
-        bar: TitleBar,
-    ) -> tauri::Result<()> {
-        window.set_decorations(bar == TitleBar::System)
-    }
-}
-
 /// The package the running app came from (PLAT-4); see [`package`].
 pub trait Installation {
     fn package() -> gitcroc_core::Package;
@@ -112,10 +75,30 @@ pub trait Terminal {
     fn open_in(path: &Path) -> Vec<Launch>;
 }
 
+/// The desktop's UI and monospace font families, read once at startup
+/// (UI-26) by a [`DesktopFontSource`]; `None` for what the desktop does not
+/// tell.
+#[derive(Debug, Clone, Default)]
+pub struct DesktopFonts {
+    pub ui: Option<String>,
+    pub code: Option<String>,
+}
+
 /// The desktop's UI and monospace font families (UI-26).
 pub trait DesktopFontSource {
     /// Read once, on the main thread, after the toolkit is up.
     fn read(&self) -> DesktopFonts;
+}
+
+/// Reads no fonts, so the UI uses its own. Every platform's until the fonts
+/// are read without GTK (M6-07).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PlatformFonts;
+
+impl DesktopFontSource for PlatformFonts {
+    fn read(&self) -> DesktopFonts {
+        DesktopFonts::default()
+    }
 }
 
 /// A local socket that only processes of this machine reach: the askpass

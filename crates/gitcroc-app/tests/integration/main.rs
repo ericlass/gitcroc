@@ -8,12 +8,6 @@
 mod ai;
 mod ai_providers;
 mod askpass;
-mod build;
-mod fonts;
-mod ipc;
 mod keychain;
 mod platform;
-mod security;
-mod start;
 mod update;
-mod update_test;

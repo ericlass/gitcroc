@@ -28,31 +28,15 @@ repo-gen = { path = "tools/repo-gen" }
 thiserror = "2.0.21"
 serde = { version = "1.0.229", features = ["derive"] }
 
-# IPC types (section 4 "Stack"). specta, tauri-specta and specta-typescript are
-# pinned together: tauri-specta requires this exact specta. The exact versions
-# are recorded in the M0-05 pull request.
+# The derives the IPC types had (section 4 "Stack"), kept on the core's
+# types until M6-30 removes them. The exact version is recorded in the M0-05
+# pull request.
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
-specta-typescript = "=0.0.12"
-tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 
-# Shell (D2). The exact versions are recorded in the M0-04 pull request.
-tauri = { version = "2.12.3", features = [] }
-tauri-build = { version = "2.7.2", features = [] }
-# The folder picker, opened from Rust only (SEC-2, M1-05). The front end gets
-# no dialog permission.
-tauri-plugin-dialog = "2.8.0"
-# Auto-update (PLAT-4, M5-12), in gitcroc-app only and called from Rust
-# only (SEC-2). It verifies each package with the project's public key in
-# tauri.conf.json (SEC-7). rustls, as reqwest has; no zip, which only v1
-# update bundles use.
-tauri-plugin-updater = { version = "2.14.0", default-features = false, features = ["rustls-tls", "system-proxy"] }
-# The GTK that Tauri uses on Linux, for the desktop's UI font (UI-26).
-gtk = "0.18.2"
 # Return freed Rust allocations independently of glibc's per-thread arenas (M5-17).
 tikv-jemallocator = "0.7.0"
 tikv-jemalloc-ctl = "0.7.0"
-# Async runtime and child processes; the same tokio Tauri runs on. Crates add
-# the features they use.
+# Async runtime and child processes. Crates add the features they use.
 tokio = { version = "1.53.2", features = [] }
 
 # Git reads (ARCH-2, section 4 "Stack"). Features are added as the read API
@@ -88,10 +72,6 @@ notify = "8.2.0"
 # niceness 19 on Linux, the scheduling priority on macOS, the thread priority
 # on Windows. The exact version is recorded in the M1-13 pull request.
 thread-priority = "3.1.1"
-
-# Image diffs cross IPC as base64 text (M1-09): Tauri's raw byte responses
-# have no generated TypeScript type.
-base64 = "0.23.1"
 
 # HTTP for the API providers (section 4 "Stack", M4-03): rustls, so no
 # system TLS library is needed. No HTTP/2, no charset decoding: the providers

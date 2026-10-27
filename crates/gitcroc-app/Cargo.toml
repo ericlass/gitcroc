@@ -6,26 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-[[bin]]
-name = "gitcroc"
-path = "src/main.rs"
-
-[build-dependencies]
-tauri-build.workspace = true
-
 [dependencies]
-base64.workspace = true
 thiserror.workspace = true
-tauri = { workspace = true, features = ["specta"] }
-tauri-plugin-dialog.workspace = true
-# The update check and install (PLAT-4); the only network call the app
-# makes on its own (D12).
-tauri-plugin-updater.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The derives of the types the core shares, until M6-30 removes specta.
 specta.workspace = true
-specta-typescript.workspace = true
-tauri-specta.workspace = true
 tokio = { workspace = true, features = ["fs", "time", "net", "io-util", "sync", "macros", "rt"] }
 # The askpass socket (D10): its private directory, and the tokens.
 tempfile.workspace = true
@@ -36,7 +22,6 @@ gitcroc-ai.workspace = true
 keyring.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gtk.workspace = true
 tikv-jemallocator = { workspace = true, features = ["background_threads"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
@@ -46,20 +31,20 @@ tikv-jemalloc-ctl.workspace = true
 # The mock provider stands in for a real one in the consent tests (AI-6).
 gitcroc-ai = { workspace = true, features = ["mock"] }
 gitcroc-git.workspace = true
-toml.workspace = true
 repo-gen.workspace = true
 
 [features]
-# M5-15: local updater proof on hosted runners, never a release bundle.
-update-test = []
-# M1-12: the UI-side measurements of `just bench-ui`. Never in a release
-# bundle; `just bench-ui` builds with it into its own target dir.
-perf-trace = []
-# M2-15: the end-to-end smoke test of `just smoke`, whose folder dialog is
-# answered by GITCROC_E2E_PICK_FOLDER. Never in a release bundle; `just
-# smoke` builds with it into its own target dir. It also turns on the mock AI
-# provider (M4-01).
+# The scripted AI provider for the smoke test (M4-12), which M6-29 brings
+# back. Never in a release build.
 e2e = ["gitcroc-ai/mock"]
+
+# Started by the askpass tests as git's helper (D10), in place of the app's
+# binary, which runs the same `askpass::helper` first.
+[[bin]]
+name = "askpass-helper"
+path = "tests/support/askpass_helper.rs"
+test = false
+doc = false
 
 [lints]
 workspace = true
