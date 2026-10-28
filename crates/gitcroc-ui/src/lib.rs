@@ -5,6 +5,8 @@
 pub mod dialog;
 pub mod dialogs;
 pub mod git_setup;
+pub mod history;
+pub mod history_pane;
 pub mod icons;
 pub mod keys;
 pub mod menu;
@@ -43,6 +45,7 @@ pub fn init(cx: &mut App) {
     dialog::bind(cx);
     tab_bar::bind(cx);
     tree_pane::bind(cx);
+    history_pane::bind(cx);
     menus::init(cx);
 }
 

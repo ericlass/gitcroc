@@ -52,8 +52,8 @@ Respects: ARCH-6, ARCH-7, ARCH-8, ARCH-9, PERF-1, PERF-2, OPS-7, UI-22, UI-23, S
     straight lanes and colours from the tokens (UI-23);
   - ref labels for `HEAD`, the current branch, local branches, remote
     branches and tags, each named for screen readers;
-  - the author date as local `YYYY-MM-DD HH:MM`, with the full author and
-    committer dates as its description;
+  - the author date as `YYYY-MM-DD HH:MM` in the commit's recorded time
+    zone, with the full author and committer dates as its description;
   - placeholder rows below the loaded ones while a page follows;
   - the empty states for no source, no commits and an unreadable history.
 - **Reading on**:

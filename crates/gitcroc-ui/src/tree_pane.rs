@@ -154,6 +154,11 @@ impl TreePane {
         self.tree.target()
     }
 
+    /// The item of the row the keyboard is on, which the history shows.
+    pub fn selected_item(&self) -> Option<&TreeItem> {
+        self.tree.selected_item()
+    }
+
     /// Follows the app's events about this workspace.
     pub fn on_event(&mut self, event: &AppEvent, cx: &mut Context<Self>) {
         match event {

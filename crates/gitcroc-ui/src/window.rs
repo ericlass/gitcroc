@@ -1,7 +1,8 @@
 //! The main window: the title bar with the workspace tabs, the toolbar, the
-//! three panes (tree, history, changes) and the status bar. The tree is one
-//! view per open workspace, so each tab keeps its own (UI-29); the other
-//! panes are empty views for their tasks to fill. Its state comes from the app (ARCH-6):
+//! three panes (tree, history, changes) and the status bar. The tree and the
+//! history are one view per open workspace, so each tab keeps its own
+//! (UI-29); the changes pane is an empty view for its task to fill. Its state
+//! comes from the app (ARCH-6):
 //! one task per window receives the app's events and updates it on the
 //! main thread, and reads the state again when it fell behind. Until git
 //! detection finds a usable git, the window shows that it is looking, then
@@ -26,6 +27,7 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::dialog::{Closed, Modal, NameDialog, Question};
 use crate::git_setup::GitSetup;
+use crate::history_pane::HistoryPane;
 use crate::keys::{
     self, Minimize, MoveTabLeft, MoveTabRight, NextRegion, NextTab, PreviousRegion, PreviousTab,
     Zoom,
@@ -46,7 +48,7 @@ const HISTORY_WIDTH: Pixels = px(560.);
 const TOOLBAR_HEIGHT: Pixels = px(40.);
 const STATUS_BAR_HEIGHT: Pixels = px(24.);
 
-/// The history or the changes pane: empty until its task fills it.
+/// The changes pane: empty until its task fills it.
 pub struct Pane {
     id: &'static str,
     label: &'static str,
@@ -126,7 +128,8 @@ pub struct GitcrocWindow {
     title_bar: Entity<TitleBar>,
     /// Each open workspace's tree, made when its tab is first shown.
     trees: HashMap<WorkspaceId, Entity<TreePane>>,
-    history: Entity<Pane>,
+    /// Each open workspace's history, made with its tree.
+    histories: HashMap<WorkspaceId, Entity<HistoryPane>>,
     changes: Entity<Pane>,
     title_focus: FocusHandle,
     toolbar_focus: FocusHandle,
@@ -211,7 +214,7 @@ impl GitcrocWindow {
             services,
             title_bar,
             trees: HashMap::new(),
-            history: cx.new(|cx| Pane::new("history", strings::regions::HISTORY, cx)),
+            histories: HashMap::new(),
             changes: cx.new(|cx| Pane::new("changes", strings::regions::CHANGES, cx)),
             title_focus: cx.focus_handle(),
             toolbar_focus: cx.focus_handle(),
@@ -257,6 +260,13 @@ impl GitcrocWindow {
             tree.update(cx, |tree, cx| match &event {
                 Ok(event) => tree.on_event(event, cx),
                 Err(RecvError::Lagged(_)) => tree.read_again(cx),
+                Err(RecvError::Closed) => {}
+            });
+        }
+        for history in self.histories.values() {
+            history.update(cx, |history, cx| match &event {
+                Ok(event) => history.on_event(event, cx),
+                Err(RecvError::Lagged(_)) => history.read_again(cx),
                 Err(RecvError::Closed) => {}
             });
         }
@@ -373,16 +383,25 @@ impl GitcrocWindow {
             title_bar.set_title(title, cx);
             title_bar.set_tab_bar(tab_bar, cx);
         });
-        // A closed tab's tree goes; the active tab's is made when first
-        // shown.
+        // A closed tab's tree and history go; the active tab's are made when
+        // first shown.
         self.trees
             .retain(|id, _| tabs.open.iter().any(|view| &view.id == id));
-        if let Some(active) = tabs.active.clone().filter(|_| usable)
-            && !self.trees.contains_key(&active)
-        {
-            let services = self.services.clone();
-            let tree = cx.new(|cx| TreePane::new(services, active.clone(), window, cx));
-            self.trees.insert(active, tree);
+        self.histories
+            .retain(|id, _| tabs.open.iter().any(|view| &view.id == id));
+        if let Some(active) = tabs.active.clone().filter(|_| usable) {
+            if !self.trees.contains_key(&active) {
+                let services = self.services.clone();
+                let tree = cx.new(|cx| TreePane::new(services, active.clone(), window, cx));
+                self.trees.insert(active.clone(), tree);
+            }
+            if !self.histories.contains_key(&active)
+                && let Some(tree) = self.trees.get(&active).cloned()
+            {
+                let services = self.services.clone();
+                let history = cx.new(|cx| HistoryPane::new(services, active.clone(), tree, cx));
+                self.histories.insert(active, history);
+            }
         }
         // With every tab closed, the workspaces to open (UI-27).
         if tabs.active.is_none() && usable {
@@ -406,6 +425,12 @@ impl GitcrocWindow {
     pub fn tree(&self, cx: &gpui_kit::App) -> Option<Entity<TreePane>> {
         let active = self.workspaces.read(cx).tabs().active.as_ref()?;
         self.trees.get(active).cloned()
+    }
+
+    /// The active tab's history.
+    pub fn history(&self, cx: &gpui_kit::App) -> Option<Entity<HistoryPane>> {
+        let active = self.workspaces.read(cx).tabs().active.as_ref()?;
+        self.histories.get(active).cloned()
     }
 
     /// Gives the focus to the first region under the title bar.
@@ -630,14 +655,12 @@ impl GitcrocWindow {
             vec![self.title_focus.clone(), start.focus_handle(cx)]
         } else if self.git.usable() {
             let tree = self.tree(cx).map(|tree| tree.focus_handle(cx));
+            let history = self.history(cx).map(|history| history.focus_handle(cx));
             [self.title_focus.clone(), self.toolbar_focus.clone()]
                 .into_iter()
                 .chain(tree)
-                .chain([
-                    self.history.focus_handle(cx),
-                    self.changes.focus_handle(cx),
-                    self.status_focus.clone(),
-                ])
+                .chain(history)
+                .chain([self.changes.focus_handle(cx), self.status_focus.clone()])
                 .collect()
         } else {
             let setup = self.git_setup.as_ref().map(|setup| setup.focus_handle(cx));
@@ -686,6 +709,7 @@ impl GitcrocWindow {
     /// The toolbar, the panes and the status bar.
     fn main_regions(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let tree = self.tree(cx);
+        let history = self.history(cx);
         let layout = self.layout(cx);
         let (state, tree_width, history_width) =
             (layout.state.clone(), layout.tree, layout.history);
@@ -710,11 +734,7 @@ impl GitcrocWindow {
                     h_resizable("panes")
                         .with_state(&state)
                         .child(resizable_panel().size(tree_width).children(tree))
-                        .child(
-                            resizable_panel()
-                                .size(history_width)
-                                .child(self.history.clone()),
-                        )
+                        .child(resizable_panel().size(history_width).children(history))
                         .child(resizable_panel().child(self.changes.clone())),
                 )
                 .into_any_element(),
