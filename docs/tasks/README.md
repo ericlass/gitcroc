@@ -201,7 +201,7 @@ The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
 rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
 not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-13 and M6-27 have theirs;
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-14a and M6-27 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
@@ -225,7 +225,8 @@ several pull requests (DEV-4).
 | [M6-13a](M6-13a-text-diff.md) | Text diff: inline and side by side, options, wrap, F7 | M6-07, M6-12 |
 | [M6-13b](M6-13b-highlighting-and-special-diffs.md) | Syntax highlighting; binary, image, large, folder and submodule diffs | M6-13a |
 | [M6-13c](M6-13c-docking.md) | Docking the changes pane right or at the bottom | M6-13a |
-| M6-14 | `just bench-ui` on GPUI; single-repo budgets | M6-13b, M6-13c |
+| [M6-14a](M6-14a-background-tabs.md) | Background tabs let go of their history and diffs (UI-31) | M6-13b, M6-13c |
+| M6-14b | `just bench-ui` on GPUI; single-repo budgets | M6-14a |
 | M6-15 | Status bar, job list, notifications, askpass dialog | M6-06 |
 | M6-16 | Stage, unstage and discard; commit and amend; fsmonitor offer | M6-13a, M6-15 |
 | M6-17 | Tree and history context menus; branch dialogs | M6-11d, M6-15 |

@@ -85,6 +85,9 @@ pub struct GitcrocWindow {
     changes: HashMap<WorkspaceId, Entity<ChangesPane>>,
     /// Each open workspace's pane layout, made with its changes (UI-19).
     panes: HashMap<WorkspaceId, Entity<Panes>>,
+    /// The tab whose panes are shown; the others hold no history rows or
+    /// diffs (UI-31).
+    shown: Option<WorkspaceId>,
     title_focus: FocusHandle,
     toolbar_focus: FocusHandle,
     status_focus: FocusHandle,
@@ -171,6 +174,7 @@ impl GitcrocWindow {
             histories: HashMap::new(),
             changes: HashMap::new(),
             panes: HashMap::new(),
+            shown: None,
             title_focus: cx.focus_handle(),
             toolbar_focus: cx.focus_handle(),
             status_focus: cx.focus_handle(),
@@ -407,6 +411,18 @@ impl GitcrocWindow {
                 self.panes.insert(active, panes);
             }
         }
+        // The tab left lets go of its history rows and diffs, and the tab
+        // shown reads them again where they were (UI-31, UI-29).
+        let shown = tabs.active.clone().filter(|_| usable);
+        if self.shown != shown {
+            if let Some(left) = self.shown.take() {
+                self.release(&left, cx);
+            }
+            if let Some(shown) = &shown {
+                self.resume(shown, cx);
+            }
+            self.shown = shown;
+        }
         // With every tab closed, the workspaces to open (UI-27).
         if tabs.active.is_none() && usable {
             if self.start.is_none() {
@@ -447,6 +463,38 @@ impl GitcrocWindow {
     pub fn changes(&self, cx: &gpui_kit::App) -> Option<Entity<ChangesPane>> {
         let active = self.workspaces.read(cx).tabs().active.as_ref()?;
         self.changes.get(active).cloned()
+    }
+
+    /// Workspace `id`'s history, whether its tab is active or not.
+    pub fn history_of(&self, id: &WorkspaceId) -> Option<Entity<HistoryPane>> {
+        self.histories.get(id).cloned()
+    }
+
+    /// Workspace `id`'s changes, whether its tab is active or not.
+    pub fn changes_of(&self, id: &WorkspaceId) -> Option<Entity<ChangesPane>> {
+        self.changes.get(id).cloned()
+    }
+
+    /// Workspace `id`'s tab went to the background: its history and changes
+    /// let go of what they read; the core ended its walk and view (UI-31).
+    fn release(&self, id: &WorkspaceId, cx: &mut Context<Self>) {
+        if let Some(history) = self.histories.get(id) {
+            history.update(cx, |history, cx| history.release(cx));
+        }
+        if let Some(changes) = self.changes.get(id) {
+            changes.update(cx, |changes, cx| changes.release(cx));
+        }
+    }
+
+    /// Workspace `id`'s tab is shown again: what it let go of is read again,
+    /// the history first, as the changes follow its selection.
+    fn resume(&self, id: &WorkspaceId, cx: &mut Context<Self>) {
+        if let Some(history) = self.histories.get(id) {
+            history.update(cx, |history, cx| history.resume(cx));
+        }
+        if let Some(changes) = self.changes.get(id) {
+            changes.update(cx, |changes, cx| changes.resume(cx));
+        }
     }
 
     /// Gives the focus to the first region under the title bar.
