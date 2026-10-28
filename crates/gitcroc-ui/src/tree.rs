@@ -367,6 +367,11 @@ impl Tree {
         self.selected.as_ref().map(|selected| selected.row.as_str())
     }
 
+    /// The item of the row the keyboard is on.
+    pub fn selected_item(&self) -> Option<&TreeItem> {
+        self.selected.as_ref().map(|selected| &selected.item)
+    }
+
     /// Whether row `id` is selected.
     pub fn is_selected(&self, id: &str) -> bool {
         match &self.multi {

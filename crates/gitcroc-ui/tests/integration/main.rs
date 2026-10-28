@@ -10,6 +10,7 @@ extern crate gpui_kit as gpui;
 
 mod colors;
 mod git_setup;
+mod history;
 mod strings;
 mod support;
 mod tabs;

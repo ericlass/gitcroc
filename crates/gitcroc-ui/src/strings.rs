@@ -175,6 +175,41 @@ pub mod tree {
     }
 }
 
+/// The history pane (UI-9, UI-10, UI-12, UI-36).
+pub mod history {
+    pub const LABEL: &str = "History";
+    pub const COLUMNS_LABEL: &str = "History columns";
+    pub const GRAPH: &str = "Graph";
+    pub const SUBJECT: &str = "Subject";
+    pub const AUTHOR: &str = "Author";
+    pub const DATE: &str = "Date";
+    pub const HASH: &str = "Hash";
+    pub const NO_SOURCE: &str = "Select a repo, branch, tag or stash to see its history.";
+    pub const NO_COMMITS: &str = "No commits yet.";
+    pub const LOADING: &str = "Loading";
+    pub fn cannot_read(error: &str) -> String {
+        format!("Cannot read the history: {error}")
+    }
+    /// What a ref label is, by kind.
+    pub const HEAD: &str = "Detached HEAD";
+    pub const CURRENT_BRANCH: &str = "Current branch";
+    pub const LOCAL_BRANCH: &str = "Local branch";
+    pub const REMOTE_BRANCH: &str = "Remote branch";
+    pub const TAG: &str = "Tag";
+    /// A ref label as a screen reader reads it: "Current branch main".
+    pub fn ref_label(kind: &str, name: &str) -> String {
+        format!("{kind} {name}")
+    }
+    /// The current branch's label, marked with a check: "✓ main".
+    pub fn current_ref(name: &str) -> String {
+        format!("✓ {name}")
+    }
+    /// The full author and committer dates of a row.
+    pub fn dates(authored: &str, committed: &str) -> String {
+        format!("Authored {authored}\nCommitted {committed}")
+    }
+}
+
 /// The workspace files, their menu and their dialogs (UI-28).
 pub mod workspaces {
     pub const LABEL: &str = "Workspaces";

@@ -74,12 +74,12 @@ pub use gitcroc_git::{
 pub use gitcroc_git::{
     ChangedFile, ChoiceKind, CommitDetails, CommitRow, Conflict, ConflictChunk, ConflictContent,
     ConflictDetails, ConflictError, ConflictStages, ContentKey, Context, Cursor, DiffError,
-    DiffOptions, DiffRead, DiffSource, Engine, Fallback, FileDiff, FileStatus, Filter, GitError,
-    GitRepo, GitRunner, Head, HistoryError, HistoryStart, Hunk, HunkPatch, Image, Line,
-    LocalBranch, MergedCursor, MergedRow, OpenError, Operation, PAGE_SIZE, Page, Refs, RefsError,
-    RemoteBranches, RepoRead, RepoState, RepoSummary, SearchEnv, SideHolds, SideMessages,
-    SidesRead, SidesReader, StashEntry, StatusError, StatusRead, StatusReader, Step, Tag, TextDiff,
-    UnmergedFile, WorkingCopy, merged_history,
+    DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback, FileDiff, FileStatus, Filter,
+    GitError, GitRepo, GitRunner, GraphRow, Head, HistoryError, HistoryStart, Hunk, HunkPatch,
+    Image, Line, LocalBranch, MergedCursor, MergedRow, OpenError, Operation, PAGE_SIZE, Page,
+    RefKind, Refs, RefsError, RemoteBranches, RepoRead, RepoState, RepoSummary, SearchEnv,
+    SideHolds, SideMessages, SidesRead, SidesReader, StashEntry, StatusError, StatusRead,
+    StatusReader, Step, Tag, TextDiff, Time, UnmergedFile, WorkingCopy, merged_history,
 };
 pub use group::{
     Class, GroupBranch, GroupError, GroupOp, GroupOperation, GroupOps, GroupSummary, MissingBranch,
