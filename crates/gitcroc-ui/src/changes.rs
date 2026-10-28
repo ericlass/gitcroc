@@ -445,6 +445,9 @@ pub struct Changes {
     rows: Vec<FileRow>,
     /// While a view is read, the file to select again in it.
     keep: Option<Kept>,
+    /// The tab went to the background and the view was let go (UI-31);
+    /// `keep` is the file to select when it is read again.
+    released: bool,
 }
 
 impl Changes {
@@ -699,6 +702,32 @@ impl Changes {
             }
             _ => false,
         }
+    }
+
+    /// Lets go of the view, as the tab went to the background (UI-31); the
+    /// core has ended it. The selection, the parent compared with, the
+    /// selected file and the collapsed folders are kept for `resume`.
+    pub fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        self.keep = self.kept();
+        self.released = true;
+        self.view = None;
+        self.rows = Vec::new();
+        self.file = None;
+        self.loading = false;
+        self.error = None;
+    }
+
+    pub fn released(&self) -> bool {
+        self.released
+    }
+
+    /// The tab is shown again: the file to select in the view read anew.
+    pub fn resume(&mut self) -> Option<Kept> {
+        self.released = false;
+        self.keep.take()
     }
 
     /// The repos whose working copies are shown: the repo of uncommitted

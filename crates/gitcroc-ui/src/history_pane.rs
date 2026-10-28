@@ -237,7 +237,9 @@ impl HistoryPane {
         cx: &mut Context<Self>,
     ) -> Self {
         let tree_watch = cx.observe(&tree, |this, _, cx| {
-            this.follow_tree(cx);
+            if !this.history.released() {
+                this.follow_tree(cx);
+            }
         });
         let search = cx.new(|cx| InputState::new(window, cx).placeholder(text::SEARCH));
         let search_events = cx.subscribe(&search, |this, search, event, cx| {
@@ -658,7 +660,7 @@ impl HistoryPane {
     pub fn on_event(&mut self, event: &AppEvent, cx: &mut Context<Self>) {
         match event {
             AppEvent::RepoSummary(view) if view.workspace_id == self.workspace_id => {
-                if view.refreshing {
+                if view.refreshing || self.history.released() {
                     return;
                 }
                 if !self.history.shows_repo(&view.repo_id) {
@@ -673,7 +675,9 @@ impl HistoryPane {
             }
             // A group's members may have changed: its repos are resolved
             // again, and a changed answer reads the history again.
-            AppEvent::WorkspaceChanged(view) if view.id == self.workspace_id => {
+            AppEvent::WorkspaceChanged(view)
+                if view.id == self.workspace_id && !self.history.released() =>
+            {
                 if self.follow_tree(cx) == Show::Kept {
                     self.resolve_targets(cx);
                 }
@@ -699,10 +703,31 @@ impl HistoryPane {
 
     /// Reads the shown history again, after the app's events were missed.
     pub fn read_again(&mut self, cx: &mut Context<Self>) {
+        if self.history.released() {
+            return;
+        }
         if self.history.source().is_some() {
             self.resolve_targets(cx);
             self.reload(cx);
         } else {
+            self.follow_tree(cx);
+        }
+    }
+
+    /// The tab went to the background: the rows go, and reads under way
+    /// answer nothing any more (UI-31).
+    pub fn release(&mut self, cx: &mut Context<Self>) {
+        self.remember_scroll();
+        self.next_request();
+        self.targets_request = self.targets_request.wrapping_add(1);
+        self.history.release();
+        cx.notify();
+    }
+
+    /// The tab is shown again: what the tree selects is read again, as far
+    /// as it was read, and scrolled back.
+    pub fn resume(&mut self, cx: &mut Context<Self>) {
+        if self.history.released() {
             self.follow_tree(cx);
         }
     }

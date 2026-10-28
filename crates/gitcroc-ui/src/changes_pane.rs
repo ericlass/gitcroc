@@ -24,9 +24,9 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     AnyElement, App, AppContext, ClickEvent, Context, CursorStyle, ElementId, Entity, EventEmitter,
     FocusHandle, Focusable, Global, Hsla, InteractiveElement, IntoElement, KeyBinding,
-    KeyBindingContextPredicate, ParentElement, Pixels, Render, Role, ScrollStrategy, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, TestSupportExt, UniformListScrollHandle,
-    Window, actions, div, point, px, svg, uniform_list,
+    KeyBindingContextPredicate, ParentElement, Pixels, Point, Render, Role, ScrollStrategy,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, TestSupportExt,
+    UniformListScrollHandle, Window, actions, div, point, px, svg, uniform_list,
 };
 
 use crate::changes::{Changes, Entry, FileKey, FileRow, List, Read};
@@ -105,6 +105,9 @@ pub struct ChangesPane {
     dock: Dock,
     /// The latest read of the view; older answers are dropped.
     request: u64,
+    /// Where the list was scrolled when the tab went to the background,
+    /// for the view read on return (UI-31).
+    scroll_back: Option<Point<Pixels>>,
     _history_watch: Subscription,
     _prefs_watch: Subscription,
 }
@@ -116,7 +119,11 @@ impl ChangesPane {
         history: Entity<HistoryPane>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let history_watch = cx.observe(&history, |this, _, cx| this.follow_history(cx));
+        let history_watch = cx.observe(&history, |this, _, cx| {
+            if !this.changes.released() {
+                this.follow_history(cx);
+            }
+        });
         let prefs_watch = cx.observe_global::<ChangesPrefs>(|this, cx| {
             let mode = ChangesPrefs::get(cx).file_list;
             if this.changes.set_mode(mode) {
@@ -137,6 +144,7 @@ impl ChangesPane {
             scroll: UniformListScrollHandle::new(),
             dock: Dock::Right,
             request: 0,
+            scroll_back: None,
             _history_watch: history_watch,
             _prefs_watch: prefs_watch,
         };
@@ -150,6 +158,32 @@ impl ChangesPane {
 
     pub fn diff(&self) -> &Entity<DiffView> {
         &self.diff
+    }
+
+    /// The tab went to the background: the view and diff go, and reads
+    /// under way answer nothing any more (UI-31). Where the list was
+    /// scrolled is kept.
+    pub fn release(&mut self, cx: &mut Context<Self>) {
+        if self.changes.released() {
+            return;
+        }
+        self.request = self.request.wrapping_add(1);
+        self.scroll_back = Some(self.scroll.0.borrow().base_handle.offset());
+        self.changes.release();
+        self.diff.update(cx, |diff, cx| diff.release(cx));
+        cx.notify();
+    }
+
+    /// The tab is shown again: the view of the history's selection is read
+    /// again, with the same file selected and the list scrolled back.
+    pub fn resume(&mut self, cx: &mut Context<Self>) {
+        if !self.changes.released() {
+            return;
+        }
+        let keep = self.changes.resume();
+        if !self.follow_history(cx) {
+            self.load(keep, cx);
+        }
     }
 
     /// Where the panes dock this pane (UI-19).
@@ -178,6 +212,7 @@ impl ChangesPane {
         if let AppEvent::RepoSummary(view) = event
             && view.workspace_id == self.workspace_id
             && !view.refreshing
+            && !self.changes.released()
             && self.changes.watched().contains(&view.repo_id)
         {
             self.reload(cx);
@@ -186,22 +221,28 @@ impl ChangesPane {
 
     /// Reads the shown view again, after the app's events were missed.
     pub fn read_again(&mut self, cx: &mut Context<Self>) {
-        self.reload(cx);
+        if !self.changes.released() {
+            self.reload(cx);
+        }
     }
 
-    /// Shows what the history selects (UI-14, UI-15, UI-34).
-    fn follow_history(&mut self, cx: &mut Context<Self>) {
+    /// Shows what the history selects (UI-14, UI-15, UI-34); `false` when
+    /// it is the selection shown.
+    fn follow_history(&mut self, cx: &mut Context<Self>) -> bool {
         let selection = self.history.read(cx).selection();
-        if self.changes.show(selection) {
-            self.scroll
-                .0
-                .borrow()
-                .base_handle
-                .set_offset(point(px(0.), px(0.)));
-            self.load(None, cx);
-            self.sync_diff(cx);
-            cx.notify();
+        if !self.changes.show(selection) {
+            return false;
         }
+        self.scroll_back = None;
+        self.scroll
+            .0
+            .borrow()
+            .base_handle
+            .set_offset(point(px(0.), px(0.)));
+        self.load(None, cx);
+        self.sync_diff(cx);
+        cx.notify();
+        true
     }
 
     /// Reads the view again, keeping the selected file where it still
@@ -239,7 +280,10 @@ impl ChangesPane {
                 match result {
                     Some(Ok(Some(view))) => {
                         this.changes.set_view(view);
-                        this.scroll_to_selected();
+                        match this.scroll_back.take() {
+                            Some(offset) => this.scroll.0.borrow().base_handle.set_offset(offset),
+                            None => this.scroll_to_selected(),
+                        }
                     }
                     // A read the core began later took over, yet this is
                     // the newest one sent: ask again, or the lists stay as

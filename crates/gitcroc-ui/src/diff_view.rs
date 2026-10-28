@@ -10,6 +10,7 @@
 //! (UI-18). Each tab's changes pane has one, so each keeps its diff, a large
 //! diff it loaded and its images (UI-29).
 
+use std::collections::HashSet;
 use std::ops::Range;
 
 use gitcroc_core::{DiffMode, DiffRequest, FileDiff, LineKind, WorkspaceId};
@@ -17,7 +18,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     AnyElement, App, AppContext, ClickEvent, Context, CursorStyle, Div, ElementId, FocusHandle,
     HighlightStyle, Hsla, InteractiveElement, IntoElement, ListAlignment, ListOffset, ListState,
-    ParentElement, Pixels, Render, Role, ScrollEvent, ScrollStrategy, SharedString,
+    ParentElement, Pixels, Point, Render, Role, ScrollEvent, ScrollStrategy, SharedString,
     StatefulInteractiveElement, Styled, StyledText, Subscription, SvgRenderer, Task,
     TestSupportExt, UniformListScrollHandle, Window, div, font, list, point, px, uniform_list,
 };
@@ -118,6 +119,15 @@ struct Metrics {
     sign: Pixels,
 }
 
+/// What a diff let go of in a background tab keeps for the same file read
+/// again (UI-31).
+#[derive(Debug, Clone)]
+struct Kept {
+    offset: Point<Pixels>,
+    /// The open folds, and whether they were side by side.
+    unfolded: Option<(bool, HashSet<usize>)>,
+}
+
 /// The diff of one workspace's selected file.
 pub struct DiffView {
     services: Services,
@@ -147,6 +157,9 @@ pub struct DiffView {
     /// The hunk F7 last went to.
     hunk: Option<usize>,
     hunk_focus: FocusHandle,
+    /// The tab went to the background and the content was let go (UI-31).
+    released: bool,
+    kept: Option<Kept>,
     _prefs_watch: Subscription,
 }
 
@@ -174,6 +187,8 @@ impl DiffView {
             gutter: Pixels::ZERO,
             hunk: None,
             hunk_focus: cx.focus_handle(),
+            released: false,
+            kept: None,
             _prefs_watch: prefs_watch,
         }
     }
@@ -314,16 +329,19 @@ impl DiffView {
 
     /// Shows the diff of `target`. Another file starts at its top; the same
     /// file in a view read anew keeps its place and open folds (OPS-7).
+    /// A released diff reads its file again, scrolled back.
     pub fn show(&mut self, target: Option<DiffTarget>, cx: &mut Context<Self>) {
-        if self.target == target {
+        if self.target == target && !self.released {
             return;
         }
+        self.released = false;
         let same_file = matches!(
             (&self.target, &target),
             (Some(old), Some(new)) if old.same_file(new)
         );
         self.target = target;
         if !same_file {
+            self.kept = None;
             self.set_shown(None, cx);
             self.load_anyway = false;
             self.hunk = None;
@@ -340,6 +358,31 @@ impl DiffView {
             self.set_shown(None, cx);
             self.asked = None;
         }
+        cx.notify();
+    }
+
+    /// Lets go of the content, its highlights and images, as the tab went
+    /// to the background (UI-31); a read under way answers nothing any
+    /// more. The file, wrap, the hunk F7 went to, Load diff, the open folds
+    /// and the scroll position are kept for `show` on return.
+    pub fn release(&mut self, cx: &mut Context<Self>) {
+        if self.released {
+            return;
+        }
+        self.released = true;
+        self.reads += 1;
+        self.loading = false;
+        self.error = None;
+        let unfolded = self
+            .doc()
+            .map(|doc| (doc.side_by_side_mode(), doc.unfolded().clone()));
+        if self.content.is_some() {
+            self.kept = Some(Kept {
+                offset: self.scroll.0.borrow().base_handle.offset(),
+                unfolded,
+            });
+        }
+        self.set_shown(None, cx);
         cx.notify();
     }
 
@@ -464,12 +507,22 @@ impl DiffView {
     }
 
     /// Shows a diff read anew, with the folds the same file had open.
+    /// A diff released in the background gets its folds and scroll
+    /// position back.
     fn set_content(&mut self, mut content: Content, cx: &mut Context<Self>) {
-        if let (Some(Content::Text { doc: old, .. }), Content::Text { doc, .. }) =
-            (&self.content, &mut content)
-            && old.side_by_side_mode() == doc.side_by_side_mode()
+        let kept = self.kept.take();
+        let unfolded = match (&self.content, &kept) {
+            (Some(Content::Text { doc: old, .. }), _) => {
+                Some((old.side_by_side_mode(), old.unfolded().clone()))
+            }
+            (_, Some(kept)) => kept.unfolded.clone(),
+            _ => None,
+        };
+        if let (Some((side_by_side, unfolded)), Content::Text { doc, .. }) =
+            (unfolded, &mut content)
+            && side_by_side == doc.side_by_side_mode()
         {
-            doc.set_unfolded(&old.unfolded().clone());
+            doc.set_unfolded(&unfolded);
         }
         let len = match &content {
             Content::Text { doc, .. } => doc.len(),
@@ -484,6 +537,9 @@ impl DiffView {
             self.hunk = None;
         }
         self.set_shown(Some(content), cx);
+        if let Some(kept) = kept {
+            self.scroll.0.borrow().base_handle.set_offset(kept.offset);
+        }
     }
 
     /// An option of the pane header changed (UI-17): one the core applies
@@ -504,6 +560,7 @@ impl DiffView {
             cx.notify();
         }
         if self.target.is_some()
+            && !self.released
             && self
                 .asked
                 .is_some_and(|asked| asked != request(&prefs, self.load_anyway))

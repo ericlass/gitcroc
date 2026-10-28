@@ -178,6 +178,12 @@ pub struct History {
     selected: Option<String>,
     scroll_top: f32,
     positions: HashMap<String, Position>,
+    /// The tab went to the background and the rows were let go (UI-31);
+    /// where the user was is kept under the source's key.
+    released: bool,
+    /// The rows a read under way is to restore, kept should the user leave
+    /// before it answers.
+    restoring: usize,
     /// The shown repo's changed paths, from its summary (UI-10), or the
     /// dirty repos of a merged history (UI-34).
     changes: u32,
@@ -206,6 +212,8 @@ impl Default for History {
             selected: None,
             scroll_top: 0.,
             positions: HashMap::new(),
+            released: false,
+            restoring: 0,
             changes: 0,
             targets: None,
             offers: HashSet::new(),
@@ -237,6 +245,7 @@ impl History {
         }
         self.text = text;
         self.scroll_top = 0.;
+        self.restoring = 0;
         self.drop_hidden_uncommitted();
         true
     }
@@ -419,21 +428,25 @@ impl History {
             .map(|(repo, hash)| Selection::Commit { repo, hash })
     }
 
-    /// Shows `source`, keeping where the user was in the previous one.
+    /// Shows `source`, keeping where the user was in the previous one. A
+    /// released history reads its source again, even the same one.
     pub fn show(&mut self, source: Option<HistorySource>) -> Show {
         let same = match (&self.source, &source) {
             (Some(current), Some(next)) => current.key == next.key,
             (None, None) => true,
             _ => false,
         };
-        if same {
+        if same && !self.released {
             if let (Some(current), Some(next)) = (&mut self.source, source) {
                 current.uncommitted = next.uncommitted;
             }
             self.drop_hidden_uncommitted();
             return Show::Kept;
         }
-        self.save_position();
+        // A release saved the position before the rows went.
+        if !std::mem::take(&mut self.released) {
+            self.save_position();
+        }
         let saved = source
             .as_ref()
             .and_then(|source| self.positions.get(&source.key).cloned())
@@ -449,6 +462,7 @@ impl History {
         self.selected = saved.selected;
         self.scroll_top = saved.scroll_top;
         self.text = saved.text;
+        self.restoring = saved.rows;
         match &self.source {
             None => Show::Empty,
             Some(_) => Show::Load(Restore {
@@ -466,12 +480,32 @@ impl History {
         self.positions.insert(
             source.key.clone(),
             Position {
-                rows: self.rows.len(),
+                rows: self.rows.len().max(self.restoring),
                 scroll_top: self.scroll_top,
                 selected: self.selected.clone(),
                 text: self.text.clone(),
             },
         );
+    }
+
+    /// Lets go of the rows, as the tab went to the background (UI-31); the
+    /// core has ended the walk. Where the user was is kept, and the next
+    /// `show` reads as many rows again and scrolls back.
+    pub fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        self.save_position();
+        self.released = true;
+        self.rows = Vec::new();
+        self.repos = Vec::new();
+        self.handle = None;
+        self.done = true;
+        self.loading = false;
+    }
+
+    pub fn released(&self) -> bool {
+        self.released
     }
 
     pub fn start_load(&mut self) {
@@ -482,6 +516,7 @@ impl History {
 
     /// Replaces the rows with a first read.
     pub fn set_page(&mut self, page: Page) {
+        self.restoring = 0;
         self.rows = page.rows;
         self.repos = page.repos;
         self.handle = Some(page.handle);
@@ -518,6 +553,7 @@ impl History {
     }
 
     pub fn set_error(&mut self, error: String) {
+        self.restoring = 0;
         self.error = Some(error);
         self.loading = false;
         self.done = true;
@@ -723,5 +759,55 @@ mod tests {
         let mut history = History::default();
         assert!(matches!(history.show(Some(picked)), Show::Load(_)));
         assert_eq!(history.show(Some(again)), Show::Kept);
+    }
+
+    fn page(count: usize) -> Page {
+        let rows = (0..count)
+            .map(|n| Row {
+                hash: format!("{n:040}"),
+                short_hash: SharedString::default(),
+                subject: SharedString::default(),
+                author: SharedString::default(),
+                date: SharedString::default(),
+                dates: SharedString::default(),
+                refs: Vec::new(),
+                graph: None,
+                repo_id: RepoId("a".to_owned()),
+            })
+            .collect();
+        Page {
+            rows,
+            handle: 1,
+            done: false,
+            repos: Vec::new(),
+            offer_commit_graph: false,
+        }
+    }
+
+    #[test]
+    fn ui_31_a_released_history_reads_the_same_source_again() {
+        let source = merged_source(repos(&["a", "b"]));
+        let mut history = History::default();
+        assert!(matches!(history.show(Some(source.clone())), Show::Load(_)));
+        history.set_page(page(600));
+        let selected = history.row_id_at(42);
+        history.select(selected.clone());
+        history.set_scroll_top(960.);
+
+        history.release();
+        assert!(history.rows().is_empty());
+        assert_eq!(history.handle(), None);
+
+        // The same source is read again, as far as it was, and scrolled back.
+        let restore = Restore {
+            rows: 600,
+            scroll_top: 960.,
+        };
+        assert_eq!(history.show(Some(source.clone())), Show::Load(restore));
+        assert_eq!(history.selected(), selected.as_deref());
+
+        // Released again before that read answers, it keeps the position.
+        history.release();
+        assert_eq!(history.show(Some(source)), Show::Load(restore));
     }
 }
