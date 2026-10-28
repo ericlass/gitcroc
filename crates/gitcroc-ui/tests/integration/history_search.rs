@@ -18,7 +18,7 @@ use crate::support::{Fixture, Options, main_window};
 
 /// Replaces the search text with `text`, typed a character at a time; each
 /// character asks the core again before the previous answer is in.
-fn search(cx: &mut VisualTestContext, text: &str) {
+pub(crate) fn search(cx: &mut VisualTestContext, text: &str) {
     click(cx, "history-search".into());
     press(
         cx,
@@ -35,7 +35,7 @@ fn search(cx: &mut VisualTestContext, text: &str) {
     cx.run_until_parked();
 }
 
-fn search_text(cx: &mut VisualTestContext) -> String {
+pub(crate) fn search_text(cx: &mut VisualTestContext) -> String {
     cx.update(|window, cx| {
         window.render_frame(cx);
         window
@@ -56,7 +56,7 @@ fn subjects(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>) -> Vec<S
     })
 }
 
-fn shown(cx: &mut VisualTestContext, id: &'static str) -> bool {
+pub(crate) fn shown(cx: &mut VisualTestContext, id: &'static str) -> bool {
     cx.update(|window, cx| {
         window.render_frame(cx);
         window.try_find(id).is_some()
@@ -64,7 +64,10 @@ fn shown(cx: &mut VisualTestContext, id: &'static str) -> bool {
 }
 
 /// The history pane's selection, as the changes pane reads it (M6-12).
-fn selection(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>) -> Option<Selection> {
+pub(crate) fn selection(
+    cx: &mut VisualTestContext,
+    window: &Entity<GitcrocWindow>,
+) -> Option<Selection> {
     cx.update(|_, cx| {
         let pane = window.read(cx).history(cx).expect("no history pane");
         pane.read(cx).selection()
@@ -85,7 +88,11 @@ fn open_branch(cx: &mut VisualTestContext, node: &str, name: &str) -> String {
 
 /// Waits until the history shows the source of tree node `key` with its
 /// first page read.
-fn wait_for_source(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>, key: &str) {
+pub(crate) fn wait_for_source(
+    cx: &mut VisualTestContext,
+    window: &Entity<GitcrocWindow>,
+    key: &str,
+) {
     wait_until(cx, |cx| {
         with_history(cx, window, |history| {
             history.source().is_some_and(|source| source.key == key)

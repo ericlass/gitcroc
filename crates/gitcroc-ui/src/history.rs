@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use gitcroc_app::app::{App, AppError};
 use gitcroc_core::{
-    GraphRow, HistoryTarget, HistoryView, RefKind, RepoId, Time, TreeItem, WorkspaceId,
+    GraphRow, HistoryTarget, HistoryView, RefKind, RepoId, TargetSet, Time, TreeItem, WorkspaceId,
 };
 use gpui_kit::SharedString;
 
@@ -70,6 +70,29 @@ pub fn source_of(item: &TreeItem) -> Option<HistorySource> {
     })
 }
 
+/// The merged history of a group or several repos (section 8): one list of
+/// the commits reachable from each repo's `HEAD`, newest first by commit
+/// date (PERF-5). A multi-selection has one key whatever order its repos
+/// were picked in.
+pub fn merged_source(target: TargetSet) -> HistorySource {
+    let key = match &target {
+        TargetSet::Group { group_id } => format!("group:{}", group_id.0),
+        TargetSet::Repo { repo_id } => format!("repos:{}", repo_id.0),
+        TargetSet::Repos { repo_ids } => {
+            let mut ids: Vec<&str> = repo_ids.iter().map(|repo| repo.0.as_str()).collect();
+            ids.sort_unstable();
+            ids.dedup();
+            format!("repos:{}", ids.join(","))
+        }
+    };
+    HistorySource {
+        key,
+        repo: None,
+        target: HistoryTarget::Merged { target },
+        uncommitted: true,
+    }
+}
+
 /// One history row, its text prepared once.
 #[derive(Debug, Clone)]
 pub struct Row {
@@ -127,8 +150,17 @@ pub enum Show {
 /// What the changes pane shows for the selected row (M6-12).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Selection {
-    Uncommitted { repo: RepoId },
-    Commit { repo: RepoId, hash: String },
+    Uncommitted {
+        repo: RepoId,
+    },
+    /// The dirty repos of a group or several repos (UI-34).
+    MergedUncommitted {
+        target: TargetSet,
+    },
+    Commit {
+        repo: RepoId,
+        hash: String,
+    },
 }
 
 /// The loaded history of one workspace.
@@ -146,8 +178,12 @@ pub struct History {
     selected: Option<String>,
     scroll_top: f32,
     positions: HashMap<String, Position>,
-    /// The shown repo's changed paths, from its summary (UI-10).
+    /// The shown repo's changed paths, from its summary (UI-10), or the
+    /// dirty repos of a merged history (UI-34).
     changes: u32,
+    /// A merged history's repos as the core resolves its target set
+    /// (GRP-5), or why it could not; `None` until it answers.
+    targets: Option<Result<Vec<RepoId>, String>>,
     /// Repos whose commit-graph offer is shown (PERF-2).
     offers: HashSet<RepoId>,
     /// Repos whose offer was answered this session; it is not shown again.
@@ -171,6 +207,7 @@ impl Default for History {
             scroll_top: 0.,
             positions: HashMap::new(),
             changes: 0,
+            targets: None,
             offers: HashSet::new(),
             answered: HashSet::new(),
             offer_errors: HashMap::new(),
@@ -204,7 +241,8 @@ impl History {
         true
     }
 
-    /// The shown repo's changed paths (UI-10); `false` when unchanged.
+    /// The shown repo's changed paths (UI-10), or a merged history's dirty
+    /// repos (UI-34); `false` when unchanged.
     pub fn set_changes(&mut self, changes: u32) -> bool {
         let changed = changes != self.changes;
         self.changes = changes;
@@ -216,15 +254,55 @@ impl History {
         self.changes
     }
 
-    /// Whether "Uncommitted changes (n)" leads the list (UI-10): for a repo
-    /// or its current branch with a dirty working copy, and no search.
+    /// Whether "Uncommitted changes (n)" leads the list: for a repo or its
+    /// current branch with a dirty working copy (UI-10), or a merged history
+    /// with a dirty repo (UI-34), and no search.
     pub fn shows_uncommitted(&self) -> bool {
         self.changes > 0
             && self.text.is_empty()
             && self
                 .source
                 .as_ref()
-                .is_some_and(|source| source.uncommitted && source.repo.is_some())
+                .is_some_and(|source| source.uncommitted)
+    }
+
+    /// Whether the shown history is a merged one.
+    pub fn merged(&self) -> bool {
+        self.source
+            .as_ref()
+            .is_some_and(|source| source.repo.is_none())
+    }
+
+    /// A merged history's repos, once the core resolved them (UI-11).
+    pub fn targets(&self) -> Option<&Result<Vec<RepoId>, String>> {
+        self.targets.as_ref()
+    }
+
+    /// The core's answer for the merged source `key`; an answer for another
+    /// source is dropped. `true` when it changed an earlier answer.
+    pub fn set_targets(&mut self, key: &str, targets: Result<Vec<RepoId>, String>) -> bool {
+        if self.source.as_ref().is_none_or(|source| source.key != key) {
+            return false;
+        }
+        self.targets
+            .replace(targets.clone())
+            .is_some_and(|earlier| earlier != targets)
+    }
+
+    /// Whether `repo`'s commits are shown: the one repo, or one of a merged
+    /// history's.
+    pub fn shows_repo(&self, repo: &RepoId) -> bool {
+        match self.source.as_ref().map(|source| source.repo.as_ref()) {
+            None => false,
+            Some(Some(shown)) => shown == repo,
+            Some(None) => {
+                self.repos.contains(repo)
+                    || self
+                        .targets
+                        .as_ref()
+                        .is_some_and(|targets| targets.as_ref().is_ok_and(|ids| ids.contains(repo)))
+            }
+        }
     }
 
     /// The rows above the commits: the uncommitted row or none.
@@ -328,12 +406,14 @@ impl History {
     pub fn selection(&self) -> Option<Selection> {
         let selected = self.selected.as_deref()?;
         if selected == UNCOMMITTED_ID {
-            return self.source.as_ref().and_then(|source| {
-                source
-                    .repo
-                    .clone()
-                    .map(|repo| Selection::Uncommitted { repo })
-            });
+            let source = self.source.as_ref()?;
+            return match (&source.repo, &source.target) {
+                (Some(repo), _) => Some(Selection::Uncommitted { repo: repo.clone() }),
+                (None, HistoryTarget::Merged { target }) => Some(Selection::MergedUncommitted {
+                    target: target.clone(),
+                }),
+                (None, _) => None,
+            };
         }
         self.commit_of(selected)
             .map(|(repo, hash)| Selection::Commit { repo, hash })
@@ -361,6 +441,7 @@ impl History {
         self.source = source;
         self.rows.clear();
         self.repos.clear();
+        self.targets = None;
         self.handle = None;
         self.done = true;
         self.loading = false;
@@ -620,4 +701,27 @@ fn civil(days: i64) -> (i64, i64, i64) {
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
     (year, month, day)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn repos(ids: &[&str]) -> TargetSet {
+        TargetSet::Repos {
+            repo_ids: ids.iter().map(|id| RepoId((*id).to_owned())).collect(),
+        }
+    }
+
+    #[test]
+    fn ui_29_a_multi_selection_keeps_one_position_whatever_its_order() {
+        let picked = merged_source(repos(&["b", "a", "c"]));
+        let again = merged_source(repos(&["c", "b", "a"]));
+        assert_eq!(picked.key, again.key);
+        assert_ne!(picked.key, merged_source(repos(&["a", "b"])).key);
+
+        let mut history = History::default();
+        assert!(matches!(history.show(Some(picked)), Show::Load(_)));
+        assert_eq!(history.show(Some(again)), Show::Kept);
+    }
 }

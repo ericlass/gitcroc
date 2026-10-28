@@ -370,6 +370,17 @@ impl TreePane {
         self.changed(cx);
     }
 
+    /// Selects the row of `repo` within the selection, as clicking its line
+    /// of the summary strip does (UI-11).
+    pub fn select_member(&mut self, repo: &RepoId, cx: &mut Context<Self>) {
+        let moved = self.tree.select_member(repo);
+        self.selected_repo(moved);
+        self.changed(cx);
+        if let Some(index) = self.selected_index() {
+            self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+        }
+    }
+
     fn selected_index(&self) -> Option<usize> {
         let selected = self.tree.selected()?;
         self.rows.iter().position(|row| row.id == selected)

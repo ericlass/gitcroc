@@ -177,6 +177,8 @@ pub mod tree {
 
 /// The history pane (UI-9, UI-10, UI-12, UI-36).
 pub mod history {
+    use super::plural;
+
     pub const LABEL: &str = "History";
     pub const COLUMNS_LABEL: &str = "History columns";
     pub const GRAPH: &str = "Graph";
@@ -184,6 +186,8 @@ pub mod history {
     pub const AUTHOR: &str = "Author";
     pub const DATE: &str = "Date";
     pub const HASH: &str = "Hash";
+    /// The graph column's name in a merged history (UI-9).
+    pub const REPOSITORY: &str = "Repository";
     pub const MOVE_LEFT: &str = "Move left";
     pub const MOVE_RIGHT: &str = "Move right";
     pub const RESET_COLUMNS: &str = "Reset columns";
@@ -206,6 +210,23 @@ pub mod history {
     pub fn uncommitted(changes: u32) -> String {
         format!("Uncommitted changes ({changes})")
     }
+    /// The row that leads a merged history, with its dirty repos (UI-34).
+    pub fn uncommitted_repos(repos: u32) -> String {
+        format!("Uncommitted changes ({})", plural(repos, "repo", "repos"))
+    }
+    /// The summary strip of a group or several repos (UI-11).
+    pub const STRIP: &str = "Repositories of the selection";
+    pub fn changed_files(count: u32) -> String {
+        plural(count, "changed file", "changed files")
+    }
+    /// A strip line's dirty count as it shows it: `●2`.
+    pub fn changed_mark(count: u32) -> String {
+        format!("●{count}")
+    }
+    pub fn cannot_show(error: &str) -> String {
+        format!("Cannot show the selection: {error}")
+    }
+    pub const NO_REPOS: &str = "This group has no repositories.";
     /// The offer to write a commit-graph file (PERF-2).
     pub const COMMIT_GRAPH_OFFER: &str = "Commit-graph offer";
     pub const COMMIT_GRAPH_WHY: &str = "This repo has no commit-graph file, so its history loads \
