@@ -201,7 +201,7 @@ The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
 rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
 not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-11 and M6-27 have theirs;
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-12 and M6-27 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
@@ -221,7 +221,7 @@ several pull requests (DEV-4).
 | [M6-11b](M6-11b-history-columns.md) | History columns: resize, move, reset, kept per workspace | M6-11a |
 | [M6-11c](M6-11c-history-search-and-uncommitted.md) | History search, uncommitted row and commit-graph offer | M6-11a |
 | [M6-11d](M6-11d-merged-list-and-summary-strip.md) | Merged history, summary strip and merged uncommitted row | M6-11b, M6-11c |
-| M6-12 | Changes pane: commit header, file lists, parent selector | M6-11d |
+| [M6-12](M6-12-changes-pane.md) | Changes pane: commit header, file lists, parent selector | M6-11d |
 | M6-13 † | Diff view: both modes, highlighting, wrap, options, binary and image, Load diff, docking | M6-07, M6-12 |
 | M6-14 | `just bench-ui` on GPUI; single-repo budgets | M6-13 |
 | M6-15 | Status bar, job list, notifications, askpass dialog | M6-06 |
