@@ -5,7 +5,10 @@
 //! virtualized list (PERF-1): inline, or side by side with unchanged runs
 //! folded. Without wrapping, long lines scroll sideways together; with it,
 //! the list measures each row. F7 and Shift+F7 move between hunks (UI-22).
-//! Each tab's changes pane has one, so each keeps its diff (UI-29).
+//! The rows show plain text until their syntax colours arrive from the
+//! background (UI-24); the diffs that are not text are `special_diff`'s
+//! (UI-18). Each tab's changes pane has one, so each keeps its diff, a large
+//! diff it loaded and its images (UI-29).
 
 use std::ops::Range;
 
@@ -13,39 +16,45 @@ use gitcroc_core::{DiffMode, DiffRequest, FileDiff, LineKind, WorkspaceId};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     AnyElement, App, AppContext, ClickEvent, Context, CursorStyle, Div, ElementId, FocusHandle,
-    Hsla, InteractiveElement, IntoElement, ListAlignment, ListOffset, ListState, ParentElement,
-    Pixels, Render, Role, ScrollEvent, ScrollStrategy, SharedString, StatefulInteractiveElement,
-    Styled, Subscription, TestSupportExt, UniformListScrollHandle, Window, div, font, list, point,
-    px, uniform_list,
+    HighlightStyle, Hsla, InteractiveElement, IntoElement, ListAlignment, ListOffset, ListState,
+    ParentElement, Pixels, Render, Role, ScrollEvent, ScrollStrategy, SharedString,
+    StatefulInteractiveElement, Styled, StyledText, Subscription, SvgRenderer, Task,
+    TestSupportExt, UniformListScrollHandle, Window, div, font, list, point, px, uniform_list,
 };
 
 use crate::changes::DiffTarget;
 use crate::changes_pane::ChangesPrefs;
 use crate::diff::{Cell, DiffDoc, DiffRow, Shown};
+use crate::highlight::{self, Highlights, RowSpans, Span};
 use crate::services::Services;
+use crate::special_diff::{self, Special};
 use crate::strings::changes as text;
-use crate::theme::code_themes::CodeThemeColors;
+use crate::theme::code_themes::{CodeThemeColors, Syntax};
+use crate::theme::tokens::Color;
 use crate::theme::{ActiveTokens, AppTheme};
 
 /// Rows drawn past the edges of the wrapped list, so scrolling shows no gap.
 const OVERDRAW: Pixels = px(400.);
 
 /// What the diff of a file is, built from the core's answer.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Content {
     Text {
         doc: DiffDoc,
         /// Each side's last line has no line terminator.
         missing_newline: (bool, bool),
+        /// The rows' syntax, once highlighting is done (UI-24).
+        highlights: Option<Highlights>,
     },
-    /// A diff that is not text; M6-13b shows it. Until then, its kind.
-    Other(&'static str),
+    /// A diff that is not text (UI-18).
+    Special(Special),
 }
 
 impl Content {
     /// Lays the core's diff out for `mode`; side by side waits for both
-    /// whole files and shows the diff inline until they come.
-    fn build(diff: FileDiff, request: DiffRequest) -> Self {
+    /// whole files and shows the diff inline until they come. Images are
+    /// decoded with `svg`, as gpui decodes them.
+    fn build(diff: FileDiff, request: DiffRequest, svg: &SvgRenderer) -> Self {
         match diff {
             FileDiff::Text(diff) => {
                 let side = request
@@ -55,26 +64,44 @@ impl Content {
                 Self::Text {
                     doc: side.unwrap_or_else(|| DiffDoc::inline(&diff)),
                     missing_newline: (diff.old_missing_newline, diff.new_missing_newline),
+                    highlights: None,
                 }
             }
-            FileDiff::Binary { .. } => Self::Other(text::BINARY),
-            FileDiff::Image { .. } => Self::Other(text::IMAGE),
-            FileDiff::TooLarge { .. } => Self::Other(text::TOO_LARGE),
-            FileDiff::Directory => Self::Other(text::FOLDER),
-            FileDiff::Submodule { .. } => Self::Other(text::SUBMODULE),
+            other => match Special::build(other, svg) {
+                Some(special) => Self::Special(special),
+                None => Self::Special(Special::Folder),
+            },
         }
     }
 }
 
 /// The request the pane's options make (UI-17): side by side asks for
-/// both whole files too.
-pub fn request(prefs: &gitcroc_core::ChangesSettings) -> DiffRequest {
+/// both whole files too. `load_anyway` reads a diff over the line limit
+/// (UI-18).
+pub fn request(prefs: &gitcroc_core::ChangesSettings, load_anyway: bool) -> DiffRequest {
     DiffRequest {
         ignore_whitespace: prefs.ignore_whitespace,
         context: prefs.context,
-        load_anyway: false,
+        load_anyway,
         full_text: prefs.diff_mode == DiffMode::SideBySide,
     }
+}
+
+/// The runs of `text` by syntax, with the plain text between `spans`.
+fn runs(text: &str, spans: &[Span]) -> Vec<(std::ops::Range<usize>, Syntax)> {
+    let mut runs = Vec::with_capacity(spans.len() * 2 + 1);
+    let mut at = 0;
+    for span in spans {
+        if at < span.range.start {
+            runs.push((at..span.range.start, Syntax::Plain));
+        }
+        runs.push((span.range.clone(), span.syntax));
+        at = span.range.end;
+    }
+    if at < text.len() {
+        runs.push((at..text.len(), Syntax::Plain));
+    }
+    runs
 }
 
 /// Sizes of the code font, measured each frame.
@@ -103,6 +130,10 @@ pub struct DiffView {
     loading: bool,
     error: Option<String>,
     content: Option<Content>,
+    /// The user chose Load diff for this file (UI-18).
+    load_anyway: bool,
+    /// Highlighting of the shown text diff under way.
+    highlighting: Option<Task<()>>,
     wrap: bool,
     scroll: UniformListScrollHandle,
     wrapped: ListState,
@@ -122,6 +153,7 @@ pub struct DiffView {
 impl DiffView {
     pub fn new(services: Services, workspace_id: WorkspaceId, cx: &mut Context<Self>) -> Self {
         let prefs_watch = cx.observe_global::<ChangesPrefs>(|this, cx| this.prefs_changed(cx));
+        cx.on_release(|this, cx| this.release_images(cx)).detach();
         Self {
             services,
             workspace_id,
@@ -131,6 +163,8 @@ impl DiffView {
             loading: false,
             error: None,
             content: None,
+            load_anyway: false,
+            highlighting: None,
             wrap: ChangesPrefs::get(cx).wrap_lines,
             scroll: UniformListScrollHandle::new(),
             wrapped: ListState::new(0, ListAlignment::Top, OVERDRAW),
@@ -156,8 +190,76 @@ impl DiffView {
     pub fn doc(&self) -> Option<&DiffDoc> {
         match self.content.as_ref()? {
             Content::Text { doc, .. } => Some(doc),
-            Content::Other(_) => None,
+            Content::Special(_) => None,
         }
+    }
+
+    /// The diff that is not text, when it is one.
+    pub fn special(&self) -> Option<&Special> {
+        match self.content.as_ref()? {
+            Content::Special(special) => Some(special),
+            Content::Text { .. } => None,
+        }
+    }
+
+    fn highlights(&self) -> Option<&Highlights> {
+        match self.content.as_ref()? {
+            Content::Text { highlights, .. } => highlights.as_ref(),
+            Content::Special(_) => None,
+        }
+    }
+
+    /// Whether the text diff's syntax colours have arrived (UI-24).
+    pub fn highlighted(&self) -> bool {
+        self.highlights().is_some()
+    }
+
+    /// Whether the user chose Load diff for this file (UI-18).
+    pub fn loaded_anyway(&self) -> bool {
+        self.load_anyway
+    }
+
+    /// Shown row `index`, each of its cells as runs of text in the colours
+    /// they are drawn in, with the code theme in use.
+    pub fn drawn(&self, index: usize, cx: &App) -> Vec<Vec<(String, Color)>> {
+        let colors = AppTheme::global(cx).code_theme().colors;
+        let Some(Shown::Row(row)) = self.doc().and_then(|doc| doc.get(index)) else {
+            return Vec::new();
+        };
+        let spans = self.spans(index);
+        let cells: Vec<(&str, &[Span])> = match (row, spans) {
+            (DiffRow::Hunk { header, .. }, _) => vec![(header.as_ref(), &[])],
+            (DiffRow::Line { text, .. }, RowSpans::Line(spans)) => vec![(text.as_ref(), spans)],
+            (DiffRow::Line { text, .. }, _) => vec![(text.as_ref(), &[])],
+            (DiffRow::Pair { old, new }, spans) => {
+                let (old_spans, new_spans): (&[Span], &[Span]) = match spans {
+                    RowSpans::Pair(old, new) => (old, new),
+                    _ => (&[], &[]),
+                };
+                [(old, old_spans), (new, new_spans)]
+                    .into_iter()
+                    .filter_map(|(cell, spans)| Some((cell.as_ref()?.text.as_ref(), spans)))
+                    .collect()
+            }
+        };
+        cells
+            .into_iter()
+            .map(|(line, spans)| {
+                runs(line, spans)
+                    .into_iter()
+                    .map(|(range, syntax)| (line[range].to_owned(), colors.syntax(syntax)))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// The syntax of shown row `index`, empty until it arrives.
+    fn spans(&self, index: usize) -> &RowSpans {
+        const NONE: &RowSpans = &RowSpans::None;
+        self.doc()
+            .and_then(|doc| doc.row_index(index))
+            .and_then(|row| self.highlights()?.row(row))
+            .unwrap_or(NONE)
     }
 
     pub fn loading(&self) -> bool {
@@ -222,7 +324,8 @@ impl DiffView {
         );
         self.target = target;
         if !same_file {
-            self.content = None;
+            self.set_shown(None, cx);
+            self.load_anyway = false;
             self.hunk = None;
             self.offset = Pixels::ZERO;
             self.scroll_to_top();
@@ -234,7 +337,7 @@ impl DiffView {
             self.reads += 1;
             self.loading = false;
             self.error = None;
-            self.content = None;
+            self.set_shown(None, cx);
             self.asked = None;
         }
         cx.notify();
@@ -254,7 +357,8 @@ impl DiffView {
         let Some(target) = self.target.clone() else {
             return;
         };
-        let request = request(&ChangesPrefs::get(cx));
+        let request = request(&ChangesPrefs::get(cx), self.load_anyway);
+        let svg = cx.svg_renderer();
         self.reads += 1;
         let read = self.reads;
         self.asked = Some(request);
@@ -268,7 +372,7 @@ impl DiffView {
         cx.spawn(async move |this, cx| {
             let built = match call.await {
                 Some(Ok(Some(diff))) => Some(Ok(cx
-                    .background_spawn(async move { Content::build(diff, request) })
+                    .background_spawn(async move { Content::build(diff, request, &svg) })
                     .await)),
                 Some(Err(error)) => Some(Err(error.message)),
                 // A newer view of the workspace took over; the pane reads
@@ -281,9 +385,9 @@ impl DiffView {
                 }
                 this.loading = false;
                 match built {
-                    Some(Ok(content)) => this.set_content(content),
+                    Some(Ok(content)) => this.set_content(content, cx),
                     Some(Err(error)) => {
-                        this.content = None;
+                        this.set_shown(None, cx);
                         this.error = Some(error);
                     }
                     None => {}
@@ -294,8 +398,73 @@ impl DiffView {
         .detach();
     }
 
+    /// Releases the images of the diff shown from the GPU.
+    fn release_images(&mut self, cx: &mut App) {
+        let images: Vec<_> = match &self.content {
+            Some(Content::Special(special)) => special.images().collect(),
+            _ => Vec::new(),
+        };
+        if !images.is_empty() {
+            // After the window that may be drawing is back with the app.
+            cx.defer(move |cx| {
+                for image in images {
+                    cx.drop_image(image, None);
+                }
+            });
+        }
+    }
+
+    /// Replaces the diff shown; its highlighting under way ends with it.
+    fn set_shown(&mut self, content: Option<Content>, cx: &mut Context<Self>) {
+        self.release_images(cx);
+        self.highlighting = None;
+        self.content = content;
+    }
+
+    /// Highlights the shown text diff off the UI thread (UI-24, ARCH-7);
+    /// its rows are drawn plain until the colours arrive.
+    fn highlight(&mut self, cx: &mut Context<Self>) {
+        if self.highlighting.is_some() {
+            return;
+        }
+        let (
+            Some(target),
+            Some(Content::Text {
+                doc,
+                highlights: None,
+                ..
+            }),
+        ) = (&self.target, &self.content)
+        else {
+            return;
+        };
+        let (doc, path, read) = (doc.clone(), target.path.clone(), self.reads);
+        self.highlighting = Some(cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_spawn(async move { highlight::highlight(&doc, &path) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.reads != read {
+                    return;
+                }
+                if let Some(Content::Text { highlights, .. }) = &mut this.content {
+                    *highlights = Some(found);
+                    cx.notify();
+                }
+            });
+        }));
+    }
+
+    /// Reads a diff over the line limit anyway, for as long as its file is
+    /// selected (UI-18).
+    fn load_anyway(&mut self, cx: &mut Context<Self>) {
+        self.load_anyway = true;
+        self.load(cx);
+        cx.notify();
+    }
+
     /// Shows a diff read anew, with the folds the same file had open.
-    fn set_content(&mut self, mut content: Content) {
+    fn set_content(&mut self, mut content: Content, cx: &mut Context<Self>) {
         if let (Some(Content::Text { doc: old, .. }), Content::Text { doc, .. }) =
             (&self.content, &mut content)
             && old.side_by_side_mode() == doc.side_by_side_mode()
@@ -304,7 +473,7 @@ impl DiffView {
         }
         let len = match &content {
             Content::Text { doc, .. } => doc.len(),
-            Content::Other(_) => 0,
+            Content::Special(_) => 0,
         };
         let top = self.wrapped.logical_scroll_top();
         self.wrapped.reset(len);
@@ -314,7 +483,7 @@ impl DiffView {
         {
             self.hunk = None;
         }
-        self.content = Some(content);
+        self.set_shown(Some(content), cx);
     }
 
     /// An option of the pane header changed (UI-17): one the core applies
@@ -334,7 +503,11 @@ impl DiffView {
             }
             cx.notify();
         }
-        if self.target.is_some() && self.asked.is_some_and(|asked| asked != request(&prefs)) {
+        if self.target.is_some()
+            && self
+                .asked
+                .is_some_and(|asked| asked != request(&prefs, self.load_anyway))
+        {
             self.load(cx);
             cx.notify();
         }
@@ -427,9 +600,29 @@ fn id(name: String) -> ElementId {
     ElementId::Name(name.into())
 }
 
-/// The text of a line: one row without wrapping, scrolled sideways by
-/// `offset`; wrapped at the column's edge with it.
-fn line_text(text: SharedString, offset: Pixels, wrap: bool) -> Div {
+/// The text of a line in its syntax colours: one row without wrapping,
+/// scrolled sideways by `offset`; wrapped at the column's edge with it.
+fn line_text(
+    text: SharedString,
+    spans: &[Span],
+    colors: &CodeThemeColors,
+    offset: Pixels,
+    wrap: bool,
+) -> Div {
+    let highlights: Vec<_> = runs(&text, spans)
+        .into_iter()
+        .filter(|(_, syntax)| *syntax != Syntax::Plain)
+        .map(|(range, syntax)| {
+            (
+                range,
+                HighlightStyle {
+                    color: Some(colors.syntax(syntax).into()),
+                    ..HighlightStyle::default()
+                },
+            )
+        })
+        .collect();
+    let text = StyledText::new(text).with_highlights(highlights);
     let cell = div().flex_1().min_w_0().pr_2();
     if wrap {
         cell.child(text)
@@ -536,7 +729,7 @@ impl DiffView {
                     })
                     .bg(colors.hunk_background)
                     .text_color(colors.hunk_text)
-                    .child(line_text(header.clone(), self.offset, wrap).pl_2())
+                    .child(line_text(header.clone(), &[], &colors, self.offset, wrap).pl_2())
                     .into_any_element()
             }
             Shown::Row(DiffRow::Line {
@@ -546,6 +739,10 @@ impl DiffView {
                 text: line,
             }) => {
                 let (background, mark) = kind_look(*kind, &colors);
+                let spans = match self.spans(index) {
+                    RowSpans::Line(spans) => spans.as_slice(),
+                    _ => &[],
+                };
                 base(format!("diff-row-{index}"))
                     .role(Role::ListItem)
                     .aria_label(text::line(kind_name(*kind), *old, *new, line))
@@ -553,11 +750,15 @@ impl DiffView {
                     .child(number(*old))
                     .child(number(*new))
                     .child(sign(mark))
-                    .child(line_text(line.clone(), self.offset, wrap))
+                    .child(line_text(line.clone(), spans, &colors, self.offset, wrap))
                     .into_any_element()
             }
             Shown::Row(DiffRow::Pair { old, new }) => {
-                let half = |cell: &Option<Cell>, side: &str| {
+                let (old_spans, new_spans): (&[Span], &[Span]) = match self.spans(index) {
+                    RowSpans::Pair(old, new) => (old, new),
+                    _ => (&[], &[]),
+                };
+                let half = |cell: &Option<Cell>, spans: &[Span], side: &str| {
                     let half = div()
                         .id(id(format!("diff-row-{index}-{side}")))
                         .flex_1()
@@ -571,7 +772,13 @@ impl DiffView {
                             half.when_some(background, |half, background| half.bg(background))
                                 .child(number(Some(cell.number)))
                                 .child(sign(mark))
-                                .child(line_text(cell.text.clone(), self.offset, wrap))
+                                .child(line_text(
+                                    cell.text.clone(),
+                                    spans,
+                                    &colors,
+                                    self.offset,
+                                    wrap,
+                                ))
                         }
                     }
                 };
@@ -589,9 +796,9 @@ impl DiffView {
                 base(format!("diff-row-{index}"))
                     .role(Role::ListItem)
                     .aria_label(label)
-                    .child(half(old, "old"))
+                    .child(half(old, old_spans, "old"))
                     .child(div().flex_shrink_0().w(px(1.)).bg(colors.gutter_text))
-                    .child(half(new, "new"))
+                    .child(half(new, new_spans, "new"))
                     .into_any_element()
             }
             Shown::Fold { fold, lines } => {
@@ -635,6 +842,9 @@ impl Render for DiffView {
         let Some(target) = self.target.clone() else {
             return root;
         };
+        // A text diff's rows are drawn plain this frame; their colours come
+        // from the background.
+        self.highlight(cx);
         let error = self.error.as_deref().map(|error| {
             note(
                 "diff-error",
@@ -657,17 +867,17 @@ impl Render for DiffView {
         let root = root.children(error).children(whitespace);
         let (doc, missing_newline) = match &self.content {
             None => return root,
-            Some(Content::Other(kind)) => {
-                return root.child(note(
-                    "diff-other",
-                    Role::Paragraph,
-                    (*kind).to_owned(),
-                    tokens.text_secondary,
+            Some(Content::Special(special)) => {
+                return root.child(special_diff::render(
+                    special,
+                    &tokens,
+                    cx.listener(|this, _: &ClickEvent, _, cx| this.load_anyway(cx)),
                 ));
             }
             Some(Content::Text {
                 doc,
                 missing_newline,
+                ..
             }) => (doc, *missing_newline),
         };
         let newline = (missing_newline.0 || missing_newline.1).then(|| {

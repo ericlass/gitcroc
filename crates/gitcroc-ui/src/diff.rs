@@ -359,21 +359,36 @@ impl DiffDoc {
         self.len() == 0
     }
 
-    /// Shown row `index`.
-    pub fn get(&self, index: usize) -> Option<Shown<'_>> {
+    /// Every row before folding, in order.
+    pub fn rows(&self) -> &[DiffRow] {
+        &self.rows
+    }
+
+    /// The segment shown row `index` is in, and the index within it.
+    fn locate(&self, index: usize) -> Option<(&Segment, usize)> {
         let segment = self
             .starts
             .partition_point(|start| *start <= index)
             .checked_sub(1)?;
-        match self.segments.get(segment)? {
-            Segment::Rows(rows) => {
-                let row = rows.start + (index - self.starts[segment]);
-                self.rows
-                    .get(row)
-                    .filter(|_| row < rows.end)
-                    .map(Shown::Row)
-            }
-            Segment::Fold(fold) => Some(Shown::Fold {
+        Some((
+            self.segments.get(segment)?,
+            index - self.starts.get(segment)?,
+        ))
+    }
+
+    /// The row before folding that shown row `index` is; `None` for a fold.
+    pub fn row_index(&self, index: usize) -> Option<usize> {
+        match self.locate(index)? {
+            (Segment::Rows(rows), at) => Some(rows.start + at).filter(|row| *row < rows.end),
+            (Segment::Fold(_), _) => None,
+        }
+    }
+
+    /// Shown row `index`.
+    pub fn get(&self, index: usize) -> Option<Shown<'_>> {
+        match self.locate(index)? {
+            (Segment::Rows(_), _) => self.rows.get(self.row_index(index)?).map(Shown::Row),
+            (Segment::Fold(fold), _) => Some(Shown::Fold {
                 fold: *fold,
                 lines: self.folds.get(*fold).map_or(0, Range::len),
             }),
