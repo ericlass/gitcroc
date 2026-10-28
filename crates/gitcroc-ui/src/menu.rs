@@ -1,8 +1,8 @@
 //! A menu over the window, opened at a point (UI-22): the "+" menu below
 //! its button, a context menu at the pointer or below its row. The first
-//! item has the focus; Up, Down, Home and End move between the items,
-//! wrapping around; Enter and Space choose; Escape and a click outside
-//! close it. The menu says what was chosen and its owner acts, as rc.1's
+//! item that can be chosen has the focus; Up, Down, Home and End move
+//! between the items, wrapping around; Enter and Space choose; Escape and a
+//! click outside close it. The menu says what was chosen and its owner acts, as rc.1's
 //! menus did. gpui-component's popup menu opens only from its own
 //! triggers, and Shift+F10 must open these too.
 
@@ -67,6 +67,8 @@ pub struct MenuItem {
     pub description: Option<SharedString>,
     /// A line above it separates it from the items before.
     pub separated: bool,
+    /// It is shown, but choosing it does nothing (UI-36).
+    pub disabled: bool,
 }
 
 impl MenuItem {
@@ -76,6 +78,7 @@ impl MenuItem {
             label: None,
             description: None,
             separated: false,
+            disabled: false,
         }
     }
 
@@ -91,6 +94,12 @@ impl MenuItem {
 
     pub fn separated(mut self) -> Self {
         self.separated = true;
+        self
+    }
+
+    /// Shows the item, but choosing it does nothing.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
         self
     }
 
@@ -139,11 +148,19 @@ impl Menu {
         }
     }
 
-    /// Gives the focus to the first item.
+    /// Gives the focus to the first item that can be chosen.
     pub fn focus_first(&self, window: &mut Window, cx: &mut App) {
-        if let Some(first) = self.focus.first() {
-            window.focus(first, cx);
+        if let Some(at) = self.first_enabled() {
+            self.select(at, window, cx);
         }
+    }
+
+    fn first_enabled(&self) -> Option<usize> {
+        self.items.iter().position(|item| !item.disabled)
+    }
+
+    fn last_enabled(&self) -> Option<usize> {
+        self.items.iter().rposition(|item| !item.disabled)
     }
 
     /// The item with the focus.
@@ -152,22 +169,33 @@ impl Menu {
     }
 
     fn select(&self, at: usize, window: &mut Window, cx: &mut App) {
-        if let Some(focus) = self.focus.get(at) {
+        if self.items.get(at).is_some_and(|item| !item.disabled)
+            && let Some(focus) = self.focus.get(at)
+        {
             window.focus(focus, cx);
         }
     }
 
     fn step(&mut self, step: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let count = self.focus.len() as isize;
-        if count == 0 {
+        let enabled: Vec<usize> = self
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| !item.disabled)
+            .map(|(at, _)| at)
+            .collect();
+        if enabled.is_empty() {
             return;
         }
-        let next = self
+        let current = self
             .focused(window)
-            .map_or(if step > 0 { 0 } else { count - 1 }, |at| {
-                (at as isize + step).rem_euclid(count)
-            });
-        self.select(next as usize, window, cx);
+            .and_then(|at| enabled.iter().position(|other| *other == at));
+        let next = match current {
+            Some(at) => enabled[(at as isize + step).rem_euclid(enabled.len() as isize) as usize],
+            None if step > 0 => enabled[0],
+            None => enabled[enabled.len() - 1],
+        };
+        self.select(next, window, cx);
     }
 
     fn select_next(&mut self, _: &SelectNext, window: &mut Window, cx: &mut Context<Self>) {
@@ -179,15 +207,22 @@ impl Menu {
     }
 
     fn select_first(&mut self, _: &SelectFirst, window: &mut Window, cx: &mut Context<Self>) {
-        self.select(0, window, cx);
+        if let Some(first) = self.first_enabled() {
+            self.select(first, window, cx);
+        }
     }
 
     fn select_last(&mut self, _: &SelectLast, window: &mut Window, cx: &mut Context<Self>) {
-        self.select(self.focus.len().saturating_sub(1), window, cx);
+        if let Some(last) = self.last_enabled() {
+            self.select(last, window, cx);
+        }
     }
 
     fn choose(&mut self, _: &Choose, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(at) = self.focused(window) {
+        if let Some(at) = self
+            .focused(window)
+            .filter(|at| self.items.get(*at).is_some_and(|item| !item.disabled))
+        {
             cx.emit(MenuEvent::Chosen(at));
         }
     }
@@ -215,6 +250,7 @@ impl Render for Menu {
             .zip(&self.focus)
             .enumerate()
             .map(|(at, (item, focus))| {
+                let disabled = item.disabled;
                 let row = div()
                     .id(ElementId::NamedInteger("menu-item".into(), at as u64))
                     .test_support()
@@ -224,10 +260,19 @@ impl Render for Menu {
                     .px_3()
                     .py_1()
                     .rounded(px(4.))
-                    .cursor_pointer()
-                    .hover(move |style| style.bg(tokens.bg_3))
-                    .focus(move |style| style.bg(tokens.selection_bg))
-                    .on_click(cx.listener(move |_, _, _, cx| cx.emit(MenuEvent::Chosen(at))))
+                    .when(disabled, |row| {
+                        row.opacity(0.5)
+                            .text_color(tokens.text_secondary)
+                            .cursor_default()
+                    })
+                    .when(!disabled, |row| {
+                        row.cursor_pointer()
+                            .hover(move |style| style.bg(tokens.bg_3))
+                            .focus(move |style| style.bg(tokens.selection_bg))
+                            .on_click(
+                                cx.listener(move |_, _, _, cx| cx.emit(MenuEvent::Chosen(at))),
+                            )
+                    })
                     .child(item.text.clone());
                 let row = match &item.description {
                     Some(description) => row.aria_description(description.clone()),

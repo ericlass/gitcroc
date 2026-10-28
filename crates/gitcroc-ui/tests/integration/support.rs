@@ -10,7 +10,9 @@ use gitcroc_app::ai::ProviderCalls;
 use gitcroc_app::app::{App as GitcrocApp, AppEvent, AppSetup};
 use gitcroc_app::platform::{DesktopFonts, DialogFuture, Dialogs, FileFilter, MemoryKeychain};
 use gitcroc_app::update::NoUpdates;
-use gitcroc_core::{CacheDir, ConfigDir, GitStatus, LogDir, RepoId, WorkspaceId};
+use gitcroc_core::{
+    CacheDir, ConfigDir, GitStatus, LogDir, PaneLayout, RepoId, WORKSPACES_DIR, WorkspaceId,
+};
 use std::rc::Rc;
 
 use gitcroc_ui::services::Services;
@@ -329,6 +331,38 @@ impl Fixture {
                 .path()
                 .join("config")
                 .join(gitcroc_core::SETTINGS_FILE),
+        )
+        .unwrap()
+    }
+
+    /// The workspace's saved pane layout.
+    pub fn layout(&self, id: &WorkspaceId) -> PaneLayout {
+        self.app()
+            .workspace_get()
+            .open
+            .into_iter()
+            .find(|view| &view.id == id)
+            .map(|view| view.layout)
+            .unwrap_or_default()
+    }
+
+    /// Saves `layout` as the workspace's pane layout, as the window does.
+    pub fn set_layout(&self, id: &WorkspaceId, layout: PaneLayout) {
+        let app = self.app().clone();
+        let id = id.clone();
+        self.runtime
+            .block_on(async move { app.workspace_set_layout(id, layout).await })
+            .unwrap();
+    }
+
+    /// The workspace file's text.
+    pub fn workspace_file(&self, id: &WorkspaceId) -> String {
+        std::fs::read_to_string(
+            self.dir
+                .path()
+                .join("config")
+                .join(WORKSPACES_DIR)
+                .join(format!("{}.toml", id.0)),
         )
         .unwrap()
     }
