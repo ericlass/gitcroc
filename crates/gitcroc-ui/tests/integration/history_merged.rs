@@ -211,12 +211,15 @@ fn ui_11_summary_strip_shows_each_repo_and_selects_it_in_the_tree(cx: &mut TestA
     let all = group(&fixture, "All", members.clone());
     let (mut cx, window) = main_window(cx, &fixture);
 
-    // One line per repo, in the group's order.
+    // One line per repo, in the group's order. Each repo's summary arrives
+    // on its own, in any order.
     let node = group_node(&all);
     wait_for_element(&mut cx, tree_row(&node));
     click(&mut cx, tree_row(&node));
     wait_until(&mut cx, |cx| {
         strip_names(cx) == ["ahead", "dirty", "clash", "gone"]
+            && strip_marks(cx, 0) == ["1 ahead"]
+            && strip_marks(cx, 1) == ["2 changed files"]
             && strip_marks(cx, 2).contains(&"Conflict state".to_owned())
     });
     assert_eq!(
