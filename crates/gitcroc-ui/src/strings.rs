@@ -54,6 +54,8 @@ pub mod keys {
     pub const PREVIOUS_TAB: &str = "Previous tab";
     pub const MOVE_TAB_RIGHT: &str = "Move the tab to the right";
     pub const MOVE_TAB_LEFT: &str = "Move the tab to the left";
+    pub const NEXT_HUNK: &str = "Next hunk in the diff or the conflict editor";
+    pub const PREVIOUS_HUNK: &str = "Previous hunk in the diff or the conflict editor";
     /// Modifiers, as each platform writes them.
     pub const CTRL: &str = "Ctrl";
     pub const CMD: &str = "Cmd";
@@ -382,6 +384,89 @@ pub mod changes {
     pub fn mode(old: &str, new: &str) -> String {
         format!("mode {old} → {new}")
     }
+    /// The pane header's diff options (UI-17).
+    pub const DIFF_OPTIONS: &str = "Diff options";
+    pub const DIFF_MODE: &str = "Diff mode";
+    pub const INLINE: &str = "Inline";
+    pub const SIDE_BY_SIDE: &str = "Side by side";
+    pub const IGNORE_WHITESPACE: &str = "Ignore whitespace";
+    pub const WRAP_LINES: &str = "Wrap lines";
+    pub const CONTEXT: &str = "Context";
+    pub const CONTEXT_THREE: &str = "3 lines";
+    pub const CONTEXT_TEN: &str = "10 lines";
+    pub const WHOLE_FILE: &str = "Whole file";
+    /// The diff's lines, as a screen reader names them.
+    pub fn diff_of(path: &str) -> String {
+        format!("Diff of {path}")
+    }
+    pub fn cannot_read_diff(error: &str) -> String {
+        format!("Cannot read the diff: {error}")
+    }
+    pub const HUNKS_IGNORE_WHITESPACE: &str = "Hunks can be staged with \"Ignore whitespace\" off.";
+    pub const NO_LINES: &str = "No lines changed.";
+    /// That the old file, the new one or both end without a newline.
+    pub fn no_newline(old: bool, new: bool) -> String {
+        let sides = match (old, new) {
+            (true, true) => "old and new",
+            (true, false) => "old",
+            _ => "new",
+        };
+        format!("No newline at the end of the {sides} file.")
+    }
+    /// A hunk's header as a screen reader reads it: "Hunk 1: @@ -1,2 +1,3 @@".
+    pub fn hunk(number: usize, header: &str) -> String {
+        format!("Hunk {number}: {header}")
+    }
+    /// Folded unchanged lines in side-by-side mode, and their button.
+    pub fn folded(lines: usize) -> String {
+        format!(
+            "⋯ {} ⋯",
+            plural(
+                u32::try_from(lines).unwrap_or(u32::MAX),
+                "unchanged line",
+                "unchanged lines"
+            )
+        )
+    }
+    pub fn unfold(lines: usize) -> String {
+        format!(
+            "Show {}",
+            plural(
+                u32::try_from(lines).unwrap_or(u32::MAX),
+                "unchanged line",
+                "unchanged lines"
+            )
+        )
+    }
+    /// What a diff line is, as a screen reader reads it before the line.
+    pub const LINE_ADDED: &str = "Added";
+    pub const LINE_REMOVED: &str = "Removed";
+    pub const LINE_UNCHANGED: &str = "Unchanged";
+    /// The signs before an added and a removed line.
+    pub const SIGN_ADDED: &str = "+";
+    pub const SIGN_REMOVED: &str = "−";
+    /// A line as a screen reader reads it: "Added, new 3: text".
+    pub fn line(kind: &str, old: Option<u32>, new: Option<u32>, text: &str) -> String {
+        let numbers: Vec<String> = [("old", old), ("new", new)]
+            .into_iter()
+            .filter_map(|(side, number)| number.map(|number| format!("{side} {number}")))
+            .collect();
+        format!("{kind}, {}: {text}", numbers.join(", "))
+    }
+    /// Both sides of a side-by-side row, as a screen reader reads them.
+    pub fn pair(old: Option<&str>, new: Option<&str>) -> String {
+        [old, new]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+    /// The diffs that are not text, by kind (UI-18).
+    pub const BINARY: &str = "Binary file";
+    pub const IMAGE: &str = "Image";
+    pub const TOO_LARGE: &str = "Large diff";
+    pub const FOLDER: &str = "Untracked folder";
+    pub const SUBMODULE: &str = "Submodule";
 }
 
 /// The workspace files, their menu and their dialogs (UI-28).

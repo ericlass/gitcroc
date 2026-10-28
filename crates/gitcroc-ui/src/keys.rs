@@ -34,6 +34,10 @@ actions!(
         MoveTabRight,
         /// Moves the active tab one place left.
         MoveTabLeft,
+        /// Goes to the next hunk of the diff (UI-22).
+        NextHunk,
+        /// Goes to the previous hunk of the diff.
+        PreviousHunk,
     ]
 );
 
@@ -129,6 +133,8 @@ pub enum Shortcut {
     PreviousTab,
     MoveTabRight,
     MoveTabLeft,
+    NextHunk,
+    PreviousHunk,
 }
 
 impl Shortcut {
@@ -141,6 +147,8 @@ impl Shortcut {
             Self::PreviousTab => strings::keys::PREVIOUS_TAB,
             Self::MoveTabRight => strings::keys::MOVE_TAB_RIGHT,
             Self::MoveTabLeft => strings::keys::MOVE_TAB_LEFT,
+            Self::NextHunk => strings::keys::NEXT_HUNK,
+            Self::PreviousHunk => strings::keys::PREVIOUS_HUNK,
         }
     }
 
@@ -153,12 +161,14 @@ impl Shortcut {
             Self::PreviousTab => Box::new(PreviousTab),
             Self::MoveTabRight => Box::new(MoveTabRight),
             Self::MoveTabLeft => Box::new(MoveTabLeft),
+            Self::NextHunk => Box::new(NextHunk),
+            Self::PreviousHunk => Box::new(PreviousHunk),
         }
     }
 }
 
 /// The app-wide shortcuts and their keys.
-pub const KEYMAP: [(Shortcut, Keys); 6] = [
+pub const KEYMAP: [(Shortcut, Keys); 8] = [
     (Shortcut::NextRegion, Keys::plain("f6")),
     (Shortcut::PreviousRegion, Keys::plain("f6").shift()),
     (Shortcut::NextTab, Keys::plain("pagedown").secondary()),
@@ -171,6 +181,8 @@ pub const KEYMAP: [(Shortcut, Keys); 6] = [
         Shortcut::MoveTabLeft,
         Keys::plain("pageup").secondary().shift(),
     ),
+    (Shortcut::NextHunk, Keys::plain("f7")),
+    (Shortcut::PreviousHunk, Keys::plain("f7").shift()),
 ];
 
 /// Binds the shortcuts of [`KEYMAP`], and on macOS the keys of the App and

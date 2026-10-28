@@ -3,7 +3,8 @@
 //! merge commit, and its changed files; "Uncommitted changes" shows the
 //! Unmerged, Staged and Unstaged lists, sectioned by repo for a group or
 //! several repos (UI-34). The lists are flat or a folder tree, virtualized
-//! (PERF-1), and one file is selected; its diff is M6-13. The window keeps
+//! (PERF-1), and one file is selected; its diff is the [`DiffView`] below
+//! them, with the diff options in the pane header (UI-17). The window keeps
 //! one per open workspace, so each tab keeps its own (UI-29). Everything
 //! shown comes from the core; this lays it out and forwards input.
 
@@ -12,21 +13,23 @@ use std::rc::Rc;
 
 use gitcroc_app::app::AppEvent;
 use gitcroc_core::{
-    ChangesContent, ChangesSettings, CommitDetails, FileListMode, FileStatus, Person, UnmergedKind,
-    WorkspaceId,
+    ChangesContent, ChangesSettings, CommitDetails, Context as DiffContext, DiffMode, FileListMode,
+    FileStatus, Person, UnmergedKind, WorkspaceId,
 };
 use gpui_component::Selectable;
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::checkbox::Checkbox;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    AnyElement, App, ClickEvent, Context, CursorStyle, ElementId, Entity, FocusHandle, Focusable,
-    Global, Hsla, InteractiveElement, IntoElement, KeyBinding, KeyBindingContextPredicate,
-    ParentElement, Pixels, Render, Role, ScrollStrategy, SharedString, StatefulInteractiveElement,
-    Styled, Subscription, TestSupportExt, UniformListScrollHandle, Window, actions, div, point, px,
-    svg, uniform_list,
+    AnyElement, App, AppContext, ClickEvent, Context, CursorStyle, ElementId, Entity, FocusHandle,
+    Focusable, Global, Hsla, InteractiveElement, IntoElement, KeyBinding,
+    KeyBindingContextPredicate, ParentElement, Pixels, Render, Role, ScrollStrategy, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, TestSupportExt, UniformListScrollHandle,
+    Window, actions, div, point, px, svg, uniform_list,
 };
 
 use crate::changes::{Changes, Entry, FileKey, FileRow, List, Read};
+use crate::diff_view::DiffView;
 use crate::history::{self, Selection};
 use crate::history_pane::HistoryPane;
 use crate::icons;
@@ -90,6 +93,7 @@ pub struct ChangesPane {
     workspace_id: WorkspaceId,
     changes: Changes,
     history: Entity<HistoryPane>,
+    diff: Entity<DiffView>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
     /// The latest read of the view; older answers are dropped.
@@ -115,11 +119,13 @@ impl ChangesPane {
         });
         let mut changes = Changes::default();
         changes.set_mode(ChangesPrefs::get(cx).file_list);
+        let diff = cx.new(|cx| DiffView::new(services.clone(), workspace_id.clone(), cx));
         let mut this = Self {
             services,
             workspace_id,
             changes,
             history,
+            diff,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
             request: 0,
@@ -132,6 +138,22 @@ impl ChangesPane {
 
     pub fn changes(&self) -> &Changes {
         &self.changes
+    }
+
+    pub fn diff(&self) -> &Entity<DiffView> {
+        &self.diff
+    }
+
+    /// F7 and Shift+F7 (UI-22).
+    pub fn step_hunk(&mut self, step: isize, window: &mut Window, cx: &mut Context<Self>) {
+        self.diff
+            .update(cx, |diff, cx| diff.step_hunk(step, window, cx));
+    }
+
+    /// Shows the selected file's diff, or none.
+    fn sync_diff(&mut self, cx: &mut Context<Self>) {
+        let target = self.changes.diff_target();
+        self.diff.update(cx, |diff, cx| diff.show(target, cx));
     }
 
     /// Follows the app's events about this workspace: a working copy shown
@@ -161,6 +183,7 @@ impl ChangesPane {
                 .base_handle
                 .set_offset(point(px(0.), px(0.)));
             self.load(None, cx);
+            self.sync_diff(cx);
             cx.notify();
         }
     }
@@ -212,6 +235,7 @@ impl ChangesPane {
                     Some(Err(error)) => this.changes.set_error(error.message),
                     None => this.changes.set_loading(false),
                 }
+                this.sync_diff(cx);
                 cx.notify();
             });
         })
@@ -236,11 +260,18 @@ impl ChangesPane {
 
     /// Lists the files flat or as a tree, in every workspace (UI-14).
     fn set_mode(&mut self, mode: FileListMode, cx: &mut Context<Self>) {
+        self.set_prefs(|prefs| prefs.file_list = mode, cx);
+    }
+
+    /// Changes the pane's view settings for every workspace, and keeps
+    /// them (UI-14, UI-17).
+    fn set_prefs(&mut self, change: impl FnOnce(&mut ChangesSettings), cx: &mut Context<Self>) {
         let mut prefs = ChangesPrefs::get(cx);
-        if prefs.file_list == mode {
+        let before = prefs;
+        change(&mut prefs);
+        if prefs == before {
             return;
         }
-        prefs.file_list = mode;
         cx.set_global(ChangesPrefs(prefs));
         let call = self
             .services
@@ -262,6 +293,7 @@ impl ChangesPane {
         window.focus(&self.focus, cx);
         if self.changes.select_index(index) {
             self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+            self.sync_diff(cx);
             cx.notify();
         }
     }
@@ -790,7 +822,107 @@ impl ChangesPane {
             .into_any_element()
     }
 
-    /// The selected file's header; the diff below it is M6-13.
+    /// The pane header: the diff mode and options (UI-17), for every
+    /// workspace.
+    fn options(&self, tokens: &Tokens, cx: &mut Context<Self>) -> AnyElement {
+        let prefs = ChangesPrefs::get(cx);
+        let toggle = |id: &'static str, label: &'static str, on: bool| {
+            Button::new(id)
+                .compact()
+                .ghost()
+                .label(label)
+                .selected(on)
+                .toggled(on)
+        };
+        let mode =
+            |id, label, mode: DiffMode| {
+                toggle(id, label, prefs.diff_mode == mode).on_click(cx.listener(
+                    move |this, _, _, cx| this.set_prefs(|prefs| prefs.diff_mode = mode, cx),
+                ))
+            };
+        let context = |id, label, context: DiffContext| {
+            toggle(id, label, prefs.context == context).on_click(cx.listener(
+                move |this, _, _, cx| this.set_prefs(|prefs| prefs.context = context, cx),
+            ))
+        };
+        let group = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .test_support()
+                .role(Role::Group)
+                .aria_label(label)
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_1()
+        };
+        div()
+            .id("changes-options")
+            .test_support()
+            .role(Role::Toolbar)
+            .aria_label(text::DIFF_OPTIONS)
+            .flex_shrink_0()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .gap_x_3()
+            .gap_y_1()
+            .px_2()
+            .py_1()
+            .border_b_1()
+            .border_color(tokens.border)
+            .bg(tokens.bg_2)
+            .child(
+                group("changes-diff-mode", text::DIFF_MODE)
+                    .child(mode("changes-inline", text::INLINE, DiffMode::Inline))
+                    .child(mode(
+                        "changes-side-by-side",
+                        text::SIDE_BY_SIDE,
+                        DiffMode::SideBySide,
+                    )),
+            )
+            .child(
+                Checkbox::new("changes-ignore-whitespace")
+                    .label(text::IGNORE_WHITESPACE)
+                    .checked(prefs.ignore_whitespace)
+                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                        let checked = *checked;
+                        this.set_prefs(|prefs| prefs.ignore_whitespace = checked, cx);
+                    })),
+            )
+            .child(
+                Checkbox::new("changes-wrap-lines")
+                    .label(text::WRAP_LINES)
+                    .checked(prefs.wrap_lines)
+                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                        let checked = *checked;
+                        this.set_prefs(|prefs| prefs.wrap_lines = checked, cx);
+                    })),
+            )
+            .child(
+                group("changes-context", text::CONTEXT)
+                    .child(div().text_color(tokens.text_secondary).child(text::CONTEXT))
+                    .child(context(
+                        "changes-context-three",
+                        text::CONTEXT_THREE,
+                        DiffContext::Three,
+                    ))
+                    .child(context(
+                        "changes-context-ten",
+                        text::CONTEXT_TEN,
+                        DiffContext::Ten,
+                    ))
+                    .child(context(
+                        "changes-context-whole",
+                        text::WHOLE_FILE,
+                        DiffContext::WholeFile,
+                    )),
+            )
+            .into_any_element()
+    }
+
+    /// The selected file's header and its diff.
     fn diff_area(&self, tokens: &Tokens) -> AnyElement {
         let area = div()
             .id("changes-diff")
@@ -824,6 +956,7 @@ impl ChangesPane {
             ),
             Entry::Unmerged(file) => (file.path.clone(), None),
         };
+        let diff = matches!(entry, Entry::Changed(_)).then(|| self.diff.clone());
         area.child(
             div()
                 .id("changes-file")
@@ -846,6 +979,7 @@ impl ChangesPane {
                         .child(mode)
                 })),
         )
+        .children(diff)
         .into_any_element()
     }
 }
@@ -873,7 +1007,8 @@ impl Render for ChangesPane {
             .size_full()
             .flex()
             .flex_col()
-            .text_sm();
+            .text_sm()
+            .child(self.options(&tokens, cx));
         if self.changes.selection().is_none() {
             return root.child(message(
                 "changes-empty",

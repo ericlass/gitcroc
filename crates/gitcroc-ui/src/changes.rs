@@ -9,8 +9,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use gitcroc_core::{
-    ChangedFile, ChangesContent, ChangesTarget, ChangesView, FileListMode, RepoId, TargetSet,
-    UnmergedFile,
+    ChangedFile, ChangesContent, ChangesTarget, ChangesView, FileList, FileListMode, FileRef,
+    RepoId, TargetSet, UnmergedFile,
 };
 
 use crate::history::Selection;
@@ -401,6 +401,27 @@ pub struct Kept {
     pub repo: Option<RepoId>,
 }
 
+/// The file whose diff is shown, as `diff_get` names it (ARCH-8), with
+/// its path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffTarget {
+    pub handle: u32,
+    pub file: FileRef,
+    pub path: String,
+}
+
+impl DiffTarget {
+    /// Whether it is a staged or unstaged change, not a commit's.
+    pub fn uncommitted(&self) -> bool {
+        self.file.list != FileList::Commit
+    }
+
+    /// Whether `other` is the same file, as in a view read anew.
+    pub fn same_file(&self, other: &DiffTarget) -> bool {
+        self.file.list == other.file.list && self.path == other.path
+    }
+}
+
 /// What to read for a selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Read {
@@ -467,6 +488,36 @@ impl Changes {
     /// The entry of `file`.
     pub fn entry_of(&self, file: &FileKey) -> Option<Entry<'_>> {
         entry_of(&self.view.as_ref()?.content, file)
+    }
+
+    /// What the selected file's diff is read with; `None` without one,
+    /// and for an unmerged file, whose conflict editor is M6-19.
+    pub fn diff_target(&self) -> Option<DiffTarget> {
+        let view = self.view.as_ref()?;
+        let file = self.file.as_ref()?;
+        let list = match file.list {
+            List::Commit => FileList::Commit,
+            List::Staged => FileList::Staged,
+            List::Unstaged => FileList::Unstaged,
+            List::Unmerged => return None,
+        };
+        let handle = match &view.content {
+            ChangesContent::Merged { repos, .. } => {
+                repos
+                    .iter()
+                    .find(|repo| Some(&repo.repo_id) == file.repo.as_ref())?
+                    .handle
+            }
+            _ => view.handle,
+        };
+        Some(DiffTarget {
+            handle,
+            file: FileRef {
+                list,
+                id: u32::try_from(file.id).ok()?,
+            },
+            path: self.entry_of(file)?.path().to_owned(),
+        })
     }
 
     /// The number of files the view lists.

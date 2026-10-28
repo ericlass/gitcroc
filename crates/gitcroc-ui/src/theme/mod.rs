@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use gitcroc_core::{Appearance, Settings, Theme as ThemeSetting};
 use gpui_component::{Theme, ThemeConfig, ThemeMode};
-use gpui_kit::{App, Global, SharedString, Window, WindowAppearance};
+use gpui_kit::{App, Global, Pixels, SharedString, Window, WindowAppearance, px};
 
 use self::code_themes::{CodeThemeDef, code_theme};
 use self::tokens::{Color, Tokens};
@@ -104,6 +104,11 @@ impl AppTheme {
 
     pub fn code_font(&self) -> &SharedString {
         &self.code_font
+    }
+
+    /// The code font's size (UI-26).
+    pub fn code_font_size(&self) -> Pixels {
+        px(self.appearance.code_font_size as f32)
     }
 
     /// The text system's font families.

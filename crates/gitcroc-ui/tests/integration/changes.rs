@@ -29,11 +29,11 @@ fn name(id: String) -> ElementId {
     ElementId::Name(id.into())
 }
 
-fn history_row(index: usize) -> ElementId {
+pub(crate) fn history_row(index: usize) -> ElementId {
     name(format!("history-row-{index}"))
 }
 
-fn row(index: usize) -> ElementId {
+pub(crate) fn row(index: usize) -> ElementId {
     name(format!("changes-row-{index}"))
 }
 
@@ -42,7 +42,7 @@ fn row_part(index: usize, part: &str) -> ElementId {
 }
 
 /// Runs `f` on the active tab's changes pane.
-fn with_changes<R>(
+pub(crate) fn with_changes<R>(
     cx: &mut VisualTestContext,
     window: &Entity<GitcrocWindow>,
     f: impl FnOnce(&Changes) -> R,
@@ -57,7 +57,7 @@ fn with_changes<R>(
 /// Waits until the changes pane shows a view read for the history's
 /// selection.
 #[track_caller]
-fn wait_for_view(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>) {
+pub(crate) fn wait_for_view(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>) {
     wait_until(cx, |cx| {
         let shown = selection(cx, window);
         with_changes(cx, window, |changes| {
@@ -90,7 +90,11 @@ fn headings(cx: &mut VisualTestContext) -> Vec<String> {
 }
 
 /// The index of the row named `label`.
-fn index_of(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>, label: &str) -> usize {
+pub(crate) fn index_of(
+    cx: &mut VisualTestContext,
+    window: &Entity<GitcrocWindow>,
+    label: &str,
+) -> usize {
     with_changes(cx, window, |changes| {
         changes.rows().iter().position(|row| match row {
             FileRow::File { name, .. } | FileRow::Folder { name, .. } => name == label,
@@ -101,7 +105,7 @@ fn index_of(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>, label: &
 }
 
 /// The selected file's path, as the diff area names it.
-fn shown_file(cx: &mut VisualTestContext) -> Option<String> {
+pub(crate) fn shown_file(cx: &mut VisualTestContext) -> Option<String> {
     label_of(cx, "changes-file".into())
 }
 
@@ -113,7 +117,7 @@ fn selected(cx: &mut VisualTestContext, id: ElementId) -> Option<bool> {
 }
 
 /// Whether toggle button `id` is pressed, as a screen reader reads it.
-fn pressed(cx: &mut VisualTestContext, id: ElementId) -> Option<bool> {
+pub(crate) fn pressed(cx: &mut VisualTestContext, id: ElementId) -> Option<bool> {
     cx.update(|window, cx| {
         window.render_frame(cx);
         window.try_find(id).and_then(|found| found.checked())
@@ -122,7 +126,7 @@ fn pressed(cx: &mut VisualTestContext, id: ElementId) -> Option<bool> {
 
 /// Selects repo `name`'s row in the tree and waits for its history.
 #[track_caller]
-fn show_repo(
+pub(crate) fn show_repo(
     cx: &mut VisualTestContext,
     window: &Entity<GitcrocWindow>,
     added: &[(String, RepoId)],
@@ -161,7 +165,7 @@ fn show_repo(
 }
 
 /// Switches to tab `id` and waits until the core has it active.
-fn switch_to(cx: &mut VisualTestContext, fixture: &Fixture, id: &WorkspaceId) {
+pub(crate) fn switch_to(cx: &mut VisualTestContext, fixture: &Fixture, id: &WorkspaceId) {
     click(cx, tab(id));
     wait_until(cx, |_| fixture.active() == *id);
 }
