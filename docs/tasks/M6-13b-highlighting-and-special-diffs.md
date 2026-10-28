@@ -33,10 +33,12 @@ Respects: UI-17, UI-24, UI-25, UI-26, UI-29, ARCH-7, ARCH-8, PERF-1, SEC-2, SEC-
 - **Special diffs** (UI-18), a port of `ui/src/changes/SpecialDiff.tsx`:
   - a binary file says "Binary file changed" with both sizes, in B, KB, MB
     or GB;
-  - an image shows each side's format and size and the image itself, read
-    with `diff_image` and drawn from its bytes with `img()`, with no file
-    or URL made (SEC-2). A side that does not exist says "none". Images
-    are scaled down to fit, never up;
+  - an image shows each side's format and size and the image itself,
+    decoded off the UI thread from the bytes `diff_get` returns (in the
+    same process they come with the diff, so `diff_image` is not needed)
+    and drawn with `img()`, with no file or URL made (SEC-2). A side that
+    does not exist says "none". Images are scaled down to fit, never up,
+    and released from the GPU when the diff goes;
   - a diff over 20,000 changed lines shows its counts and **Load diff**,
     which reads it again with `load_anyway`. The choice holds for that file
     until another file is selected;

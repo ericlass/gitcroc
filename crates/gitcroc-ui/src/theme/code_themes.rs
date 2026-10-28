@@ -84,58 +84,80 @@ pub fn code_theme(theme: CodeTheme) -> &'static CodeThemeDef {
     }
 }
 
-/// The TextMate scopes each syntax colour paints.
-fn scopes(colors: &CodeThemeColors) -> [(&'static str, Color); 7] {
-    [
-        ("comment", colors.comment),
-        ("string", colors.string),
-        (
-            "constant.numeric, constant.language, constant.character",
-            colors.number,
-        ),
-        ("keyword, storage", colors.keyword),
-        (
-            "entity.name.type, entity.name.class, entity.name.struct, entity.name.enum, \
-             entity.other.inherited-class, support.type, support.class",
-            colors.r#type,
-        ),
-        (
-            "entity.name.function, support.function, variable.function",
-            colors.function,
-        ),
-        ("entity.name.tag", colors.tag),
-    ]
+/// What a run of highlighted text is, whatever the theme's colours: the
+/// diff keeps these per line, so a theme change only recolours (UI-24).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Syntax {
+    Plain,
+    Comment,
+    String,
+    Number,
+    Keyword,
+    Type,
+    Function,
+    Tag,
 }
 
-fn syntect_color(color: Color) -> SyntectColor {
-    let [r, g, b] = color.channels();
-    SyntectColor { r, g, b, a: 0xff }
+/// The TextMate scopes of each syntax colour.
+pub const SYNTAX_SCOPES: [(&str, Syntax); 7] = [
+    ("comment", Syntax::Comment),
+    ("string", Syntax::String),
+    (
+        "constant.numeric, constant.language, constant.character",
+        Syntax::Number,
+    ),
+    ("keyword, storage", Syntax::Keyword),
+    (
+        "entity.name.type, entity.name.class, entity.name.struct, entity.name.enum, \
+         entity.other.inherited-class, support.type, support.class",
+        Syntax::Type,
+    ),
+    (
+        "entity.name.function, support.function, variable.function",
+        Syntax::Function,
+    ),
+    ("entity.name.tag", Syntax::Tag),
+];
+
+impl CodeThemeColors {
+    /// The colour text of kind `syntax` is drawn in.
+    pub fn syntax(&self, syntax: Syntax) -> Color {
+        match syntax {
+            Syntax::Plain => self.text,
+            Syntax::Comment => self.comment,
+            Syntax::String => self.string,
+            Syntax::Number => self.number,
+            Syntax::Keyword => self.keyword,
+            Syntax::Type => self.r#type,
+            Syntax::Function => self.function,
+            Syntax::Tag => self.tag,
+        }
+    }
 }
 
-/// The syntect theme the diff and the conflict editor highlight with.
-pub fn syntect_theme(def: &CodeThemeDef) -> Theme {
-    let colors = &def.colors;
+/// A syntect theme that paints each scope of [`SYNTAX_SCOPES`] with
+/// `color` of its kind.
+pub fn scope_theme(
+    name: &str,
+    plain: SyntectColor,
+    color: impl Fn(Syntax) -> SyntectColor,
+) -> Theme {
     Theme {
-        name: Some(def.label.to_owned()),
+        name: Some(name.to_owned()),
         author: None,
         settings: ThemeSettings {
-            foreground: Some(syntect_color(colors.text)),
-            background: Some(syntect_color(colors.background)),
-            caret: Some(syntect_color(colors.text)),
-            selection: Some(syntect_color(colors.selection)),
-            gutter: Some(syntect_color(colors.gutter_background)),
-            gutter_foreground: Some(syntect_color(colors.gutter_text)),
+            foreground: Some(plain),
             ..ThemeSettings::default()
         },
         // The selectors are constants; the test that highlights with every
         // theme fails if one does not parse.
-        scopes: scopes(colors)
+        scopes: SYNTAX_SCOPES
             .into_iter()
-            .filter_map(|(selector, color)| {
+            .filter_map(|(selector, syntax)| {
                 Some(ThemeItem {
                     scope: ScopeSelectors::from_str(selector).ok()?,
                     style: StyleModifier {
-                        foreground: Some(syntect_color(color)),
+                        foreground: Some(color(syntax)),
                         background: None,
                         font_style: None,
                     },
@@ -143,6 +165,29 @@ pub fn syntect_theme(def: &CodeThemeDef) -> Theme {
             })
             .collect(),
     }
+}
+
+fn syntect_color(color: Color) -> SyntectColor {
+    let [r, g, b] = color.channels();
+    SyntectColor { r, g, b, a: 0xff }
+}
+
+/// The syntect theme of `def`, with its colours.
+pub fn syntect_theme(def: &CodeThemeDef) -> Theme {
+    let colors = &def.colors;
+    let mut theme = scope_theme(def.label, syntect_color(colors.text), |syntax| {
+        syntect_color(colors.syntax(syntax))
+    });
+    theme.settings = ThemeSettings {
+        foreground: Some(syntect_color(colors.text)),
+        background: Some(syntect_color(colors.background)),
+        caret: Some(syntect_color(colors.text)),
+        selection: Some(syntect_color(colors.selection)),
+        gutter: Some(syntect_color(colors.gutter_background)),
+        gutter_foreground: Some(syntect_color(colors.gutter_text)),
+        ..ThemeSettings::default()
+    };
+    theme
 }
 
 const GITHUB_LIGHT: CodeThemeDef = CodeThemeDef {

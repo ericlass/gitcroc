@@ -461,12 +461,68 @@ pub mod changes {
             .collect::<Vec<_>>()
             .join("; ")
     }
-    /// The diffs that are not text, by kind (UI-18).
-    pub const BINARY: &str = "Binary file";
-    pub const IMAGE: &str = "Image";
-    pub const TOO_LARGE: &str = "Large diff";
-    pub const FOLDER: &str = "Untracked folder";
-    pub const SUBMODULE: &str = "Submodule";
+    /// The diffs that are not text (UI-18). A size under 1 KB, and the
+    /// units of larger ones.
+    pub fn bytes(count: u64) -> String {
+        format!("{count} B")
+    }
+    pub const SIZE_UNITS: [&str; 3] = ["KB", "MB", "GB"];
+    /// A size of `value` in `unit`, with one decimal: "1.2 KB".
+    pub fn size(value: f64, unit: &str) -> String {
+        format!("{value:.1} {unit}")
+    }
+    /// A side that does not exist.
+    pub const NONE: &str = "none";
+    pub fn binary(before: &str, after: &str) -> String {
+        format!("Binary file changed. Before: {before}, after: {after}.")
+    }
+    pub const BEFORE: &str = "Before";
+    pub const AFTER: &str = "After";
+    /// An image side's caption: "Before: PNG, 1.2 KB".
+    pub fn image_caption(side: &str, what: &str) -> String {
+        format!("{side}: {what}")
+    }
+    pub fn image_kind(format: &str, size: &str) -> String {
+        format!("{format}, {size}")
+    }
+    /// The image itself, as a screen reader names it.
+    pub fn image(side: &str) -> String {
+        format!("{side} image")
+    }
+    pub const PNG: &str = "PNG";
+    pub const JPEG: &str = "JPEG";
+    pub const GIF: &str = "GIF";
+    pub const WEBP: &str = "WEBP";
+    pub const BMP: &str = "BMP";
+    pub fn large(added: u32, removed: u32) -> String {
+        format!(
+            "This diff is large: {} lines added and {} removed. Showing it may take a while.",
+            grouped(added),
+            grouped(removed)
+        )
+    }
+    pub const LOAD_DIFF: &str = "Load diff";
+    pub const UNTRACKED_FOLDER: &str = "An untracked folder. Its files are not read.";
+    pub const SUBMODULE_BEFORE: &str = "Submodule commit before";
+    pub const SUBMODULE_AFTER: &str = "Submodule commit after";
+    /// A submodule's commit as a screen reader reads it.
+    pub fn submodule(side: &str, commit: &str) -> String {
+        format!("{side}: {commit}")
+    }
+
+    /// `count` with its thousands apart, as rc.1's `toLocaleString`
+    /// showed them in English: "20,001".
+    fn grouped(count: u32) -> String {
+        let digits = count.to_string();
+        let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+        for (at, digit) in digits.chars().enumerate() {
+            if at > 0 && (digits.len() - at).is_multiple_of(3) {
+                out.push(',');
+            }
+            out.push(digit);
+        }
+        out
+    }
 }
 
 /// The workspace files, their menu and their dialogs (UI-28).
