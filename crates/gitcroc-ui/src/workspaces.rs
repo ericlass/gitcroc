@@ -24,13 +24,19 @@ pub fn refusal(result: Option<Result<impl Sized, AppError>>) -> Result<(), Share
 pub struct Workspaces {
     services: Services,
     tabs: WorkspaceTabs,
+    /// How many `WorkspacesChanged` events were applied.
+    heard: u64,
 }
 
 impl Workspaces {
     /// The tabs the app loaded at start, which are in memory.
     pub fn new(services: Services) -> Self {
         let tabs = services.app().workspace_get();
-        Self { services, tabs }
+        Self {
+            services,
+            tabs,
+            heard: 0,
+        }
     }
 
     pub fn tabs(&self) -> &WorkspaceTabs {
@@ -48,9 +54,30 @@ impl Workspaces {
         self.tabs.open.iter().find(|view| &view.id == id)
     }
 
-    pub fn set_tabs(&mut self, tabs: WorkspaceTabs, cx: &mut Context<Self>) {
+    /// The tabs a `WorkspacesChanged` event carries: the newest the core
+    /// has sent.
+    pub fn hear_tabs(&mut self, tabs: WorkspaceTabs, cx: &mut Context<Self>) {
+        self.heard += 1;
         self.tabs = tabs;
         cx.notify();
+    }
+
+    /// How many `WorkspacesChanged` events were applied, for
+    /// [`Self::answer_tabs`].
+    pub fn heard(&self) -> u64 {
+        self.heard
+    }
+
+    /// The tabs a call or read answered with, asked when [`Self::heard`]
+    /// was `asked`. The core sends a change's event before it answers, so
+    /// an event applied since the call began is its own or a newer one:
+    /// the answer is then dropped, and a late answer never undoes a newer
+    /// change.
+    pub fn answer_tabs(&mut self, asked: u64, tabs: WorkspaceTabs, cx: &mut Context<Self>) {
+        if self.heard == asked {
+            self.tabs = tabs;
+            cx.notify();
+        }
     }
 
     /// One workspace's fresh view; a workspace that is not open is left out.
@@ -200,7 +227,7 @@ impl Workspaces {
     }
 
     /// Sends a tab change. The tabs it answers with are shown at once, as
-    /// its event would show them.
+    /// its event would show them, unless an event showed them first.
     fn change<F>(
         this: &Entity<Self>,
         cx: &mut App,
@@ -209,11 +236,12 @@ impl Workspaces {
     where
         F: Future<Output = Result<WorkspaceTabs, AppError>> + Send + 'static,
     {
+        let asked = this.read(cx).heard;
         let call = this.read(cx).services.with_app(call);
         let this = this.downgrade();
         cx.spawn(async move |cx| match call.await {
             Some(Ok(tabs)) => {
-                let _ = this.update(cx, |this, cx| this.set_tabs(tabs, cx));
+                let _ = this.update(cx, |this, cx| this.answer_tabs(asked, tabs, cx));
                 Ok(())
             }
             result => refusal(result),

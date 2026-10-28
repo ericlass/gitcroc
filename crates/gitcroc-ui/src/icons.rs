@@ -9,8 +9,14 @@ pub const WINDOW_MINIMIZE: &str = "icons/window-minimize.svg";
 pub const WINDOW_MAXIMIZE: &str = "icons/window-maximize.svg";
 pub const WINDOW_RESTORE: &str = "icons/window-restore.svg";
 pub const WINDOW_CLOSE: &str = "icons/window-close.svg";
+pub const CHEVRON_RIGHT: &str = "icons/chevron-right.svg";
+pub const CHEVRON_DOWN: &str = "icons/chevron-down.svg";
+pub const CHECK: &str = "icons/check.svg";
+pub const WARNING: &str = "icons/warning.svg";
+pub const CONFLICT: &str = "icons/conflict.svg";
+pub const SPINNER: &str = "icons/spinner.svg";
 
-const ICONS: [(&str, &[u8]); 4] = [
+const ICONS: [(&str, &[u8]); 10] = [
     (
         WINDOW_MINIMIZE,
         include_bytes!("../assets/icons/window-minimize.svg"),
@@ -27,6 +33,18 @@ const ICONS: [(&str, &[u8]); 4] = [
         WINDOW_CLOSE,
         include_bytes!("../assets/icons/window-close.svg"),
     ),
+    (
+        CHEVRON_RIGHT,
+        include_bytes!("../assets/icons/chevron-right.svg"),
+    ),
+    (
+        CHEVRON_DOWN,
+        include_bytes!("../assets/icons/chevron-down.svg"),
+    ),
+    (CHECK, include_bytes!("../assets/icons/check.svg")),
+    (WARNING, include_bytes!("../assets/icons/warning.svg")),
+    (CONFLICT, include_bytes!("../assets/icons/conflict.svg")),
+    (SPINNER, include_bytes!("../assets/icons/spinner.svg")),
 ];
 
 /// The icons, as GPUI's asset source.

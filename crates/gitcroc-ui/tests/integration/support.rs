@@ -7,10 +7,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gitcroc_app::ai::ProviderCalls;
-use gitcroc_app::app::{App as GitcrocApp, AppSetup};
+use gitcroc_app::app::{App as GitcrocApp, AppEvent, AppSetup};
 use gitcroc_app::platform::{DesktopFonts, DialogFuture, Dialogs, FileFilter, MemoryKeychain};
 use gitcroc_app::update::NoUpdates;
-use gitcroc_core::{CacheDir, ConfigDir, GitStatus, LogDir};
+use gitcroc_core::{CacheDir, ConfigDir, GitStatus, LogDir, RepoId, WorkspaceId};
 use std::rc::Rc;
 
 use gitcroc_ui::services::Services;
@@ -290,6 +290,36 @@ impl Fixture {
 
     pub fn app(&self) -> &GitcrocApp {
         self.services.app()
+    }
+
+    /// The active workspace.
+    pub fn active(&self) -> WorkspaceId {
+        self.app().workspace_get().active.unwrap()
+    }
+
+    /// Adds the repos below `path` to workspace `id` as the user would, and
+    /// returns their ids by name once the add has reported.
+    pub fn add_repos(&self, id: &WorkspaceId, path: &Path) -> Vec<(String, RepoId)> {
+        let app = self.app().clone();
+        self.runtime.block_on(async {
+            let mut events = app.subscribe();
+            let job = app
+                .workspace_add_path(id.clone(), path.to_owned())
+                .await
+                .unwrap();
+            loop {
+                if let AppEvent::WorkspaceAddReport(report) = events.recv().await.unwrap()
+                    && report.job_id == job
+                {
+                    assert!(report.refused.is_empty(), "{report:?}");
+                    return report
+                        .added
+                        .into_iter()
+                        .map(|repo| (repo.name, repo.id))
+                        .collect();
+                }
+            }
+        })
     }
 
     /// The settings file's text.

@@ -15,4 +15,5 @@ mod support;
 mod tabs;
 mod theme;
 mod title_bar;
+mod tree;
 mod window;

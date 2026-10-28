@@ -46,6 +46,8 @@ syn.workspace = true
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 # A settings file with a chosen git (PLAT-3).
 toml.workspace = true
+# Fixture repos for the tree (QA-2).
+repo-gen.workspace = true
 
 [lints]
 workspace = true
