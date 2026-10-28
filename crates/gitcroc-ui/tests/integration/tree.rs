@@ -84,16 +84,6 @@ fn group(fixture: &Fixture, name: &str, members: Vec<RepoId>) -> GroupId {
         .unwrap()
 }
 
-/// Reads every repo of the active workspace again, as when the window
-/// regains the focus.
-fn refresh(fixture: &Fixture) {
-    let (app, workspace) = (fixture.app().clone(), fixture.active());
-    fixture
-        .runtime
-        .block_on(app.workspace_refresh(workspace))
-        .unwrap();
-}
-
 /// The element id of the row of node `node`.
 fn row(node: &str) -> ElementId {
     ElementId::Name(format!("tree-row-{node}").into())
@@ -468,7 +458,7 @@ fn ui_3_repo_row_shows_branch_counts_and_marks(cx: &mut TestAppContext) {
     // A folder that is gone shows the warning, with the last known state,
     // stale (PERF-3).
     std::fs::remove_dir_all(made.path().join("moved")).unwrap();
-    refresh(&fixture);
+    fixture.refresh(&fixture.active());
     wait(&mut cx, |cx| {
         marks(cx, &node("moved")).contains(&"Folder is missing".to_owned())
     });
@@ -521,7 +511,7 @@ fn ui_4_group_row_shows_count_branch_and_totals(cx: &mut TestAppContext) {
     let web = repo(&made, "web");
     web.write("new.txt", "new\n").unwrap();
     web.git(["switch", "--quiet", "-c", "dev"]).unwrap();
-    refresh(&fixture);
+    fixture.refresh(&fixture.active());
     wait(&mut cx, |cx| {
         label_of(cx, part(&node, "branch")).as_deref() == Some("mixed (2)")
             && marks(cx, &node) == ["2 members", "1 member with changes"]

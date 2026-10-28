@@ -208,6 +208,9 @@ pub struct Options {
     pub wait_for_git: bool,
     /// What the file dialogs answer; `None` cancels.
     pub picked: Option<PathBuf>,
+    /// How slow a first history page must be to earn the commit-graph
+    /// offer (PERF-2): never by default, so no test sees it by chance.
+    pub commit_graph_threshold: Duration,
 }
 
 impl Default for Options {
@@ -217,6 +220,7 @@ impl Default for Options {
             settings: None,
             wait_for_git: true,
             picked: None,
+            commit_graph_threshold: Duration::MAX,
         }
     }
 }
@@ -273,6 +277,7 @@ impl Fixture {
                 updates: Arc::new(NoUpdates),
                 askpass_helper: PathBuf::new(),
                 event_capacity: options.capacity,
+                commit_graph_threshold: options.commit_graph_threshold,
             })
         };
         if options.wait_for_git {
@@ -322,6 +327,16 @@ impl Fixture {
                 }
             }
         })
+    }
+
+    /// Reads every repo of workspace `id` again, as when the window regains
+    /// focus (OPS-7); each summary arrives as an event.
+    pub fn refresh(&self, id: &WorkspaceId) {
+        let app = self.app().clone();
+        let id = id.clone();
+        self.runtime
+            .block_on(async move { app.workspace_refresh(id).await })
+            .unwrap();
     }
 
     /// The settings file's text.

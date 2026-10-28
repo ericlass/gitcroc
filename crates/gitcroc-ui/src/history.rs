@@ -5,7 +5,7 @@
 //! its pages, prepares their text off the UI thread (ARCH-7) and remembers
 //! where the user was in each source (ARCH-9, UI-29).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use gitcroc_app::app::{App, AppError};
 use gitcroc_core::{
@@ -102,6 +102,8 @@ struct Position {
     rows: usize,
     scroll_top: f32,
     selected: Option<String>,
+    /// The search text (UI-12).
+    text: String,
 }
 
 /// What a load restores once its first pages are read.
@@ -133,6 +135,8 @@ pub enum Selection {
 #[derive(Debug)]
 pub struct History {
     source: Option<HistorySource>,
+    /// The search text; the core filters by it (UI-12).
+    text: String,
     rows: Vec<Row>,
     repos: Vec<RepoId>,
     handle: Option<u32>,
@@ -142,12 +146,21 @@ pub struct History {
     selected: Option<String>,
     scroll_top: f32,
     positions: HashMap<String, Position>,
+    /// The shown repo's changed paths, from its summary (UI-10).
+    changes: u32,
+    /// Repos whose commit-graph offer is shown (PERF-2).
+    offers: HashSet<RepoId>,
+    /// Repos whose offer was answered this session; it is not shown again.
+    answered: HashSet<RepoId>,
+    /// Why a repo's commit-graph write or answer failed.
+    offer_errors: HashMap<RepoId, String>,
 }
 
 impl Default for History {
     fn default() -> Self {
         Self {
             source: None,
+            text: String::new(),
             rows: Vec::new(),
             repos: Vec::new(),
             handle: None,
@@ -157,6 +170,10 @@ impl Default for History {
             selected: None,
             scroll_top: 0.,
             positions: HashMap::new(),
+            changes: 0,
+            offers: HashSet::new(),
+            answered: HashSet::new(),
+            offer_errors: HashMap::new(),
         }
     }
 }
@@ -166,8 +183,102 @@ impl History {
         self.source.as_ref()
     }
 
+    /// The commit rows; the list may show the uncommitted row above them.
     pub fn rows(&self) -> &[Row] {
         &self.rows
+    }
+
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// Searches for `text` (UI-12); `false` when it is the shown text. The
+    /// caller reads the first page again.
+    pub fn set_text(&mut self, text: String) -> bool {
+        if text == self.text {
+            return false;
+        }
+        self.text = text;
+        self.scroll_top = 0.;
+        self.drop_hidden_uncommitted();
+        true
+    }
+
+    /// The shown repo's changed paths (UI-10); `false` when unchanged.
+    pub fn set_changes(&mut self, changes: u32) -> bool {
+        let changed = changes != self.changes;
+        self.changes = changes;
+        self.drop_hidden_uncommitted();
+        changed
+    }
+
+    pub fn changes(&self) -> u32 {
+        self.changes
+    }
+
+    /// Whether "Uncommitted changes (n)" leads the list (UI-10): for a repo
+    /// or its current branch with a dirty working copy, and no search.
+    pub fn shows_uncommitted(&self) -> bool {
+        self.changes > 0
+            && self.text.is_empty()
+            && self
+                .source
+                .as_ref()
+                .is_some_and(|source| source.uncommitted && source.repo.is_some())
+    }
+
+    /// The rows above the commits: the uncommitted row or none.
+    pub fn offset(&self) -> usize {
+        usize::from(self.shows_uncommitted())
+    }
+
+    /// How many rows the list has loaded, the uncommitted row included.
+    pub fn list_len(&self) -> usize {
+        self.offset() + self.rows.len()
+    }
+
+    /// The id of list row `index`, the uncommitted row included.
+    pub fn list_id_at(&self, index: usize) -> Option<String> {
+        match index.checked_sub(self.offset()) {
+            None => Some(UNCOMMITTED_ID.to_owned()),
+            Some(commit) => self.row_id_at(commit),
+        }
+    }
+
+    /// A selected uncommitted row that is no longer shown is not selected.
+    fn drop_hidden_uncommitted(&mut self) {
+        if self.selected.as_deref() == Some(UNCOMMITTED_ID) && !self.shows_uncommitted() {
+            self.selected = None;
+        }
+    }
+
+    /// Whether the commit-graph offer is shown for the shown repo (PERF-2).
+    pub fn offer(&self) -> Option<&RepoId> {
+        let repo = self.source.as_ref()?.repo.as_ref()?;
+        self.offers.contains(repo).then_some(repo)
+    }
+
+    /// Why the shown repo's commit-graph write or answer failed.
+    pub fn offer_error(&self) -> Option<(&RepoId, &str)> {
+        let repo = self.source.as_ref()?.repo.as_ref()?;
+        self.offer_errors
+            .get(repo)
+            .map(|error| (repo, error.as_str()))
+    }
+
+    /// The user answered `repo`'s offer: it is not shown again this session.
+    pub fn answer_offer(&mut self, repo: &RepoId) {
+        self.offers.remove(repo);
+        self.answered.insert(repo.clone());
+        self.offer_errors.remove(repo);
+    }
+
+    pub fn set_offer_error(&mut self, repo: RepoId, error: String) {
+        self.offer_errors.insert(repo, error);
+    }
+
+    pub fn dismiss_offer_error(&mut self, repo: &RepoId) {
+        self.offer_errors.remove(repo);
     }
 
     pub fn repos(&self) -> &[RepoId] {
@@ -239,6 +350,7 @@ impl History {
             if let (Some(current), Some(next)) = (&mut self.source, source) {
                 current.uncommitted = next.uncommitted;
             }
+            self.drop_hidden_uncommitted();
             return Show::Kept;
         }
         self.save_position();
@@ -255,6 +367,7 @@ impl History {
         self.error = None;
         self.selected = saved.selected;
         self.scroll_top = saved.scroll_top;
+        self.text = saved.text;
         match &self.source {
             None => Show::Empty,
             Some(_) => Show::Load(Restore {
@@ -275,6 +388,7 @@ impl History {
                 rows: self.rows.len(),
                 scroll_top: self.scroll_top,
                 selected: self.selected.clone(),
+                text: self.text.clone(),
             },
         );
     }
@@ -293,11 +407,18 @@ impl History {
         self.done = page.done;
         self.loading = false;
         self.error = None;
+        if let Some(repo) = self.source.as_ref().and_then(|source| source.repo.as_ref())
+            && page.offer_commit_graph
+            && !self.answered.contains(repo)
+        {
+            self.offers.insert(repo.clone());
+        }
         if self.selected.as_ref().is_some_and(|selected| {
-            !self
-                .rows
-                .iter()
-                .any(|row| row_id_of(self.source.as_ref(), row) == *selected)
+            selected != UNCOMMITTED_ID
+                && !self
+                    .rows
+                    .iter()
+                    .any(|row| row_id_of(self.source.as_ref(), row) == *selected)
         }) {
             self.selected = None;
         }
@@ -325,11 +446,16 @@ impl History {
         self.selected = row_id;
     }
 
+    /// The selected row's index in the list, the uncommitted row included.
     pub fn selected_index(&self) -> Option<usize> {
         let selected = self.selected.as_deref()?;
+        if selected == UNCOMMITTED_ID {
+            return self.shows_uncommitted().then_some(0);
+        }
         self.rows
             .iter()
             .position(|row| row_id_of(self.source.as_ref(), row) == selected)
+            .map(|index| index + self.offset())
     }
 
     pub fn set_scroll_top(&mut self, top: f32) {

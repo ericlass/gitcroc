@@ -21,7 +21,7 @@ use gitcroc_app::app::{App, AppSetup, EVENT_CAPACITY};
 use gitcroc_app::askpass;
 use gitcroc_app::platform::{DesktopFontSource, OsKeychain, PlatformFonts, PlatformSockets};
 use gitcroc_app::update::NoUpdates;
-use gitcroc_core::{PlatformCacheDir, PlatformConfigDir, PlatformLogDir};
+use gitcroc_core::{COMMIT_GRAPH_THRESHOLD, PlatformCacheDir, PlatformConfigDir, PlatformLogDir};
 use gitcroc_ui::icons::Icons;
 use gitcroc_ui::services::Services;
 use gitcroc_ui::theme::{AppTheme, accent, fonts};
@@ -73,6 +73,7 @@ fn main() -> ExitCode {
         // Git starts this binary as its askpass helper; `main` answers first.
         askpass_helper: std::env::current_exe().unwrap_or_default(),
         event_capacity: EVENT_CAPACITY,
+        commit_graph_threshold: COMMIT_GRAPH_THRESHOLD,
     });
     drop(entered);
     let system_title_bar = app.settings_get().settings.appearance.system_title_bar;

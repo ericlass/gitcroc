@@ -19,7 +19,7 @@ use gpui_kit::{
 use crate::support::{Fixture, main_window, settle};
 
 /// Repos `names` in a new folder, each with one commit on `main`.
-fn repos(names: &[&str]) -> repo_gen::Fixture {
+pub(crate) fn repos(names: &[&str]) -> repo_gen::Fixture {
     let repos = repo_gen::Fixture::new().unwrap();
     for name in names {
         repos
@@ -31,11 +31,11 @@ fn repos(names: &[&str]) -> repo_gen::Fixture {
     repos
 }
 
-fn repo(repos: &repo_gen::Fixture, name: &str) -> repo_gen::Repo {
+pub(crate) fn repo(repos: &repo_gen::Fixture, name: &str) -> repo_gen::Repo {
     repo_gen::Repo::open(repos.path().join(name))
 }
 
-fn id_of(added: &[(String, RepoId)], name: &str) -> RepoId {
+pub(crate) fn id_of(added: &[(String, RepoId)], name: &str) -> RepoId {
     added
         .iter()
         .find(|(added, _)| added == name)
@@ -43,19 +43,19 @@ fn id_of(added: &[(String, RepoId)], name: &str) -> RepoId {
         .unwrap_or_else(|| panic!("{name} was not added"))
 }
 
-fn add(fixture: &Fixture, made: &repo_gen::Fixture) -> Vec<(String, RepoId)> {
+pub(crate) fn add(fixture: &Fixture, made: &repo_gen::Fixture) -> Vec<(String, RepoId)> {
     fixture.add_repos(&fixture.active(), made.path())
 }
 
-fn tree_row(node: &str) -> ElementId {
+pub(crate) fn tree_row(node: &str) -> ElementId {
     ElementId::Name(format!("tree-row-{node}").into())
 }
 
-fn tree_part(node: &str, part: &str) -> ElementId {
+pub(crate) fn tree_part(node: &str, part: &str) -> ElementId {
     ElementId::Name(format!("tree-row-{node}-{part}").into())
 }
 
-fn repo_node(added: &[(String, RepoId)], name: &str) -> String {
+pub(crate) fn repo_node(added: &[(String, RepoId)], name: &str) -> String {
     format!("repo:{}", id_of(added, name).0)
 }
 
@@ -64,7 +64,7 @@ fn tab(id: &WorkspaceId) -> ElementId {
 }
 
 /// Clicks `id` where the latest state draws it.
-fn click(cx: &mut VisualTestContext, id: ElementId) {
+pub(crate) fn click(cx: &mut VisualTestContext, id: ElementId) {
     cx.update(|window, cx| {
         window.render_frame(cx);
         window.click(id, cx);
@@ -74,7 +74,10 @@ fn click(cx: &mut VisualTestContext, id: ElementId) {
 
 /// Runs the window and the app until `done` holds.
 #[track_caller]
-fn wait_until(cx: &mut VisualTestContext, mut done: impl FnMut(&mut VisualTestContext) -> bool) {
+pub(crate) fn wait_until(
+    cx: &mut VisualTestContext,
+    mut done: impl FnMut(&mut VisualTestContext) -> bool,
+) {
     for _ in 0..1000 {
         settle(cx, |_, _| true);
         if done(cx) {
@@ -85,7 +88,7 @@ fn wait_until(cx: &mut VisualTestContext, mut done: impl FnMut(&mut VisualTestCo
     panic!("the history never got there");
 }
 
-fn wait_for_element(cx: &mut VisualTestContext, id: ElementId) {
+pub(crate) fn wait_for_element(cx: &mut VisualTestContext, id: ElementId) {
     wait_until(cx, |cx| {
         cx.update(|window, cx| {
             window.render_frame(cx);
@@ -95,7 +98,7 @@ fn wait_for_element(cx: &mut VisualTestContext, id: ElementId) {
 }
 
 /// Runs `f` on the active tab's history.
-fn with_history<R>(
+pub(crate) fn with_history<R>(
     cx: &mut VisualTestContext,
     window: &Entity<GitcrocWindow>,
     f: impl FnOnce(&History) -> R,
@@ -107,17 +110,21 @@ fn with_history<R>(
     })
 }
 
-fn history_rows(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>) -> usize {
+pub(crate) fn history_rows(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>) -> usize {
     with_history(cx, window, |history| history.rows().len())
 }
 
 #[track_caller]
-fn wait_for_rows(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>, rows: usize) {
+pub(crate) fn wait_for_rows(
+    cx: &mut VisualTestContext,
+    window: &Entity<GitcrocWindow>,
+    rows: usize,
+) {
     wait_until(cx, |cx| history_rows(cx, window) == rows);
 }
 
 /// The label of element `id`, if it is on screen.
-fn label_of(cx: &mut VisualTestContext, id: ElementId) -> Option<String> {
+pub(crate) fn label_of(cx: &mut VisualTestContext, id: ElementId) -> Option<String> {
     cx.update(|window, cx| {
         window.render_frame(cx);
         window
@@ -127,7 +134,7 @@ fn label_of(cx: &mut VisualTestContext, id: ElementId) -> Option<String> {
 }
 
 /// The labels of the elements of role `role` below `id`.
-fn labels_in(cx: &mut VisualTestContext, id: ElementId, role: Role) -> Vec<String> {
+pub(crate) fn labels_in(cx: &mut VisualTestContext, id: ElementId, role: Role) -> Vec<String> {
     cx.update(|window, cx| {
         window.render_frame(cx);
         if window.try_find(id.clone()).is_none() {
@@ -143,7 +150,7 @@ fn labels_in(cx: &mut VisualTestContext, id: ElementId, role: Role) -> Vec<Strin
 }
 
 /// The history rows on screen, top to bottom.
-fn history_labels(cx: &mut VisualTestContext) -> Vec<String> {
+pub(crate) fn history_labels(cx: &mut VisualTestContext) -> Vec<String> {
     labels_in(cx, "history-list".into(), Role::ListBoxOption)
 }
 
@@ -475,7 +482,7 @@ fn sec_3_history_subjects_and_ref_names_render_as_text(cx: &mut TestAppContext) 
     );
 }
 
-fn press(cx: &mut VisualTestContext, keys: &str) {
+pub(crate) fn press(cx: &mut VisualTestContext, keys: &str) {
     cx.update(|window, cx| window.press(keys, cx));
     cx.run_until_parked();
 }

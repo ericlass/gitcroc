@@ -197,6 +197,27 @@ pub mod history {
     }
     pub const NO_SOURCE: &str = "Select a repo, branch, tag or stash to see its history.";
     pub const NO_COMMITS: &str = "No commits yet.";
+    pub const NO_MATCH: &str = "No commits match.";
+    /// The search box (UI-12).
+    pub const SEARCH: &str = "Search subject, author or hash";
+    pub const SEARCH_LABEL: &str = "Search history";
+    /// The row that leads a dirty repo's history, with its changed paths
+    /// (UI-10).
+    pub fn uncommitted(changes: u32) -> String {
+        format!("Uncommitted changes ({changes})")
+    }
+    /// The offer to write a commit-graph file (PERF-2).
+    pub const COMMIT_GRAPH_OFFER: &str = "Commit-graph offer";
+    pub const COMMIT_GRAPH_WHY: &str = "This repo has no commit-graph file, so its history loads \
+        slowly. Git can write one now in the background; nothing else changes.";
+    pub const WRITE_COMMIT_GRAPH: &str = "Write commit-graph file";
+    pub const DONT_ASK_AGAIN: &str = "Don't ask again";
+    pub fn cannot_write_commit_graph(error: &str) -> String {
+        format!("Cannot write the commit-graph file: {error}")
+    }
+    pub fn cannot_keep_answer(error: &str) -> String {
+        format!("Cannot keep the answer: {error}")
+    }
     pub const LOADING: &str = "Loading";
     pub fn cannot_read(error: &str) -> String {
         format!("Cannot read the history: {error}")

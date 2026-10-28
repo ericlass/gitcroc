@@ -404,8 +404,9 @@ impl GitcrocWindow {
                     .iter()
                     .find(|view| view.id == active)
                     .and_then(|view| view.layout.columns.clone());
-                let history = cx
-                    .new(|cx| HistoryPane::new(services, active.clone(), tree, saved_columns, cx));
+                let history = cx.new(|cx| {
+                    HistoryPane::new(services, active.clone(), tree, saved_columns, window, cx)
+                });
                 self.histories.insert(active, history);
             }
         }
