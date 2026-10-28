@@ -59,7 +59,7 @@ pub(crate) fn repo_node(added: &[(String, RepoId)], name: &str) -> String {
     format!("repo:{}", id_of(added, name).0)
 }
 
-fn tab(id: &WorkspaceId) -> ElementId {
+pub(crate) fn tab(id: &WorkspaceId) -> ElementId {
     ElementId::Name(format!("tab-{}", id.0).into())
 }
 
@@ -154,7 +154,7 @@ pub(crate) fn history_labels(cx: &mut VisualTestContext) -> Vec<String> {
     labels_in(cx, "history-list".into(), Role::ListBoxOption)
 }
 
-fn scroll(cx: &mut VisualTestContext, pixels: f32) {
+pub(crate) fn scroll(cx: &mut VisualTestContext, pixels: f32) {
     cx.update(|window, cx| {
         window.scroll(
             "history-list",

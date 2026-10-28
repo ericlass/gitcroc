@@ -476,6 +476,58 @@ impl Tree {
         self.place(Selected::of(row), Some(picked), anchor)
     }
 
+    /// Selects the row of `repo` within the selection, alone (UI-11): its
+    /// row under the selected group, or its multi-selected row. Returns the
+    /// row's repo, for the core, when the keyboard moved to it; nothing
+    /// changes when the selection has no such row.
+    pub fn select_member(&mut self, repo: &RepoId) -> Option<Option<RepoId>> {
+        let member = match &self.multi {
+            Some(multi) => multi
+                .iter()
+                .find(|selected| selected.repo() == Some(repo))
+                .cloned(),
+            None => {
+                let group = self.selected.as_ref()?;
+                if !matches!(group.item, TreeItem::Group { .. }) {
+                    return None;
+                }
+                self.roots
+                    .iter()
+                    .flatten()
+                    .find(|node| node.id == group.row)
+                    .and_then(|node| node.children.as_ref())
+                    .into_iter()
+                    .flatten()
+                    .find(|node| {
+                        matches!(&node.item, TreeItem::Repo { repo_id, .. } if repo_id == repo)
+                    })
+                    .map(|node| Selected {
+                        row: node.id.clone(),
+                        item: node.item.clone(),
+                    })
+            }
+        }?;
+        let anchor = member.row.clone();
+        self.place(Some(member), None, Some(anchor))
+    }
+
+    /// Each repo's name, from its rows (UI-1).
+    pub fn repo_names(&self) -> HashMap<RepoId, String> {
+        let mut names = HashMap::new();
+        // Repos are at the top or one level down, under a group or
+        // Ungrouped; their own children are refs.
+        for node in self.roots.iter().flatten() {
+            for node in std::iter::once(node).chain(node.children.iter().flatten()) {
+                if let TreeItem::Repo { repo_id, .. } = &node.item {
+                    names
+                        .entry(repo_id.clone())
+                        .or_insert_with(|| node.label.clone());
+                }
+            }
+        }
+        names
+    }
+
     /// What the toolbar acts on (GRP-5): the selected row's repo, the
     /// selected group, or the multi-selected repos; `None` for anything
     /// else.

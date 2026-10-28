@@ -1,7 +1,10 @@
 //! The history pane of one workspace (UI-9): the search box (UI-12), the
 //! commit-graph offer (PERF-2) and the commit list, led by "Uncommitted
 //! changes (n)" for a dirty repo (UI-10), virtualized (PERF-1) and paged by
-//! the core (ARCH-8), with the graph painter from the spike. The window keeps
+//! the core (ARCH-8), with the graph painter from the spike. A group or
+//! several repos show the summary strip (UI-11) above their merged history,
+//! which has a repo column instead of the graph and is led by "Uncommitted
+//! changes (n repos)" (UI-34). The window keeps
 //! one per open workspace, so each tab keeps its own source, search text,
 //! rows, selection, scroll position and column order and widths (UI-29,
 //! UI-36). Everything shown comes from the core; this lays it out and
@@ -14,7 +17,8 @@ use std::rc::Rc;
 
 use gitcroc_app::app::AppEvent;
 use gitcroc_core::{
-    ColumnLayout, GraphRow, HistoryColumn, RefKind, RepoId, TargetSet, WorkspaceId,
+    ColumnLayout, GraphRow, Head, HistoryColumn, HistoryTarget, RefKind, RepoId, TargetSet,
+    WorkspaceId,
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -25,11 +29,13 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, KeyBindingContextPredicate, MouseButton,
     MouseDownEvent, MouseUpEvent, ParentElement, PathBuilder, Pixels, Point, Render, Role,
     ScrollStrategy, SharedString, StatefulInteractiveElement, Styled, Subscription, TestSupportExt,
-    UniformListScrollHandle, Window, actions, canvas, div, fill, point, px, size, uniform_list,
+    UniformListScrollHandle, Window, actions, canvas, div, fill, point, px, size, svg,
+    uniform_list,
 };
 
 use crate::history::{self, History, Restore, Row, Selection, Show, UNCOMMITTED_ID};
 use crate::history_columns::{Columns, KEY_STEP, MIN_COLUMN_WIDTH, MIN_SUBJECT_WIDTH, SizedColumn};
+use crate::icons;
 use crate::menu::{Menu, MenuEvent, MenuItem};
 use crate::services::Services;
 use crate::strings::{self, history as text};
@@ -69,6 +75,9 @@ const LANE_WIDTH: f32 = 12.;
 const PREFETCH_ROWS: usize = 100;
 /// Placeholder rows below the loaded ones while a page follows.
 const PLACEHOLDER_ROWS: usize = 500;
+/// Lines the summary strip shows before it scrolls (UI-11).
+pub const STRIP_LINES: usize = 8;
+const ICON: Pixels = px(12.);
 
 /// The keys of the history list (UI-22).
 pub fn bind(cx: &mut App) {
@@ -194,6 +203,11 @@ pub struct HistoryPane {
     request: u64,
     /// The last `refs_version` heard of each repo (OPS-7).
     refs_versions: HashMap<RepoId, u32>,
+    /// The latest resolve of a merged history's target set.
+    targets_request: u64,
+    /// Repo names for the strip and the repo column, from the tree.
+    names: HashMap<RepoId, SharedString>,
+    strip_scroll: UniformListScrollHandle,
     /// The workspace's column order and widths (UI-36).
     columns: Columns,
     header_focus: FocusHandle,
@@ -222,7 +236,9 @@ impl HistoryPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let tree_watch = cx.observe(&tree, |this, _, cx| this.follow_tree(cx));
+        let tree_watch = cx.observe(&tree, |this, _, cx| {
+            this.follow_tree(cx);
+        });
         let search = cx.new(|cx| InputState::new(window, cx).placeholder(text::SEARCH));
         let search_events = cx.subscribe(&search, |this, search, event, cx| {
             if let InputEvent::Change = event {
@@ -241,6 +257,9 @@ impl HistoryPane {
             show_text: false,
             request: 0,
             refs_versions: HashMap::new(),
+            targets_request: 0,
+            names: HashMap::new(),
+            strip_scroll: UniformListScrollHandle::new(),
             columns: Columns::from_layout(saved_columns.as_ref()),
             header_focus: cx.focus_handle(),
             edges: [
@@ -399,7 +418,7 @@ impl HistoryPane {
             (MenuItem::new(text::RESET_COLUMNS), ColumnsChoice::Reset),
         ];
         let (items, choices): (Vec<MenuItem>, Vec<ColumnsChoice>) = items.into_iter().unzip();
-        let label = text::column_menu(column_label(column));
+        let label = text::column_menu(column_label(column, self.history.merged()));
         let menu = cx.new(|cx| Menu::new(label, items, at, anchor, cx));
         let events = cx.subscribe_in(&menu, window, |this, _, event, window, cx| {
             this.on_columns_menu(*event, window, cx);
@@ -623,8 +642,7 @@ impl HistoryPane {
                 if view.refreshing {
                     return;
                 }
-                let shown = self.history.source().and_then(|source| source.repo.clone());
-                if shown.as_ref() != Some(&view.repo_id) {
+                if !self.history.shows_repo(&view.repo_id) {
                     return;
                 }
                 let seen = self.refs_versions.entry(view.repo_id.clone()).or_insert(0);
@@ -634,8 +652,12 @@ impl HistoryPane {
                 *seen = view.refs_version;
                 self.reload(cx);
             }
+            // A group's members may have changed: its repos are resolved
+            // again, and a changed answer reads the history again.
             AppEvent::WorkspaceChanged(view) if view.id == self.workspace_id => {
-                self.follow_tree(cx);
+                if self.follow_tree(cx) == Show::Kept {
+                    self.resolve_targets(cx);
+                }
             }
             AppEvent::CommitGraphWritten {
                 workspace_id,
@@ -659,33 +681,34 @@ impl HistoryPane {
     /// Reads the shown history again, after the app's events were missed.
     pub fn read_again(&mut self, cx: &mut Context<Self>) {
         if self.history.source().is_some() {
+            self.resolve_targets(cx);
             self.reload(cx);
         } else {
             self.follow_tree(cx);
         }
     }
 
-    /// Shows what the tree selects (section 8 "History pane").
-    fn follow_tree(&mut self, cx: &mut Context<Self>) {
-        let (source, changes) = {
+    /// Shows what the tree selects (section 8 "History pane"): a repo or
+    /// one of its refs, or the merged history of a group or several repos.
+    fn follow_tree(&mut self, cx: &mut Context<Self>) -> Show {
+        let source = {
             let tree = self.tree.read(cx);
-            let source = match tree.target() {
+            match tree.target() {
                 Some(TargetSet::Repo { .. }) => tree.selected_item().and_then(history::source_of),
-                _ => None,
-            };
-            // The changed paths of the repo shown (UI-10).
-            let changes = source
-                .as_ref()
-                .and_then(|source| source.repo.as_ref())
-                .and_then(|repo| tree.tree().summary(repo))
-                .and_then(|view| view.summary.as_ref())
-                .map_or(0, |summary| summary.changes);
-            (source, changes)
+                Some(target) => Some(history::merged_source(target)),
+                None => None,
+            }
         };
         let show = self.history.show(source);
         if show != Show::Kept {
             self.show_text = true;
         }
+        if self.history.merged() {
+            // The strip shows the tree's summaries as they arrive.
+            self.update_names(cx);
+            cx.notify();
+        }
+        let changes = self.changes(cx);
         if self.history.set_changes(changes) {
             cx.notify();
         }
@@ -695,8 +718,97 @@ impl HistoryPane {
                 self.request = self.request.wrapping_add(1);
                 cx.notify();
             }
-            Show::Load(restore) => self.read_first(restore, cx),
+            Show::Load(restore) => {
+                self.resolve_targets(cx);
+                self.read_first(restore, cx);
+            }
         }
+        show
+    }
+
+    /// The changed paths of the repo shown (UI-10), or the dirty repos of a
+    /// merged history's resolved set (UI-34).
+    fn changes(&self, cx: &App) -> u32 {
+        let tree = self.tree.read(cx).tree();
+        let summary = |repo: &RepoId| tree.summary(repo).and_then(|view| view.summary.as_ref());
+        match self.history.source().map(|source| source.repo.as_ref()) {
+            None => 0,
+            Some(Some(repo)) => summary(repo).map_or(0, |summary| summary.changes),
+            Some(None) => match self.history.targets() {
+                Some(Ok(repos)) => {
+                    let dirty = repos
+                        .iter()
+                        .filter(|repo| summary(repo).is_some_and(|summary| summary.dirty))
+                        .count();
+                    u32::try_from(dirty).unwrap_or(u32::MAX)
+                }
+                _ => 0,
+            },
+        }
+    }
+
+    /// Takes the repos' names from the tree when one of the merged
+    /// history's repos has none yet.
+    fn update_names(&mut self, cx: &App) {
+        let Some(Ok(repos)) = self.history.targets() else {
+            return;
+        };
+        if repos.iter().all(|repo| self.names.contains_key(repo)) {
+            return;
+        }
+        self.names = self
+            .tree
+            .read(cx)
+            .tree()
+            .repo_names()
+            .into_iter()
+            .map(|(repo, name)| (repo, name.into()))
+            .collect();
+    }
+
+    /// Resolves a merged history's target set in the core (GRP-5), for the
+    /// strip and the dirty count. An answer that changed an earlier one, as
+    /// after a group's members changed, reads the history again.
+    fn resolve_targets(&mut self, cx: &mut Context<Self>) {
+        let Some(source) = self.history.source() else {
+            return;
+        };
+        let HistoryTarget::Merged { target } = &source.target else {
+            return;
+        };
+        let (key, target) = (source.key.clone(), target.clone());
+        self.targets_request = self.targets_request.wrapping_add(1);
+        let request = self.targets_request;
+        let workspace = self.workspace_id.clone();
+        let call = self
+            .services
+            .with_app(move |app| async move { app.target_repos(&workspace, &target) });
+        cx.spawn(async move |this, cx| {
+            let Some(result) = call.await else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                if this.targets_request != request {
+                    return;
+                }
+                let targets = result.map_err(|error| error.message);
+                let changed = this.history.set_targets(&key, targets);
+                this.update_names(cx);
+                let changes = this.changes(cx);
+                this.history.set_changes(changes);
+                if changed {
+                    this.reload(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Selects `repo` in the tree, as its strip line asks (UI-11).
+    fn select_in_tree(&mut self, repo: &RepoId, cx: &mut Context<Self>) {
+        self.tree
+            .update(cx, |tree, cx| tree.select_member(repo, cx));
     }
 
     /// Searches the shown history (UI-12); each change supersedes the
@@ -1020,7 +1132,8 @@ impl HistoryPane {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let label = column_label(column);
+        let merged = self.history.merged();
+        let label = column_label(column, merged);
         let id = header_id(column);
         let width = self.columns.width(column);
         let active = self.columns.active() == column;
@@ -1048,8 +1161,8 @@ impl HistoryPane {
                     this.header_right_click(column, event.position, window, cx);
                 }),
             )
-            .on_drag(DraggedHeader { column }, |dragged, _, _, cx| {
-                cx.new(|_| DraggedHeaderView(column_label(dragged.column).into()))
+            .on_drag(DraggedHeader { column }, move |dragged, _, _, cx| {
+                cx.new(|_| DraggedHeaderView(column_label(dragged.column, merged).into()))
             })
             .on_drop(cx.listener(move |this, dragged: &DraggedHeader, _, cx| {
                 this.drop_header(dragged, column, cx);
@@ -1116,7 +1229,7 @@ impl HistoryPane {
         };
         let before = self.edge_before(sized);
         let focused = focus.is_focused(window);
-        let label = text::resize_column(column_label(sized.column()));
+        let label = text::resize_column(column_label(sized.column(), self.history.merged()));
         div()
             .id(ElementId::Name(
                 format!("history-edge-{}", column_key(sized.column())).into(),
@@ -1215,12 +1328,17 @@ impl HistoryPane {
         placeholder.into_any_element()
     }
 
-    /// "Uncommitted changes (n)" (UI-10), its text where the subject starts.
+    /// "Uncommitted changes (n)" (UI-10), or "(n repos)" in a merged history
+    /// (UI-34), its text where the subject starts.
     fn uncommitted_row(&self, index: usize, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let tokens = *cx.tokens();
         let selected = self.history.selected() == Some(UNCOMMITTED_ID);
         let focused = self.focus.is_focused(window);
-        let label = text::uncommitted(self.history.changes());
+        let label = if self.history.merged() {
+            text::uncommitted_repos(self.history.changes())
+        } else {
+            text::uncommitted(self.history.changes())
+        };
         let before_subject: u32 = self
             .columns
             .order()
@@ -1297,6 +1415,22 @@ impl HistoryPane {
         for column in self.columns.order().iter().copied() {
             let width = self.columns.width(column);
             let cell = match column {
+                // A merged history has the repo's name in the graph's place.
+                HistoryColumn::Graph if self.history.merged() => {
+                    let name = self.repo_name(&row.repo_id);
+                    div()
+                        .id(ElementId::Name(format!("{id}-repo").into()))
+                        .test_support()
+                        .role(Role::Label)
+                        .aria_label(name.clone())
+                        .w(px(width.unwrap_or_default() as f32))
+                        .flex_none()
+                        .px(px(6.))
+                        .truncate()
+                        .text_color(tokens.text_secondary)
+                        .child(name)
+                        .into_any_element()
+                }
                 HistoryColumn::Graph => {
                     let graph = row.graph.clone();
                     let colors = tokens.graph.map(Hsla::from);
@@ -1420,6 +1554,172 @@ impl HistoryPane {
             .text_color(color)
             .child(visible)
             .into_any_element()
+    }
+
+    fn repo_name(&self, repo: &RepoId) -> SharedString {
+        self.names
+            .get(repo)
+            .cloned()
+            .unwrap_or_else(|| repo.0.clone().into())
+    }
+
+    /// The summary strip (UI-11): one line per repo of the merged history's
+    /// set in the core's order, eight shown and the rest scrolled, laid out
+    /// only on screen (PERF-1).
+    fn strip(&self, repos: usize, cx: &mut Context<Self>) -> AnyElement {
+        let tokens = *cx.tokens();
+        div()
+            .id("history-strip")
+            .test_support()
+            .role(Role::List)
+            .aria_label(text::STRIP)
+            .flex_shrink_0()
+            .h(ROW_HEIGHT * repos.min(STRIP_LINES) as f32)
+            .border_b_1()
+            .border_color(tokens.border)
+            .child(
+                uniform_list(
+                    "history-strip-lines",
+                    repos,
+                    cx.processor(Self::strip_lines),
+                )
+                .track_scroll(&self.strip_scroll)
+                .size_full(),
+            )
+            .into_any_element()
+    }
+
+    fn strip_lines(
+        &mut self,
+        range: Range<usize>,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let repos = match self.history.targets() {
+            Some(Ok(repos)) => repos.get(range.clone()).unwrap_or_default().to_vec(),
+            _ => Vec::new(),
+        };
+        range
+            .zip(repos)
+            .map(|(index, repo)| self.strip_line(index, repo, cx))
+            .collect()
+    }
+
+    /// One repo of the strip: name, branch or short detached hash, ahead and
+    /// behind, the dirty count and the marks, as the tree has them. A
+    /// summary from the cache is dimmed until read again (PERF-3); a click
+    /// selects the repo in the tree.
+    fn strip_line(&self, index: usize, repo: RepoId, cx: &mut Context<Self>) -> AnyElement {
+        let tokens = *cx.tokens();
+        let id = format!("history-strip-{index}");
+        let name = self.repo_name(&repo);
+        let tree = self.tree.read(cx).tree();
+        let view = tree.summary(&repo).cloned();
+        let summary = view.as_ref().and_then(|view| view.summary.as_ref());
+        let stale = view.as_ref().is_none_or(|view| view.stale);
+        let mut line = div()
+            .id(ElementId::Name(id.clone().into()))
+            .test_support()
+            .role(Role::ListItem)
+            .aria_label(name.clone())
+            .when(stale, |line| line.aria_description(strings::tree::STALE))
+            .h(ROW_HEIGHT)
+            .w_full()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .px_2()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_size(px(13.))
+            .cursor(CursorStyle::PointingHand)
+            .hover(|line| line.bg(tokens.bg_3))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.select_in_tree(&repo, cx);
+            }))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(if stale {
+                        tokens.text_secondary
+                    } else {
+                        tokens.text_primary
+                    })
+                    .child(name),
+            );
+        if let Some(summary) = summary {
+            let head = match &summary.head {
+                Head::Branch { name, .. } => name.clone(),
+                Head::Detached { hash } => hash.chars().take(7).collect(),
+            };
+            line = line.child(
+                div()
+                    .id(ElementId::Name(format!("{id}-head").into()))
+                    .test_support()
+                    .role(Role::Label)
+                    .aria_label(head.clone())
+                    .min_w_0()
+                    .truncate()
+                    .text_color(tokens.text_secondary)
+                    .child(head),
+            );
+            if let Some(upstream) = &summary.upstream {
+                let counts = [
+                    (
+                        "ahead",
+                        upstream.ahead,
+                        strings::tree::ahead(upstream.ahead),
+                        strings::tree::ahead_mark(upstream.ahead),
+                    ),
+                    (
+                        "behind",
+                        upstream.behind,
+                        strings::tree::behind(upstream.behind),
+                        strings::tree::behind_mark(upstream.behind),
+                    ),
+                ];
+                for (what, count, label, shown) in counts {
+                    if count > 0 {
+                        line = line.child(
+                            mark(format!("{id}-{what}"), label)
+                                .text_color(tokens.text_secondary)
+                                .child(shown),
+                        );
+                    }
+                }
+            }
+            if summary.dirty && summary.changes > 0 {
+                line = line.child(
+                    mark(format!("{id}-dirty"), text::changed_files(summary.changes))
+                        .text_color(tokens.accent)
+                        .child(text::changed_mark(summary.changes)),
+                );
+            }
+        }
+        if let Some(view) = &view {
+            if view.conflict {
+                line = line.child(
+                    mark(format!("{id}-conflict"), strings::tree::CONFLICT).child(
+                        svg()
+                            .path(icons::CONFLICT)
+                            .size(ICON)
+                            .text_color(tokens.danger),
+                    ),
+                );
+            }
+            if view.missing {
+                line = line.child(
+                    mark(format!("{id}-missing"), strings::tree::FOLDER_MISSING).child(
+                        svg()
+                            .path(icons::WARNING)
+                            .size(ICON)
+                            .text_color(tokens.warning),
+                    ),
+                );
+            }
+        }
+        line.into_any_element()
     }
 
     fn render_rows(
@@ -1546,8 +1846,11 @@ fn header_id(column: HistoryColumn) -> ElementId {
     ElementId::Name(format!("history-column-{}", column_key(column)).into())
 }
 
-fn column_label(column: HistoryColumn) -> &'static str {
+/// A column's name; in a merged history the graph column has the repo's
+/// name (UI-9).
+fn column_label(column: HistoryColumn, merged: bool) -> &'static str {
     match column {
+        HistoryColumn::Graph if merged => text::REPOSITORY,
         HistoryColumn::Graph => text::GRAPH,
         HistoryColumn::Subject => text::SUBJECT,
         HistoryColumn::Author => text::AUTHOR,
@@ -1567,7 +1870,40 @@ impl Render for HistoryPane {
             self.search
                 .update(cx, |search, cx| search.set_value(text, window, cx));
         }
-        let search = self.history.source().is_some().then(|| {
+        // A group or several repos: the strip above their history, or why
+        // there is none (UI-11).
+        let targets = self
+            .history
+            .targets()
+            .filter(|_| self.history.merged())
+            .cloned();
+        let (strip, unresolved) = match targets {
+            None => (None, false),
+            Some(Ok(repos)) if repos.is_empty() => (
+                Some(message(
+                    "history-no-repos",
+                    text::NO_REPOS,
+                    tokens.text_secondary,
+                )),
+                true,
+            ),
+            Some(Ok(repos)) => (Some(self.strip(repos.len(), cx)), false),
+            Some(Err(error)) => {
+                let error = text::cannot_show(&error);
+                let alert = div()
+                    .id("history-targets-error")
+                    .test_support()
+                    .role(Role::Alert)
+                    .aria_label(error.clone())
+                    .p_3()
+                    .text_color(tokens.danger)
+                    .child(error)
+                    .into_any_element();
+                (Some(alert), true)
+            }
+        };
+        let shown = self.history.source().is_some() && !unresolved;
+        let search = shown.then(|| {
             div().flex_shrink_0().p_1().child(
                 Input::new(&self.search)
                     .id("history-search")
@@ -1576,13 +1912,9 @@ impl Render for HistoryPane {
             )
         });
         let offer = self.offer(&tokens, cx);
-        let header = self
-            .history
-            .source()
-            .is_some()
-            .then(|| self.header(&tokens, window, cx));
+        let header = shown.then(|| self.header(&tokens, window, cx));
         let view = cx.entity().downgrade();
-        let error = self.history.error().map(|error| {
+        let error = self.history.error().filter(|_| shown).map(|error| {
             let error = text::cannot_read(error);
             div()
                 .id("history-error")
@@ -1596,6 +1928,8 @@ impl Render for HistoryPane {
         });
         let body = if self.history.source().is_none() {
             message("history-empty", text::NO_SOURCE, tokens.text_secondary)
+        } else if unresolved {
+            div().into_any_element()
         } else if self.history.list_len() == 0
             && self.history.done()
             && self.history.error().is_none()
@@ -1644,6 +1978,7 @@ impl Render for HistoryPane {
             .flex()
             .flex_col()
             .text_sm()
+            .children(strip)
             .children(search)
             .children(offer)
             .children(header)
@@ -1666,6 +2001,21 @@ impl Render for HistoryPane {
             )
             .children(self.menu.as_ref().map(|open| open.menu.clone()))
     }
+}
+
+/// A mark on a strip line, named for screen readers.
+fn mark(
+    id: String,
+    label: impl Into<SharedString>,
+) -> impl ParentElement + Styled + StatefulInteractiveElement + IntoElement {
+    div()
+        .id(ElementId::Name(id.into()))
+        .test_support()
+        .role(Role::Image)
+        .aria_label(label)
+        .flex_shrink_0()
+        .flex()
+        .items_center()
 }
 
 fn message(id: &'static str, text: &'static str, color: impl Into<Hsla>) -> AnyElement {
