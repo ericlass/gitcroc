@@ -730,7 +730,14 @@ fn sec_3_repo_and_branch_names_render_as_text(cx: &mut TestAppContext) {
     let fixture = Fixture::start(EVENT_CAPACITY);
     let made = repos(&["a&amp;b"]);
     let branch = "<b>bold&amp;";
-    repo(&made, "a&amp;b").branch(branch).unwrap();
+    // A loose ref is a file, and Windows forbids `<` in file names, so the
+    // branch goes in `packed-refs`, where git keeps a fetched one.
+    let hash = repo(&made, "a&amp;b").head().unwrap();
+    std::fs::write(
+        made.path().join("a&amp;b").join(".git").join("packed-refs"),
+        format!("{hash} refs/heads/{branch}\n"),
+    )
+    .unwrap();
     let added = add(&fixture, &made);
     let group_name = "<i>Group</i>";
     group(&fixture, group_name, vec![id_of(&added, "a&amp;b")]);
