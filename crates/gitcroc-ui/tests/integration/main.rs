@@ -15,6 +15,7 @@ mod git_setup;
 mod history;
 mod history_merged;
 mod history_search;
+mod panes;
 mod strings;
 mod support;
 mod tabs;

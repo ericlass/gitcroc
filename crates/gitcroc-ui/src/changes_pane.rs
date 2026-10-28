@@ -4,25 +4,26 @@
 //! Unmerged, Staged and Unstaged lists, sectioned by repo for a group or
 //! several repos (UI-34). The lists are flat or a folder tree, virtualized
 //! (PERF-1), and one file is selected; its diff is the [`DiffView`] below
-//! them, with the diff options in the pane header (UI-17). The window keeps
-//! one per open workspace, so each tab keeps its own (UI-29). Everything
-//! shown comes from the core; this lays it out and forwards input.
+//! them, with the diff options and the dock button in the pane header
+//! (UI-17, UI-19). The window keeps one per open workspace, so each tab
+//! keeps its own (UI-29). Everything shown comes from the core; this lays
+//! it out and forwards input.
 
 use std::ops::Range;
 use std::rc::Rc;
 
 use gitcroc_app::app::AppEvent;
 use gitcroc_core::{
-    ChangesContent, ChangesSettings, CommitDetails, Context as DiffContext, DiffMode, FileListMode,
-    FileStatus, Person, UnmergedKind, WorkspaceId,
+    ChangesContent, ChangesSettings, CommitDetails, Context as DiffContext, DiffMode, Dock,
+    FileListMode, FileStatus, Person, UnmergedKind, WorkspaceId,
 };
 use gpui_component::Selectable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    AnyElement, App, AppContext, ClickEvent, Context, CursorStyle, ElementId, Entity, FocusHandle,
-    Focusable, Global, Hsla, InteractiveElement, IntoElement, KeyBinding,
+    AnyElement, App, AppContext, ClickEvent, Context, CursorStyle, ElementId, Entity, EventEmitter,
+    FocusHandle, Focusable, Global, Hsla, InteractiveElement, IntoElement, KeyBinding,
     KeyBindingContextPredicate, ParentElement, Pixels, Render, Role, ScrollStrategy, SharedString,
     StatefulInteractiveElement, Styled, Subscription, TestSupportExt, UniformListScrollHandle,
     Window, actions, div, point, px, svg, uniform_list,
@@ -87,6 +88,10 @@ impl ChangesPrefs {
     }
 }
 
+/// The dock button was pressed (UI-19); the panes move the pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToggleDock;
+
 /// The changes of one workspace.
 pub struct ChangesPane {
     services: Services,
@@ -96,6 +101,8 @@ pub struct ChangesPane {
     diff: Entity<DiffView>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
+    /// Where the pane is docked, for the dock button's label.
+    dock: Dock,
     /// The latest read of the view; older answers are dropped.
     request: u64,
     _history_watch: Subscription,
@@ -128,6 +135,7 @@ impl ChangesPane {
             diff,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
+            dock: Dock::Right,
             request: 0,
             _history_watch: history_watch,
             _prefs_watch: prefs_watch,
@@ -142,6 +150,14 @@ impl ChangesPane {
 
     pub fn diff(&self) -> &Entity<DiffView> {
         &self.diff
+    }
+
+    /// Where the panes dock this pane (UI-19).
+    pub fn set_dock(&mut self, dock: Dock, cx: &mut Context<Self>) {
+        if self.dock != dock {
+            self.dock = dock;
+            cx.notify();
+        }
     }
 
     /// F7 and Shift+F7 (UI-22).
@@ -823,7 +839,7 @@ impl ChangesPane {
     }
 
     /// The pane header: the diff mode and options (UI-17), for every
-    /// workspace.
+    /// workspace, and the dock button (UI-19).
     fn options(&self, tokens: &Tokens, cx: &mut Context<Self>) -> AnyElement {
         let prefs = ChangesPrefs::get(cx);
         let toggle = |id: &'static str, label: &'static str, on: bool| {
@@ -919,6 +935,18 @@ impl ChangesPane {
                         DiffContext::WholeFile,
                     )),
             )
+            .child(
+                div().ml_auto().child(
+                    Button::new("changes-dock")
+                        .compact()
+                        .ghost()
+                        .label(match self.dock {
+                            Dock::Right => text::DOCK_BOTTOM,
+                            Dock::Bottom => text::DOCK_RIGHT,
+                        })
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(ToggleDock))),
+                ),
+            )
             .into_any_element()
     }
 
@@ -983,6 +1011,8 @@ impl ChangesPane {
         .into_any_element()
     }
 }
+
+impl EventEmitter<ToggleDock> for ChangesPane {}
 
 impl Focusable for ChangesPane {
     fn focus_handle(&self, _: &App) -> FocusHandle {

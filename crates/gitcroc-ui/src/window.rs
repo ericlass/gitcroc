@@ -1,6 +1,7 @@
 //! The main window: the title bar with the workspace tabs, the toolbar, the
 //! three panes (tree, history, changes) and the status bar. The three panes
-//! are one view each per open workspace, so each tab keeps its own (UI-29).
+//! and their layout are one view each per open workspace, so each tab keeps
+//! its own (UI-19, UI-29).
 //! Their state comes from the app (ARCH-6):
 //! one task per window receives the app's events and updates it on the
 //! main thread, and reads the state again when it fell behind. Until git
@@ -12,11 +13,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use gitcroc_app::app::AppEvent;
-use gitcroc_core::{GitStatus, PaneLayout, WorkspaceId, WorkspaceTabs};
+use gitcroc_core::{GitStatus, WorkspaceId, WorkspaceTabs};
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::resizable::{
-    ResizablePanelEvent, ResizableState, h_resizable, resizable_panel,
-};
 use gpui_kit::{
     AnyElement, AnyView, AppContext, Context, Entity, FocusHandle, Focusable, Hsla,
     InteractiveElement, IntoElement, ParentElement, Pixels, Render, Role, SharedString,
@@ -32,6 +30,7 @@ use crate::keys::{
     self, Minimize, MoveTabLeft, MoveTabRight, NextHunk, NextRegion, NextTab, PreviousHunk,
     PreviousRegion, PreviousTab, Zoom,
 };
+use crate::panes::Panes;
 use crate::services::Services;
 use crate::strings;
 use crate::tab_bar::{TabBar, TabBarEvent};
@@ -41,21 +40,8 @@ use crate::tree_pane::TreePane;
 use crate::workspace_menu::{Choice, WorkspaceStart};
 use crate::workspaces::Workspaces;
 
-/// The tree's and the history's widths until the workspace saves its own
-/// (UI-19); the changes pane takes the rest.
-const TREE_WIDTH: Pixels = px(280.);
-const HISTORY_WIDTH: Pixels = px(560.);
 const TOOLBAR_HEIGHT: Pixels = px(40.);
 const STATUS_BAR_HEIGHT: Pixels = px(24.);
-
-/// The pane sizes of one workspace (ARCH-9), and the subscription that
-/// saves them.
-struct Layout {
-    state: Entity<ResizableState>,
-    tree: Pixels,
-    history: Pixels,
-    _saves: Subscription,
-}
 
 /// What the window knows of git detection, as rc.1's `stores/git.ts` did.
 #[derive(Debug, Default)]
@@ -97,6 +83,8 @@ pub struct GitcrocWindow {
     histories: HashMap<WorkspaceId, Entity<HistoryPane>>,
     /// Each open workspace's changes, made with its history.
     changes: HashMap<WorkspaceId, Entity<ChangesPane>>,
+    /// Each open workspace's pane layout, made with its changes (UI-19).
+    panes: HashMap<WorkspaceId, Entity<Panes>>,
     title_focus: FocusHandle,
     toolbar_focus: FocusHandle,
     status_focus: FocusHandle,
@@ -110,8 +98,6 @@ pub struct GitcrocWindow {
     refused: Option<SharedString>,
     /// The note on workspace files not found at start was dismissed (UI-33).
     missing_dismissed: bool,
-    /// Keyed by workspace, `None` while none is open.
-    layouts: HashMap<Option<WorkspaceId>, Layout>,
     git: Git,
     /// Shown while git is not usable.
     git_setup: Option<Entity<GitSetup>>,
@@ -184,6 +170,7 @@ impl GitcrocWindow {
             trees: HashMap::new(),
             histories: HashMap::new(),
             changes: HashMap::new(),
+            panes: HashMap::new(),
             title_focus: cx.focus_handle(),
             toolbar_focus: cx.focus_handle(),
             status_focus: cx.focus_handle(),
@@ -194,7 +181,6 @@ impl GitcrocWindow {
             dialog: None,
             refused: None,
             missing_dismissed: false,
-            layouts: HashMap::new(),
             git: Git::default(),
             git_setup: None,
             os,
@@ -366,6 +352,8 @@ impl GitcrocWindow {
             .retain(|id, _| tabs.open.iter().any(|view| &view.id == id));
         self.changes
             .retain(|id, _| tabs.open.iter().any(|view| &view.id == id));
+        self.panes
+            .retain(|id, _| tabs.open.iter().any(|view| &view.id == id));
         if let Some(active) = tabs.active.clone().filter(|_| usable) {
             if !self.trees.contains_key(&active) {
                 let services = self.services.clone();
@@ -391,7 +379,32 @@ impl GitcrocWindow {
             {
                 let services = self.services.clone();
                 let changes = cx.new(|cx| ChangesPane::new(services, active.clone(), history, cx));
-                self.changes.insert(active, changes);
+                self.changes.insert(active.clone(), changes);
+            }
+            if !self.panes.contains_key(&active)
+                && let (Some(tree), Some(history), Some(changes)) = (
+                    self.trees.get(&active).cloned(),
+                    self.histories.get(&active).cloned(),
+                    self.changes.get(&active).cloned(),
+                )
+            {
+                let services = self.services.clone();
+                let saved = tabs
+                    .open
+                    .iter()
+                    .find(|view| view.id == active)
+                    .map(|view| view.layout.clone())
+                    .unwrap_or_default();
+                let panes = cx.new(|cx| {
+                    Panes::new(
+                        services,
+                        active.clone(),
+                        (tree, history, changes),
+                        &saved,
+                        cx,
+                    )
+                });
+                self.panes.insert(active, panes);
             }
         }
         // With every tab closed, the workspaces to open (UI-27).
@@ -422,6 +435,12 @@ impl GitcrocWindow {
     pub fn history(&self, cx: &gpui_kit::App) -> Option<Entity<HistoryPane>> {
         let active = self.workspaces.read(cx).tabs().active.as_ref()?;
         self.histories.get(active).cloned()
+    }
+
+    /// The active tab's panes and their layout.
+    pub fn panes(&self, cx: &gpui_kit::App) -> Option<Entity<Panes>> {
+        let active = self.workspaces.read(cx).tabs().active.as_ref()?;
+        self.panes.get(active).cloned()
     }
 
     /// The active tab's changes.
@@ -600,52 +619,6 @@ impl GitcrocWindow {
         }
     }
 
-    /// The active workspace's pane sizes, made from its saved layout the
-    /// first time it is shown.
-    fn layout(&mut self, cx: &mut Context<Self>) -> &Layout {
-        let workspaces = self.workspaces.read(cx);
-        let key = workspaces.tabs().active.clone();
-        let saved = workspaces.active().map(|view| view.layout.clone());
-        let services = self.services.clone();
-        self.layouts.entry(key.clone()).or_insert_with(|| {
-            let saved = saved.unwrap_or_default();
-            let width = |saved: Option<u32>, default: Pixels| {
-                saved.map_or(default, |width| px(width as f32))
-            };
-            let state = cx.new(|_| ResizableState::default());
-            let saves = cx.subscribe(&state, move |this, state, _: &ResizablePanelEvent, cx| {
-                let Some(workspace_id) = key.clone() else {
-                    return;
-                };
-                let sizes = state.read(cx).sizes();
-                let (Some(tree), Some(history)) = (sizes.first(), sizes.get(1)) else {
-                    return;
-                };
-                let layout = PaneLayout {
-                    tree: Some(f32::from(*tree).round() as u32),
-                    history: Some(f32::from(*history).round() as u32),
-                    ..this
-                        .workspaces
-                        .read(cx)
-                        .view(&workspace_id)
-                        .map(|view| view.layout.clone())
-                        .unwrap_or_default()
-                };
-                // Saved in the background: the window already shows it, and
-                // the call runs on even when its result is not awaited.
-                let _saving = services.with_app(move |app| async move {
-                    app.workspace_set_layout(workspace_id, layout).await
-                });
-            });
-            Layout {
-                state,
-                tree: width(saved.tree, TREE_WIDTH),
-                history: width(saved.history, HISTORY_WIDTH),
-                _saves: saves,
-            }
-        })
-    }
-
     /// The regions on screen that F6 moves between, in order (UI-22).
     fn regions(&self, cx: &gpui_kit::App) -> Vec<FocusHandle> {
         if let Some(start) = self.start.as_ref().filter(|_| self.git.usable()) {
@@ -726,12 +699,7 @@ impl GitcrocWindow {
 impl GitcrocWindow {
     /// The toolbar, the panes and the status bar.
     fn main_regions(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let tree = self.tree(cx);
-        let history = self.history(cx);
-        let changes = self.changes(cx);
-        let layout = self.layout(cx);
-        let (state, tree_width, history_width) =
-            (layout.state.clone(), layout.tree, layout.history);
+        let panes = self.panes(cx);
         let tokens = *cx.tokens();
         vec![
             div()
@@ -746,17 +714,7 @@ impl GitcrocWindow {
                 .border_b_1()
                 .border_color(tokens.border)
                 .into_any_element(),
-            div()
-                .flex_1()
-                .min_h_0()
-                .child(
-                    h_resizable("panes")
-                        .with_state(&state)
-                        .child(resizable_panel().size(tree_width).children(tree))
-                        .child(resizable_panel().size(history_width).children(history))
-                        .child(resizable_panel().children(changes)),
-                )
-                .into_any_element(),
+            div().flex_1().min_h_0().children(panes).into_any_element(),
             div()
                 .id("status-bar")
                 .test_support()
