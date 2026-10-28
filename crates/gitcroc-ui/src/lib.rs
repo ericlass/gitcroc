@@ -6,6 +6,7 @@ pub mod dialog;
 pub mod dialogs;
 pub mod git_setup;
 pub mod history;
+pub mod history_columns;
 pub mod history_pane;
 pub mod icons;
 pub mod keys;

@@ -1,25 +1,32 @@
 //! The history pane of one workspace (UI-9): the commit list, virtualized
 //! (PERF-1) and paged by the core (ARCH-8), with the graph painter from the
 //! spike. The window keeps one per open workspace, so each tab keeps its own
-//! source, rows, selection and scroll position (UI-29). Everything shown
-//! comes from the core; this lays it out and forwards input.
+//! source, rows, selection, scroll position and column order and widths
+//! (UI-29, UI-36). Everything shown comes from the core; this lays it out and
+//! forwards input.
 
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
 use gitcroc_app::app::AppEvent;
-use gitcroc_core::{GraphRow, RefKind, RepoId, TargetSet, WorkspaceId};
+use gitcroc_core::{
+    ColumnLayout, GraphRow, HistoryColumn, RefKind, RepoId, TargetSet, WorkspaceId,
+};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    AnyElement, App, Bounds, ClickEvent, ContentMask, Context, ElementId, Entity, FocusHandle,
-    Focusable, Hsla, InteractiveElement, IntoElement, KeyBinding, KeyBindingContextPredicate,
-    ParentElement, PathBuilder, Pixels, Render, Role, ScrollStrategy, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, TestSupportExt, UniformListScrollHandle,
-    Window, actions, canvas, div, fill, point, px, size, uniform_list,
+    Anchor, AnyElement, App, AppContext, Bounds, ClickEvent, ContentMask, Context, CursorStyle,
+    DispatchPhase, DragMoveEvent, ElementId, Entity, FocusHandle, Focusable, Hsla,
+    InteractiveElement, IntoElement, KeyBinding, KeyBindingContextPredicate, MouseButton,
+    MouseDownEvent, MouseUpEvent, ParentElement, PathBuilder, Pixels, Point, Render, Role,
+    ScrollStrategy, SharedString, StatefulInteractiveElement, Styled, Subscription, TestSupportExt,
+    UniformListScrollHandle, Window, actions, canvas, div, fill, point, px, size, uniform_list,
 };
 
 use crate::history::{self, History, Restore, Row, Selection, Show};
+use crate::history_columns::{Columns, KEY_STEP, MIN_COLUMN_WIDTH, MIN_SUBJECT_WIDTH, SizedColumn};
+use crate::menu::{Menu, MenuEvent, MenuItem};
 use crate::services::Services;
 use crate::strings::{self, history as text};
 use crate::theme::{ActiveTokens, tokens::Tokens};
@@ -34,18 +41,25 @@ actions!(
         PagePrevious,
         SelectFirst,
         SelectLast,
+        HeaderLeft,
+        HeaderRight,
+        HeaderFirst,
+        HeaderLast,
+        OpenHeaderMenu,
+        EdgeLeft,
+        EdgeRight,
     ]
 );
 
 /// The key context of the history list.
 const CONTEXT: &str = "GitcrocHistory";
+/// The key context of the column headers (UI-36).
+const HEADER_CONTEXT: &str = "GitcrocHistoryHeaders";
+/// The key context of a column's resize edge.
+const EDGE_CONTEXT: &str = "GitcrocHistoryColumnEdge";
 
 /// One row's height; `uniform_list` lays out only those on screen.
 pub const ROW_HEIGHT: Pixels = px(24.);
-const GRAPH_WIDTH: Pixels = px(80.);
-const AUTHOR_WIDTH: Pixels = px(140.);
-const DATE_WIDTH: Pixels = px(128.);
-const HASH_WIDTH: Pixels = px(72.);
 const LANE_WIDTH: f32 = 12.;
 /// The next page is asked for when this few loaded rows are left below.
 const PREFETCH_ROWS: usize = 100;
@@ -67,6 +81,96 @@ pub fn bind(cx: &mut App) {
         bind("end", Box::new(SelectLast), cx),
     ];
     cx.bind_keys(bindings.into_iter().flatten());
+
+    let header = KeyBindingContextPredicate::parse(HEADER_CONTEXT)
+        .ok()
+        .map(Rc::new);
+    let bind = |keys: &str, action: Box<dyn gpui_kit::Action>, cx: &mut App| {
+        KeyBinding::load(keys, action, header.clone(), false, None, cx).ok()
+    };
+    let bindings = [
+        bind("left", Box::new(HeaderLeft), cx),
+        bind("right", Box::new(HeaderRight), cx),
+        bind("home", Box::new(HeaderFirst), cx),
+        bind("end", Box::new(HeaderLast), cx),
+        bind("shift-f10", Box::new(OpenHeaderMenu), cx),
+        bind("menu", Box::new(OpenHeaderMenu), cx),
+    ];
+    cx.bind_keys(bindings.into_iter().flatten());
+
+    let edge = KeyBindingContextPredicate::parse(EDGE_CONTEXT)
+        .ok()
+        .map(Rc::new);
+    let bind = |keys: &str, action: Box<dyn gpui_kit::Action>, cx: &mut App| {
+        KeyBinding::load(keys, action, edge.clone(), false, None, cx).ok()
+    };
+    let bindings = [
+        bind("left", Box::new(EdgeLeft), cx),
+        bind("right", Box::new(EdgeRight), cx),
+    ];
+    cx.bind_keys(bindings.into_iter().flatten());
+}
+
+/// A header being dragged onto another (UI-36).
+#[derive(Debug, Clone, Copy)]
+struct DraggedHeader {
+    column: HistoryColumn,
+}
+
+/// What follows the pointer while a header is dragged.
+struct DraggedHeaderView(SharedString);
+
+impl Render for DraggedHeaderView {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let tokens = *cx.tokens();
+        div()
+            .px_2()
+            .py_1()
+            .bg(tokens.bg_3)
+            .text_color(tokens.text_primary)
+            .border_1()
+            .border_color(tokens.border)
+            .rounded(px(4.))
+            .text_size(px(12.))
+            .child(self.0.clone())
+    }
+}
+
+/// What a resize drag follows; it draws nothing.
+struct DraggedEdge;
+
+impl Render for DraggedEdge {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
+
+/// A resize in progress: where the pointer and the column started.
+#[derive(Debug, Clone, Copy)]
+struct Resizing {
+    sized: SizedColumn,
+    before: bool,
+    start_x: f32,
+    start_width: f32,
+    start_subject_width: f32,
+}
+
+type HeaderBounds = Rc<RefCell<Vec<(HistoryColumn, Bounds<Pixels>)>>>;
+
+/// A column menu the pane opened, and where its focus returns.
+struct OpenColumnsMenu {
+    menu: Entity<Menu>,
+    column: HistoryColumn,
+    choices: Vec<ColumnsChoice>,
+    opener: FocusHandle,
+    _events: Subscription,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ColumnsChoice {
+    MoveLeft,
+    MoveRight,
+    Reset,
 }
 
 /// The history of one workspace.
@@ -81,6 +185,21 @@ pub struct HistoryPane {
     request: u64,
     /// The last `refs_version` heard of each repo (OPS-7).
     refs_versions: HashMap<RepoId, u32>,
+    /// The workspace's column order and widths (UI-36).
+    columns: Columns,
+    header_focus: FocusHandle,
+    edges: [FocusHandle; 4],
+    /// Where the pointer and the column started while an edge is dragged.
+    resizing: Option<Resizing>,
+    /// The header a dragged column would drop at, and on which side.
+    drop_target: Option<(HistoryColumn, bool)>,
+    /// Each header's bounds, for opening its menu from the keyboard.
+    header_bounds: HeaderBounds,
+    /// The subject's laid-out width, so a resize keeps its minimum.
+    subject_width: Rc<Cell<f32>>,
+    menu: Option<OpenColumnsMenu>,
+    saving: bool,
+    save_again: bool,
     _tree_watch: Subscription,
 }
 
@@ -89,6 +208,7 @@ impl HistoryPane {
         services: Services,
         workspace_id: WorkspaceId,
         tree: Entity<TreePane>,
+        saved_columns: Option<ColumnLayout>,
         cx: &mut Context<Self>,
     ) -> Self {
         let tree_watch = cx.observe(&tree, |this, _, cx| this.follow_tree(cx));
@@ -101,6 +221,21 @@ impl HistoryPane {
             scroll: UniformListScrollHandle::new(),
             request: 0,
             refs_versions: HashMap::new(),
+            columns: Columns::from_layout(saved_columns.as_ref()),
+            header_focus: cx.focus_handle(),
+            edges: [
+                cx.focus_handle(),
+                cx.focus_handle(),
+                cx.focus_handle(),
+                cx.focus_handle(),
+            ],
+            resizing: None,
+            drop_target: None,
+            header_bounds: Rc::new(RefCell::new(Vec::new())),
+            subject_width: Rc::new(Cell::new(0.)),
+            menu: None,
+            saving: false,
+            save_again: false,
             _tree_watch: tree_watch,
         };
         this.follow_tree(cx);
@@ -111,9 +246,353 @@ impl HistoryPane {
         &self.history
     }
 
+    /// The workspace's column order and widths (UI-36).
+    pub fn columns(&self) -> &Columns {
+        &self.columns
+    }
+
     /// What the selected row shows in the changes pane (M6-12).
     pub fn selection(&self) -> Option<Selection> {
         self.history.selection()
+    }
+
+    /// Saves the columns with the workspace's pane layout (UI-36). The
+    /// window's pane sizes and dock are kept as they are. A drag asks many
+    /// times; only one save runs, and one more follows it with the latest
+    /// widths.
+    fn save_columns(&mut self, cx: &mut Context<Self>) {
+        self.save_again = true;
+        if self.saving {
+            return;
+        }
+        self.start_save(cx);
+    }
+
+    fn start_save(&mut self, cx: &mut Context<Self>) {
+        let Some(view) = self
+            .services
+            .app()
+            .workspace_get()
+            .open
+            .into_iter()
+            .find(|view| view.id == self.workspace_id)
+        else {
+            self.save_again = false;
+            return;
+        };
+        let mut layout = view.layout;
+        layout.columns = self.columns.layout();
+        self.save_again = false;
+        self.saving = true;
+        let workspace = self.workspace_id.clone();
+        let call = self
+            .services
+            .with_app(move |app| async move { app.workspace_set_layout(workspace, layout).await });
+        cx.spawn(async move |this, cx| {
+            let _ = call.await;
+            let _ = this.update(cx, |this, cx| {
+                this.saving = false;
+                if this.save_again {
+                    this.start_save(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn save_now(&mut self, cx: &mut Context<Self>) {
+        self.save_columns(cx);
+        cx.notify();
+    }
+
+    fn set_active(&mut self, column: HistoryColumn, cx: &mut Context<Self>) {
+        if self.columns.active() == column {
+            return;
+        }
+        self.columns.set_active(column);
+        cx.notify();
+    }
+
+    fn header_step(&mut self, step: isize, cx: &mut Context<Self>) {
+        let order = self.columns.order().to_vec();
+        if order.is_empty() {
+            return;
+        }
+        let at = self
+            .columns
+            .position(self.columns.active())
+            .unwrap_or_default();
+        let next = (at as isize + step).rem_euclid(order.len() as isize) as usize;
+        self.set_active(order[next], cx);
+    }
+
+    fn header_left(&mut self, _: &HeaderLeft, _: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        self.header_step(-1, cx);
+    }
+
+    fn header_right(&mut self, _: &HeaderRight, _: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        self.header_step(1, cx);
+    }
+
+    fn header_first(&mut self, _: &HeaderFirst, _: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        self.set_active(self.columns.first(), cx);
+    }
+
+    fn header_last(&mut self, _: &HeaderLast, _: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        self.set_active(self.columns.last(), cx);
+    }
+
+    fn header_at(&self, column: HistoryColumn) -> Point<Pixels> {
+        self.header_bounds
+            .borrow()
+            .iter()
+            .find(|(other, _)| *other == column)
+            .map(|(_, bounds)| bounds.bottom_left())
+            .unwrap_or_else(|| point(px(0.), px(0.)))
+    }
+
+    fn open_column_menu(
+        &mut self,
+        column: HistoryColumn,
+        at: Point<Pixels>,
+        anchor: Anchor,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let at_index = self.columns.position(column).unwrap_or_default();
+        let items = vec![
+            (
+                MenuItem::new(text::MOVE_LEFT).disabled(at_index == 0),
+                ColumnsChoice::MoveLeft,
+            ),
+            (
+                MenuItem::new(text::MOVE_RIGHT)
+                    .disabled(at_index + 1 >= self.columns.order().len()),
+                ColumnsChoice::MoveRight,
+            ),
+            (MenuItem::new(text::RESET_COLUMNS), ColumnsChoice::Reset),
+        ];
+        let (items, choices): (Vec<MenuItem>, Vec<ColumnsChoice>) = items.into_iter().unzip();
+        let label = text::column_menu(column_label(column));
+        let menu = cx.new(|cx| Menu::new(label, items, at, anchor, cx));
+        let events = cx.subscribe_in(&menu, window, |this, _, event, window, cx| {
+            this.on_columns_menu(*event, window, cx);
+        });
+        menu.update(cx, |menu, cx| menu.focus_first(window, cx));
+        self.menu = Some(OpenColumnsMenu {
+            menu,
+            column,
+            choices,
+            opener: self.header_focus.clone(),
+            _events: events,
+        });
+        self.set_active(column, cx);
+        cx.notify();
+    }
+
+    fn on_columns_menu(&mut self, event: MenuEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(open) = self.menu.take() else {
+            return;
+        };
+        cx.notify();
+        window.focus(&open.opener, cx);
+        let MenuEvent::Chosen(at) = event else {
+            return;
+        };
+        let Some(choice) = open.choices.get(at).copied() else {
+            return;
+        };
+        let changed = match choice {
+            ColumnsChoice::MoveLeft => self.columns.move_left(open.column),
+            ColumnsChoice::MoveRight => self.columns.move_right(open.column),
+            ColumnsChoice::Reset => {
+                self.columns.reset();
+                true
+            }
+        };
+        if changed {
+            self.save_now(cx);
+        }
+        cx.notify();
+    }
+
+    fn header_click(&mut self, column: HistoryColumn, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.header_focus, cx);
+        let at = self.header_at(column);
+        self.open_column_menu(column, at, Anchor::TopLeft, window, cx);
+    }
+
+    fn header_right_click(
+        &mut self,
+        column: HistoryColumn,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        window.focus(&self.header_focus, cx);
+        self.open_column_menu(column, at, Anchor::TopLeft, window, cx);
+    }
+
+    fn open_header_menu(
+        &mut self,
+        _: &OpenHeaderMenu,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        let column = self.columns.active();
+        let at = self.header_at(column);
+        self.open_column_menu(column, at, Anchor::TopLeft, window, cx);
+    }
+
+    fn edge_before(&self, sized: SizedColumn) -> bool {
+        let subject = self
+            .columns
+            .position(HistoryColumn::Subject)
+            .unwrap_or_default();
+        let column = self.columns.position(sized.column()).unwrap_or_default();
+        column > subject
+    }
+
+    fn edge_focus(&self, sized: SizedColumn) -> Option<&FocusHandle> {
+        let at = SizedColumn::ALL.iter().position(|other| *other == sized)?;
+        self.edges.get(at)
+    }
+
+    fn focused_edge(&self, window: &Window) -> Option<SizedColumn> {
+        SizedColumn::ALL.into_iter().find(|sized| {
+            self.edge_focus(*sized)
+                .is_some_and(|f| f.is_focused(window))
+        })
+    }
+
+    fn start_resize(&mut self, sized: SizedColumn, event: &MouseDownEvent) {
+        self.resizing = Some(Resizing {
+            sized,
+            before: self.edge_before(sized),
+            start_x: f32::from(event.position.x),
+            start_width: self.columns.width_of(sized) as f32,
+            start_subject_width: self.subject_width.get(),
+        });
+    }
+
+    fn drag_edge(&mut self, event: &DragMoveEvent<SizedColumn>, cx: &mut Context<Self>) {
+        let sized = *event.drag(cx);
+        let Some(resizing) = self.resizing else {
+            return;
+        };
+        if resizing.sized != sized {
+            return;
+        }
+        let x = f32::from(event.event.position.x);
+        let delta = if resizing.before {
+            resizing.start_x - x
+        } else {
+            x - resizing.start_x
+        };
+        let width = resizing.start_width + delta;
+        let extra = (resizing.start_subject_width - MIN_SUBJECT_WIDTH)
+            .max(0.)
+            .floor() as u32;
+        let max = (resizing.start_width.round() as u32).saturating_add(extra);
+        if self.columns.set_width_capped(sized, width, max) {
+            self.save_columns(cx);
+            cx.notify();
+        }
+    }
+
+    fn edge_resize(&mut self, sized: SizedColumn, towards_left: bool, cx: &mut Context<Self>) {
+        let before = self.edge_before(sized);
+        let delta = match (before, towards_left) {
+            (true, true) | (false, false) => KEY_STEP,
+            (true, false) | (false, true) => -KEY_STEP,
+        };
+        if self.columns.resize(sized, delta, self.subject_width.get()) {
+            self.save_now(cx);
+            cx.notify();
+        }
+    }
+
+    fn edge_left(&mut self, _: &EdgeLeft, window: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        if let Some(sized) = self.focused_edge(window) {
+            self.edge_resize(sized, true, cx);
+        }
+    }
+
+    fn edge_right(&mut self, _: &EdgeRight, window: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        if let Some(sized) = self.focused_edge(window) {
+            self.edge_resize(sized, false, cx);
+        }
+    }
+
+    fn reset_width(&mut self, sized: SizedColumn, cx: &mut Context<Self>) {
+        if self.columns.reset_width(sized) {
+            self.save_now(cx);
+            cx.notify();
+        }
+    }
+
+    fn drag_over_header(&mut self, event: &DragMoveEvent<DraggedHeader>, cx: &mut Context<Self>) {
+        let position = event.event.position;
+        let target = self
+            .header_bounds
+            .borrow()
+            .iter()
+            .find(|(_, bounds)| bounds.contains(&position))
+            .map(|(column, bounds)| {
+                (
+                    *column,
+                    position.x > bounds.origin.x + bounds.size.width / 2.,
+                )
+            });
+        if self.drop_target != target {
+            self.drop_target = target;
+            cx.notify();
+        }
+    }
+
+    fn drop_header(
+        &mut self,
+        dragged: &DraggedHeader,
+        target: HistoryColumn,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((target, after)) = self.drop_target.filter(|(column, _)| *column == target) else {
+            self.drop_target = None;
+            cx.notify();
+            return;
+        };
+        self.drop_target = None;
+        if dragged.column == target {
+            cx.notify();
+            return;
+        }
+        let rest: Vec<HistoryColumn> = self
+            .columns
+            .order()
+            .iter()
+            .copied()
+            .filter(|column| *column != dragged.column)
+            .collect();
+        let Some(at) = rest.iter().position(|column| *column == target) else {
+            cx.notify();
+            return;
+        };
+        if self
+            .columns
+            .move_column(dragged.column, at + usize::from(after))
+        {
+            self.save_now(cx);
+        }
+        cx.notify();
     }
 
     /// Follows the app's events about this workspace.
@@ -336,32 +815,49 @@ impl HistoryPane {
         fit.saturating_sub(1).max(1)
     }
 
+    /// Whether a key of the list must leave the header and its edges alone.
+    fn header_has_focus(&self, window: &Window) -> bool {
+        self.header_focus.is_focused(window) || self.focused_edge(window).is_some()
+    }
+
     fn select_next(&mut self, _: &SelectNext, window: &mut Window, cx: &mut Context<Self>) {
-        self.step(1, window, cx);
+        if !self.header_has_focus(window) {
+            self.step(1, window, cx);
+        }
     }
 
     fn select_previous(&mut self, _: &SelectPrevious, window: &mut Window, cx: &mut Context<Self>) {
-        self.step(-1, window, cx);
+        if !self.header_has_focus(window) {
+            self.step(-1, window, cx);
+        }
     }
 
     fn page_next(&mut self, _: &PageNext, window: &mut Window, cx: &mut Context<Self>) {
-        let step = self.page() as isize;
-        self.step(step, window, cx);
+        if !self.header_has_focus(window) {
+            let step = self.page() as isize;
+            self.step(step, window, cx);
+        }
     }
 
     fn page_previous(&mut self, _: &PagePrevious, window: &mut Window, cx: &mut Context<Self>) {
-        let step = self.page() as isize;
-        self.step(-step, window, cx);
+        if !self.header_has_focus(window) {
+            let step = self.page() as isize;
+            self.step(-step, window, cx);
+        }
     }
 
     fn select_first(&mut self, _: &SelectFirst, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(0, window, cx);
+        if !self.header_has_focus(window) {
+            self.move_to(0, window, cx);
+        }
     }
 
     fn select_last(&mut self, _: &SelectLast, window: &mut Window, cx: &mut Context<Self>) {
-        let count = self.history.rows().len();
-        if count > 0 {
-            self.move_to(count - 1, window, cx);
+        if !self.header_has_focus(window) {
+            let count = self.history.rows().len();
+            if count > 0 {
+                self.move_to(count - 1, window, cx);
+            }
         }
     }
 
@@ -369,10 +865,29 @@ impl HistoryPane {
         self.select(index, window, cx);
     }
 
-    fn header(&self, tokens: &Tokens) -> AnyElement {
-        div()
+    fn header(&mut self, tokens: &Tokens, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        self.header_bounds.borrow_mut().clear();
+        let order = self.columns.order().to_vec();
+        let focused = self.header_focus.is_focused(window);
+        let mut bar = div()
             .id("history-header")
             .test_support()
+            .track_focus(&self.header_focus)
+            .tab_stop(true)
+            .key_context(HEADER_CONTEXT)
+            .on_action(cx.listener(Self::header_left))
+            .on_action(cx.listener(Self::header_right))
+            .on_action(cx.listener(Self::header_first))
+            .on_action(cx.listener(Self::header_last))
+            .on_action(cx.listener(Self::open_header_menu))
+            .on_drag_move::<SizedColumn>(cx.listener(
+                |this, event: &DragMoveEvent<SizedColumn>, _, cx| this.drag_edge(event, cx),
+            ))
+            .on_drag_move::<DraggedHeader>(cx.listener(
+                |this, event: &DragMoveEvent<DraggedHeader>, _, cx| {
+                    this.drag_over_header(event, cx)
+                },
+            ))
             .role(Role::Toolbar)
             .aria_label(text::COLUMNS_LABEL)
             .h(px(28.))
@@ -380,34 +895,169 @@ impl HistoryPane {
             .flex()
             .flex_row()
             .items_center()
-            .gap_2()
             .px_2()
             .border_b_1()
             .border_color(tokens.border)
             .bg(tokens.bg_2)
             .text_size(px(12.))
-            .text_color(tokens.text_secondary)
-            .child(header_cell(
-                "history-column-graph",
-                text::GRAPH,
-                Some(GRAPH_WIDTH),
+            .text_color(tokens.text_secondary);
+        for column in order {
+            bar = bar.child(self.header_cell(column, focused, tokens, window, cx));
+        }
+        bar.into_any_element()
+    }
+
+    fn header_cell(
+        &mut self,
+        column: HistoryColumn,
+        header_focused: bool,
+        tokens: &Tokens,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let label = column_label(column);
+        let id = header_id(column);
+        let width = self.columns.width(column);
+        let active = self.columns.active() == column;
+        let header_bounds = self.header_bounds.clone();
+        let mut cell = div()
+            .id(id.clone())
+            .test_support()
+            .role(Role::ColumnHeader)
+            .aria_label(label)
+            .relative()
+            .flex()
+            .items_center()
+            .h_full()
+            .overflow_hidden()
+            .when_some(width, |cell, width| cell.w(px(width as f32)).flex_none())
+            .when(width.is_none(), |cell| {
+                cell.flex_1().min_w(px(MIN_SUBJECT_WIDTH))
+            })
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.header_click(column, window, cx);
+            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    this.header_right_click(column, event.position, window, cx);
+                }),
+            )
+            .on_drag(DraggedHeader { column }, |dragged, _, _, cx| {
+                cx.new(|_| DraggedHeaderView(column_label(dragged.column).into()))
+            })
+            .on_drop(cx.listener(move |this, dragged: &DraggedHeader, _, cx| {
+                this.drop_header(dragged, column, cx);
+            }))
+            .child(div().flex_1().min_w_0().truncate().px(px(6.)).child(label));
+        let width = width.unwrap_or_default();
+        if let Some(sized) = SizedColumn::from_column(column) {
+            cell = cell.child(self.edge(sized, width, tokens, window, cx));
+        }
+        if column == HistoryColumn::Subject {
+            let subject_width = self.subject_width.clone();
+            cell = cell.child(
+                canvas(
+                    move |bounds, _, _| subject_width.set(f32::from(bounds.size.width)),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            );
+        }
+        cell = cell.child(
+            canvas(
+                move |drawn, _, _| header_bounds.borrow_mut().push((column, drawn)),
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        );
+        if header_focused && active {
+            cell = cell.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .border_2()
+                    .border_color(tokens.focus_ring),
+            );
+        }
+        if let Some((target, after)) = self.drop_target
+            && target == column
+        {
+            let marker = div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .w(px(2.))
+                .bg(tokens.accent)
+                .when(after, |marker| marker.right_0())
+                .when(!after, |marker| marker.left_0());
+            cell = cell.child(marker);
+        }
+        cell.into_any_element()
+    }
+
+    fn edge(
+        &mut self,
+        sized: SizedColumn,
+        width: u32,
+        tokens: &Tokens,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(focus) = self.edge_focus(sized).cloned() else {
+            return div().into_any_element();
+        };
+        let before = self.edge_before(sized);
+        let focused = focus.is_focused(window);
+        let label = text::resize_column(column_label(sized.column()));
+        div()
+            .id(ElementId::Name(
+                format!("history-edge-{}", column_key(sized.column())).into(),
             ))
-            .child(header_cell("history-column-subject", text::SUBJECT, None))
-            .child(header_cell(
-                "history-column-author",
-                text::AUTHOR,
-                Some(AUTHOR_WIDTH),
-            ))
-            .child(header_cell(
-                "history-column-date",
-                text::DATE,
-                Some(DATE_WIDTH),
-            ))
-            .child(header_cell(
-                "history-column-hash",
-                text::HASH,
-                Some(HASH_WIDTH),
-            ))
+            .test_support()
+            .track_focus(&focus)
+            .tab_stop(true)
+            .key_context(EDGE_CONTEXT)
+            .on_action(cx.listener(Self::edge_left))
+            .on_action(cx.listener(Self::edge_right))
+            .role(Role::Splitter)
+            .aria_label(label)
+            .aria_numeric_value(width as f64)
+            .aria_min_numeric_value(MIN_COLUMN_WIDTH as f64)
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .w(px(8.))
+            .when(before, |edge| edge.left_0())
+            .when(!before, |edge| edge.right_0())
+            .cursor(CursorStyle::ResizeLeftRight)
+            .hover(move |style| style.bg(tokens.accent))
+            .when(focused, |edge| edge.bg(tokens.accent))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event, _, _| {
+                    this.start_resize(sized, event);
+                }),
+            )
+            .on_drag(sized, |_, _, _, cx| cx.new(|_| DraggedEdge))
+            .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                if event.click_count() == 2 {
+                    this.reset_width(sized, cx);
+                }
+            }))
+            .child(
+                div()
+                    .absolute()
+                    .top(px(4.))
+                    .bottom(px(4.))
+                    .w(px(1.))
+                    .when(before, |line| line.left_0())
+                    .when(!before, |line| line.right_0())
+                    .bg(tokens.border),
+            )
             .into_any_element()
     }
 
@@ -416,7 +1066,7 @@ impl HistoryPane {
         if let Some(row) = self.history.rows().get(index) {
             return self.commit_row(index, row, window, cx);
         }
-        div()
+        let mut placeholder = div()
             .id(ElementId::Name(format!("history-row-{index}").into()))
             .test_support()
             .role(Role::ListBoxOption)
@@ -426,18 +1076,33 @@ impl HistoryPane {
             .flex()
             .flex_row()
             .items_center()
-            .gap_3()
-            .px_2()
-            .child(
-                div()
+            .px_2();
+        for column in self.columns.order().iter().copied() {
+            let width = self.columns.width(column);
+            let skeleton = match column {
+                HistoryColumn::Subject => div()
                     .h(px(10.))
-                    .w(GRAPH_WIDTH)
-                    .flex_none()
+                    .w(px(240.))
                     .rounded(px(3.))
-                    .bg(tokens.bg_3),
-            )
-            .child(div().h(px(10.)).w(px(240.)).rounded(px(3.)).bg(tokens.bg_3))
-            .into_any_element()
+                    .bg(tokens.bg_3)
+                    .into_any_element(),
+                _ => div()
+                    .h(px(10.))
+                    .w(px(width.unwrap_or_default().saturating_sub(12) as f32))
+                    .rounded(px(3.))
+                    .bg(tokens.bg_3)
+                    .into_any_element(),
+            };
+            placeholder = placeholder.child(
+                div()
+                    .flex_none()
+                    .when(width.is_none(), |cell| cell.flex_1())
+                    .when_some(width, |cell, width| cell.w(px(width as f32)))
+                    .px(px(6.))
+                    .child(skeleton),
+            );
+        }
+        placeholder.into_any_element()
     }
 
     fn commit_row(
@@ -452,47 +1117,7 @@ impl HistoryPane {
         let row_id = self.history.row_id(row);
         let selected = self.history.selected() == Some(row_id.as_str());
         let focused = self.focus.is_focused(window);
-        let graph = row.graph.clone();
-        let colors = tokens.graph.map(Hsla::from);
-        let graph_cell = div()
-            .id(ElementId::Name(format!("{id}-graph").into()))
-            .test_support()
-            .w(GRAPH_WIDTH)
-            .flex_none()
-            .h_full()
-            .child(
-                canvas(
-                    |_, _, _| (),
-                    move |bounds, (), window, _| {
-                        if let Some(graph) = &graph {
-                            paint_graph(graph, bounds, &colors, window);
-                        }
-                    },
-                )
-                .size_full(),
-            );
-        let mut subject = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .flex_1()
-            .min_w_0()
-            .gap_1()
-            .overflow_hidden();
-        for (at, (kind, name)) in row.refs.iter().enumerate() {
-            subject = subject.child(self.ref_label(&id, at, *kind, name.clone(), &tokens));
-        }
-        subject = subject.child(
-            div()
-                .id(ElementId::Name(format!("{id}-subject").into()))
-                .test_support()
-                .role(Role::Label)
-                .aria_label(row.subject.clone())
-                .truncate()
-                .text_color(tokens.text_primary)
-                .child(row.subject.clone()),
-        );
-        div()
+        let mut line = div()
             .id(ElementId::Name(id.clone().into()))
             .test_support()
             .role(Role::ListBoxOption)
@@ -504,7 +1129,6 @@ impl HistoryPane {
             .flex()
             .flex_row()
             .items_center()
-            .gap_3()
             .px_2()
             .overflow_hidden()
             .whitespace_nowrap()
@@ -513,48 +1137,97 @@ impl HistoryPane {
             .when(!selected, |row| row.hover(|style| style.bg(tokens.bg_3)))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.click(index, window, cx);
-            }))
-            .child(graph_cell)
-            .child(subject)
-            .child(
-                div()
+            }));
+        for column in self.columns.order().iter().copied() {
+            let width = self.columns.width(column);
+            let cell = match column {
+                HistoryColumn::Graph => {
+                    let graph = row.graph.clone();
+                    let colors = tokens.graph.map(Hsla::from);
+                    div()
+                        .id(ElementId::Name(format!("{id}-graph").into()))
+                        .test_support()
+                        .w(px(width.unwrap_or_default() as f32))
+                        .flex_none()
+                        .h_full()
+                        .child(
+                            canvas(
+                                |_, _, _| (),
+                                move |bounds, (), window, _| {
+                                    if let Some(graph) = &graph {
+                                        paint_graph(graph, bounds, &colors, window);
+                                    }
+                                },
+                            )
+                            .size_full(),
+                        )
+                        .into_any_element()
+                }
+                HistoryColumn::Subject => {
+                    let mut subject = div()
+                        .id(ElementId::Name(format!("{id}-subject").into()))
+                        .test_support()
+                        .role(Role::Label)
+                        .aria_label(row.subject.clone())
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .flex_1()
+                        .min_w_0()
+                        .px(px(6.))
+                        .gap_1()
+                        .overflow_hidden()
+                        .text_color(tokens.text_primary);
+                    for (at, (kind, name)) in row.refs.iter().enumerate() {
+                        subject =
+                            subject.child(self.ref_label(&id, at, *kind, name.clone(), &tokens));
+                    }
+                    subject
+                        .child(div().truncate().child(row.subject.clone()))
+                        .into_any_element()
+                }
+                HistoryColumn::Author => div()
                     .id(ElementId::Name(format!("{id}-author").into()))
                     .test_support()
                     .role(Role::Label)
                     .aria_label(row.author.clone())
-                    .w(AUTHOR_WIDTH)
+                    .w(px(width.unwrap_or_default() as f32))
                     .flex_none()
+                    .px(px(6.))
                     .truncate()
                     .text_color(tokens.text_secondary)
-                    .child(row.author.clone()),
-            )
-            .child(
-                div()
+                    .child(row.author.clone())
+                    .into_any_element(),
+                HistoryColumn::Date => div()
                     .id(ElementId::Name(format!("{id}-date").into()))
                     .test_support()
                     .role(Role::Label)
                     .aria_label(row.date.clone())
                     .aria_description(row.dates.clone())
-                    .w(DATE_WIDTH)
+                    .w(px(width.unwrap_or_default() as f32))
                     .flex_none()
+                    .px(px(6.))
                     .whitespace_nowrap()
                     .text_color(tokens.text_secondary)
-                    .child(row.date.clone()),
-            )
-            .child(
-                div()
+                    .child(row.date.clone())
+                    .into_any_element(),
+                HistoryColumn::Hash => div()
                     .id(ElementId::Name(format!("{id}-hash").into()))
                     .test_support()
                     .role(Role::Label)
                     .aria_label(row.short_hash.clone())
-                    .w(HASH_WIDTH)
+                    .w(px(width.unwrap_or_default() as f32))
                     .flex_none()
+                    .px(px(6.))
                     .whitespace_nowrap()
                     .text_size(px(12.))
                     .text_color(tokens.text_secondary)
-                    .child(row.short_hash.clone()),
-            )
-            .into_any_element()
+                    .child(row.short_hash.clone())
+                    .into_any_element(),
+            };
+            line = line.child(cell);
+        }
+        line.into_any_element()
     }
 
     fn ref_label(
@@ -614,23 +1287,40 @@ impl Focusable for HistoryPane {
     }
 }
 
-fn header_cell(id: &'static str, label: &'static str, width: Option<Pixels>) -> AnyElement {
-    div()
-        .id(id)
-        .test_support()
-        .role(Role::ColumnHeader)
-        .aria_label(label)
-        .when_some(width, |cell, width| cell.w(width).flex_none())
-        .when(width.is_none(), |cell| cell.flex_1())
-        .truncate()
-        .child(label)
-        .into_any_element()
+fn column_key(column: HistoryColumn) -> &'static str {
+    match column {
+        HistoryColumn::Graph => "graph",
+        HistoryColumn::Subject => "subject",
+        HistoryColumn::Author => "author",
+        HistoryColumn::Date => "date",
+        HistoryColumn::Hash => "hash",
+    }
+}
+
+fn header_id(column: HistoryColumn) -> ElementId {
+    ElementId::Name(format!("history-column-{}", column_key(column)).into())
+}
+
+fn column_label(column: HistoryColumn) -> &'static str {
+    match column {
+        HistoryColumn::Graph => text::GRAPH,
+        HistoryColumn::Subject => text::SUBJECT,
+        HistoryColumn::Author => text::AUTHOR,
+        HistoryColumn::Date => text::DATE,
+        HistoryColumn::Hash => text::HASH,
+    }
 }
 
 impl Render for HistoryPane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.remember_scroll();
         let tokens = *cx.tokens();
+        let header = self
+            .history
+            .source()
+            .is_some()
+            .then(|| self.header(&tokens, window, cx));
+        let view = cx.entity().downgrade();
         let error = self.history.error().map(|error| {
             let error = text::cannot_read(error);
             div()
@@ -688,11 +1378,25 @@ impl Render for HistoryPane {
             .flex()
             .flex_col()
             .text_sm()
-            .when(self.history.source().is_some(), |pane| {
-                pane.child(self.header(&tokens))
-            })
+            .children(header)
             .children(error)
             .child(body)
+            .child(
+                canvas(
+                    |_, _, _| (),
+                    move |_, (), window, _| {
+                        let view = view.clone();
+                        window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
+                            if phase == DispatchPhase::Bubble {
+                                let _ = view.update(cx, |this, _| this.resizing = None);
+                            }
+                        });
+                    },
+                )
+                .absolute()
+                .size_full(),
+            )
+            .children(self.menu.as_ref().map(|open| open.menu.clone()))
     }
 }
 

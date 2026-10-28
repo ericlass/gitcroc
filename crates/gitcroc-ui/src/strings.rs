@@ -184,6 +184,17 @@ pub mod history {
     pub const AUTHOR: &str = "Author";
     pub const DATE: &str = "Date";
     pub const HASH: &str = "Hash";
+    pub const MOVE_LEFT: &str = "Move left";
+    pub const MOVE_RIGHT: &str = "Move right";
+    pub const RESET_COLUMNS: &str = "Reset columns";
+    /// A column's menu, named after the column: "Graph column".
+    pub fn column_menu(column: &str) -> String {
+        format!("{column} column")
+    }
+    /// A column's resize edge: "Resize Graph".
+    pub fn resize_column(column: &str) -> String {
+        format!("Resize {column}")
+    }
     pub const NO_SOURCE: &str = "Select a repo, branch, tag or stash to see its history.";
     pub const NO_COMMITS: &str = "No commits yet.";
     pub const LOADING: &str = "Loading";

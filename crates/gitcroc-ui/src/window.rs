@@ -399,7 +399,13 @@ impl GitcrocWindow {
                 && let Some(tree) = self.trees.get(&active).cloned()
             {
                 let services = self.services.clone();
-                let history = cx.new(|cx| HistoryPane::new(services, active.clone(), tree, cx));
+                let saved_columns = tabs
+                    .open
+                    .iter()
+                    .find(|view| view.id == active)
+                    .and_then(|view| view.layout.columns.clone());
+                let history = cx
+                    .new(|cx| HistoryPane::new(services, active.clone(), tree, saved_columns, cx));
                 self.histories.insert(active, history);
             }
         }
