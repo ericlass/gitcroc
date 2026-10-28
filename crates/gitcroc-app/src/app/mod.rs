@@ -19,6 +19,7 @@ mod workspace;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use gitcroc_core::{
     AiJobs, AppInfo, AppLog, CacheDir, Changes, ConfigDir, GitRunner, GitSetup, GitStatus,
@@ -63,6 +64,10 @@ pub struct AppSetup<'a> {
     pub askpass_helper: PathBuf,
     /// [`EVENT_CAPACITY`], or less in tests of lag.
     pub event_capacity: usize,
+    /// How slow a first history page read without a commit-graph file must
+    /// be to earn the offer to write one (PERF-2):
+    /// [`gitcroc_core::COMMIT_GRAPH_THRESHOLD`], or another in tests of it.
+    pub commit_graph_threshold: Duration,
 }
 
 /// The running app's state and operations. Cheap to clone; every clone is
@@ -197,7 +202,7 @@ impl App {
                 log,
                 settings,
                 palettes: Arc::new(Palettes::new()),
-                histories: Arc::new(Histories::default()),
+                histories: Arc::new(Histories::new(setup.commit_graph_threshold)),
                 changes: Arc::new(Changes::new()),
                 watchers,
                 jobs,

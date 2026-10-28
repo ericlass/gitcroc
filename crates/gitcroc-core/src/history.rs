@@ -24,7 +24,7 @@ use crate::{
 
 /// A first page slower than this, read without a commit-graph file, earns
 /// the offer to write one: the section 9 budget for the first page.
-const COMMIT_GRAPH_THRESHOLD: Duration = Duration::from_millis(200);
+pub const COMMIT_GRAPH_THRESHOLD: Duration = Duration::from_millis(200);
 
 /// Why a history page could not be produced.
 #[derive(Debug, thiserror::Error)]

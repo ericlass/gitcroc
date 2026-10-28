@@ -86,8 +86,9 @@ pub use group::{
     PreflightId, PreflightReady, RepoClass, RunFuture, group_summaries,
 };
 pub use history::{
-    CommitGraphError, CommitGraphWrite, Histories, HistoryPageError, HistoryRow, HistoryTarget,
-    HistoryView, HistoryViewError, commit_graph_write, history_get, history_more, history_page,
+    COMMIT_GRAPH_THRESHOLD, CommitGraphError, CommitGraphWrite, Histories, HistoryPageError,
+    HistoryRow, HistoryTarget, HistoryView, HistoryViewError, commit_graph_write, history_get,
+    history_more, history_page,
 };
 pub use integrate::{
     IntegrateError, IntegrateOp, IntegrateRequest, IntegrateStart, MergeFastForward,

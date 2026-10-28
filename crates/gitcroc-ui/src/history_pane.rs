@@ -1,8 +1,10 @@
-//! The history pane of one workspace (UI-9): the commit list, virtualized
-//! (PERF-1) and paged by the core (ARCH-8), with the graph painter from the
-//! spike. The window keeps one per open workspace, so each tab keeps its own
-//! source, rows, selection, scroll position and column order and widths
-//! (UI-29, UI-36). Everything shown comes from the core; this lays it out and
+//! The history pane of one workspace (UI-9): the search box (UI-12), the
+//! commit-graph offer (PERF-2) and the commit list, led by "Uncommitted
+//! changes (n)" for a dirty repo (UI-10), virtualized (PERF-1) and paged by
+//! the core (ARCH-8), with the graph painter from the spike. The window keeps
+//! one per open workspace, so each tab keeps its own source, search text,
+//! rows, selection, scroll position and column order and widths (UI-29,
+//! UI-36). Everything shown comes from the core; this lays it out and
 //! forwards input.
 
 use std::cell::{Cell, RefCell};
@@ -14,6 +16,8 @@ use gitcroc_app::app::AppEvent;
 use gitcroc_core::{
     ColumnLayout, GraphRow, HistoryColumn, RefKind, RepoId, TargetSet, WorkspaceId,
 };
+use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     Anchor, AnyElement, App, AppContext, Bounds, ClickEvent, ContentMask, Context, CursorStyle,
@@ -24,7 +28,7 @@ use gpui_kit::{
     UniformListScrollHandle, Window, actions, canvas, div, fill, point, px, size, uniform_list,
 };
 
-use crate::history::{self, History, Restore, Row, Selection, Show};
+use crate::history::{self, History, Restore, Row, Selection, Show, UNCOMMITTED_ID};
 use crate::history_columns::{Columns, KEY_STEP, MIN_COLUMN_WIDTH, MIN_SUBJECT_WIDTH, SizedColumn};
 use crate::menu::{Menu, MenuEvent, MenuItem};
 use crate::services::Services;
@@ -181,6 +185,11 @@ pub struct HistoryPane {
     tree: Entity<TreePane>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
+    /// The search box (UI-12); the history keeps its text.
+    search: Entity<InputState>,
+    /// The shown source changed, so the box shows its text at the next
+    /// render, which has the window it needs.
+    show_text: bool,
     /// The latest first read; older answers are dropped.
     request: u64,
     /// The last `refs_version` heard of each repo (OPS-7).
@@ -201,6 +210,7 @@ pub struct HistoryPane {
     saving: bool,
     save_again: bool,
     _tree_watch: Subscription,
+    _search_events: Subscription,
 }
 
 impl HistoryPane {
@@ -209,9 +219,17 @@ impl HistoryPane {
         workspace_id: WorkspaceId,
         tree: Entity<TreePane>,
         saved_columns: Option<ColumnLayout>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let tree_watch = cx.observe(&tree, |this, _, cx| this.follow_tree(cx));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(text::SEARCH));
+        let search_events = cx.subscribe(&search, |this, search, event, cx| {
+            if let InputEvent::Change = event {
+                let value = search.read(cx).value().to_string();
+                this.set_text(value, cx);
+            }
+        });
         let mut this = Self {
             services,
             workspace_id,
@@ -219,6 +237,8 @@ impl HistoryPane {
             tree,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
+            search,
+            show_text: false,
             request: 0,
             refs_versions: HashMap::new(),
             columns: Columns::from_layout(saved_columns.as_ref()),
@@ -237,6 +257,7 @@ impl HistoryPane {
             saving: false,
             save_again: false,
             _tree_watch: tree_watch,
+            _search_events: search_events,
         };
         this.follow_tree(cx);
         this
@@ -616,6 +637,21 @@ impl HistoryPane {
             AppEvent::WorkspaceChanged(view) if view.id == self.workspace_id => {
                 self.follow_tree(cx);
             }
+            AppEvent::CommitGraphWritten {
+                workspace_id,
+                repo_id,
+                error: Some(error),
+                git_stderr,
+                ..
+            } if *workspace_id == self.workspace_id => {
+                let detail = match git_stderr {
+                    Some(stderr) => format!("{error}\n{stderr}"),
+                    None => error.clone(),
+                };
+                self.history
+                    .set_offer_error(repo_id.clone(), text::cannot_write_commit_graph(&detail));
+                cx.notify();
+            }
             _ => {}
         }
     }
@@ -631,14 +667,29 @@ impl HistoryPane {
 
     /// Shows what the tree selects (section 8 "History pane").
     fn follow_tree(&mut self, cx: &mut Context<Self>) {
-        let source = {
+        let (source, changes) = {
             let tree = self.tree.read(cx);
-            match tree.target() {
+            let source = match tree.target() {
                 Some(TargetSet::Repo { .. }) => tree.selected_item().and_then(history::source_of),
                 _ => None,
-            }
+            };
+            // The changed paths of the repo shown (UI-10).
+            let changes = source
+                .as_ref()
+                .and_then(|source| source.repo.as_ref())
+                .and_then(|repo| tree.tree().summary(repo))
+                .and_then(|view| view.summary.as_ref())
+                .map_or(0, |summary| summary.changes);
+            (source, changes)
         };
-        match self.history.show(source) {
+        let show = self.history.show(source);
+        if show != Show::Kept {
+            self.show_text = true;
+        }
+        if self.history.set_changes(changes) {
+            cx.notify();
+        }
+        match show {
             Show::Kept => {}
             Show::Empty => {
                 self.request = self.request.wrapping_add(1);
@@ -646,6 +697,58 @@ impl HistoryPane {
             }
             Show::Load(restore) => self.read_first(restore, cx),
         }
+    }
+
+    /// Searches the shown history (UI-12); each change supersedes the
+    /// previous one, whose answer is dropped.
+    fn set_text(&mut self, value: String, cx: &mut Context<Self>) {
+        if self.history.source().is_none() || !self.history.set_text(value) {
+            return;
+        }
+        self.read_first(Restore::default(), cx);
+    }
+
+    /// Accepts the shown repo's commit-graph offer: the core writes the
+    /// file as a job, whose end arrives as `CommitGraphWritten` (PERF-2).
+    fn write_commit_graph(&mut self, repo: RepoId, cx: &mut Context<Self>) {
+        self.history.answer_offer(&repo);
+        cx.notify();
+        let workspace = self.workspace_id.clone();
+        let asked = repo.clone();
+        let call = self
+            .services
+            .with_app(move |app| async move { app.commit_graph_write(workspace, asked).await });
+        cx.spawn(async move |this, cx| {
+            if let Some(Err(error)) = call.await {
+                let _ = this.update(cx, |this, cx| {
+                    this.history
+                        .set_offer_error(repo, text::cannot_write_commit_graph(&error.message));
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// "Don't ask again": the core keeps the answer in the workspace.
+    fn decline_commit_graph(&mut self, repo: RepoId, cx: &mut Context<Self>) {
+        self.history.answer_offer(&repo);
+        cx.notify();
+        let workspace = self.workspace_id.clone();
+        let asked = repo.clone();
+        let call = self
+            .services
+            .with_app(move |app| async move { app.commit_graph_decline(workspace, asked).await });
+        cx.spawn(async move |this, cx| {
+            if let Some(Err(error)) = call.await {
+                let _ = this.update(cx, |this, cx| {
+                    this.history
+                        .set_offer_error(repo, text::cannot_keep_answer(&error.message));
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     /// Reads `source` from the start, up to the restored row count.
@@ -657,8 +760,9 @@ impl HistoryPane {
         self.history.start_load();
         cx.notify();
         let workspace = self.workspace_id.clone();
+        let text = self.history.text().to_owned();
         let call = self.services.with_app(move |app| async move {
-            history::read(app, workspace, source, String::new(), restore.rows).await
+            history::read(app, workspace, source, text, restore.rows).await
         });
         cx.spawn(async move |this, cx| {
             let result = call.await;
@@ -696,8 +800,9 @@ impl HistoryPane {
         self.history.set_loading(true);
         cx.notify();
         let workspace = self.workspace_id.clone();
+        let text = self.history.text().to_owned();
         let call = self.services.with_app(move |app| async move {
-            history::read(app, workspace, source, String::new(), rows).await
+            history::read(app, workspace, source, text, rows).await
         });
         cx.spawn(async move |this, cx| {
             let result = call.await;
@@ -781,9 +886,9 @@ impl HistoryPane {
         self.history.selected_index()
     }
 
-    /// Selects loaded row `index`, and scrolls it into view.
+    /// Selects loaded list row `index`, and scrolls it into view.
     fn select(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(row_id) = self.history.row_id_at(index) else {
+        let Some(row_id) = self.history.list_id_at(index) else {
             return;
         };
         window.focus(&self.focus, cx);
@@ -793,7 +898,7 @@ impl HistoryPane {
     }
 
     fn move_to(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let count = self.history.rows().len();
+        let count = self.history.list_len();
         if count == 0 {
             return;
         }
@@ -854,7 +959,7 @@ impl HistoryPane {
 
     fn select_last(&mut self, _: &SelectLast, window: &mut Window, cx: &mut Context<Self>) {
         if !self.header_has_focus(window) {
-            let count = self.history.rows().len();
+            let count = self.history.list_len();
             if count > 0 {
                 self.move_to(count - 1, window, cx);
             }
@@ -1061,13 +1166,18 @@ impl HistoryPane {
             .into_any_element()
     }
 
+    /// List row `index`: the uncommitted row, a commit or a placeholder.
+    /// Commit rows are named by their place among the commits.
     fn render_row(&self, index: usize, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let tokens = *cx.tokens();
-        if let Some(row) = self.history.rows().get(index) {
-            return self.commit_row(index, row, window, cx);
+        let Some(commit) = index.checked_sub(self.history.offset()) else {
+            return self.uncommitted_row(index, window, cx);
+        };
+        if let Some(row) = self.history.rows().get(commit) {
+            return self.commit_row(index, commit, row, window, cx);
         }
         let mut placeholder = div()
-            .id(ElementId::Name(format!("history-row-{index}").into()))
+            .id(ElementId::Name(format!("history-row-{commit}").into()))
             .test_support()
             .role(Role::ListBoxOption)
             .aria_label(text::LOADING)
@@ -1105,15 +1215,61 @@ impl HistoryPane {
         placeholder.into_any_element()
     }
 
+    /// "Uncommitted changes (n)" (UI-10), its text where the subject starts.
+    fn uncommitted_row(&self, index: usize, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let tokens = *cx.tokens();
+        let selected = self.history.selected() == Some(UNCOMMITTED_ID);
+        let focused = self.focus.is_focused(window);
+        let label = text::uncommitted(self.history.changes());
+        let before_subject: u32 = self
+            .columns
+            .order()
+            .iter()
+            .take_while(|column| **column != HistoryColumn::Subject)
+            .filter_map(|column| self.columns.width(*column))
+            .sum();
+        div()
+            .id("history-uncommitted")
+            .test_support()
+            .role(Role::ListBoxOption)
+            .aria_label(label.clone())
+            .aria_selected(selected)
+            .when(selected && focused, |row| row.aria_active_descendant())
+            .h(ROW_HEIGHT)
+            .w_full()
+            .flex()
+            .flex_row()
+            .items_center()
+            .px_2()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_size(px(13.))
+            .italic()
+            .text_color(tokens.text_primary)
+            .when(selected, |row| row.bg(tokens.selection_bg))
+            .when(!selected, |row| row.hover(|style| style.bg(tokens.bg_3)))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.click(index, window, cx);
+            }))
+            .child(
+                div()
+                    .pl(px(before_subject as f32 + 6.))
+                    .truncate()
+                    .child(label),
+            )
+            .into_any_element()
+    }
+
     fn commit_row(
         &self,
         index: usize,
+        commit: usize,
         row: &Row,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let tokens = *cx.tokens();
-        let id = format!("history-row-{index}");
+        let id = format!("history-row-{commit}");
         let row_id = self.history.row_id(row);
         let selected = self.history.selected() == Some(row_id.as_str());
         let focused = self.focus.is_focused(window);
@@ -1272,12 +1428,101 @@ impl HistoryPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        if !self.history.done() && range.end + PREFETCH_ROWS >= self.history.rows().len() {
+        if !self.history.done() && range.end + PREFETCH_ROWS >= self.history.list_len() {
             self.load_more(cx);
         }
         range
             .map(|index| self.render_row(index, window, cx))
             .collect()
+    }
+}
+
+impl HistoryPane {
+    /// The shown repo's commit-graph offer, or why answering it failed
+    /// (PERF-2).
+    fn offer(&self, tokens: &Tokens, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if let Some(repo) = self.history.offer().cloned() {
+            let (write, decline) = (repo.clone(), repo);
+            return Some(
+                div()
+                    .id("history-offer")
+                    .test_support()
+                    .role(Role::Group)
+                    .aria_label(text::COMMIT_GRAPH_OFFER)
+                    .flex()
+                    .flex_row()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_1()
+                    .bg(tokens.bg_2)
+                    .text_color(tokens.text_primary)
+                    .border_b_1()
+                    .border_color(tokens.border)
+                    .child(div().flex_1().min_w_0().child(text::COMMIT_GRAPH_WHY))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .flex_shrink_0()
+                            .gap_1()
+                            .child(
+                                Button::new("history-offer-write")
+                                    .primary()
+                                    .compact()
+                                    .label(text::WRITE_COMMIT_GRAPH)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.write_commit_graph(write.clone(), cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("history-offer-decline")
+                                    .ghost()
+                                    .compact()
+                                    .label(text::DONT_ASK_AGAIN)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.decline_commit_graph(decline.clone(), cx);
+                                    })),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let (repo, error) = self.history.offer_error()?;
+        let (repo, error) = (repo.clone(), SharedString::from(error.to_owned()));
+        Some(
+            div()
+                .id("history-offer-error")
+                .test_support()
+                .role(Role::Alert)
+                .aria_label(error.clone())
+                .flex()
+                .flex_row()
+                .flex_shrink_0()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py_1()
+                .bg(tokens.warning_bg)
+                .text_color(tokens.text_primary)
+                .border_b_1()
+                .border_color(tokens.border)
+                .child(div().flex_1().min_w_0().child(error))
+                .child(
+                    div().flex_shrink_0().child(
+                        Button::new("history-offer-error-dismiss")
+                            .ghost()
+                            .compact()
+                            .label(strings::common::DISMISS)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.history.dismiss_offer_error(&repo);
+                                cx.notify();
+                            })),
+                    ),
+                )
+                .into_any_element(),
+        )
     }
 }
 
@@ -1315,6 +1560,22 @@ impl Render for HistoryPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.remember_scroll();
         let tokens = *cx.tokens();
+        // In another selection, the box shows the text kept with it.
+        if self.show_text {
+            self.show_text = false;
+            let text = self.history.text().to_owned();
+            self.search
+                .update(cx, |search, cx| search.set_value(text, window, cx));
+        }
+        let search = self.history.source().is_some().then(|| {
+            div().flex_shrink_0().p_1().child(
+                Input::new(&self.search)
+                    .id("history-search")
+                    .aria_label(text::SEARCH_LABEL)
+                    .cleanable(true),
+            )
+        });
+        let offer = self.offer(&tokens, cx);
         let header = self
             .history
             .source()
@@ -1335,13 +1596,18 @@ impl Render for HistoryPane {
         });
         let body = if self.history.source().is_none() {
             message("history-empty", text::NO_SOURCE, tokens.text_secondary)
-        } else if self.history.rows().is_empty()
+        } else if self.history.list_len() == 0
             && self.history.done()
             && self.history.error().is_none()
         {
-            message("history-empty", text::NO_COMMITS, tokens.text_secondary)
+            let empty = if self.history.text().is_empty() {
+                text::NO_COMMITS
+            } else {
+                text::NO_MATCH
+            };
+            message("history-empty", empty, tokens.text_secondary)
         } else {
-            let count = self.history.rows().len()
+            let count = self.history.list_len()
                 + if self.history.done() {
                     0
                 } else {
@@ -1378,6 +1644,8 @@ impl Render for HistoryPane {
             .flex()
             .flex_col()
             .text_sm()
+            .children(search)
+            .children(offer)
             .children(header)
             .children(error)
             .child(body)
