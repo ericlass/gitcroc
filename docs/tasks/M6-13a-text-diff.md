@@ -71,16 +71,19 @@ Respects: UI-14, UI-15, UI-16, UI-22, UI-23, UI-25, UI-29, ARCH-6, ARCH-7, ARCH-
 
 ## Tests (QA-3)
 - `ui_17_inline_diff_shows_the_hunks_with_both_line_numbers`: the header,
-  context, removed and added lines with their numbers and colours.
+  and the context, removed and added lines with their numbers; a missing
+  final newline is named.
 - `ui_17_side_by_side_pairs_the_changed_lines_and_folds_the_rest`: both
   sides, the folded run with its count, and a click unfolds it.
-- `ui_17_diff_options_are_kept_and_read_the_diff_again`: whitespace,
-  context and mode read again with the new request; wrap does not; all four
-  are in the settings and apply to every tab.
-- `ui_17_wrap_lines_wraps_long_lines`.
+- `ui_17_diff_options_are_kept_and_read_the_diff_again`: whitespace and
+  context read again with the new request (mode in the side-by-side
+  test); wrap does not; all four are in the settings.
+- `ui_17_wrap_lines_wraps_long_lines`: without wrapping, a long line
+  scrolls sideways and only sideways; with it, the line wraps.
 - `ui_22_f7_moves_between_hunks`.
 - `ui_29_each_tab_keeps_its_diff`: diff and scroll position come back
-  after a tab switch.
+  after a tab switch, and the other tab's diff takes the mode chosen in
+  the first.
 - `perf_1_the_diff_lays_out_only_the_rows_on_screen`.
 - `sec_3_diff_content_renders_as_text`.
 - Unit tests of the rows: inline numbering, side-by-side pairing of uneven

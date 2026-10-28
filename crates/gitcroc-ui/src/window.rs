@@ -29,8 +29,8 @@ use crate::dialog::{Closed, Modal, NameDialog, Question};
 use crate::git_setup::GitSetup;
 use crate::history_pane::HistoryPane;
 use crate::keys::{
-    self, Minimize, MoveTabLeft, MoveTabRight, NextRegion, NextTab, PreviousRegion, PreviousTab,
-    Zoom,
+    self, Minimize, MoveTabLeft, MoveTabRight, NextHunk, NextRegion, NextTab, PreviousHunk,
+    PreviousRegion, PreviousTab, Zoom,
 };
 use crate::services::Services;
 use crate::strings;
@@ -695,6 +695,25 @@ impl GitcrocWindow {
         self.move_region(-1, window, cx);
     }
 
+    /// F7 and Shift+F7 go between the active tab's hunks, wherever the
+    /// focus is, while no dialog is open (UI-22).
+    fn step_hunk(&mut self, step: isize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dialog.is_some() {
+            return;
+        }
+        if let Some(changes) = self.changes(cx) {
+            changes.update(cx, |changes, cx| changes.step_hunk(step, window, cx));
+        }
+    }
+
+    fn next_hunk(&mut self, _: &NextHunk, window: &mut Window, cx: &mut Context<Self>) {
+        self.step_hunk(1, window, cx);
+    }
+
+    fn previous_hunk(&mut self, _: &PreviousHunk, window: &mut Window, cx: &mut Context<Self>) {
+        self.step_hunk(-1, window, cx);
+    }
+
     fn minimize(&mut self, _: &Minimize, window: &mut Window, _: &mut Context<Self>) {
         self.controls.minimize(window);
     }
@@ -895,6 +914,8 @@ impl Render for GitcrocWindow {
             .on_action(cx.listener(Self::previous_tab))
             .on_action(cx.listener(Self::move_tab_right))
             .on_action(cx.listener(Self::move_tab_left))
+            .on_action(cx.listener(Self::next_hunk))
+            .on_action(cx.listener(Self::previous_hunk))
             .relative()
             .flex()
             .flex_col()

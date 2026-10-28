@@ -76,10 +76,10 @@ pub use gitcroc_git::{
     ConflictDetails, ConflictError, ConflictStages, ContentKey, Context, Cursor, DiffError,
     DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback, FileDiff, FileStatus, Filter,
     GitError, GitRepo, GitRunner, GraphRow, Head, HistoryError, HistoryStart, Hunk, HunkPatch,
-    Image, Line, LocalBranch, MergedCursor, MergedRow, OpenError, Operation, PAGE_SIZE, Page,
-    Person, RefKind, Refs, RefsError, RemoteBranches, RepoRead, RepoState, RepoSummary, SearchEnv,
-    SideHolds, SideMessages, SidesRead, SidesReader, StashEntry, StatusError, StatusRead,
-    StatusReader, Step, Tag, TextDiff, Time, UnmergedFile, UnmergedKind, WorkingCopy,
+    Image, Line, LineKind, LocalBranch, MergedCursor, MergedRow, OpenError, Operation, PAGE_SIZE,
+    Page, Person, RefKind, Refs, RefsError, RemoteBranches, RepoRead, RepoState, RepoSummary,
+    SearchEnv, SideHolds, SideMessages, SidesRead, SidesReader, StashEntry, StatusError,
+    StatusRead, StatusReader, Step, Tag, TextDiff, Time, UnmergedFile, UnmergedKind, WorkingCopy,
     merged_history,
 };
 pub use group::{

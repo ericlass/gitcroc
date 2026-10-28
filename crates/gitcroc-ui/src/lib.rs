@@ -6,6 +6,8 @@ pub mod changes;
 pub mod changes_pane;
 pub mod dialog;
 pub mod dialogs;
+pub mod diff;
+pub mod diff_view;
 pub mod git_setup;
 pub mod history;
 pub mod history_columns;
