@@ -263,6 +263,127 @@ pub mod history {
     }
 }
 
+/// The changes pane (UI-14 to UI-16, UI-34).
+pub mod changes {
+    use super::plural;
+
+    pub const NO_SELECTION: &str =
+        "Select a commit or the uncommitted changes to see what changed.";
+    pub fn cannot_read(error: &str) -> String {
+        format!("Cannot read the changes: {error}")
+    }
+    pub const UNCOMMITTED: &str = "Uncommitted changes";
+    /// The commit header (UI-14).
+    pub const COMMIT: &str = "Commit";
+    pub const AUTHOR: &str = "Author";
+    pub const COMMITTER: &str = "Committer";
+    /// A person as the header shows them: "Ana <ana@example.com>".
+    pub fn person(name: &str, email: &str) -> String {
+        format!("{name} <{email}>")
+    }
+    /// A header line as a screen reader reads it: "Author: Ana …".
+    pub fn field(name: &str, value: &str) -> String {
+        format!("{name}: {value}")
+    }
+    pub const MESSAGE: &str = "Message";
+    pub fn parents(count: usize) -> &'static str {
+        if count == 1 { "Parent" } else { "Parents" }
+    }
+    pub const NO_PARENTS: &str = "none (the first commit)";
+    pub fn select(hash: &str) -> String {
+        format!("Select {hash}")
+    }
+    /// The parent selector of a merge commit (UI-16).
+    pub const COMPARE_WITH: &str = "Compare with";
+    pub const COMPARE_WITH_PARENT: &str = "Compare with parent";
+    pub const FIRST_PARENT: &str = "First parent";
+    pub fn parent(number: usize) -> String {
+        format!("Parent {number}")
+    }
+    /// A parent choice with its short hash: "First parent (1a2b3c4d5e)".
+    pub fn parent_choice(parent: &str, hash: &str) -> String {
+        format!("{parent} ({hash})")
+    }
+    /// The files header and its toggle (UI-14).
+    pub fn files(count: usize) -> String {
+        plural(u32::try_from(count).unwrap_or(u32::MAX), "file", "files")
+    }
+    pub const FILE_LIST: &str = "File list";
+    pub const FLAT: &str = "Flat";
+    pub const TREE: &str = "Tree";
+    pub const CHANGED_FILES: &str = "Changed files";
+    /// The lists of uncommitted changes (UI-15, OPS-3).
+    pub const UNMERGED: &str = "Unmerged";
+    pub const STAGED: &str = "Staged";
+    pub const UNSTAGED: &str = "Unstaged";
+    /// A section or a repo's part of it, with its file count: "Staged (2)".
+    pub fn counted(name: &str, count: usize) -> String {
+        format!("{name} ({count})")
+    }
+    /// Why a repo's files cannot be changed in a merged view (GRP-8).
+    pub const BLOCKED: &str = "blocked";
+    /// A file's status, by kind; the list shows git's letter for it.
+    pub const ADDED: &str = "Added";
+    pub const MODIFIED: &str = "Modified";
+    pub const DELETED: &str = "Deleted";
+    pub const RENAMED: &str = "Renamed";
+    pub const TYPE_CHANGED: &str = "Type changed";
+    pub const UNTRACKED: &str = "Untracked";
+    pub const CONFLICT: &str = "Conflict";
+    /// The letters the list shows for each status, as git writes them.
+    pub const ADDED_LETTER: &str = "A";
+    pub const MODIFIED_LETTER: &str = "M";
+    pub const DELETED_LETTER: &str = "D";
+    pub const RENAMED_LETTER: &str = "R";
+    pub const TYPE_CHANGED_LETTER: &str = "T";
+    pub const UNTRACKED_LETTER: &str = "U";
+    pub const CONFLICT_LETTER: &str = "!";
+    /// How each side changed an unmerged file.
+    pub const BOTH_DELETED: &str = "both deleted";
+    pub const ADDED_BY_US: &str = "added by us";
+    pub const DELETED_BY_THEM: &str = "deleted by them";
+    pub const ADDED_BY_THEM: &str = "added by them";
+    pub const DELETED_BY_US: &str = "deleted by us";
+    pub const BOTH_ADDED: &str = "both added";
+    pub const BOTH_MODIFIED: &str = "both modified";
+    pub fn renamed_from(path: &str) -> String {
+        format!("Renamed from {path}")
+    }
+    /// The old path after a renamed file's name: "← old.txt".
+    pub fn old_path(path: &str) -> String {
+        format!("← {path}")
+    }
+    pub fn conflict_kind(kind: &str) -> String {
+        format!("Conflict: {kind}")
+    }
+    /// The conflict kind after an unmerged file's name: "(both modified)".
+    pub fn conflict_mark(kind: &str) -> String {
+        format!("({kind})")
+    }
+    /// A file's line counts as it shows them: "+3 −1".
+    pub fn counts_mark(added: u32, removed: u32) -> String {
+        format!("+{added} −{removed}")
+    }
+    /// A file's line counts as a screen reader reads them.
+    pub fn counts(added: u32, removed: u32) -> String {
+        format!(
+            "{} added, {} removed",
+            plural(added, "line", "lines"),
+            removed
+        )
+    }
+    /// The diff area (M6-13 fills it).
+    pub const DIFF: &str = "Diff";
+    pub const NO_FILE: &str = "No file changed.";
+    /// A renamed file in the diff's header: "old.txt → new.txt".
+    pub fn renamed(old: &str, new: &str) -> String {
+        format!("{old} → {new}")
+    }
+    pub fn mode(old: &str, new: &str) -> String {
+        format!("mode {old} → {new}")
+    }
+}
+
 /// The workspace files, their menu and their dialogs (UI-28).
 pub mod workspaces {
     pub const LABEL: &str = "Workspaces";

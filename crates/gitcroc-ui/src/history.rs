@@ -671,7 +671,7 @@ fn format_date(time: Time) -> String {
 }
 
 /// `YYYY-MM-DD HH:MM:SS +HHMM` in the commit's recorded time zone.
-fn format_full_date(time: Time) -> String {
+pub(crate) fn format_full_date(time: Time) -> String {
     let local = time.seconds + i64::from(time.offset);
     let days = local.div_euclid(DAY);
     let of_day = local.rem_euclid(DAY);

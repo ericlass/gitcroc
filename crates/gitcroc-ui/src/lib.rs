@@ -2,6 +2,8 @@
 //! `gitcroc-app`, with no source of truth and no business logic of their
 //! own (ARCH-6). `gitcroc-next` runs it until M6-30.
 
+pub mod changes;
+pub mod changes_pane;
 pub mod dialog;
 pub mod dialogs;
 pub mod git_setup;
@@ -36,8 +38,8 @@ use crate::title_bar::{Platform, SystemControls};
 use crate::window::GitcrocWindow;
 
 /// Sets GPUI up for the app: the component library and its theme, the
-/// keymap and the keys of menus, dialogs, tabs and the tree, and the app's actions
-/// and menus.
+/// keymap and the keys of menus, dialogs, tabs, the tree, the history and
+/// the changes, and the app's actions and menus.
 pub fn init(cx: &mut App) {
     gpui_kit::init(cx);
     theme::AppTheme::init(cx);
@@ -47,6 +49,7 @@ pub fn init(cx: &mut App) {
     tab_bar::bind(cx);
     tree_pane::bind(cx);
     history_pane::bind(cx);
+    changes_pane::bind(cx);
     menus::init(cx);
 }
 

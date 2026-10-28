@@ -296,6 +296,25 @@ impl HistoryPane {
         self.history.selection()
     }
 
+    /// Selects commit `hash` of `repo`, as a parent link in the changes
+    /// pane asks (UI-14), and scrolls to it when its row is loaded. The
+    /// shown history must have that repo's commits.
+    pub fn select_commit(&mut self, repo: &RepoId, hash: &str, cx: &mut Context<Self>) {
+        let Some(source) = self.history.source() else {
+            return;
+        };
+        let row_id = match &source.repo {
+            Some(shown) if shown == repo => hash.to_owned(),
+            Some(_) => return,
+            None => format!("{}:{hash}", repo.0),
+        };
+        self.history.select(Some(row_id));
+        if let Some(index) = self.history.selected_index() {
+            self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+        }
+        cx.notify();
+    }
+
     /// Saves the columns with the workspace's pane layout (UI-36). The
     /// window's pane sizes and dock are kept as they are. A drag asks many
     /// times; only one save runs, and one more follows it with the latest

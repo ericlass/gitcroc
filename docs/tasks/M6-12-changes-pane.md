@@ -38,8 +38,8 @@ scope).
     the parents and the full message;
   - a parent is a link that selects that commit in the history when its
     row is loaded;
-  - all of it is repo text, rendered as text (SEC-3), and the hash and
-    message can be selected and copied.
+  - all of it is repo text, rendered as text (SEC-3). Copying the hash is
+    the commit menu's (UI-13, M6-17).
 - **The parent selector** (UI-16): a merge commit has "Compare with" with
   one entry per parent, the first parent by default; choosing one reads
   the file list against it.
@@ -63,8 +63,8 @@ scope).
 - **The selected file** (ARCH-8, PLAT-2):
   - files are named by handle, list and id, never by path;
   - a new view selects its first file; a click selects a file, and Up,
-    Down, Home and End move the selection between files; Left and Right
-    collapse and expand the folder of a tree;
+    Down, Home and End move the selection between files; a click on a
+    folder collapses or expands it, as in rc.1;
   - the diff area names the selected file, with its old path and mode
     change. The diff itself is M6-13.
 - **Refresh** (OPS-7): a `RepoSummary` read anew for a repo whose working

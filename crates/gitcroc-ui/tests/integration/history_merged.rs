@@ -23,7 +23,7 @@ use crate::support::{Fixture, main_window};
 /// A strip line's height; the strip shows up to eight.
 const LINE_HEIGHT: f32 = 24.;
 
-fn group(fixture: &Fixture, name: &str, members: Vec<RepoId>) -> GroupId {
+pub(crate) fn group(fixture: &Fixture, name: &str, members: Vec<RepoId>) -> GroupId {
     let (app, workspace) = (fixture.app().clone(), fixture.active());
     fixture
         .runtime
@@ -31,7 +31,7 @@ fn group(fixture: &Fixture, name: &str, members: Vec<RepoId>) -> GroupId {
         .unwrap()
 }
 
-fn group_node(group: &GroupId) -> String {
+pub(crate) fn group_node(group: &GroupId) -> String {
     format!("group:{}", group.0)
 }
 
@@ -63,7 +63,7 @@ fn strip_part(index: usize, part: &str) -> ElementId {
     name(format!("history-strip-{index}-{part}"))
 }
 
-fn present(cx: &mut VisualTestContext, id: ElementId) -> bool {
+pub(crate) fn present(cx: &mut VisualTestContext, id: ElementId) -> bool {
     cx.update(|window, cx| {
         window.render_frame(cx);
         window.try_find(id).is_some()
