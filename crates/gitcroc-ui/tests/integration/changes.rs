@@ -6,7 +6,9 @@
 //! `repo-gen` and added through the app (QA-2).
 
 use gitcroc_app::app::EVENT_CAPACITY;
-use gitcroc_core::{ChangesContent, FileListMode, RepoId};
+use std::time::Duration;
+
+use gitcroc_core::{ChangesContent, FileListMode, RepoId, WorkspaceId};
 use gitcroc_ui::changes::{Changes, FileRow};
 use gitcroc_ui::history::Selection;
 use gitcroc_ui::window::GitcrocWindow;
@@ -21,7 +23,7 @@ use crate::history::{
 };
 use crate::history_merged::{group, group_node, present};
 use crate::history_search::selection;
-use crate::support::{Fixture, main_window};
+use crate::support::{Fixture, main_window, settle};
 
 fn name(id: String) -> ElementId {
     ElementId::Name(id.into())
@@ -119,6 +121,7 @@ fn pressed(cx: &mut VisualTestContext, id: ElementId) -> Option<bool> {
 }
 
 /// Selects repo `name`'s row in the tree and waits for its history.
+#[track_caller]
 fn show_repo(
     cx: &mut VisualTestContext,
     window: &Entity<GitcrocWindow>,
@@ -128,13 +131,39 @@ fn show_repo(
     let node = repo_node(added, name);
     wait_for_element(cx, tree_row(&node));
     click(cx, tree_row(&node));
-    wait_until(cx, |cx| {
-        with_history(cx, window, |history| {
+    for _ in 0..1000 {
+        settle(cx, |_, _| true);
+        let shown = with_history(cx, window, |history| {
             history.source().is_some_and(|source| source.key == node)
                 && !history.loading()
                 && !history.rows().is_empty()
-        })
+        });
+        if shown {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // Where it stopped, to tell a lost selection from a failed read.
+    let tree = cx.update(|_, cx| {
+        let tree = window.read(cx).tree(cx).expect("no tree pane");
+        tree.read(cx).tree().selected().map(str::to_owned)
     });
+    let history = with_history(cx, window, |history| {
+        format!(
+            "source {:?}, loading {}, {} rows, error {:?}",
+            history.source().map(|source| source.key.clone()),
+            history.loading(),
+            history.rows().len(),
+            history.error()
+        )
+    });
+    panic!("{node} never showed its history: tree selects {tree:?}; {history}");
+}
+
+/// Switches to tab `id` and waits until the core has it active.
+fn switch_to(cx: &mut VisualTestContext, fixture: &Fixture, id: &WorkspaceId) {
+    click(cx, tab(id));
+    wait_until(cx, |_| fixture.active() == *id);
 }
 
 #[gpui::test]
@@ -324,7 +353,7 @@ fn ui_14_file_list_flat_and_tree(cx: &mut TestAppContext) {
     assert_eq!(shown_file(&mut cx).as_deref(), Some("src/util/deep/x.rs"));
 
     // The other tab lists as a tree too.
-    click(&mut cx, tab(&java));
+    switch_to(&mut cx, &fixture, &java);
     show_repo(&mut cx, &window, &other_added, "core");
     click(&mut cx, history_row(0));
     wait_for_view(&mut cx, &window);
