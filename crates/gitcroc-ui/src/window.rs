@@ -267,7 +267,7 @@ impl GitcrocWindow {
             }
             Ok(AppEvent::WorkspacesChanged(tabs)) => {
                 self.workspaces
-                    .update(cx, |workspaces, cx| workspaces.set_tabs(tabs, cx));
+                    .update(cx, |workspaces, cx| workspaces.hear_tabs(tabs, cx));
             }
             Ok(AppEvent::WorkspaceChanged(view)) => {
                 self.workspaces
@@ -285,13 +285,15 @@ impl GitcrocWindow {
 
     /// Reads the state the window shows from the app again (ARCH-6).
     fn read_again(&mut self, cx: &mut Context<Self>) {
+        let asked = self.workspaces.read(cx).heard();
         let call = self
             .services
             .with_app(|app| async move { app.workspace_get() });
         let workspaces = self.workspaces.downgrade();
         cx.spawn(async move |_, cx| {
             if let Some(tabs) = call.await {
-                let _ = workspaces.update(cx, |workspaces, cx| workspaces.set_tabs(tabs, cx));
+                let _ =
+                    workspaces.update(cx, |workspaces, cx| workspaces.answer_tabs(asked, tabs, cx));
             }
         })
         .detach();

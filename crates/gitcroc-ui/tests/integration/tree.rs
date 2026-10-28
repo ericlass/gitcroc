@@ -182,7 +182,9 @@ fn label_of(cx: &mut VisualTestContext, id: ElementId) -> Option<String> {
     })
 }
 
-/// Runs the window and the app until `done` holds.
+/// Runs the window and the app until `done` holds. A failure names the
+/// caller's line.
+#[track_caller]
 fn wait(cx: &mut VisualTestContext, mut done: impl FnMut(&mut VisualTestContext) -> bool) {
     for _ in 0..1000 {
         settle(cx, |_, _| true);
@@ -194,6 +196,7 @@ fn wait(cx: &mut VisualTestContext, mut done: impl FnMut(&mut VisualTestContext)
     panic!("the tree never got there: {:#?}", shown(cx));
 }
 
+#[track_caller]
 fn wait_for_labels(cx: &mut VisualTestContext, expected: &[&str]) {
     wait(cx, |cx| labels(cx) == expected);
 }
@@ -649,7 +652,7 @@ fn ui_29_each_tab_keeps_its_tree(cx: &mut TestAppContext) {
         .runtime
         .block_on(app.workspace_activate(mine.clone()))
         .unwrap();
-    let (mut cx, _) = main_window(cx, &fixture);
+    let (mut cx, window) = main_window(cx, &fixture);
     wait(&mut cx, |cx| {
         labels(cx).first().map(String::as_str) == Some("Ungrouped")
     });
@@ -659,8 +662,18 @@ fn ui_29_each_tab_keeps_its_tree(cx: &mut TestAppContext) {
     click(&mut cx, row(&r01));
     click(&mut cx, part(&r01, "chevron"));
     scroll_down(&mut cx, 3.);
-    let before = shown(&mut cx);
-    assert_ne!(before[0].label, "Ungrouped", "the tree scrolled");
+    let top = shown(&mut cx)[0].node.clone();
+    assert_eq!(top, format!("{r01}:local"), "the tree scrolled by 3 rows");
+    // What the tree holds, whether or not its rows are on screen.
+    let kept = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            let tree = window.read(cx).tree(cx).unwrap();
+            let tree = tree.read(cx);
+            let opened = tree.rows().iter().any(|row| row.id == top);
+            (tree.tree().selected().map(str::to_owned), opened)
+        })
+    };
+    assert_eq!(kept(&mut cx), (Some(r01.clone()), true));
     let tab = |id: &gitcroc_core::WorkspaceId| ElementId::Name(format!("tab-{}", id.0).into());
 
     // The other tab shows its own tree.
@@ -671,7 +684,10 @@ fn ui_29_each_tab_keeps_its_tree(cx: &mut TestAppContext) {
 
     // Back, everything is as it was left.
     click(&mut cx, tab(&mine));
-    wait(&mut cx, |cx| shown(cx) == before);
+    wait(&mut cx, |cx| {
+        shown(cx).first().map(|row| row.node.as_str()) == Some(top.as_str())
+    });
+    assert_eq!(kept(&mut cx), (Some(r01.clone()), true));
 
     // The filter text too, with its answer.
     filter(&mut cx, "r07");

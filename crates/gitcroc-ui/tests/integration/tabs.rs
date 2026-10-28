@@ -6,8 +6,9 @@
 use std::rc::Rc;
 
 use gitcroc_core::{SETTINGS_SCHEMA, WorkspaceId};
+use gitcroc_ui::workspaces::Workspaces;
 use gpui_kit::test::{TestQueryExt, TestWindowExt};
-use gpui_kit::{ElementId, Role, TestAppContext, VisualTestContext, point, px};
+use gpui_kit::{AppContext, ElementId, Role, TestAppContext, VisualTestContext, point, px};
 
 use crate::support::{
     Asked, FakeControls, FakeGit, Fixture, Options, main_window, opened_main_window_with,
@@ -663,4 +664,38 @@ fn sec_3_workspace_names_render_as_text(cx: &mut TestAppContext) {
         label(&mut cx, "dialog-title"),
         Some(format!("Rename {name}"))
     );
+}
+
+/// UI-27: a call's answer can arrive after the event of a newer change.
+/// The event the core sent last wins, so a late answer never puts back a
+/// tab the user has left.
+#[gpui::test]
+fn ui_27_a_late_answer_never_undoes_a_newer_tab_change(cx: &mut TestAppContext) {
+    let fixture = Fixture::start(gitcroc_app::app::EVENT_CAPACITY);
+    let (to_java, to_mine) = fixture.runtime.block_on(async {
+        let app = fixture.app();
+        let to_java = app.workspace_create("Java".to_owned()).await.unwrap();
+        let mine = id_of(&to_java, "My workspace");
+        let to_mine = app.workspace_activate(mine).await.unwrap();
+        (to_java, to_mine)
+    });
+    let services = fixture.services.clone();
+    let workspaces = cx.new(|_| Workspaces::new(services));
+
+    cx.update(|cx| {
+        workspaces.update(cx, |workspaces, cx| {
+            // A switch to Java starts, and its event shows it.
+            let asked = workspaces.heard();
+            workspaces.hear_tabs(to_java.clone(), cx);
+            // A switch back starts; its event arrives before Java's answer.
+            workspaces.hear_tabs(to_mine.clone(), cx);
+            workspaces.answer_tabs(asked, to_java.clone(), cx);
+            assert_eq!(workspaces.tabs(), &to_mine);
+
+            // An answer with no event since is the newest: it shows at once.
+            let asked = workspaces.heard();
+            workspaces.answer_tabs(asked, to_java.clone(), cx);
+            assert_eq!(workspaces.tabs(), &to_java);
+        });
+    });
 }
