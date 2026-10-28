@@ -9,6 +9,7 @@ use gitcroc_ui::window::GitcrocWindow;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     ElementId, Entity, Modifiers, Role, ScrollDelta, TestAppContext, VisualTestContext, point, px,
+    size,
 };
 
 use crate::support::{Fixture, main_window, settle};
@@ -629,7 +630,10 @@ fn ui_8_the_filter_shows_the_core_answer_expanded_and_clears(cx: &mut TestAppCon
 fn ui_29_each_tab_keeps_its_tree(cx: &mut TestAppContext) {
     let fixture = Fixture::start(EVENT_CAPACITY);
     let mine = fixture.active();
-    let made = many(40);
+    // Each switch to this tab reads all its repos again and watches them
+    // (UI-30), which a click waits for; with 40 repos that took over ten
+    // seconds on a slow macOS runner. A short window lets 16 scroll.
+    let made = many(16);
     let added = add(&fixture, &made);
     let app = fixture.app().clone();
     let java = fixture.runtime.block_on(async {
@@ -643,6 +647,7 @@ fn ui_29_each_tab_keeps_its_tree(cx: &mut TestAppContext) {
         .block_on(app.workspace_activate(mine.clone()))
         .unwrap();
     let (mut cx, window) = main_window(cx, &fixture);
+    cx.simulate_resize(size(px(1200.), px(480.)));
     wait(&mut cx, |cx| {
         labels(cx).first().map(String::as_str) == Some("Ungrouped")
     });
