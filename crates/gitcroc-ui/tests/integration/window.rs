@@ -171,7 +171,7 @@ fn ui_22_f6_moves_the_focus_between_regions(cx: &mut TestAppContext) {
     let regions = [
         "title-region",
         "toolbar",
-        "tree",
+        "tree-list",
         "history",
         "changes",
         "status-bar",
@@ -187,7 +187,7 @@ fn ui_22_f6_moves_the_focus_between_regions(cx: &mut TestAppContext) {
     };
 
     // The tree has the focus when the window opens.
-    assert_eq!(focused(&mut cx), ["tree"]);
+    assert_eq!(focused(&mut cx), ["tree-list"]);
     for region in regions.iter().cycle().skip(3).take(6) {
         cx.update(|window, cx| window.press("f6", cx));
         assert_eq!(focused(&mut cx), [*region]);

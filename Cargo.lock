@@ -2414,6 +2414,7 @@ dependencies = [
  "gpui-component",
  "gpui-kit",
  "proc-macro2",
+ "repo-gen",
  "serde_json",
  "syn 2.0.119",
  "syntect",

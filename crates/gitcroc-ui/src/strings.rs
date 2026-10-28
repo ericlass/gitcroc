@@ -107,6 +107,74 @@ pub mod tabs {
     pub const CLOSE_TAB: &str = "Close";
 }
 
+/// `count` with `one` or `many` after it.
+fn plural(count: u32, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
+/// The tree pane (UI-1 to UI-8).
+pub mod tree {
+    use super::plural;
+
+    pub const LABEL: &str = "Repositories";
+    pub const FILTER: &str = "Filter repos and branches";
+    pub const EMPTY: &str = "This workspace has no repositories yet.";
+    pub fn cannot_read(error: &str) -> String {
+        format!("Cannot read the tree: {error}")
+    }
+    pub const LOADING: &str = "Loading…";
+    pub fn in_members(present: u32, members: u32) -> String {
+        format!("in {present} of {members} members")
+    }
+    pub const CURRENT_BRANCH: &str = "Current branch";
+    pub const UPSTREAM_GONE: &str = "The upstream is gone";
+    pub const GONE: &str = "gone";
+    pub fn ahead(count: u32) -> String {
+        format!("{count} ahead")
+    }
+    pub fn behind(count: u32) -> String {
+        format!("{count} behind")
+    }
+    /// Ahead and behind as the row shows them: `↑1`, `↓2`.
+    pub fn ahead_mark(count: u32) -> String {
+        format!("↑{count}")
+    }
+    pub fn behind_mark(count: u32) -> String {
+        format!("↓{count}")
+    }
+    /// A group's branch name in `present` of its `members`: `(3/5)`.
+    pub fn present_mark(present: u32, members: u32) -> String {
+        format!("({present}/{members})")
+    }
+    pub const UNCOMMITTED: &str = "Uncommitted changes";
+    pub const CONFLICT: &str = "Conflict state";
+    pub const FOLDER_MISSING: &str = "Folder is missing";
+    pub fn cannot_read_repo(error: &str) -> String {
+        format!("Cannot read: {error}")
+    }
+    pub const REFRESHING: &str = "Refreshing";
+    /// A repo row whose summary comes from the cache (PERF-3).
+    pub const STALE: &str = "Last known state, not read again yet";
+    pub fn members(count: u32) -> String {
+        plural(count, "member", "members")
+    }
+    pub const DETACHED: &str = "detached";
+    pub fn mixed(count: u32) -> String {
+        format!("mixed ({count})")
+    }
+    pub const MIXED_TITLE: &str = "The members are on different branches";
+    pub fn members_with_changes(count: u32) -> String {
+        plural(count, "member with changes", "members with changes")
+    }
+    pub fn members_in_conflict(count: u32) -> String {
+        plural(
+            count,
+            "member in conflict state",
+            "members in conflict state",
+        )
+    }
+}
+
 /// The workspace files, their menu and their dialogs (UI-28).
 pub mod workspaces {
     pub const LABEL: &str = "Workspaces";

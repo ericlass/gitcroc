@@ -1,6 +1,7 @@
 //! The main window: the title bar with the workspace tabs, the toolbar, the
-//! three panes (tree, history, changes) and the status bar, each pane an
-//! empty view for its task to fill. Its state comes from the app (ARCH-6):
+//! three panes (tree, history, changes) and the status bar. The tree is one
+//! view per open workspace, so each tab keeps its own (UI-29); the other
+//! panes are empty views for their tasks to fill. Its state comes from the app (ARCH-6):
 //! one task per window receives the app's events and updates it on the
 //! main thread, and reads the state again when it fell behind. Until git
 //! detection finds a usable git, the window shows that it is looking, then
@@ -34,6 +35,7 @@ use crate::strings;
 use crate::tab_bar::{TabBar, TabBarEvent};
 use crate::theme::{ActiveTokens, AppTheme};
 use crate::title_bar::{Platform, TitleBar, WindowControls};
+use crate::tree_pane::TreePane;
 use crate::workspace_menu::{Choice, WorkspaceStart};
 use crate::workspaces::Workspaces;
 
@@ -44,7 +46,7 @@ const HISTORY_WIDTH: Pixels = px(560.);
 const TOOLBAR_HEIGHT: Pixels = px(40.);
 const STATUS_BAR_HEIGHT: Pixels = px(24.);
 
-/// One of the three panes: empty until its task fills it.
+/// The history or the changes pane: empty until its task fills it.
 pub struct Pane {
     id: &'static str,
     label: &'static str,
@@ -122,7 +124,8 @@ struct OpenDialog {
 pub struct GitcrocWindow {
     services: Services,
     title_bar: Entity<TitleBar>,
-    tree: Entity<Pane>,
+    /// Each open workspace's tree, made when its tab is first shown.
+    trees: HashMap<WorkspaceId, Entity<TreePane>>,
     history: Entity<Pane>,
     changes: Entity<Pane>,
     title_focus: FocusHandle,
@@ -207,7 +210,7 @@ impl GitcrocWindow {
         let mut this = Self {
             services,
             title_bar,
-            tree: cx.new(|cx| Pane::new("tree", strings::regions::TREE, cx)),
+            trees: HashMap::new(),
             history: cx.new(|cx| Pane::new("history", strings::regions::HISTORY, cx)),
             changes: cx.new(|cx| Pane::new("changes", strings::regions::CHANGES, cx)),
             title_focus: cx.focus_handle(),
@@ -250,6 +253,13 @@ impl GitcrocWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        for tree in self.trees.values() {
+            tree.update(cx, |tree, cx| match &event {
+                Ok(event) => tree.on_event(event, cx),
+                Err(RecvError::Lagged(_)) => tree.read_again(cx),
+                Err(RecvError::Closed) => {}
+            });
+        }
         match event {
             Ok(AppEvent::GitStatus(status)) => {
                 self.git.heard = true;
@@ -361,6 +371,17 @@ impl GitcrocWindow {
             title_bar.set_title(title, cx);
             title_bar.set_tab_bar(tab_bar, cx);
         });
+        // A closed tab's tree goes; the active tab's is made when first
+        // shown.
+        self.trees
+            .retain(|id, _| tabs.open.iter().any(|view| &view.id == id));
+        if let Some(active) = tabs.active.clone().filter(|_| usable)
+            && !self.trees.contains_key(&active)
+        {
+            let services = self.services.clone();
+            let tree = cx.new(|cx| TreePane::new(services, active.clone(), window, cx));
+            self.trees.insert(active, tree);
+        }
         // With every tab closed, the workspaces to open (UI-27).
         if tabs.active.is_none() && usable {
             if self.start.is_none() {
@@ -379,11 +400,20 @@ impl GitcrocWindow {
         cx.notify();
     }
 
+    /// The active tab's tree.
+    pub fn tree(&self, cx: &gpui_kit::App) -> Option<Entity<TreePane>> {
+        let active = self.workspaces.read(cx).tabs().active.as_ref()?;
+        self.trees.get(active).cloned()
+    }
+
     /// Gives the focus to the first region under the title bar.
     fn focus_main(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match &self.start {
-            Some(start) => window.focus(&start.focus_handle(cx), cx),
-            None => window.focus(&self.tree.focus_handle(cx), cx),
+        let first = match (&self.start, self.tree(cx)) {
+            (Some(start), _) => Some(start.focus_handle(cx)),
+            (None, tree) => tree.map(|tree| tree.focus_handle(cx)),
+        };
+        if let Some(first) = first {
+            window.focus(&first, cx);
         }
     }
 
@@ -597,14 +627,16 @@ impl GitcrocWindow {
         if let Some(start) = self.start.as_ref().filter(|_| self.git.usable()) {
             vec![self.title_focus.clone(), start.focus_handle(cx)]
         } else if self.git.usable() {
-            vec![
-                self.title_focus.clone(),
-                self.toolbar_focus.clone(),
-                self.tree.focus_handle(cx),
-                self.history.focus_handle(cx),
-                self.changes.focus_handle(cx),
-                self.status_focus.clone(),
-            ]
+            let tree = self.tree(cx).map(|tree| tree.focus_handle(cx));
+            [self.title_focus.clone(), self.toolbar_focus.clone()]
+                .into_iter()
+                .chain(tree)
+                .chain([
+                    self.history.focus_handle(cx),
+                    self.changes.focus_handle(cx),
+                    self.status_focus.clone(),
+                ])
+                .collect()
         } else {
             let setup = self.git_setup.as_ref().map(|setup| setup.focus_handle(cx));
             std::iter::once(self.title_focus.clone())
@@ -651,6 +683,7 @@ impl GitcrocWindow {
 impl GitcrocWindow {
     /// The toolbar, the panes and the status bar.
     fn main_regions(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let tree = self.tree(cx);
         let layout = self.layout(cx);
         let (state, tree_width, history_width) =
             (layout.state.clone(), layout.tree, layout.history);
@@ -674,7 +707,7 @@ impl GitcrocWindow {
                 .child(
                     h_resizable("panes")
                         .with_state(&state)
-                        .child(resizable_panel().size(tree_width).child(self.tree.clone()))
+                        .child(resizable_panel().size(tree_width).children(tree))
                         .child(
                             resizable_panel()
                                 .size(history_width)

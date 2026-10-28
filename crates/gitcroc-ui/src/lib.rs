@@ -14,6 +14,8 @@ pub mod strings;
 pub mod tab_bar;
 pub mod theme;
 pub mod title_bar;
+pub mod tree;
+pub mod tree_pane;
 pub mod window;
 pub mod workspace_menu;
 pub mod workspaces;
@@ -31,7 +33,7 @@ use crate::title_bar::{Platform, SystemControls};
 use crate::window::GitcrocWindow;
 
 /// Sets GPUI up for the app: the component library and its theme, the
-/// keymap and the keys of menus, dialogs and tabs, and the app's actions
+/// keymap and the keys of menus, dialogs, tabs and the tree, and the app's actions
 /// and menus.
 pub fn init(cx: &mut App) {
     gpui_kit::init(cx);
@@ -40,6 +42,7 @@ pub fn init(cx: &mut App) {
     menu::bind(cx);
     dialog::bind(cx);
     tab_bar::bind(cx);
+    tree_pane::bind(cx);
     menus::init(cx);
 }
 
