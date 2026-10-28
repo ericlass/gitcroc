@@ -17,6 +17,7 @@ pub mod icons;
 pub mod keys;
 pub mod menu;
 pub mod menus;
+pub mod panes;
 pub mod services;
 pub mod special_diff;
 pub mod strings;
@@ -54,6 +55,7 @@ pub fn init(cx: &mut App) {
     tree_pane::bind(cx);
     history_pane::bind(cx);
     changes_pane::bind(cx);
+    panes::bind(cx);
     menus::init(cx);
 }
 

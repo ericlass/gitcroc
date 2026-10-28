@@ -14,7 +14,7 @@ use gitcroc_ui::history::Selection;
 use gitcroc_ui::window::GitcrocWindow;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
-    ElementId, Entity, Role, ScrollDelta, TestAppContext, VisualTestContext, point, px,
+    ElementId, Entity, Role, ScrollDelta, TestAppContext, VisualTestContext, point, px, size,
 };
 
 use crate::history::{
@@ -39,6 +39,14 @@ pub(crate) fn row(index: usize) -> ElementId {
 
 fn row_part(index: usize, part: &str) -> ElementId {
     name(format!("changes-row-{index}-{part}"))
+}
+
+/// Widens the window from 1200 to 1400 pixels. At 1200 the changes pane
+/// is 352 wide, its header wraps to four lines, and only a few file rows
+/// are on screen.
+fn widen(cx: &mut VisualTestContext) {
+    cx.simulate_resize(size(px(1400.), px(800.)));
+    cx.run_until_parked();
 }
 
 /// Runs `f` on the active tab's changes pane.
@@ -183,6 +191,7 @@ fn ui_14_commit_header_and_file_list(cx: &mut TestAppContext) {
     let change = api.commit_all("Change files\n\nWith a body.").unwrap();
     let added = add(&fixture, &made);
     let (mut cx, window) = main_window(cx, &fixture);
+    widen(&mut cx);
     assert_eq!(
         label_of(&mut cx, "changes-empty".into()).as_deref(),
         Some("Select a commit or the uncommitted changes to see what changed.")
@@ -310,6 +319,7 @@ fn ui_14_file_list_flat_and_tree(cx: &mut TestAppContext) {
         .unwrap();
 
     let (mut cx, window) = main_window(cx, &fixture);
+    widen(&mut cx);
     show_repo(&mut cx, &window, &added, "api");
     click(&mut cx, history_row(0));
     wait_for_view(&mut cx, &window);

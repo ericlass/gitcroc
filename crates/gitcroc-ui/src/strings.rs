@@ -22,6 +22,10 @@ pub mod regions {
     pub const HISTORY: &str = "History";
     pub const CHANGES: &str = "Changes";
     pub const STATUS_BAR: &str = "Status";
+    /// A splitter between panes, by the pane it resizes (UI-19).
+    pub fn resize(pane: &str) -> String {
+        format!("Resize {pane}")
+    }
 }
 
 /// The macOS menus.
@@ -395,6 +399,9 @@ pub mod changes {
     pub const CONTEXT_THREE: &str = "3 lines";
     pub const CONTEXT_TEN: &str = "10 lines";
     pub const WHOLE_FILE: &str = "Whole file";
+    /// The dock button at the end of the pane header (UI-19).
+    pub const DOCK_BOTTOM: &str = "Dock at bottom";
+    pub const DOCK_RIGHT: &str = "Dock right";
     /// The diff's lines, as a screen reader names them.
     pub fn diff_of(path: &str) -> String {
         format!("Diff of {path}")
