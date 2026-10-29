@@ -201,7 +201,7 @@ The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
 rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
 not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-14b and M6-27 have theirs;
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-15b and M6-27 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
@@ -227,12 +227,13 @@ several pull requests (DEV-4).
 | [M6-13c](M6-13c-docking.md) | Docking the changes pane right or at the bottom | M6-13a |
 | [M6-14a](M6-14a-background-tabs.md) | Background tabs let go of their history and diffs (UI-31) | M6-13b, M6-13c |
 | [M6-14b](M6-14b-bench-ui.md) | `just bench-ui` on GPUI; single-repo budgets | M6-14a |
-| M6-15 | Status bar, job list, notifications, askpass dialog | M6-06 |
-| M6-16 | Stage, unstage and discard; commit and amend; fsmonitor offer | M6-13a, M6-15 |
-| M6-17 | Tree and history context menus; branch dialogs | M6-11d, M6-15 |
-| M6-18 † | Sync, integrate, stash, tag, reset and remote dialogs | M6-17 |
+| [M6-15a](M6-15a-status-bar-and-job-list.md) | Status bar, job list, tab badges and markers | M6-09 |
+| [M6-15b](M6-15b-askpass-and-update-notice.md) | Askpass dialog, update notice and update dialog | M6-15a |
+| M6-16 | Stage, unstage and discard; commit and amend; fsmonitor offer | M6-13a, M6-15a |
+| M6-17 | Tree and history context menus; branch dialogs | M6-11d, M6-15a |
+| M6-18 † | Sync, integrate, stash, tag, reset and remote dialogs | M6-15b, M6-17 |
 | M6-19 † | Conflict banner and conflict editor | M6-02, M6-16 |
-| M6-20 | Clone, add folder, missing repos | M6-15 |
+| M6-20 | Clone, add folder, missing repos | M6-15b |
 | M6-21 | Groups in the tree, drag between groups, group dialogs | M6-17 |
 | M6-22 | Preflight dialog, result report, group commit | M6-16, M6-21 |
 | M6-23 † | AI settings, providers, consent, proposals, Resolve all | M6-19 |
@@ -337,6 +338,7 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | The OS accent and contrast | Its hue is kept and its lightness changed until every accent pair passes; the token accent when none does (Eric, 2026-10-27) | M6-07 |
 | No font installed | The app exits with a message instead of GPUI's panic; the Linux packages depend on a font. No font is embedded (Eric, 2026-10-27) | M6-07, M6-28 |
 | Spikes | Standalone crates under `spikes/`, outside the workspace, each on its own `spike/` branch and never merged | M6-02 to M6-04 |
+| Job results in the GPUI app | As rc.1: the status bar's outcome and the tab's marker; no pop-up toasts (Eric, 2026-10-29) | M6-15a |
 | Conflict editor | gpui-component's code editor, one buffer; the base and the AI proposal in a card beside the hunk (Eric, 2026-10-27, after M6-02) | M6-19, M6-23 |
 | The Tauri app during M6 | Not kept: 1.0.0-rc.1 is its last release. M6-05 deletes the shell, its workflows and the IPC layer; no app runs on `main` until M6-06, and none is released until M6-28 (Eric, 2026-10-27) | M6-05 |
 | `ui/` during M6 | Stays in the tree as the reference the tasks port from, out of `just check` and CI, runnable with its fake core; M6-30 deletes it (Eric, 2026-10-27) | M6-05, M6-06, M6-30 |
