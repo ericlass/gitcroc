@@ -31,6 +31,11 @@ pub(crate) fn made(origin: &str) -> repo_gen::Fixture {
     api.git(["config", "credential.helper", ""]).unwrap();
     api.git(["config", "http.proxy", ""]).unwrap();
     let web = repo(&made, "web");
+    // A merge needs a committer, even one that stops on a conflict; the
+    // runners have no global identity.
+    web.git(["config", "user.name", "Test"]).unwrap();
+    web.git(["config", "user.email", "test@example.com"])
+        .unwrap();
     web.branch("other").unwrap();
     web.git(["checkout", "-q", "other"]).unwrap();
     web.commit_file("README.md", "theirs\n", "Theirs").unwrap();
