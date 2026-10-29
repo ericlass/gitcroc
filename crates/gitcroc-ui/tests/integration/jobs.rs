@@ -1,13 +1,13 @@
 //! The status bar, the job list and the tabs' job marks (UI-21, UI-32).
 //! The jobs are real, on `repo-gen` fixtures (QA-2): writing a
 //! commit-graph file succeeds, a fetch from a missing folder fails, a merge
-//! of a changed line conflicts. A fetch from a host that wants a password
-//! runs until the test answers git's prompt, so a running job needs no
-//! timing. The status bar's 10 s pass on the test executor's clock.
+//! of a changed line conflicts. A fetch from a host that never answers
+//! runs until it is cancelled, so a running job needs no timing. The
+//! status bar's 10 s pass on the test executor's clock.
 
 use std::time::Duration;
 
-use gitcroc_app::app::{AppEvent, EVENT_CAPACITY};
+use gitcroc_app::app::EVENT_CAPACITY;
 use gitcroc_core::{
     IntegrateOp, IntegrateRequest, IntegrateStart, JobId, JobState, JobView, MergeFastForward,
     Outcome, Prune, RepoId, SyncOp, SyncRequest, SyncStart, WorkspaceId,
@@ -15,48 +15,13 @@ use gitcroc_core::{
 use gitcroc_ui::strings;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{ElementId, Role, TestAppContext, VisualTestContext, point, px};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 use crate::history::{click, id_of, repo, repos, tab, wait_until};
 use crate::support::{Fixture, main_window};
 
-/// A host that wants a password and refuses every answer. Returns a repo
-/// URL on it.
-fn refusing_host(fixture: &Fixture) -> String {
-    let listener = fixture
-        .runtime
-        .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
-        .unwrap();
-    let url = format!("http://{}/api.git", listener.local_addr().unwrap());
-    fixture.runtime.spawn(async move {
-        while let Ok((stream, _)) = listener.accept().await {
-            tokio::spawn(async move {
-                let mut stream = tokio::io::BufReader::new(stream);
-                loop {
-                    let mut line = String::new();
-                    match stream.read_line(&mut line).await {
-                        Ok(0) | Err(_) => break,
-                        Ok(_) if line == "\r\n" => break,
-                        Ok(_) => {}
-                    }
-                }
-                let _ = stream
-                    .get_mut()
-                    .write_all(
-                        b"HTTP/1.1 401 Unauthorized\r\n\
-                          WWW-Authenticate: Basic realm=\"gitcroc\"\r\n\
-                          Content-Length: 0\r\nConnection: close\r\n\r\n",
-                    )
-                    .await;
-            });
-        }
-    });
-    url
-}
-
 /// Repos "api", whose origin is `origin`, and "web", whose branch `other`
 /// changes the line `main` changed too. Returns the fixture repos.
-fn made(origin: &str) -> repo_gen::Fixture {
+pub(crate) fn made(origin: &str) -> repo_gen::Fixture {
     let made = repos(&["api", "web"]);
     let api = repo(&made, "api");
     api.git(["remote", "add", "origin", origin]).unwrap();
@@ -74,7 +39,7 @@ fn made(origin: &str) -> repo_gen::Fixture {
 }
 
 /// Starts a fetch of `repo` and returns its job.
-fn fetch(fixture: &Fixture, workspace: &WorkspaceId, repo: &RepoId) -> JobId {
+pub(crate) fn fetch(fixture: &Fixture, workspace: &WorkspaceId, repo: &RepoId) -> JobId {
     let app = fixture.app().clone();
     let request = SyncRequest {
         repo_id: repo.clone(),
@@ -93,19 +58,33 @@ fn fetch(fixture: &Fixture, workspace: &WorkspaceId, repo: &RepoId) -> JobId {
     job_id
 }
 
-/// Starts a fetch of `repo` from the refusing host and waits until git asks
-/// for a user name. Returns the job and the prompt, which the job waits on.
-fn held_fetch(fixture: &Fixture, workspace: &WorkspaceId, repo: &RepoId) -> (JobId, u32) {
-    let mut events = fixture.app().subscribe();
-    let job = fetch(fixture, workspace, repo);
-    let prompt = fixture.runtime.block_on(async {
-        loop {
-            if let AppEvent::AskpassPrompt(prompt) = events.recv().await.unwrap() {
-                return prompt.prompt_id;
-            }
+/// A host that takes each request and never answers, so a fetch from it
+/// runs until it is cancelled. Returns a repo URL on it.
+fn silent_host(fixture: &Fixture) -> String {
+    let listener = fixture
+        .runtime
+        .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
+        .unwrap();
+    let url = format!("http://{}/api.git", listener.local_addr().unwrap());
+    fixture.runtime.spawn(async move {
+        let mut open = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            open.push(stream);
         }
     });
-    (job, prompt)
+    url
+}
+
+/// Starts a fetch of `repo`, whose origin is the silent host, and waits
+/// until it runs.
+fn held_fetch(fixture: &Fixture, workspace: &WorkspaceId, repo: &RepoId) -> JobId {
+    let id = fetch(fixture, workspace, repo);
+    fixture.runtime.block_on(async {
+        while job(fixture, id).state != JobState::Running {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    });
+    id
 }
 
 /// Writes `repo`'s commit-graph file, which succeeds.
@@ -139,7 +118,7 @@ fn merge(fixture: &Fixture, workspace: &WorkspaceId, repo: &RepoId) -> JobId {
 }
 
 /// Job `id` as the app has it.
-fn job(fixture: &Fixture, id: JobId) -> JobView {
+pub(crate) fn job(fixture: &Fixture, id: JobId) -> JobView {
     fixture
         .app()
         .jobs_get()
@@ -151,11 +130,16 @@ fn job(fixture: &Fixture, id: JobId) -> JobView {
 /// Waits until job `id` has ended with `outcome` and the window has drawn
 /// what it heard.
 #[track_caller]
-fn wait_for_end(cx: &mut VisualTestContext, fixture: &Fixture, id: JobId, outcome: &Outcome) {
+pub(crate) fn wait_for_end(
+    cx: &mut VisualTestContext,
+    fixture: &Fixture,
+    id: JobId,
+    outcome: &Outcome,
+) {
     wait_until(cx, |_| job(fixture, id).outcome.as_ref() == Some(outcome));
 }
 
-fn label_of(cx: &mut VisualTestContext, id: &str) -> Option<String> {
+pub(crate) fn label_of(cx: &mut VisualTestContext, id: &str) -> Option<String> {
     cx.update(|window, cx| {
         window.render_frame(cx);
         window
@@ -165,7 +149,7 @@ fn label_of(cx: &mut VisualTestContext, id: &str) -> Option<String> {
 }
 
 /// What the status bar says.
-fn status(cx: &mut VisualTestContext) -> String {
+pub(crate) fn status(cx: &mut VisualTestContext) -> String {
     label_of(cx, "status-jobs").expect("no status bar")
 }
 
@@ -180,7 +164,7 @@ fn outcome_time_passes(cx: &mut VisualTestContext) {
     cx.run_until_parked();
 }
 
-fn press(cx: &mut VisualTestContext, keys: &str) {
+pub(crate) fn press(cx: &mut VisualTestContext, keys: &str) {
     cx.update(|window, cx| window.press(keys, cx));
     cx.run_until_parked();
 }
@@ -229,15 +213,15 @@ fn outcome_text(outcome: &Outcome) -> String {
 #[gpui::test]
 fn ui_21_status_bar_shows_running_jobs_with_progress(cx: &mut TestAppContext) {
     let fixture = Fixture::start(EVENT_CAPACITY);
-    let made = made(&refusing_host(&fixture));
+    let made = made(&silent_host(&fixture));
     let workspace = fixture.active();
     let added = fixture.add_repos(&workspace, made.path());
     let (mut cx, _window) = main_window(cx, &fixture);
     wait_for_status(&mut cx, strings::status_bar::NO_JOBS);
 
-    let (id, _prompt) = held_fetch(&fixture, &workspace, &id_of(&added, "api"));
+    let id = held_fetch(&fixture, &workspace, &id_of(&added, "api"));
     let label = job(&fixture, id).label;
-    // The fetch waits on git's prompt, and its total is not known.
+    // The fetch waits on the host, and its total is not known.
     wait_for_status(&mut cx, &format!("{label} {}", strings::jobs::RUNNING));
 
     let cancelled = Outcome::Skipped {
@@ -356,15 +340,16 @@ fn ui_21_job_list_shows_outcome_and_raw_output_of_every_job(cx: &mut TestAppCont
 #[gpui::test]
 fn ui_21_cancel_stops_a_running_job(cx: &mut TestAppContext) {
     let fixture = Fixture::start(EVENT_CAPACITY);
-    let made = made(&refusing_host(&fixture));
+    let made = made(&silent_host(&fixture));
     let workspace = fixture.active();
     let added = fixture.add_repos(&workspace, made.path());
     let (mut cx, _window) = main_window(cx, &fixture);
-    let (id, _prompt) = held_fetch(&fixture, &workspace, &id_of(&added, "api"));
-    wait_until(&mut cx, |_| job(&fixture, id).state == JobState::Running);
+    let id = held_fetch(&fixture, &workspace, &id_of(&added, "api"));
+    // The window has heard of it, so the list opens on it.
+    wait_until(&mut cx, |cx| status(cx).ends_with(strings::jobs::RUNNING));
 
     open_job_list(&mut cx);
-    wait_until(&mut cx, |cx| label_of(cx, "job-cancel").is_some());
+    assert!(label_of(&mut cx, "job-cancel").is_some());
     click(&mut cx, "job-cancel".into());
     let cancelled = Outcome::Skipped {
         reason: gitcroc_core::SkipReason::Cancelled,
@@ -412,10 +397,16 @@ fn marker(cx: &mut VisualTestContext, workspace: &WorkspaceId) -> bool {
 
 /// UI-32: a tab has a badge while it has jobs, and a marker when one ended
 /// failed and was not seen: activating the tab or the job list sees it.
+/// "api" fetches from the silent host, "web" from a missing folder.
 #[gpui::test]
 fn ui_32_tab_shows_a_badge_and_an_unseen_failure(cx: &mut TestAppContext) {
     let fixture = Fixture::start(EVENT_CAPACITY);
-    let made = made(&refusing_host(&fixture));
+    let made = made(&silent_host(&fixture));
+    let missing = tempfile::tempdir().unwrap();
+    let gone = missing.path().join("gone");
+    repo(&made, "web")
+        .git(["remote", "add", "origin", gone.to_str().unwrap()])
+        .unwrap();
     let main = fixture.active();
     let app = fixture.app().clone();
     let second = fixture
@@ -432,14 +423,17 @@ fn ui_32_tab_shows_a_badge_and_an_unseen_failure(cx: &mut TestAppContext) {
     let (mut cx, _window) = main_window(cx, &fixture);
     assert_eq!(badge(&mut cx, &second), None);
 
-    let (id, prompt) = held_fetch(&fixture, &second, &id_of(&in_second, "api"));
+    let id = held_fetch(&fixture, &second, &id_of(&in_second, "api"));
     wait_until(&mut cx, |cx| {
         badge(cx, &second).as_deref() == Some(strings::tabs::jobs_title(1).as_str())
     });
     assert!(!marker(&mut cx, &second));
+    // A cancelled job leaves no marker.
+    fixture.app().job_cancel(id);
+    wait_until(&mut cx, |cx| badge(cx, &second).is_none());
+    assert!(!marker(&mut cx, &second));
 
-    // No answer: git gives up, and the fetch fails.
-    fixture.app().askpass_answer(prompt, None);
+    let id = fetch(&fixture, &second, &id_of(&in_second, "web"));
     wait_for_end(&mut cx, &fixture, id, &Outcome::Failed);
     wait_until(&mut cx, |cx| marker(cx, &second));
     assert_eq!(badge(&mut cx, &second), None);
@@ -451,8 +445,7 @@ fn ui_32_tab_shows_a_badge_and_an_unseen_failure(cx: &mut TestAppContext) {
 
     // Seen in the job list, from another tab.
     click(&mut cx, tab(&main));
-    let (id, prompt) = held_fetch(&fixture, &second, &id_of(&in_second, "api"));
-    fixture.app().askpass_answer(prompt, None);
+    let id = fetch(&fixture, &second, &id_of(&in_second, "web"));
     wait_for_end(&mut cx, &fixture, id, &Outcome::Failed);
     wait_until(&mut cx, |cx| marker(cx, &second));
     open_job_list(&mut cx);

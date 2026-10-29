@@ -3,7 +3,9 @@
 //! outcome of the job that ended last for a while, then a failed or
 //! conflicted job until the job list has shown it. It is a button: a click,
 //! or Enter or Space while it has the focus, opens the job list. Its text
-//! is no live region, so progress is not read out on every step.
+//! is no live region, so progress is not read out on every step. At its
+//! right, while a newer version is on offer, the update notice opens the
+//! update dialog (PLAT-4).
 
 use std::rc::Rc;
 
@@ -16,53 +18,118 @@ use gpui_kit::{
 };
 
 use crate::jobs::{self, Jobs, Status};
-use crate::strings::{jobs as job_text, status_bar as text};
+use crate::strings::{jobs as job_text, status_bar as text, update as update_text};
 use crate::theme::ActiveTokens;
 use crate::theme::tokens::{Color, Tokens};
+use crate::updates::Updates;
 
 actions!(
     status_bar,
     [
         /// Opens the job list from the focused status bar.
         OpenJobs,
+        /// Opens the update dialog from the focused notice.
+        OpenUpdate,
     ]
 );
 
 /// The key context of the focused status bar.
 const CONTEXT: &str = "GitcrocStatusBar";
+/// The key context of the focused update notice.
+const NOTICE_CONTEXT: &str = "GitcrocUpdateNotice";
 
 pub fn bind(cx: &mut App) {
-    let context = KeyBindingContextPredicate::parse(CONTEXT).ok().map(Rc::new);
-    let bindings = ["enter", "space"].into_iter().filter_map(|keys| {
-        KeyBinding::load(keys, Box::new(OpenJobs), context.clone(), false, None, cx).ok()
-    });
-    cx.bind_keys(bindings.collect::<Vec<_>>());
+    let bind = |context: &str, action: &dyn gpui_kit::Action, cx: &mut App| {
+        let context = KeyBindingContextPredicate::parse(context).ok().map(Rc::new);
+        let bindings: Vec<KeyBinding> = ["enter", "space"]
+            .into_iter()
+            .filter_map(|keys| {
+                KeyBinding::load(keys, action.boxed_clone(), context.clone(), false, None, cx).ok()
+            })
+            .collect();
+        cx.bind_keys(bindings);
+    };
+    bind(CONTEXT, &OpenJobs, cx);
+    bind(NOTICE_CONTEXT, &OpenUpdate, cx);
 }
 
 /// The user asked for the job list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShowJobs;
 
+/// The user asked for the update dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShowUpdate;
+
 pub struct StatusBar {
     jobs: Entity<Jobs>,
+    updates: Entity<Updates>,
     focus: FocusHandle,
-    _jobs_changed: Subscription,
+    notice_focus: FocusHandle,
+    _changed: [Subscription; 2],
 }
 
 impl EventEmitter<ShowJobs> for StatusBar {}
+impl EventEmitter<ShowUpdate> for StatusBar {}
 
 impl StatusBar {
-    pub fn new(jobs: Entity<Jobs>, cx: &mut Context<Self>) -> Self {
-        let jobs_changed = cx.observe(&jobs, |_, _, cx| cx.notify());
+    pub fn new(jobs: Entity<Jobs>, updates: Entity<Updates>, cx: &mut Context<Self>) -> Self {
+        let changed = [
+            cx.observe(&jobs, |_, _, cx| cx.notify()),
+            cx.observe(&updates, |_, _, cx| cx.notify()),
+        ];
         Self {
             jobs,
+            updates,
             focus: cx.focus_handle(),
-            _jobs_changed: jobs_changed,
+            notice_focus: cx.focus_handle(),
+            _changed: changed,
         }
     }
 
     fn open(&mut self, _: &OpenJobs, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(ShowJobs);
+    }
+
+    fn open_update(&mut self, _: &OpenUpdate, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(ShowUpdate);
+    }
+
+    /// The notice of a newer version, while one is on offer.
+    fn notice(&self, window: &Window, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let tokens = *cx.tokens();
+        let notice: SharedString = update_text::notice(self.updates.read(cx).notice()?).into();
+        let focused = self.notice_focus.is_focused(window);
+        Some(
+            div()
+                .id("update-notice")
+                .test_support()
+                .track_focus(&self.notice_focus.clone().tab_stop(true))
+                .key_context(NOTICE_CONTEXT)
+                .on_action(cx.listener(Self::open_update))
+                .role(Role::Button)
+                .aria_label(notice.clone())
+                .relative()
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .h_full()
+                .px_2()
+                .text_sm()
+                .text_color(tokens.accent)
+                .hover(move |style| style.bg(tokens.bg_3))
+                .when(focused, |this| {
+                    this.child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .border_2()
+                            .border_color(tokens.focus_ring),
+                    )
+                })
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(ShowUpdate)))
+                .child(notice),
+        )
     }
 }
 
@@ -160,7 +227,8 @@ impl Render for StatusBar {
                 .into_any_element(),
         };
         let focused = self.focus.is_focused(window);
-        div()
+        let notice = self.notice(window, cx);
+        let jobs = div()
             .id("status-jobs")
             .test_support()
             .track_focus(&self.focus)
@@ -190,6 +258,14 @@ impl Render for StatusBar {
             })
             .on_click(cx.listener(|_, _, _, cx| cx.emit(ShowJobs)))
             .child(content)
-            .min_w(px(0.))
+            .min_w(px(0.));
+        div()
+            .flex()
+            .flex_row()
+            .justify_between()
+            .size_full()
+            .min_w_0()
+            .child(jobs)
+            .children(notice)
     }
 }

@@ -2,6 +2,7 @@
 //! `gitcroc-app`, with no source of truth and no business logic of their
 //! own (ARCH-6). `gitcroc-next` runs it until M6-30.
 
+pub mod askpass;
 pub mod changes;
 pub mod changes_pane;
 pub mod dialog;
@@ -31,6 +32,8 @@ pub mod theme;
 pub mod title_bar;
 pub mod tree;
 pub mod tree_pane;
+pub mod update_dialog;
+pub mod updates;
 pub mod window;
 pub mod workspace_menu;
 pub mod workspaces;

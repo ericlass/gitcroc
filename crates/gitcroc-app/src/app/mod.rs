@@ -37,7 +37,7 @@ pub use event::{AppEvent, EVENT_CAPACITY, RepoRef};
 use crate::ai::{AiBackend, AiProviders};
 use crate::askpass::EventAskpassUi;
 use crate::platform::{DesktopFonts, Dialogs, Installation, Keychain, PlatformInstallation};
-use crate::update::{CHECKS, SystemClock};
+use crate::update::{CHECKS, SystemClock, UpdateTest};
 
 /// What [`App::start`] needs from the binary that runs it.
 pub struct AppSetup<'a> {
@@ -58,6 +58,9 @@ pub struct AppSetup<'a> {
     pub ai: Arc<dyn AiBackend>,
     /// Where updates come from (PLAT-4): `NoUpdates` until M6-27.
     pub updates: Arc<dyn UpdateSource>,
+    /// `None`: the package the app came from, and checks in release builds
+    /// only (D12). Tests of the update dialog choose both.
+    pub update_test: Option<UpdateTest>,
     /// The program git starts as its askpass helper (D10): the app's own
     /// executable, which runs `askpass::helper` first, or the tests'
     /// `askpass-helper`.
@@ -169,8 +172,10 @@ impl App {
                 hub: hub.clone(),
                 log: log.clone(),
             }),
-            package: PlatformInstallation::package(),
-            checks: CHECKS,
+            package: setup
+                .update_test
+                .map_or_else(PlatformInstallation::package, |test| test.package),
+            checks: setup.update_test.map_or(CHECKS, |test| test.checks),
             current_version: version,
         });
         setup.runtime.spawn(updates.clone().run_schedule());

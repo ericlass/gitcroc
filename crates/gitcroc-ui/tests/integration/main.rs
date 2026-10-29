@@ -8,6 +8,7 @@
 // GPUI's test macro names the crate `gpui`.
 extern crate gpui_kit as gpui;
 
+mod askpass;
 mod background_tabs;
 mod changes;
 mod colors;
@@ -25,4 +26,5 @@ mod tabs;
 mod theme;
 mod title_bar;
 mod tree;
+mod update;
 mod window;

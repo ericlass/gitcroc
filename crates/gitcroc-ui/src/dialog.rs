@@ -93,7 +93,7 @@ pub(crate) fn frame(id: &'static str, role: Role, title: &SharedString, cx: &App
 }
 
 /// The core's refusal, under what it refused.
-fn refusal(error: &Option<SharedString>, cx: &App) -> Option<impl IntoElement + use<>> {
+pub(crate) fn refusal(error: &Option<SharedString>, cx: &App) -> Option<impl IntoElement + use<>> {
     let danger = cx.tokens().danger;
     error.clone().map(|error| {
         div()

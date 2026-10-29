@@ -9,9 +9,10 @@ use std::time::Duration;
 use gitcroc_app::ai::ProviderCalls;
 use gitcroc_app::app::{App as GitcrocApp, AppEvent, AppSetup};
 use gitcroc_app::platform::{DesktopFonts, DialogFuture, Dialogs, FileFilter, MemoryKeychain};
-use gitcroc_app::update::NoUpdates;
+use gitcroc_app::update::{NoUpdates, UpdateTest};
 use gitcroc_core::{
-    CacheDir, ConfigDir, GitStatus, LogDir, PaneLayout, RepoId, WORKSPACES_DIR, WorkspaceId,
+    CacheDir, ConfigDir, GitStatus, LogDir, PaneLayout, RepoId, UpdateSource, WORKSPACES_DIR,
+    WorkspaceId,
 };
 use std::rc::Rc;
 
@@ -211,6 +212,9 @@ pub struct Options {
     /// How slow a first history page must be to earn the commit-graph
     /// offer (PERF-2): never by default, so no test sees it by chance.
     pub commit_graph_threshold: Duration,
+    /// Where updates come from, with the package and whether the app
+    /// checks; `None` never finds one, as a debug build never checks (D12).
+    pub updates: Option<(Arc<dyn UpdateSource>, UpdateTest)>,
 }
 
 impl Default for Options {
@@ -221,6 +225,7 @@ impl Default for Options {
             wait_for_git: true,
             picked: None,
             commit_graph_threshold: Duration::MAX,
+            updates: None,
         }
     }
 }
@@ -274,7 +279,11 @@ impl Fixture {
                 dialogs: Arc::new(Answering(options.picked)),
                 keychain: Arc::new(MemoryKeychain::default()),
                 ai: Arc::new(ProviderCalls),
-                updates: Arc::new(NoUpdates),
+                updates: options.updates.as_ref().map_or_else(
+                    || Arc::new(NoUpdates) as Arc<dyn UpdateSource>,
+                    |(source, _)| source.clone(),
+                ),
+                update_test: options.updates.as_ref().map(|(_, test)| *test),
                 // Git starts the app's binary as its askpass helper (D10).
                 askpass_helper: PathBuf::from(env!("CARGO_BIN_EXE_gitcroc-next")),
                 event_capacity: options.capacity,

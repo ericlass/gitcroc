@@ -19,8 +19,8 @@ a fake `UpdateSource`, as the core's update tests do.
 Implements: D10, PLAT-4
 Respects: SEC-1, SEC-3, D12, OPS-9, ARCH-6, ARCH-7, UI-22, UI-23, D15, QA-3, QA-4
 
-This task is the UI side of PLAT-4. PLAT-4 stays in `just coverage M6`
-until M6-27 and M6-28 prove the update itself.
+This task is the UI side of PLAT-4. Its tests take PLAT-4 off
+`just coverage M6`; the update itself is still proven by M6-27 and M6-28.
 
 ## In scope
 - **The askpass prompts** (D10), a port of `ui/src/stores/askpass.ts`, one
@@ -40,8 +40,8 @@ until M6-27 and M6-28 prove the update itself.
   - Escape and Cancel send no answer (`askpass_answer` with `None`);
   - the field has the focus when the dialog opens, or Yes for a question;
   - the answer is sent and not kept: no field, model or log holds it after
-    `askpass_answer` (D10, SEC-1). The field's state is dropped with the
-    dialog.
+    `askpass_answer` (D10, SEC-1). The field and its undo history are
+    emptied as it goes, and the dialog is dropped.
 - **The update notice** (PLAT-4), a port of `ui/src/update/UpdateNotice.tsx`
   and `ui/src/stores/update.ts`:
   - the window reads `update_status` at start and mirrors
@@ -67,10 +67,11 @@ until M6-27 and M6-28 prove the update itself.
 - **Restarting with unsaved conflict edits** (OPS-9): rc.1 asks first. The
   GPUI app has no conflict editor until M6-19, so there is nothing to lose
   yet; M6-19 adds the question to this dialog.
-- **Test seams:** the tests choose the package kind through a field this
-  task adds to `AppSetup`, which the binary leaves to detection as now. The
-  restart goes through a function the tests replace, so a test sees it was
-  asked and the test process goes on.
+- **Test seam:** `AppSetup::update_test` sets the package kind and lets a
+  debug build check, for the tests' fake source; the binary leaves it
+  unset, so it detects its package and checks in release builds only, as
+  now (D12). The restart needs no seam: GPUI's test platform reports it to
+  `expect_restart`.
 - **Strings (D15):** the askpass and update text moves from
   `ui/src/strings/en.ts` to `strings.rs`.
 
@@ -82,7 +83,7 @@ The askpass tests fetch from a local HTTP host that asks for a password, as
   - the dialog names the job, the repo and the workspace;
   - the password field is masked;
   - the typed user name and password reach the host, and the fetch goes on;
-  - after the answer, no view or model holds the password.
+  - after the answer, the dialog is dropped and its field is empty.
 - `d10_cancelled_askpass_dialog_fails_the_job`: Escape sends no answer, and
   the job ends *failed* with git's message.
 - `d10_askpass_dialog_closes_when_its_job_ends`: cancelling the job in the
@@ -120,5 +121,5 @@ The askpass tests fetch from a local HTTP host that asks for a password, as
 - The askpass tests run with a real git and `gitcroc-next` as its helper.
   The check in a real window, with an HTTPS remote that needs a password,
   waits for M6-18's Fetch button.
-- `just coverage M6` no longer lists D10.
+- `just coverage M6` no longer lists D10 or PLAT-4.
 - `just check` passes.

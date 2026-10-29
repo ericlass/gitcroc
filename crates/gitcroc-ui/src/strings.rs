@@ -126,6 +126,44 @@ pub mod status_bar {
     pub const NO_JOBS: &str = "No jobs running";
 }
 
+/// Git's prompts it cannot answer silently (D10).
+pub mod askpass {
+    /// The dialog's title: the job, then its repos in the workspace, or the
+    /// workspace alone.
+    pub fn title(job: &str, repos: &str, workspace: &str) -> String {
+        if repos.is_empty() {
+            format!("{job}: {workspace}")
+        } else {
+            format!("{job}: {repos} in {workspace}")
+        }
+    }
+    pub const OK: &str = "OK";
+    pub const CANCEL: &str = "Cancel";
+    pub const YES: &str = "Yes";
+    pub const NO: &str = "No";
+}
+
+/// The update notice and dialog (PLAT-4).
+pub mod update {
+    pub fn notice(version: &str) -> String {
+        format!("gitcroc {version} is available")
+    }
+    pub const TITLE: &str = "Update gitcroc";
+    pub fn versions(current: &str, next: &str) -> String {
+        format!("You have gitcroc {current}; gitcroc {next} is available.")
+    }
+    pub fn published(date: &str) -> String {
+        format!("Published {date}.")
+    }
+    pub const NOTES: &str = "Release notes";
+    pub const NO_NOTES: &str = "This release has no notes.";
+    pub const INSTALL: &str = "Install and restart";
+    pub const OPEN_DOWNLOAD_PAGE: &str = "Open download page";
+    pub const LATER: &str = "Later";
+    pub const NOTIFY_ONLY: &str =
+        "This package does not update itself. Download the new version from the release page.";
+}
+
 /// Jobs, as the status bar and the job list show them (UI-21, GRP-7).
 pub mod jobs {
     use gitcroc_core::{Outcome, SkipReason};

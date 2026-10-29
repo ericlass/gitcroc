@@ -96,6 +96,7 @@ fn main() -> ExitCode {
         updates: Arc::new(NoUpdates),
         // Git starts this binary as its askpass helper; `main` answers first.
         askpass_helper: std::env::current_exe().unwrap_or_default(),
+        update_test: None,
         event_capacity: EVENT_CAPACITY,
         commit_graph_threshold: COMMIT_GRAPH_THRESHOLD,
     });

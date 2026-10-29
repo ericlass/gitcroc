@@ -8,12 +8,15 @@
 //! detection finds a usable git, the window shows that it is looking, then
 //! the setup screen (PLAT-3); with no tab open, the workspaces to open
 //! (UI-27). The status bar shows the active tab's jobs, and opens the
-//! job list of every tab (UI-21). Dialogs are drawn over everything.
+//! job list of every tab (UI-21), and the notice of a newer version
+//! (PLAT-4). Dialogs are drawn over everything, and git's prompts over the
+//! dialogs (D10).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
 use gitcroc_app::app::AppEvent;
+use gitcroc_app::askpass::AskpassPrompt;
 use gitcroc_core::{GitStatus, WorkspaceId, WorkspaceTabs};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_kit::{
@@ -23,6 +26,7 @@ use gpui_kit::{
 };
 use tokio::sync::broadcast::error::RecvError;
 
+use crate::askpass::AskpassDialog;
 use crate::changes_pane::{ChangesPane, ChangesPrefs};
 use crate::dialog::{Closed, Modal, NameDialog, Question};
 use crate::git_setup::GitSetup;
@@ -35,12 +39,14 @@ use crate::keys::{
 };
 use crate::panes::Panes;
 use crate::services::Services;
-use crate::status_bar::{ShowJobs, StatusBar};
+use crate::status_bar::{ShowJobs, ShowUpdate, StatusBar};
 use crate::strings;
 use crate::tab_bar::{TabBar, TabBarEvent};
 use crate::theme::{ActiveTokens, AppTheme};
 use crate::title_bar::{Platform, TitleBar, WindowControls};
 use crate::tree_pane::TreePane;
+use crate::update_dialog::UpdateDialog;
+use crate::updates::Updates;
 use crate::workspace_menu::{Choice, WorkspaceStart};
 use crate::workspaces::Workspaces;
 
@@ -82,6 +88,14 @@ struct OpenDialog {
     _closed: Subscription,
 }
 
+/// Git's prompt on screen (D10).
+struct OpenAskpass {
+    dialog: Entity<AskpassDialog>,
+    /// Where the focus goes back to when it closes.
+    restore: Option<FocusHandle>,
+    _closed: Subscription,
+}
+
 /// The window's root view.
 pub struct GitcrocWindow {
     services: Services,
@@ -101,7 +115,13 @@ pub struct GitcrocWindow {
     toolbar_focus: FocusHandle,
     /// This run's jobs, of every tab (UI-21).
     jobs: Entity<Jobs>,
+    /// The updater's view (PLAT-4).
+    updates: Entity<Updates>,
     status_bar: Entity<StatusBar>,
+    /// Git's prompts waiting for the user, oldest first; the first is on
+    /// screen (D10).
+    prompts: VecDeque<AskpassPrompt>,
+    askpass: Option<OpenAskpass>,
     controls: Rc<dyn WindowControls>,
     workspaces: Entity<Workspaces>,
     tab_bar: Entity<TabBar>,
@@ -136,7 +156,8 @@ impl GitcrocWindow {
         let workspaces = cx.new(|_| Workspaces::new(services.clone()));
         let jobs = cx.new(|cx| Jobs::new(services.clone(), cx));
         let tab_bar = cx.new(|cx| TabBar::new(workspaces.clone(), jobs.clone(), cx));
-        let status_bar = cx.new(|cx| StatusBar::new(jobs.clone(), cx));
+        let updates = cx.new(|cx| Updates::new(services.clone(), cx));
+        let status_bar = cx.new(|cx| StatusBar::new(jobs.clone(), updates.clone(), cx));
         let title_bar = cx.new(|_| TitleBar::new(controls.clone(), platform, system_title_bar));
         let mut events = services.app().subscribe();
         let bridge = cx.spawn_in(window, async move |this, cx| {
@@ -182,6 +203,13 @@ impl GitcrocWindow {
             cx.subscribe_in(&status_bar, window, |this, _, _: &ShowJobs, window, cx| {
                 this.open_job_list(window, cx);
             }),
+            cx.subscribe_in(
+                &status_bar,
+                window,
+                |this, _, _: &ShowUpdate, window, cx| {
+                    this.open_update(window, cx);
+                },
+            ),
         ];
         let mut this = Self {
             services,
@@ -194,7 +222,10 @@ impl GitcrocWindow {
             title_focus: cx.focus_handle(),
             toolbar_focus: cx.focus_handle(),
             jobs,
+            updates,
             status_bar,
+            prompts: VecDeque::new(),
+            askpass: None,
             controls,
             workspaces,
             tab_bar,
@@ -223,6 +254,11 @@ impl GitcrocWindow {
 
     pub fn title_bar(&self) -> &Entity<TitleBar> {
         &self.title_bar
+    }
+
+    /// Git's prompt on screen (D10).
+    pub fn askpass_dialog(&self) -> Option<Entity<AskpassDialog>> {
+        self.askpass.as_ref().map(|open| open.dialog.clone())
     }
 
     /// This run's jobs, as the status bar and the job list show them.
@@ -262,6 +298,11 @@ impl GitcrocWindow {
             Err(RecvError::Lagged(_)) => jobs.read_again(cx),
             Err(RecvError::Closed) => {}
         });
+        self.updates.update(cx, |updates, cx| match &event {
+            Ok(event) => updates.on_event(event, cx),
+            Err(RecvError::Lagged(_)) => updates.read_again(cx),
+            Err(RecvError::Closed) => {}
+        });
         match event {
             Ok(AppEvent::GitStatus(status)) => {
                 self.git.heard = true;
@@ -270,6 +311,20 @@ impl GitcrocWindow {
             Ok(AppEvent::WorkspacesChanged(tabs)) => {
                 self.workspaces
                     .update(cx, |workspaces, cx| workspaces.hear_tabs(tabs, cx));
+            }
+            Ok(AppEvent::AskpassPrompt(prompt)) => {
+                self.prompts.push_back(prompt);
+                self.show_prompt(window, cx);
+            }
+            Ok(AppEvent::AskpassClosed { prompt_id }) => {
+                self.prompts.retain(|prompt| prompt.prompt_id != prompt_id);
+                let shown = self
+                    .askpass
+                    .as_ref()
+                    .map(|open| open.dialog.read(cx).prompt_id());
+                if shown == Some(prompt_id) {
+                    self.close_prompt(window, cx);
+                }
             }
             Ok(AppEvent::WorkspaceChanged(view)) => {
                 self.workspaces
@@ -667,6 +722,60 @@ impl GitcrocWindow {
         cx.notify();
     }
 
+    /// Shows the oldest prompt git waits on, unless one is on screen (D10).
+    fn show_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.askpass.is_some() {
+            return;
+        }
+        let Some(prompt) = self.prompts.front().cloned() else {
+            return;
+        };
+        let services = self.services.clone();
+        let send = Box::new(move |prompt_id, answer, _: &mut gpui_kit::App| {
+            // Straight to git, through the app; nothing keeps it (SEC-1).
+            // The call runs on the runtime whether or not anyone awaits it.
+            drop(
+                services.with_app(move |app| async move { app.askpass_answer(prompt_id, answer) }),
+            );
+        });
+        let dialog = cx.new(|cx| AskpassDialog::new(prompt, send, window, cx));
+        let closed = cx.subscribe_in(&dialog, window, |this, dialog, _: &Closed, window, cx| {
+            let answered = dialog.read(cx).prompt_id();
+            this.prompts.retain(|prompt| prompt.prompt_id != answered);
+            this.close_prompt(window, cx);
+        });
+        let restore = window.focused(cx);
+        dialog.update(cx, |dialog, cx| dialog.focus_first(window, cx));
+        self.askpass = Some(OpenAskpass {
+            dialog,
+            restore,
+            _closed: closed,
+        });
+        cx.notify();
+    }
+
+    /// Drops the prompt on screen, and its field with what was typed; the
+    /// next one waiting follows.
+    fn close_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(open) = self.askpass.take()
+            && let Some(restore) = open.restore
+        {
+            window.focus(&restore, cx);
+        }
+        self.show_prompt(window, cx);
+        cx.notify();
+    }
+
+    /// Opens the update dialog (PLAT-4).
+    fn open_update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let updates = self.updates.clone();
+        let dialog = cx.new(|cx| UpdateDialog::new(updates, cx));
+        self.open_dialog(dialog, window, cx);
+    }
+
     /// Opens the job list of every tab (UI-21).
     fn open_job_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.dialog.is_some() {
@@ -679,7 +788,10 @@ impl GitcrocWindow {
 
     /// The tab shortcuts work while no dialog or menu is open (UI-22).
     fn tabs_reachable(&self, cx: &gpui_kit::App) -> bool {
-        self.git.usable() && self.dialog.is_none() && !self.tab_bar.read(cx).menu_open()
+        self.git.usable()
+            && self.dialog.is_none()
+            && self.askpass.is_none()
+            && !self.tab_bar.read(cx).menu_open()
     }
 
     fn next_tab(&mut self, _: &NextTab, window: &mut Window, cx: &mut Context<Self>) {
@@ -860,6 +972,28 @@ impl GitcrocWindow {
         )
     }
 
+    /// Git's prompt over everything, the window dimmed (D10).
+    fn askpass_layer(&self, cx: &Context<Self>) -> Option<AnyElement> {
+        let open = self.askpass.as_ref()?;
+        let tokens = cx.tokens();
+        let backdrop = Hsla::from(tokens.backdrop).opacity(tokens.backdrop_opacity);
+        Some(
+            div()
+                .id("askpass-layer")
+                .test_support()
+                .absolute()
+                .inset_0()
+                .occlude()
+                .bg(backdrop)
+                .flex()
+                .items_center()
+                .justify_center()
+                .p_4()
+                .child(open.dialog.clone())
+                .into_any_element(),
+        )
+    }
+
     /// The notes under the title bar: a refused tab change, and workspace
     /// files not found at start (UI-33). Each is dismissed by its button.
     fn notes(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -998,7 +1132,8 @@ impl Render for GitcrocWindow {
                     .child(self.title_bar.clone()),
             )
             .children(body)
-            .children(self.dialog_layer(cx));
+            .children(self.dialog_layer(cx))
+            .children(self.askpass_layer(cx));
         // The root `open_window` puts around the window draws the frame's
         // edges and shadow where the window draws its own frame.
         content

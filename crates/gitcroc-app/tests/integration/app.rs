@@ -165,6 +165,7 @@ async fn start(capacity: usize) -> Started {
         ai: Arc::new(NoProviders),
         updates: Arc::new(NoUpdates),
         askpass_helper: PathBuf::from(env!("CARGO_BIN_EXE_askpass-helper")),
+        update_test: None,
         commit_graph_threshold: gitcroc_core::COMMIT_GRAPH_THRESHOLD,
     });
     let mut events = app.subscribe();
