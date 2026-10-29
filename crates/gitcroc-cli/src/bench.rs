@@ -538,7 +538,7 @@ fn group_fetch(set: &DataSet) -> Result<Option<Measured>, String> {
 }
 
 /// Runs this program with `args` and returns its output.
-fn run_self(exe: &Path, args: &[OsString]) -> Result<Vec<u8>, String> {
+pub(crate) fn run_self(exe: &Path, args: &[OsString]) -> Result<Vec<u8>, String> {
     let output = Command::new(exe)
         .args(args)
         .output()
@@ -625,9 +625,16 @@ fn history_later_page(set: &DataSet, number: usize) -> Result<Option<Measured>, 
 /// Changed lines a commit may have for `select-commit` (section 9).
 const SELECT_COMMIT_LINES: u32 = 5_000;
 
-/// The commit with the most changed lines under [`SELECT_COMMIT_LINES`]
-/// among the first page of the largest repo's history.
+/// Times reading the commit [`pick_commit`] picks.
 fn select_commit(set: &DataSet) -> Result<Option<Measured>, String> {
+    let repo = GitRepo::open(&set.largest()?.path).map_err(|error| error.to_string())?;
+    Ok(pick_commit(set)?.map(|hash| select(repo, hash)))
+}
+
+/// The commit with the most changed lines under [`SELECT_COMMIT_LINES`]
+/// among the first page of the largest repo's history; `bench-ui` clicks
+/// the same one.
+pub(crate) fn pick_commit(set: &DataSet) -> Result<Option<String>, String> {
     let repo = GitRepo::open(&set.largest()?.path).map_err(|error| error.to_string())?;
     let page = repo
         .history(HistoryStart::All, None, None)
@@ -652,7 +659,7 @@ fn select_commit(set: &DataSet) -> Result<Option<Measured>, String> {
         "select-commit on {}: {hash}, {lines} changed lines",
         set.name
     );
-    Ok(Some(select(repo, hash)))
+    Ok(Some(hash))
 }
 
 /// All changed lines of a list; `None` when a count is missing.
@@ -705,19 +712,19 @@ fn select(repo: GitRepo, hash: String) -> Measured {
 
 /// A data set as its manifest describes it.
 pub struct DataSet {
-    name: String,
-    repos: Vec<SetRepo>,
+    pub(crate) name: String,
+    pub(crate) repos: Vec<SetRepo>,
 }
 
-struct SetRepo {
-    path: PathBuf,
+pub(crate) struct SetRepo {
+    pub(crate) path: PathBuf,
     files: Option<u64>,
 }
 
 impl DataSet {
     /// Reads `<root>/<name>/repo-gen.json`. `None` when the set has not been
     /// built (or not completely).
-    fn load(root: &Path, name: &str) -> Result<Option<Self>, String> {
+    pub(crate) fn load(root: &Path, name: &str) -> Result<Option<Self>, String> {
         let dir = root.join(name);
         let manifest = dir.join(MANIFEST);
         let text = match std::fs::read_to_string(&manifest) {
@@ -748,7 +755,7 @@ impl DataSet {
     }
 
     /// The repo with the most files; the only one in a one-repo set.
-    fn largest(&self) -> Result<&SetRepo, String> {
+    pub(crate) fn largest(&self) -> Result<&SetRepo, String> {
         self.repos
             .iter()
             .max_by_key(|repo| repo.files.unwrap_or(0))

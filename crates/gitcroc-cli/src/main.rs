@@ -7,6 +7,7 @@ use gitcroc_core::GitSetup;
 mod ai;
 mod ai_resolve;
 mod bench;
+mod bench_ui;
 mod conflict;
 mod diff;
 mod eval;
@@ -21,7 +22,7 @@ mod workspace;
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}",
+        "usage: gitcroc-cli --version | git-info | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {}",
         history::USAGE,
         diff::USAGE,
         conflict::USAGE,
@@ -32,6 +33,7 @@ fn usage() -> ExitCode {
         group::TREE_USAGE,
         summaries::USAGE,
         bench::USAGE,
+        bench_ui::USAGE,
         gate::COMPARE_USAGE,
         gate::BASELINE_USAGE,
         ai::PROVIDERS_USAGE,
@@ -96,6 +98,10 @@ fn main() -> ExitCode {
         },
         [command, rest @ ..] if command == "bench" => match bench::parse_args(rest) {
             Some(options) => bench::run(&options),
+            None => usage(),
+        },
+        [command, rest @ ..] if command == "bench-ui" => match bench_ui::parse_args(rest) {
+            Some(options) => bench_ui::run(&options),
             None => usage(),
         },
         [command, rest @ ..] if command == "bench-compare" => {

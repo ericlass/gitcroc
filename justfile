@@ -63,3 +63,13 @@ bench-data set:
 # sets that exist locally. Prints JSON.
 bench *flags:
     cargo run --quiet --release -p gitcroc-cli -- bench {{flags}}
+
+# UI-side budgets of section 9 (PERF-8) on the GPUI app and target-project,
+# Linux only. Builds `gitcroc-next` with the `perf-trace` feature into its own
+# target dir, never where a release builds, and runs it through
+# `gitcroc-cli bench-ui`, which prints JSON like `just bench`. Run by hand
+# before a release, pinned to 8 cores, with nothing else busy and the window
+# left in front: `taskset -c 0-7 just bench-ui`.
+bench-ui *flags:
+    CARGO_TARGET_DIR="{{justfile_directory()}}/target/bench-ui" cargo build --quiet --release -p gitcroc-ui --bin gitcroc-next --features perf-trace
+    cargo run --quiet --release -p gitcroc-cli -- bench-ui --app "{{justfile_directory()}}/target/bench-ui/release/gitcroc-next" {{flags}}

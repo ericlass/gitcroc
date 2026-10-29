@@ -1,0 +1,223 @@
+{
+  "started_ms": 1700000000000,
+  "steps": [
+    {
+      "step": "cold-start",
+      "scenario": "cold-start"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-repo",
+      "scenario": "select-largest-repo",
+      "repo": "r-largest"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-commit",
+      "scenario": "select-commit",
+      "hash": "c-commit"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-repo",
+      "scenario": "switch-repo",
+      "repo": "r-other"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-repo",
+      "scenario": "switch-repo",
+      "repo": "r-largest"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-repo",
+      "scenario": "switch-repo",
+      "repo": "r-other"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-repo",
+      "scenario": "switch-repo",
+      "repo": "r-largest"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-repo",
+      "scenario": "switch-repo",
+      "repo": "r-other"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-repo",
+      "scenario": "switch-repo",
+      "repo": "r-largest"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-repo",
+      "scenario": "switch-repo",
+      "repo": "r-other"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-repo",
+      "scenario": "switch-repo",
+      "repo": "r-largest"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "scroll-history",
+      "scenario": "scroll-history"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "switch-tab",
+      "scenario": "switch-tab",
+      "tab": "w-second"
+    },
+    {
+      "step": "history-shown",
+      "scenario": "switch-tab-history"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "switch-tab",
+      "scenario": "switch-tab",
+      "tab": "w-main"
+    },
+    {
+      "step": "history-shown",
+      "scenario": "switch-tab-history"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "switch-tab",
+      "scenario": "switch-tab",
+      "tab": "w-second"
+    },
+    {
+      "step": "history-shown",
+      "scenario": "switch-tab-history"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "switch-tab",
+      "scenario": "switch-tab",
+      "tab": "w-main"
+    },
+    {
+      "step": "history-shown",
+      "scenario": "switch-tab-history"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "switch-tab",
+      "scenario": "switch-tab",
+      "tab": "w-second"
+    },
+    {
+      "step": "history-shown",
+      "scenario": "switch-tab-history"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "switch-tab",
+      "scenario": "switch-tab",
+      "tab": "w-main"
+    },
+    {
+      "step": "history-shown",
+      "scenario": "switch-tab-history"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "switch-tab",
+      "scenario": "switch-tab",
+      "tab": "w-second"
+    },
+    {
+      "step": "history-shown",
+      "scenario": "switch-tab-history"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "switch-tab",
+      "scenario": "switch-tab",
+      "tab": "w-main"
+    },
+    {
+      "step": "history-shown",
+      "scenario": "switch-tab-history"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "switch-tab",
+      "scenario": null,
+      "tab": "w-diff"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-repo",
+      "scenario": null,
+      "repo": "r-diff"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "select-commit",
+      "scenario": null,
+      "hash": "c-diff"
+    },
+    {
+      "step": "idle"
+    },
+    {
+      "step": "scroll-diff",
+      "scenario": "scroll-diff"
+    }
+  ]
+}

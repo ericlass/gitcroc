@@ -318,9 +318,13 @@ impl DiffView {
         if let Some(deferred) = &state.deferred_scroll_to_item {
             return deferred.item_index;
         }
+        // The list records its own size and its content's; every row is
+        // as tall as the others.
+        let rows = self.doc().map_or(0, DiffDoc::len);
         let height = state
             .last_item_size
-            .map_or(Pixels::ZERO, |size| size.item.height);
+            .filter(|_| rows > 0)
+            .map_or(Pixels::ZERO, |size| size.contents.height / rows as f32);
         if height <= Pixels::ZERO {
             return 0;
         }

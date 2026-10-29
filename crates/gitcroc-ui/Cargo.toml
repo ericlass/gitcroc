@@ -25,8 +25,10 @@ tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 directories.workspace = true
 # The code themes' highlighting (UI-24).
 syntect.workspace = true
-# The theme files gpui-component reads, built from the tokens (UI-23).
+# The theme files gpui-component reads, built from the tokens (UI-23),
+# and the benchmark runner's script and trace (PERF-8).
 serde_json.workspace = true
+serde.workspace = true
 
 # The accent colour (UI-23): the appearance portal.
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -37,7 +39,16 @@ futures-lite.workspace = true
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = ["UI_ViewManagement"] }
 
+[features]
+# `gitcroc-next --bench <script>`: the UI-side benchmark runner (PERF-8),
+# which `just bench-ui` builds into its own target folder. Never in a
+# release build. The runner finds what it clicks through gpui-kit's
+# element registry, which only its `test-support` keeps.
+perf-trace = ["gpui-kit/test-support"]
+
 [dev-dependencies]
+# The integration tests play a bench script (PERF-8).
+gitcroc-ui = { path = ".", features = ["perf-trace"] }
 gpui-kit = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["time"] }

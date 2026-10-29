@@ -176,7 +176,10 @@ fn label_of(cx: &mut VisualTestContext, id: ElementId) -> Option<String> {
 /// caller's line.
 #[track_caller]
 fn wait(cx: &mut VisualTestContext, mut done: impl FnMut(&mut VisualTestContext) -> bool) {
-    for _ in 0..1000 {
+    // The deadline only ends a hung test. Switching to a tab reads all its
+    // repos again (UI-30), which took over ten seconds on a slow macOS
+    // runner, so it is generous.
+    for _ in 0..3000 {
         settle(cx, |_, _| true);
         if done(cx) {
             return;
@@ -435,8 +438,17 @@ fn ui_3_repo_row_shows_branch_counts_and_marks(cx: &mut TestAppContext) {
     let added = add(&fixture, &made);
     let node = |name: &str| repo_node(&added, name);
     let (mut cx, _) = main_window(cx, &fixture);
+    // Every row read, and no read still running: a repo can be read twice
+    // at start, and its row then shows that it is refreshing.
+    let names = ["clean", "dirty", "detached", "moved", "ahead", "behind"];
     wait(&mut cx, |cx| {
-        labels(cx).len() == 7 && marks(cx, &node("dirty")) == ["Uncommitted changes"]
+        labels(cx).len() == 7
+            && marks(cx, &node("dirty")) == ["Uncommitted changes"]
+            && names.iter().all(|name| {
+                !marks(cx, &node(name))
+                    .iter()
+                    .any(|mark| mark == "Refreshing")
+            })
     });
 
     // Clean shows its name and branch only, read in this run.
