@@ -2,6 +2,7 @@
 //! `gitcroc-app`, with no source of truth and no business logic of their
 //! own (ARCH-6). `gitcroc-next` runs it until M6-30.
 
+pub mod askpass;
 pub mod changes;
 pub mod changes_pane;
 pub mod dialog;
@@ -14,6 +15,8 @@ pub mod history;
 pub mod history_columns;
 pub mod history_pane;
 pub mod icons;
+pub mod job_list;
+pub mod jobs;
 pub mod keys;
 pub mod menu;
 pub mod menus;
@@ -22,12 +25,15 @@ pub mod panes;
 pub mod perf;
 pub mod services;
 pub mod special_diff;
+pub mod status_bar;
 pub mod strings;
 pub mod tab_bar;
 pub mod theme;
 pub mod title_bar;
 pub mod tree;
 pub mod tree_pane;
+pub mod update_dialog;
+pub mod updates;
 pub mod window;
 pub mod workspace_menu;
 pub mod workspaces;
@@ -54,6 +60,8 @@ pub fn init(cx: &mut App) {
     menu::bind(cx);
     dialog::bind(cx);
     tab_bar::bind(cx);
+    status_bar::bind(cx);
+    job_list::bind(cx);
     tree_pane::bind(cx);
     history_pane::bind(cx);
     changes_pane::bind(cx);

@@ -54,6 +54,9 @@ directories = "6.0.0"
 toml = "1.1.8"
 tempfile = "3.27.0"
 
+# Local time of day for the job list (UI-21); GPUI already depends on it.
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+
 # Workspaces (M1-05): the file's uuid, paths without Windows' `\\?\` prefix
 # where possible, and, on Windows, telling whether two paths are the same
 # folder (PLAT-2).

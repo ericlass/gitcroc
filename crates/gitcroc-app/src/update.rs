@@ -33,6 +33,16 @@ impl UpdateClock for SystemClock {
     }
 }
 
+/// What a test of the update dialog sets in place of the running app's
+/// package and of D12's rule that only release builds check: with a fake
+/// [`UpdateSource`], no check reaches the network. The binary leaves it
+/// unset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UpdateTest {
+    pub package: gitcroc_core::Package,
+    pub checks: bool,
+}
+
 /// A source that never finds an update, so nothing is ever installed. The
 /// app's until M6-27 reads the release manifest without Tauri.
 #[derive(Debug, Clone, Copy, Default)]

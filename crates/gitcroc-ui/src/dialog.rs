@@ -29,7 +29,7 @@ actions!(
 );
 
 /// The key context of an open dialog.
-const CONTEXT: &str = "GitcrocDialog";
+pub(crate) const CONTEXT: &str = "GitcrocDialog";
 
 /// The keys of an open dialog.
 pub fn bind(cx: &mut App) {
@@ -47,6 +47,11 @@ pub struct Closed;
 pub trait Modal: Render + EventEmitter<Closed> {
     /// Gives the focus to where the dialog starts.
     fn focus_first(&self, window: &mut Window, cx: &mut App);
+
+    /// A click beside the dialog closes it, as for a list only to look at.
+    fn closes_on_backdrop(&self) -> bool {
+        false
+    }
 }
 
 /// Sends what a dialog asked for; resolves to the core's refusal.
@@ -55,7 +60,7 @@ pub type Send<T> = Box<dyn Fn(T, &mut App) -> Task<Result<(), SharedString>>>;
 /// What every dialog shares: a modal surface named by its title. The
 /// caller adds its test support, then its focus and its key context
 /// ([`CONTEXT`]), which closes it on Escape.
-fn frame(id: &'static str, role: Role, title: &SharedString, cx: &App) -> Stateful<Div> {
+pub(crate) fn frame(id: &'static str, role: Role, title: &SharedString, cx: &App) -> Stateful<Div> {
     let tokens = cx.tokens();
     div()
         .id(id)
@@ -88,7 +93,7 @@ fn frame(id: &'static str, role: Role, title: &SharedString, cx: &App) -> Statef
 }
 
 /// The core's refusal, under what it refused.
-fn refusal(error: &Option<SharedString>, cx: &App) -> Option<impl IntoElement + use<>> {
+pub(crate) fn refusal(error: &Option<SharedString>, cx: &App) -> Option<impl IntoElement + use<>> {
     let danger = cx.tokens().danger;
     error.clone().map(|error| {
         div()
@@ -102,7 +107,7 @@ fn refusal(error: &Option<SharedString>, cx: &App) -> Option<impl IntoElement + 
 }
 
 /// The buttons at the bottom, at the right end.
-fn actions_row() -> Div {
+pub(crate) fn actions_row() -> Div {
     div().flex().flex_row().justify_end().gap_2().pt_1()
 }
 

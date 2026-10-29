@@ -23,6 +23,8 @@ gpui-component.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 # The home folder a save dialog starts in.
 directories.workspace = true
+# A job's start as the local time of day (UI-21).
+chrono.workspace = true
 # The code themes' highlighting (UI-24).
 syntect.workspace = true
 # The theme files gpui-component reads, built from the tokens (UI-23),
