@@ -13,8 +13,9 @@ use gitcroc_core::{
     Outcome, Prune, RepoId, SyncOp, SyncRequest, SyncStart, WorkspaceId,
 };
 use gitcroc_ui::strings;
+use gitcroc_ui::window::GitcrocWindow;
 use gpui_kit::test::TestWindowExt;
-use gpui_kit::{ElementId, Role, TestAppContext, VisualTestContext, point, px};
+use gpui_kit::{ElementId, Entity, Role, TestAppContext, VisualTestContext, point, px};
 
 use crate::history::{click, id_of, repo, repos, tab, wait_until};
 use crate::support::{Fixture, main_window};
@@ -127,8 +128,9 @@ pub(crate) fn job(fixture: &Fixture, id: JobId) -> JobView {
         .unwrap()
 }
 
-/// Waits until job `id` has ended with `outcome` and the window has drawn
-/// what it heard.
+/// Waits until job `id` has ended, and checks that it ended with
+/// `outcome`. The deadline only ends a hung test: git on a busy runner can
+/// be slow, so it is generous.
 #[track_caller]
 pub(crate) fn wait_for_end(
     cx: &mut VisualTestContext,
@@ -136,7 +138,23 @@ pub(crate) fn wait_for_end(
     id: JobId,
     outcome: &Outcome,
 ) {
-    wait_until(cx, |_| job(fixture, id).outcome.as_ref() == Some(outcome));
+    for _ in 0..3000 {
+        cx.run_until_parked();
+        let view = job(fixture, id);
+        if view.state == JobState::Ended {
+            assert_eq!(
+                view.outcome.as_ref(),
+                Some(outcome),
+                "{}: {:?}\n{}",
+                view.label,
+                view.message,
+                view.output
+            );
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("job {id:?} never ended: {:?}", job(fixture, id));
 }
 
 pub(crate) fn label_of(cx: &mut VisualTestContext, id: &str) -> Option<String> {
@@ -146,6 +164,20 @@ pub(crate) fn label_of(cx: &mut VisualTestContext, id: &str) -> Option<String> {
             .try_find(ElementId::Name(id.to_owned().into()))
             .and_then(|found| found.label().map(str::to_owned))
     })
+}
+
+/// Waits until the window has heard that job `id` ended.
+fn wait_heard(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>, id: JobId) {
+    wait_until(cx, |cx| {
+        cx.update(|_, cx| {
+            window
+                .read(cx)
+                .jobs()
+                .read(cx)
+                .get(id)
+                .is_some_and(|job| job.state == JobState::Ended)
+        })
+    });
 }
 
 /// What the status bar says.
@@ -280,12 +312,14 @@ fn ui_21_job_list_shows_outcome_and_raw_output_of_every_job(cx: &mut TestAppCont
         .unwrap()
         .active
         .unwrap();
-    let in_second = fixture.add_repos(&second, made.path());
+    // Repos of its own: no other tab reads the folder its merge writes.
+    let theirs = self::made(missing.path().join("gone").to_str().unwrap());
+    let in_second = fixture.add_repos(&second, theirs.path());
     fixture
         .runtime
         .block_on(app.workspace_activate(main.clone()))
         .unwrap();
-    let (mut cx, _window) = main_window(cx, &fixture);
+    let (mut cx, window) = main_window(cx, &fixture);
 
     let succeeded = write_commit_graph(&fixture, &main, &id_of(&added, "web"));
     wait_for_end(&mut cx, &fixture, succeeded, &Outcome::Succeeded);
@@ -293,6 +327,8 @@ fn ui_21_job_list_shows_outcome_and_raw_output_of_every_job(cx: &mut TestAppCont
     wait_for_end(&mut cx, &fixture, failed, &Outcome::Failed);
     let conflict = merge(&fixture, &second, &id_of(&in_second, "web"));
     wait_for_end(&mut cx, &fixture, conflict, &Outcome::Conflict);
+    // Ends arrive in order: the window has heard all three.
+    wait_heard(&mut cx, &window, conflict);
 
     open_job_list(&mut cx);
     let rows = job_rows(&mut cx);
@@ -501,10 +537,11 @@ fn sec_3_job_output_and_labels_render_as_text(cx: &mut TestAppContext) {
         .active
         .unwrap();
     let added = fixture.add_repos(&workspace, made.path());
-    let (mut cx, _window) = main_window(cx, &fixture);
+    let (mut cx, window) = main_window(cx, &fixture);
 
     let id = fetch(&fixture, &workspace, &id_of(&added, "api"));
     wait_for_end(&mut cx, &fixture, id, &Outcome::Failed);
+    wait_heard(&mut cx, &window, id);
     open_job_list(&mut cx);
     let view = job(&fixture, id);
     assert!(view.output.contains("<i>gone</i>"), "{}", view.output);
