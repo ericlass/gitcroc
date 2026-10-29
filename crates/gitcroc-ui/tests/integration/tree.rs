@@ -186,7 +186,11 @@ fn wait(cx: &mut VisualTestContext, mut done: impl FnMut(&mut VisualTestContext)
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    panic!("the tree never got there: {:#?}", shown(cx));
+    panic!(
+        "the tree never got there, with the filter {:?}: {:#?}",
+        filter_text(cx),
+        shown(cx)
+    );
 }
 
 #[track_caller]
@@ -219,13 +223,23 @@ fn click_with(cx: &mut VisualTestContext, id: ElementId, modifiers: Modifiers) {
 
 /// Types `text` into the filter box, replacing what it holds.
 fn filter(cx: &mut VisualTestContext, text: &str) {
-    click(cx, "tree-filter".into());
-    press(cx, &secondary("a"));
-    press(cx, "backspace");
-    if !text.is_empty() {
-        cx.update(|window, cx| window.input(text, cx));
-        cx.run_until_parked();
+    // A click right after a tab switch can land on the frame before it,
+    // so the field may not have the focus yet: type again until it holds
+    // the text.
+    for _ in 0..3 {
+        settle(cx, |_, _| true);
+        click(cx, "tree-filter".into());
+        press(cx, &secondary("a"));
+        press(cx, "backspace");
+        if !text.is_empty() {
+            cx.update(|window, cx| window.input(text, cx));
+            cx.run_until_parked();
+        }
+        if filter_text(cx) == text {
+            return;
+        }
     }
+    panic!("the filter holds {:?}, not {text:?}", filter_text(cx));
 }
 
 fn filter_text(cx: &mut VisualTestContext) -> String {

@@ -18,7 +18,7 @@ use gpui_kit::test::TestWindowExt;
 use gpui_kit::{ElementId, Entity, Role, TestAppContext, VisualTestContext, point, px};
 
 use crate::history::{click, id_of, repo, repos, tab, wait_until};
-use crate::support::{Fixture, main_window};
+use crate::support::{Fixture, main_window, settle};
 
 /// Repos "api", whose origin is `origin`, and "web", whose branch `other`
 /// changes the line `main` changed too. Returns the fixture repos.
@@ -513,10 +513,18 @@ fn perf_1_the_job_list_lays_out_only_the_rows_on_screen(cx: &mut TestAppContext)
             }
         });
     }
-    // The window heard every job once it heard the last.
-    wait_until(&mut cx, |cx| {
-        cx.update(|_, cx| window.read(cx).jobs().read(cx).len() == JOBS + 1)
-    });
+    // The window has every job, the one that added the repo too.
+    let listed = fixture.app().jobs_get().len();
+    assert_eq!(listed, JOBS + 1);
+    for _ in 0..3000 {
+        settle(&mut cx, |_, _| true);
+        if cx.update(|_, cx| window.read(cx).jobs().read(cx).len()) == listed {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let heard = cx.update(|_, cx| window.read(cx).jobs().read(cx).len());
+    assert_eq!(heard, listed, "the window has {heard} of {listed} jobs");
 
     open_job_list(&mut cx);
     let drawn = job_rows(&mut cx).len();
