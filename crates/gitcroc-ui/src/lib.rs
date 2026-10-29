@@ -18,6 +18,8 @@ pub mod keys;
 pub mod menu;
 pub mod menus;
 pub mod panes;
+#[cfg(feature = "perf-trace")]
+pub mod perf;
 pub mod services;
 pub mod special_diff;
 pub mod strings;

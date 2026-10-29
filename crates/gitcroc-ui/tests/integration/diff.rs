@@ -9,7 +9,7 @@ use gitcroc_app::app::EVENT_CAPACITY;
 use gitcroc_core::{
     ChangesSettings, CodeTheme, Context, DiffMode, FileListMode, Settings, Theme as ThemeSetting,
 };
-use gitcroc_ui::diff::{DiffRow, Shown};
+use gitcroc_ui::diff::{DiffDoc, DiffRow, Shown};
 use gitcroc_ui::diff_view::DiffView;
 use gitcroc_ui::special_diff::Special;
 use gitcroc_ui::theme::AppTheme;
@@ -354,6 +354,39 @@ fn ui_17_wrap_lines_wraps_long_lines(cx: &mut TestAppContext) {
     click(&mut cx, "changes-wrap-lines".into());
     wait_until(&mut cx, |cx| height(cx, line()) > one_line * 2.);
     assert_eq!(height(&mut cx, "diff-row-1".into()), one_line);
+}
+
+/// The index of the first diff row on screen, from where the window drew
+/// the rows.
+fn first_on_screen(cx: &mut VisualTestContext, rows: usize) -> usize {
+    cx.update(|window, cx| {
+        window.render_frame(cx);
+        let top = window.find("diff-lines").bounds().top();
+        (0..rows)
+            .find(|index| {
+                window
+                    .try_find(ElementId::Name(format!("diff-row-{index}").into()))
+                    .is_some_and(|row| row.visible() && row.bounds().bottom() > top + px(1.))
+            })
+            .expect("no row on screen")
+    })
+}
+
+#[gpui::test]
+fn ui_17_wrapping_keeps_the_line_at_the_top(cx: &mut TestAppContext) {
+    let fixture = Fixture::start(EVENT_CAPACITY);
+    let (mut cx, window, _repos) =
+        open_change(cx, &fixture, "l0\n", &format!("l0\n{}", numbered(300)));
+    let rows = with_diff(&mut cx, &window, |diff| diff.doc().map_or(0, DiffDoc::len));
+    scroll_diff(&mut cx, 0., -100. * 20.);
+    let top = first_on_screen(&mut cx, rows);
+    assert!(top > 50, "the diff scrolled only to row {top}");
+    assert_eq!(with_diff(&mut cx, &window, DiffView::top_row), top);
+
+    click(&mut cx, "changes-wrap-lines".into());
+    wait_until(&mut cx, |cx| with_diff(cx, &window, DiffView::wrapping));
+    assert_eq!(first_on_screen(&mut cx, rows), top);
+    assert_eq!(with_diff(&mut cx, &window, DiffView::top_row), top);
 }
 
 #[gpui::test]

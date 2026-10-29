@@ -17,6 +17,7 @@ mod history;
 mod history_merged;
 mod history_search;
 mod panes;
+mod perf;
 mod strings;
 mod support;
 mod tabs;

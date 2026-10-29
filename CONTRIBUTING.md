@@ -179,9 +179,18 @@ Hosted runners have no fixed speed, so this is the only workflow that times anyt
 
 The baseline is the CI runner's own speed, not the reference machine's. To make a new one, run the Bench workflow with **baseline** ticked: it runs the bench three times and uploads `baseline-linux.json`, the median of the three (`gitcroc-cli bench-baseline <results.json>...` computes it). The workflow does this on its own when no baseline is committed. Commit the file in a pull request that says why the baseline changed: a deliberate trade-off, a new scenario, a change of runner image. Never update it to make a regression pass.
 
-### UI-side budgets
+### UI-side budgets: `just bench-ui`
 
-The UI-side budgets of section 9 (cold start, selection, scrolling, input latency during jobs, memory) were measured on the Tauri app by `just bench-ui`, which left with it. M6-29 measures them on the GPUI app.
+Some section 9 budgets need the real app. `just bench-ui` measures those that need one repo on the GPUI app and `target-project`, on Linux only (M6-14b): cold start until the tree shows from the cache, selecting the largest repo, a commit, switching between two repos and between two tabs, each until the frame that shows the result, and scrolling the history and a diff. The rest (the refresh after the start, selecting a group, input latency while jobs run, memory) come with M6-29.
+
+1. It builds `gitcroc-next` with the `perf-trace` Cargo feature into `target/bench-ui`, so a measuring build never ends up in a release. With the feature, `gitcroc-next --bench <script> <trace>` plays a script in its window (`crates/gitcroc-ui/src/perf.rs`): real clicks and wheel events at the elements the last frame drew, one step per frame. An action is timed from its click to the present of the first frame that draws its result. A scroll moves 100 px a frame and records the time between frames and how long any history row stayed a placeholder. The feature turns on gpui-kit's `test-support`, whose element registry the runner finds its targets in.
+2. `gitcroc-cli bench-ui` sets up a throwaway config and cache: a workspace of the 20 repos with their summaries cached, a second tab of the same repos, and a third tab with one repo whose commit adds a 15,000-line Rust file, since no `target-project` file is long enough to scroll. It starts the app once to warm up and five times to measure (`--runs <n>`), each a new process, and prints JSON like `just bench` does, with a `unit` on each row. It exits 1 when a median is over its budget.
+
+The scroll budget is judged per run: `scroll-history-frame` and `scroll-diff-frame` are the mean time between frames, within 1% of the display's refresh interval (capped at 144 Hz); `-janky` is the share of frames over 1.5 intervals, at most 1%; `scroll-blank` is the longest a row stayed blank. The display's rate comes from the platform, or from `--refresh-hz <hz>`, which X11 needs: an X screen spans every monitor, so GPUI gets no rate there (`taskset -c 0-7 just bench-ui --refresh-hz 144`). GPUI slows the frames of a window that is not active, so the run fails if the window loses the focus while scrolling: leave it in front.
+
+Run it pinned to 8 cores, with nothing else busy, before a release and for a milestone sign-off: `taskset -c 0-7 just bench-ui`. It does not run in CI. `--verbose` also prints each run's samples and scroll runs.
+
+`switch-tab` ends at the other tab's first paint, its tree. `switch-tab-history` is reported without a budget: from the same click until that tab's history, file list and diff are back, which UI-31 reads again. Each run starts from a fresh copy of the config and cache, so the tabs and selection the app saved in one run do not carry over to the next.
 
 ## Integration tests and unwrap (QA-4)
 
