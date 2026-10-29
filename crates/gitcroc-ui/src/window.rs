@@ -7,7 +7,8 @@
 //! main thread, and reads the state again when it fell behind. Until git
 //! detection finds a usable git, the window shows that it is looking, then
 //! the setup screen (PLAT-3); with no tab open, the workspaces to open
-//! (UI-27). Dialogs are drawn over everything.
+//! (UI-27). The status bar shows the active tab's jobs, and opens the
+//! job list of every tab (UI-21). Dialogs are drawn over everything.
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -26,12 +27,15 @@ use crate::changes_pane::{ChangesPane, ChangesPrefs};
 use crate::dialog::{Closed, Modal, NameDialog, Question};
 use crate::git_setup::GitSetup;
 use crate::history_pane::HistoryPane;
+use crate::job_list::JobList;
+use crate::jobs::Jobs;
 use crate::keys::{
     self, Minimize, MoveTabLeft, MoveTabRight, NextHunk, NextRegion, NextTab, PreviousHunk,
     PreviousRegion, PreviousTab, Zoom,
 };
 use crate::panes::Panes;
 use crate::services::Services;
+use crate::status_bar::{ShowJobs, StatusBar};
 use crate::strings;
 use crate::tab_bar::{TabBar, TabBarEvent};
 use crate::theme::{ActiveTokens, AppTheme};
@@ -65,11 +69,16 @@ impl Git {
     }
 }
 
+/// Closes the open dialog.
+type CloseDialog = Box<dyn Fn(&mut gpui_kit::App)>;
+
 /// The dialog over the window: there is at most one.
 struct OpenDialog {
     view: AnyView,
     /// Where the focus goes back to when it closes.
     restore: Option<FocusHandle>,
+    /// Closes it after a click beside it, for a dialog that allows it.
+    close_on_backdrop: Option<CloseDialog>,
     _closed: Subscription,
 }
 
@@ -90,7 +99,9 @@ pub struct GitcrocWindow {
     shown: Option<WorkspaceId>,
     title_focus: FocusHandle,
     toolbar_focus: FocusHandle,
-    status_focus: FocusHandle,
+    /// This run's jobs, of every tab (UI-21).
+    jobs: Entity<Jobs>,
+    status_bar: Entity<StatusBar>,
     controls: Rc<dyn WindowControls>,
     workspaces: Entity<Workspaces>,
     tab_bar: Entity<TabBar>,
@@ -123,7 +134,9 @@ impl GitcrocWindow {
     ) -> Self {
         // In memory, loaded at start: what the first frame shows.
         let workspaces = cx.new(|_| Workspaces::new(services.clone()));
-        let tab_bar = cx.new(|cx| TabBar::new(workspaces.clone(), cx));
+        let jobs = cx.new(|cx| Jobs::new(services.clone(), cx));
+        let tab_bar = cx.new(|cx| TabBar::new(workspaces.clone(), jobs.clone(), cx));
+        let status_bar = cx.new(|cx| StatusBar::new(jobs.clone(), cx));
         let title_bar = cx.new(|_| TitleBar::new(controls.clone(), platform, system_title_bar));
         let mut events = services.app().subscribe();
         let bridge = cx.spawn_in(window, async move |this, cx| {
@@ -166,6 +179,9 @@ impl GitcrocWindow {
                     cx.notify();
                 }
             }),
+            cx.subscribe_in(&status_bar, window, |this, _, _: &ShowJobs, window, cx| {
+                this.open_job_list(window, cx);
+            }),
         ];
         let mut this = Self {
             services,
@@ -177,7 +193,8 @@ impl GitcrocWindow {
             shown: None,
             title_focus: cx.focus_handle(),
             toolbar_focus: cx.focus_handle(),
-            status_focus: cx.focus_handle(),
+            jobs,
+            status_bar,
             controls,
             workspaces,
             tab_bar,
@@ -208,6 +225,11 @@ impl GitcrocWindow {
         &self.title_bar
     }
 
+    /// This run's jobs, as the status bar and the job list show them.
+    pub fn jobs(&self) -> &Entity<Jobs> {
+        &self.jobs
+    }
+
     fn on_event(
         &mut self,
         event: Result<AppEvent, RecvError>,
@@ -235,6 +257,11 @@ impl GitcrocWindow {
                 Err(RecvError::Closed) => {}
             });
         }
+        self.jobs.update(cx, |jobs, cx| match &event {
+            Ok(event) => jobs.on_event(event, cx),
+            Err(RecvError::Lagged(_)) => jobs.read_again(cx),
+            Err(RecvError::Closed) => {}
+        });
         match event {
             Ok(AppEvent::GitStatus(status)) => {
                 self.git.heard = true;
@@ -421,8 +448,10 @@ impl GitcrocWindow {
             if let Some(shown) = &shown {
                 self.resume(shown, cx);
             }
-            self.shown = shown;
+            self.shown = shown.clone();
         }
+        // The status bar shows the active tab's jobs (UI-21).
+        self.jobs.update(cx, |jobs, cx| jobs.set_active(shown, cx));
         // With every tab closed, the workspaces to open (UI-27).
         if tabs.active.is_none() && usable {
             if self.start.is_none() {
@@ -624,12 +653,28 @@ impl GitcrocWindow {
         });
         let restore = window.focused(cx);
         dialog.update(cx, |dialog, cx| dialog.focus_first(window, cx));
+        let close_on_backdrop = dialog.read(cx).closes_on_backdrop().then(|| {
+            let dialog = dialog.clone();
+            Box::new(move |cx: &mut gpui_kit::App| dialog.update(cx, |_, cx| cx.emit(Closed)))
+                as CloseDialog
+        });
         self.dialog = Some(OpenDialog {
             view: dialog.into(),
             restore,
+            close_on_backdrop,
             _closed: closed,
         });
         cx.notify();
+    }
+
+    /// Opens the job list of every tab (UI-21).
+    fn open_job_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let jobs = self.jobs.clone();
+        let list = cx.new(|cx| JobList::new(jobs, cx));
+        self.open_dialog(list, window, cx);
     }
 
     /// The tab shortcuts work while no dialog or menu is open (UI-22).
@@ -680,7 +725,7 @@ impl GitcrocWindow {
                 .chain(tree)
                 .chain(history)
                 .chain(changes)
-                .chain([self.status_focus.clone()])
+                .chain([self.status_bar.focus_handle(cx)])
                 .collect()
         } else {
             let setup = self.git_setup.as_ref().map(|setup| setup.focus_handle(cx));
@@ -766,14 +811,16 @@ impl GitcrocWindow {
             div()
                 .id("status-bar")
                 .test_support()
-                .track_focus(&self.status_focus)
                 .role(Role::Status)
                 .aria_label(strings::regions::STATUS_BAR)
                 .flex_shrink_0()
+                .flex()
+                .flex_row()
                 .h(STATUS_BAR_HEIGHT)
                 .bg(tokens.bg_2)
                 .border_t_1()
                 .border_color(tokens.border)
+                .child(self.status_bar.clone())
                 .into_any_element(),
         ]
     }
@@ -787,10 +834,23 @@ impl GitcrocWindow {
         Some(
             div()
                 .id("dialog-layer")
+                .test_support()
                 .absolute()
                 .inset_0()
                 .occlude()
                 .bg(backdrop)
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        if let Some(close) = this
+                            .dialog
+                            .as_ref()
+                            .and_then(|open| open.close_on_backdrop.as_ref())
+                        {
+                            close(cx);
+                        }
+                    }),
+                )
                 .flex()
                 .items_center()
                 .justify_center()

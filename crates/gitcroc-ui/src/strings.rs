@@ -111,6 +111,84 @@ pub mod tabs {
     pub const RENAME: &str = "Rename…";
     pub const EXPORT: &str = "Export workspace…";
     pub const CLOSE_TAB: &str = "Close";
+    /// The badge of a tab with jobs (UI-32).
+    pub fn jobs_title(count: u32) -> String {
+        format!("{} running or waiting", super::plural(count, "job", "jobs"))
+    }
+    /// The marker of a tab with a failure not seen (UI-32).
+    pub const FAILED: &str = "!";
+    pub const FAILED_TITLE: &str = "A job failed or stopped on a conflict";
+}
+
+/// The status bar (UI-21).
+pub mod status_bar {
+    pub const SHOW_JOBS: &str = "Show the job list";
+    pub const NO_JOBS: &str = "No jobs running";
+}
+
+/// Jobs, as the status bar and the job list show them (UI-21, GRP-7).
+pub mod jobs {
+    use gitcroc_core::{Outcome, SkipReason};
+
+    /// GRP-7's outcomes.
+    pub fn outcome(outcome: &Outcome) -> String {
+        match outcome {
+            Outcome::Succeeded => "Succeeded".to_owned(),
+            Outcome::NothingToDo => "Nothing to do".to_owned(),
+            Outcome::Skipped { reason } => format!("Skipped ({})", skip_reason(reason)),
+            Outcome::Failed => "Failed".to_owned(),
+            Outcome::Conflict => "Conflict".to_owned(),
+        }
+    }
+    /// Why a job or a repo was skipped, in the parentheses after "Skipped".
+    fn skip_reason(reason: &SkipReason) -> &str {
+        match reason {
+            SkipReason::Cancelled => "cancelled",
+            SkipReason::Preflight { reason } | SkipReason::Blocked { reason } => reason,
+        }
+    }
+    /// Each outcome's icon, the same in both themes.
+    pub fn icon(outcome: &Outcome) -> &'static str {
+        match outcome {
+            Outcome::Succeeded => "✓",
+            Outcome::NothingToDo => "–",
+            Outcome::Skipped { .. } => "⊘",
+            Outcome::Failed => "✕",
+            Outcome::Conflict => "⚠",
+        }
+    }
+    /// The spinner's name while a job's total is not known.
+    pub const RUNNING: &str = "Running";
+    /// What a group job and Resolve all with AI count.
+    pub const REPOS: &str = "repos";
+    pub const FILES: &str = "files";
+    pub fn waiting_for(repos: &str) -> String {
+        format!("waiting for {repos}")
+    }
+    pub fn milliseconds(ms: u32) -> String {
+        format!("{ms} ms")
+    }
+    pub fn seconds(seconds: &str) -> String {
+        format!("{seconds} s")
+    }
+    pub fn minutes(minutes: u32, seconds: u32) -> String {
+        format!("{minutes} min {seconds} s")
+    }
+    pub const NO_OUTPUT: &str = "No output.";
+    pub const STOPPING: &str = "Stopping git…";
+    pub const CANNOT_STOP: &str = "This job cannot be stopped; it runs to its end.";
+    pub const CANCEL: &str = "Cancel";
+    pub const TITLE: &str = "Jobs";
+    pub const CLOSE: &str = "Close";
+    pub const COLUMN_JOB: &str = "Job";
+    pub const COLUMN_WORKSPACE: &str = "Workspace";
+    pub const COLUMN_REPO: &str = "Repo";
+    pub const COLUMN_STATE: &str = "State";
+    pub const COLUMN_STARTED: &str = "Started";
+    pub const COLUMN_DURATION: &str = "Duration";
+    pub const NO_JOBS: &str = "No jobs have run yet.";
+    pub const OUTPUT: &str = "Job output";
+    pub const SELECT_JOB: &str = "Select a job to see git's output.";
 }
 
 /// `count` with `one` or `many` after it.

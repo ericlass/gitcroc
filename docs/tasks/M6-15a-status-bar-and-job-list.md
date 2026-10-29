@@ -65,9 +65,10 @@ marker; there are no pop-up toasts.
     raw output as text (SEC-3), in a scrolling area; "No output." when git
     printed nothing;
   - a job that has not ended has Cancel (`job_cancel`, GRP-10). The detail
-    then says "Stopping git…" or that the job runs to its end, or why the
-    cancel failed, as rc.1 does. Its end arrives as `JobEnded`;
-  - a failed `jobs_get` says "Cannot read the jobs: <why>";
+    then says "Stopping git…" or that the job runs to its end, as rc.1
+    does. Its end arrives as `JobEnded`. `jobs_get` and `job_cancel`
+    cannot fail in the app's Rust API, so rc.1's messages for their
+    failures have no place here;
   - jobs stay until the app closes; nothing is saved.
 - **Tab marks** (UI-32), a port of the marks in `ui/src/stores/jobs.ts` and
   `ui/src/layout/TabBar.tsx`:

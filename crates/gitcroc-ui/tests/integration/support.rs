@@ -275,7 +275,8 @@ impl Fixture {
                 keychain: Arc::new(MemoryKeychain::default()),
                 ai: Arc::new(ProviderCalls),
                 updates: Arc::new(NoUpdates),
-                askpass_helper: PathBuf::new(),
+                // Git starts the app's binary as its askpass helper (D10).
+                askpass_helper: PathBuf::from(env!("CARGO_BIN_EXE_gitcroc-next")),
                 event_capacity: options.capacity,
                 commit_graph_threshold: options.commit_graph_threshold,
             })

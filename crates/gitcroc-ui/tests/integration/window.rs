@@ -174,7 +174,8 @@ fn ui_22_f6_moves_the_focus_between_regions(cx: &mut TestAppContext) {
         "tree-list",
         "history",
         "changes",
-        "status-bar",
+        // The status bar's button, which opens the job list (UI-21).
+        "status-jobs",
     ];
     let focused = |cx: &mut VisualTestContext| -> Vec<&str> {
         cx.update(|window, cx| {
@@ -192,7 +193,7 @@ fn ui_22_f6_moves_the_focus_between_regions(cx: &mut TestAppContext) {
         cx.update(|window, cx| window.press("f6", cx));
         assert_eq!(focused(&mut cx), [*region]);
     }
-    for region in ["toolbar", "title-region", "status-bar"] {
+    for region in ["toolbar", "title-region", "status-jobs"] {
         cx.update(|window, cx| window.press("shift-f6", cx));
         assert_eq!(focused(&mut cx), [region]);
     }

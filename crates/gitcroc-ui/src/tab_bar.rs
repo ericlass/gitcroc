@@ -6,7 +6,8 @@
 //! Shift+F10 or the context menu key opens its menu: Rename, Export
 //! workspace (DATA-2) and Close. Each tab has a close button for the
 //! mouse, outside the Tab order. "+" opens the workspace menu. The core
-//! keeps the tabs; this sends what the user did.
+//! keeps the tabs; this sends what the user did. A tab shows a badge while
+//! it has jobs, and a marker for a failed job not seen yet (UI-32).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -16,16 +17,18 @@ use gitcroc_core::WorkspaceId;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    Anchor, App, AppContext, Bounds, ClickEvent, Context, ElementId, Entity, EventEmitter,
-    FocusHandle, InteractiveElement, IntoElement, KeyBinding, KeyBindingContextPredicate,
-    MouseButton, MouseDownEvent, ParentElement, Pixels, Point, Render, Role, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Task, TestSupportExt, Window, actions,
-    canvas, div, point, px,
+    Anchor, AnyElement, App, AppContext, Bounds, ClickEvent, Context, ElementId, Entity,
+    EventEmitter, FocusHandle, InteractiveElement, IntoElement, KeyBinding,
+    KeyBindingContextPredicate, MouseButton, MouseDownEvent, ParentElement, Pixels, Point, Render,
+    Role, SharedString, StatefulInteractiveElement, Styled, Subscription, Task, TestSupportExt,
+    Window, actions, canvas, div, point, px,
 };
 
+use crate::jobs::{Jobs, Marks};
 use crate::menu::{Menu, MenuEvent, MenuItem};
 use crate::strings::{tabs as text, workspaces as workspace_text};
 use crate::theme::ActiveTokens;
+use crate::theme::tokens::Tokens;
 use crate::workspace_menu::{Choice, entries};
 use crate::workspaces::Workspaces;
 
@@ -113,6 +116,8 @@ struct OpenMenu {
 /// The tab bar.
 pub struct TabBar {
     workspaces: Entity<Workspaces>,
+    /// Each tab's job marks come from the window's jobs.
+    jobs: Entity<Jobs>,
     tab_focus: HashMap<WorkspaceId, FocusHandle>,
     plus_focus: FocusHandle,
     /// Where each tab and "+" were drawn, for the menus below them.
@@ -120,21 +125,25 @@ pub struct TabBar {
     plus_bounds: Rc<Cell<Bounds<Pixels>>>,
     menu: Option<OpenMenu>,
     _workspaces: Subscription,
+    _jobs: Subscription,
 }
 
 impl EventEmitter<TabBarEvent> for TabBar {}
 
 impl TabBar {
-    pub fn new(workspaces: Entity<Workspaces>, cx: &mut Context<Self>) -> Self {
+    pub fn new(workspaces: Entity<Workspaces>, jobs: Entity<Jobs>, cx: &mut Context<Self>) -> Self {
         let observed = cx.observe(&workspaces, |_, _, cx| cx.notify());
+        let jobs_changed = cx.observe(&jobs, |_, _, cx| cx.notify());
         Self {
             workspaces,
+            jobs,
             tab_focus: HashMap::new(),
             plus_focus: cx.focus_handle(),
             tab_bounds: Rc::default(),
             plus_bounds: Rc::default(),
             menu: None,
             _workspaces: observed,
+            _jobs: jobs_changed,
         }
     }
 
@@ -449,6 +458,7 @@ impl TabBar {
         let id = view.id.clone();
         let name: SharedString = view.name.clone().into();
         let active = tabs.active.as_ref() == Some(&id);
+        let job_marks = marks(&self.jobs.read(cx).marks(&id), &id, &tokens);
         // Only the active tab is in the Tab order; the arrow keys reach
         // the others.
         let focus = self.tab_focus(&id, cx).tab_stop(active);
@@ -541,6 +551,7 @@ impl TabBar {
                     .size_full(),
                 )
                 .child(div().flex_1().truncate().child(name.clone()))
+                .children(job_marks)
                 .child(
                     // The mouse's way to close; Delete and the tab's menu
                     // are the keyboard's (UI-28).
@@ -564,6 +575,49 @@ impl TabBar {
                 ),
         )
     }
+}
+
+/// A tab's badge with the number of its jobs that run or wait, and its
+/// marker for a failed job not seen (UI-32).
+fn marks(marks: &Marks, id: &WorkspaceId, tokens: &Tokens) -> Vec<AnyElement> {
+    let pill = |name: String, label: SharedString, text: SharedString| {
+        div()
+            .id(ElementId::Name(name.into()))
+            .test_support()
+            .role(Role::Status)
+            .aria_label(label)
+            .flex_shrink_0()
+            .min_w(px(16.))
+            .h(px(16.))
+            .px_1()
+            .rounded(px(8.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_xs()
+            .text_color(tokens.accent_text)
+            .child(text)
+    };
+    let badge = (marks.active > 0).then(|| {
+        pill(
+            format!("tab-badge-{}", id.0),
+            text::jobs_title(marks.active).into(),
+            marks.active.to_string().into(),
+        )
+        .bg(tokens.accent)
+        .into_any_element()
+    });
+    let marker = marks.unseen.then(|| {
+        pill(
+            format!("tab-marker-{}", id.0),
+            text::FAILED_TITLE.into(),
+            text::FAILED.into(),
+        )
+        .bg(tokens.outcome_failed)
+        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+        .into_any_element()
+    });
+    badge.into_iter().chain(marker).collect()
 }
 
 impl Render for TabBar {
