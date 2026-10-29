@@ -204,14 +204,19 @@ fn d10_askpass_prompts_queue(cx: &mut TestAppContext) {
     let added = fixture.add_repos(&workspace, made.path());
     let (mut cx, window) = main_window(cx, &fixture);
 
-    fetch(&fixture, &workspace, &id_of(&added, "api"));
-    fetch(&fixture, &workspace, &id_of(&added, "web"));
+    let api = fetch(&fixture, &workspace, &id_of(&added, "api"));
+    let web = fetch(&fixture, &workspace, &id_of(&added, "web"));
     let first = wait_for_dialog(&mut cx, &window, None);
     let first_id = cx.update(|_, cx| first.read(cx).prompt_id());
     let first_title = label_of(&mut cx, "askpass-dialog").unwrap();
     press(&mut cx, "escape");
     wait_for_dialog(&mut cx, &window, Some(first_id));
     let second_title = label_of(&mut cx, "askpass-dialog").unwrap();
+    // No fetch is left waiting on git's helper when the app goes: on
+    // Windows the helper would wait for its answer for ever.
+    press(&mut cx, "escape");
+    wait_for_end(&mut cx, &fixture, api, &Outcome::Failed);
+    wait_for_end(&mut cx, &fixture, web, &Outcome::Failed);
 
     let mut titles = [first_title, second_title];
     titles.sort();
