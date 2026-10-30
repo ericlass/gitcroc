@@ -15,7 +15,7 @@ use gpui_kit::{ElementId, Entity, TestAppContext, VisualTestContext};
 use crate::changes::{switch_to, wait_for_view, with_changes};
 use crate::history::{add, click, id_of, label_of, press, repo, repos};
 use crate::history_merged::present;
-use crate::stage::{disabled, row_of, row_part, show_uncommitted, wait_for_lists};
+use crate::stage::{act_until, disabled, row_of, row_part, show_uncommitted, wait_for_lists};
 use crate::support::{Fixture, Options, main_window};
 
 /// The identity commits are made with: the user's own config is not the
@@ -101,8 +101,13 @@ fn ui_15_commit_and_amend(cx: &mut TestAppContext) {
         Some("Stage changes first")
     );
     let readme = row_of(&mut cx, &window, List::Unstaged, "README.md");
-    click(&mut cx, row_part(readme, "stage"));
-    wait_for_lists(&mut cx, &window, &["README.md"], &["keep.txt"]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, row_part(readme, "stage")),
+        &["README.md"],
+        &["keep.txt"],
+    );
     // No subject.
     assert!(disabled(&mut cx, "commit-commit".into()));
     assert_eq!(
@@ -116,8 +121,7 @@ fn ui_15_commit_and_amend(cx: &mut TestAppContext) {
     assert!(!disabled(&mut cx, "commit-commit".into()));
     assert!(!present(&mut cx, "commit-why".into()));
     type_in(&mut cx, "commit-body", "Why it changed.");
-    commit_keys(&mut cx);
-    wait_for_lists(&mut cx, &window, &[], &["keep.txt"]);
+    act_until(&mut cx, &window, commit_keys, &[], &["keep.txt"]);
     wait_for(&mut cx, |cx| draft(cx, &window) == CommitMessage::default());
     assert_eq!(field(&mut cx, "commit-subject").as_deref(), Some(""));
     assert_eq!(head(&api), ("First change".to_owned(), 2));
@@ -143,8 +147,13 @@ fn ui_15_commit_and_amend(cx: &mut TestAppContext) {
         field(&mut cx, "commit-subject").as_deref(),
         Some("First change")
     );
-    click(&mut cx, "commit-amend".into());
-    wait_for_lists(&mut cx, &window, &[], &["keep.txt"]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, "commit-amend".into()),
+        &[],
+        &["keep.txt"],
+    );
     wait_for(&mut cx, |cx| draft(cx, &window) == CommitMessage::default());
     assert_ne!(api.head().unwrap(), before);
     assert_eq!(head(&api), ("First change".to_owned(), 2));

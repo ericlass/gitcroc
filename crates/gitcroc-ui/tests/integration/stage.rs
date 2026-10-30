@@ -107,6 +107,51 @@ pub(crate) fn wait_for_lists(
     panic!("the lists stay {shown:?}, notice {notice:?}; wanted {staged:?} and {unstaged:?}");
 }
 
+/// Does `act`, which sends a request made from the lists shown, until the
+/// lists are `staged` and `unstaged`. A read of the lists that begins
+/// meanwhile, as the watcher's after a test's own git command, overtakes
+/// the request: the core runs nothing and the pane says "The list changed;
+/// showing it again.", and the user acts again, as this does.
+#[track_caller]
+pub(crate) fn act_until(
+    cx: &mut VisualTestContext,
+    window: &Entity<GitcrocWindow>,
+    mut act: impl FnMut(&mut VisualTestContext),
+    staged: &[&str],
+    unstaged: &[&str],
+) {
+    let overtaken = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            let pane = window.read(cx).changes(cx).expect("no changes pane");
+            let pane = pane.read(cx);
+            let said = [pane.changes().notice(), pane.commit_box().read(cx).error()];
+            said.contains(&Some(LIST_CHANGED))
+        })
+    };
+    for _ in 0..5 {
+        act(cx);
+        for _ in 0..1000 {
+            crate::support::settle(cx, |_, _| true);
+            let loading = with_changes(cx, window, |changes| changes.loading());
+            let (now_staged, now_unstaged) = lists(cx, window);
+            if !loading && now_staged == staged && now_unstaged == unstaged {
+                return;
+            }
+            if overtaken(cx) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        if !overtaken(cx) {
+            break;
+        }
+    }
+    wait_for_lists(cx, window, staged, unstaged);
+}
+
+/// What the pane says when a newer read of the lists overtook a request.
+const LIST_CHANGED: &str = "The list changed; showing it again.";
+
 /// The row of file `path` in `list`.
 #[track_caller]
 pub(crate) fn row_of(
@@ -277,16 +322,26 @@ fn ui_15_stage_and_unstage_files_from_the_lists(cx: &mut TestAppContext) {
         label_of(&mut cx, row_part(readme, "discard")).as_deref(),
         Some("Discard README.md")
     );
-    click(&mut cx, row_part(readme, "stage"));
-    wait_for_lists(&mut cx, &window, &["README.md", "c.txt"], &["b.txt"]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, row_part(readme, "stage")),
+        &["README.md", "c.txt"],
+        &["b.txt"],
+    );
 
     let c = row_of(&mut cx, &window, List::Staged, "c.txt");
     assert_eq!(
         label_of(&mut cx, row_part(c, "unstage")).as_deref(),
         Some("Unstage c.txt")
     );
-    click(&mut cx, row_part(c, "unstage"));
-    wait_for_lists(&mut cx, &window, &["README.md"], &["b.txt", "c.txt"]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, row_part(c, "unstage")),
+        &["README.md"],
+        &["b.txt", "c.txt"],
+    );
 
     // The lists' buttons move all of them.
     let unstaged = section_of(&mut cx, &window, List::Unstaged);
@@ -294,23 +349,43 @@ fn ui_15_stage_and_unstage_files_from_the_lists(cx: &mut TestAppContext) {
         label_of(&mut cx, row_part(unstaged, "all")).as_deref(),
         Some("Stage all")
     );
-    click(&mut cx, row_part(unstaged, "all"));
-    wait_for_lists(&mut cx, &window, &["README.md", "b.txt", "c.txt"], &[]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, row_part(unstaged, "all")),
+        &["README.md", "b.txt", "c.txt"],
+        &[],
+    );
     let staged = section_of(&mut cx, &window, List::Staged);
     assert_eq!(
         label_of(&mut cx, row_part(staged, "all")).as_deref(),
         Some("Unstage all")
     );
-    click(&mut cx, row_part(staged, "all"));
-    wait_for_lists(&mut cx, &window, &[], &["README.md", "b.txt", "c.txt"]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, row_part(staged, "all")),
+        &[],
+        &["README.md", "b.txt", "c.txt"],
+    );
 
     // A double-click moves a file to the other list.
     let b = row_of(&mut cx, &window, List::Unstaged, "b.txt");
-    double_click(&mut cx, row(b));
-    wait_for_lists(&mut cx, &window, &["b.txt"], &["README.md", "c.txt"]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| double_click(cx, row(b)),
+        &["b.txt"],
+        &["README.md", "c.txt"],
+    );
     let b = row_of(&mut cx, &window, List::Staged, "b.txt");
-    double_click(&mut cx, row(b));
-    wait_for_lists(&mut cx, &window, &[], &["README.md", "b.txt", "c.txt"]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| double_click(cx, row(b)),
+        &[],
+        &["README.md", "b.txt", "c.txt"],
+    );
 }
 
 #[gpui::test]
@@ -339,10 +414,10 @@ fn ui_15_several_files_go_in_one_job(cx: &mut TestAppContext) {
     assert_eq!(marked(&mut cx, &window), ["a.txt"]);
     click_with(&mut cx, row(c), secondary);
     let before = jobs(&fixture, "Stage").len();
-    click(&mut cx, row_part(c, "stage"));
-    wait_for_lists(
+    act_until(
         &mut cx,
         &window,
+        |cx| click(cx, row_part(c, "stage")),
         &["a.txt", "c.txt"],
         &["b.txt", "d.txt", "e.txt"],
     );
@@ -369,8 +444,13 @@ fn ui_15_several_files_go_in_one_job(cx: &mut TestAppContext) {
     click_with(&mut cx, row(e), Modifiers::shift());
     let before = jobs(&fixture, "Stage").len();
     let d = row_of(&mut cx, &window, List::Unstaged, "d.txt");
-    click(&mut cx, row_part(d, "stage"));
-    wait_for_lists(&mut cx, &window, &all[1..], &[]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, row_part(d, "stage")),
+        &all[1..],
+        &[],
+    );
     let stages = jobs(&fixture, "Stage");
     assert_eq!(stages.len(), before + 1, "{stages:?}");
     assert_eq!(stages.last().unwrap().label, "Stage 3 files");
@@ -395,8 +475,13 @@ fn ui_15_stage_unstage_and_discard_a_hunk(cx: &mut TestAppContext) {
         label_of(&mut cx, hunk_control(1, "discard")).as_deref(),
         Some("Discard hunk 2")
     );
-    click(&mut cx, hunk_control(0, "stage"));
-    wait_for_lists(&mut cx, &window, &["a.txt"], &["a.txt"]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, hunk_control(0, "stage")),
+        &["a.txt"],
+        &["a.txt"],
+    );
     let cached = api.git(["diff", "--cached"]).unwrap();
     assert!(
         cached.contains("+L5") && !cached.contains("+L55"),
@@ -407,8 +492,13 @@ fn ui_15_stage_unstage_and_discard_a_hunk(cx: &mut TestAppContext) {
     show_diff(&mut cx, &window, List::Staged, "a.txt");
     assert!(present(&mut cx, hunk_control(0, "unstage")));
     assert!(!present(&mut cx, hunk_control(0, "discard")));
-    click(&mut cx, hunk_control(0, "unstage"));
-    wait_for_lists(&mut cx, &window, &[], &["a.txt"]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, hunk_control(0, "unstage")),
+        &[],
+        &["a.txt"],
+    );
 
     // Side by side: stage the second hunk, then discard the first.
     click(&mut cx, "changes-side-by-side".into());
@@ -418,8 +508,13 @@ fn ui_15_stage_unstage_and_discard_a_hunk(cx: &mut TestAppContext) {
             diff.doc().is_some_and(|doc| doc.side_by_side_mode())
         })
     });
-    click(&mut cx, hunk_control(1, "stage"));
-    wait_for_lists(&mut cx, &window, &["a.txt"], &["a.txt"]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, hunk_control(1, "stage")),
+        &["a.txt"],
+        &["a.txt"],
+    );
     let cached = api.git(["diff", "--cached"]).unwrap();
     assert!(
         cached.contains("+L55") && !cached.contains("+L5\n"),
@@ -432,8 +527,13 @@ fn ui_15_stage_unstage_and_discard_a_hunk(cx: &mut TestAppContext) {
         label_of(&mut cx, "discard-text".into()).as_deref(),
         Some("This hunk is lost; it cannot be restored:")
     );
-    click(&mut cx, "dialog-submit".into());
-    wait_for_lists(&mut cx, &window, &["a.txt"], &[]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, "dialog-submit".into()),
+        &["a.txt"],
+        &[],
+    );
     let text = std::fs::read_to_string(api.path().join("a.txt")).unwrap();
     assert!(
         text.contains("\nl5\n") && text.contains("\nL55\n"),
@@ -561,8 +661,13 @@ fn grp_9_discard_asks_and_names_the_files(cx: &mut TestAppContext) {
     // Discard drops them.
     click(&mut cx, row_part(readme, "discard"));
     wait_for_element(&mut cx, "discard-dialog".into());
-    click(&mut cx, "dialog-submit".into());
-    wait_for_lists(&mut cx, &window, &[], &[]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| click(cx, "dialog-submit".into()),
+        &[],
+        &[],
+    );
     assert_eq!(
         std::fs::read_to_string(api.path().join("README.md")).unwrap(),
         "hello\n"
@@ -688,8 +793,13 @@ fn ui_22_f7_reaches_a_hunk_control(cx: &mut TestAppContext) {
     press(&mut cx, "shift-f7");
     assert!(focused(&mut cx, hunk_control(0, "stage")));
     // Enter on the control stages its hunk.
-    press(&mut cx, "enter");
-    wait_for_lists(&mut cx, &window, &["a.txt"], &["a.txt"]);
+    act_until(
+        &mut cx,
+        &window,
+        |cx| press(cx, "enter"),
+        &["a.txt"],
+        &["a.txt"],
+    );
 }
 
 #[gpui::test]
