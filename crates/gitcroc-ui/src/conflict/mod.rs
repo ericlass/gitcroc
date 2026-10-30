@@ -1,13 +1,19 @@
 //! Retained, single-buffer conflict editing. No services or repo writes (OPS-9).
 mod buffer;
+mod look;
 pub mod recovery;
 mod retained;
+mod syntax;
 use crate::keys::{NextHunk, PreviousHunk};
+use crate::strings::conflict as text;
+use crate::theme::AppTheme;
+use crate::theme::code_themes::Syntax;
 pub use buffer::{Buffer, Hunk, Take};
 use gitcroc_core::{ConflictChunk, ConflictLabels};
 use gpui_component::input::{Editor, EditorState, InputEvent};
 use gpui_kit::base::input::{RangeDecoration, RangeDecorationCollection, RopeExt};
 use gpui_kit::{prelude::*, *};
+pub use look::Look;
 use recovery::{Recovery, Snapshot};
 pub use retained::{EditorKey, Editors};
 use std::ops::Range;
@@ -78,6 +84,8 @@ pub struct ConflictEditor {
     prepared: Option<Buffer>,
     _changes: Subscription,
     restore_focus: bool,
+    path: Option<String>,
+    lines: syntax::Lines,
 }
 impl ConflictEditor {
     pub fn new(buffer: Buffer, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -134,7 +142,27 @@ impl ConflictEditor {
             prepared: None,
             _changes: changes,
             restore_focus: false,
+            path: None,
+            lines: syntax::Lines::default(),
         }
+    }
+    /// Highlights the buffer as the file at `path`; a type syntect does not
+    /// know stays plain text (UI-24).
+    pub fn set_language(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.path = Some(path.to_owned());
+        self.lines = syntax::Lines::default();
+        let factory = syntax::factory(path, self.lines.clone());
+        self.editor
+            .update(cx, |state, cx| state.set_highlighter_factory(factory, cx));
+        cx.notify();
+    }
+    /// The syntax at `offset` as last highlighted; `None` for plain text.
+    pub fn syntax_at(&self, offset: usize, _cx: &App) -> Option<Syntax> {
+        syntax::at(&self.lines, offset)
+    }
+    /// The colours in use: the code theme's, whatever the app theme.
+    pub fn look(&self, cx: &App) -> Look {
+        Look::of(&AppTheme::global(cx).code_theme().colors)
     }
     pub fn value(&self, cx: &App) -> String {
         self.editor.read(cx).value().to_string()
@@ -327,16 +355,25 @@ impl ConflictEditor {
     pub fn install_prepared(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(buffer) = self.prepared.take() {
             let generation = self.generation + 1;
+            let path = self.path.take();
             *self = Self::new(buffer, window, cx);
             self.generation = generation;
+            if let Some(path) = path {
+                self.set_language(&path, cx);
+            }
         }
     }
 }
 impl Render for ConflictEditor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let look = self.look(cx);
+        let (editor, style) = (self.editor.clone(), look.editor_style());
         div()
             .key_context("GitcrocConflict")
+            .relative()
             .size_full()
+            .bg(look.background)
+            .text_color(look.text)
             .on_action(
                 cx.listener(|this, _: &NextConflict, window, cx| this.navigate(true, window, cx)),
             )
@@ -358,6 +395,27 @@ impl Render for ConflictEditor {
             .on_action(cx.listener(|this, _: &TakeBoth, window, cx| {
                 this.take_at_cursor(Take::Both, window, cx)
             }))
-            .child(Editor::new(&self.editor).h_full().bordered(false))
+            // gpui-component's editor takes the app theme's colours each
+            // frame; the code theme's go over them before it prepaints.
+            .child(
+                canvas(
+                    move |_, _, cx| editor.update(cx, |state, _| state.set_editor_style(style)),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_0(),
+            )
+            .child(
+                Editor::new(&self.editor)
+                    .h_full()
+                    .bordered(false)
+                    .bg(Hsla::transparent_black())
+                    .text_color(look.text)
+                    .when_some(self.path.as_deref(), |editor, path| {
+                        editor.aria_label(text::resolution(path))
+                    }),
+            )
     }
 }

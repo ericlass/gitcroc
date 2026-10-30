@@ -1012,3 +1012,11 @@ pub mod operations {
         format!("Git kept stash {hash} after its pop conflicted in {repo}.")
     }
 }
+
+/// The conflict editor (OPS-3, OPS-4), as rc.1's `conflict` strings.
+pub mod conflict {
+    /// The editor, as screen readers name it.
+    pub fn resolution(path: &str) -> String {
+        format!("Resolution of {path}")
+    }
+}
