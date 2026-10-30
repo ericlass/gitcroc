@@ -63,6 +63,16 @@ impl TreeAction {
                 | Self::OpenFileManager
                 | Self::OpenTerminal
                 | Self::RemoveRepo
+                | Self::TagCreate
+                | Self::TagPush
+                | Self::TagDelete
+                | Self::RemoteAdd
+                | Self::RemoteRename
+                | Self::RemoteUrl
+                | Self::RemoteRemove
+                | Self::StashApply
+                | Self::StashPop
+                | Self::StashDrop
         )
     }
     fn read_only(self) -> bool {
@@ -80,7 +90,7 @@ pub struct TreeEntry {
 }
 
 /// All entries remain visible. Later tasks supply the currently disabled
-/// tag, stash, remote and group operations.
+/// group operations.
 pub fn tree_menu(row: &TreeItem, blocked: Option<&str>, missing: bool) -> Vec<TreeEntry> {
     use TreeAction as A;
     let mut entries = Vec::new();
@@ -179,7 +189,7 @@ pub fn tree_menu(row: &TreeItem, blocked: Option<&str>, missing: bool) -> Vec<Tr
 }
 
 /// In rc.1 action order: checkout, branch, tag, cherry-pick, revert,
-/// reset, copy. Cherry-pick remains unavailable until M6-18.
+/// reset, copy. Only cherry-pick accepts several commits from one repo.
 pub fn commit_menu(count: usize, same_repo: bool, blocked: Option<&str>) -> Vec<MenuItem> {
     [
         commit::CHECKOUT,
@@ -193,11 +203,8 @@ pub fn commit_menu(count: usize, same_repo: bool, blocked: Option<&str>) -> Vec<
     .into_iter()
     .enumerate()
     .map(|(at, label)| {
-        let later = (2..=5).contains(&at);
         let reason = if at == 3 && !same_repo {
             Some(text::ONE_REPO)
-        } else if later {
-            Some(text::NOT_AVAILABLE)
         } else if at != 6 {
             blocked
         } else {
@@ -209,7 +216,7 @@ pub fn commit_menu(count: usize, same_repo: bool, blocked: Option<&str>) -> Vec<
             label.to_owned()
         };
         MenuItem::new(label)
-            .disabled(count != 1 || reason.is_some())
+            .disabled((count != 1 && at != 3) || count == 0 || reason.is_some())
             .description(reason.map(|value| value.to_owned().into()))
     })
     .collect()

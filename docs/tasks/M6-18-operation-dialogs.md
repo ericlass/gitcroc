@@ -18,3 +18,8 @@ Group operations/preflight/report are M6-21/22; group and multi-repo toolbar act
 
 ## Acceptance
 Requirement-named tests written before production code exercise real git through GPUI: default/options sync and remote choice, merge/rebase and merge-parent revert, cherry-pick multiple commits, stash lifecycle, tag types/remote selection, reset modes and Cancel/confirmation safety, remote lifecycle/URLs, typed validation, disabled toolbar targets, literal repo text and inline refusals. JobEnded is the fixture mutation barrier. Fixture text comparisons disable core.autocrlf. Enlarge test windows where needed. just check passes. Reference-machine visual smoke remains separately reported if unavailable.
+
+## Validation
+- 17 GPUI flows against real fixture repos and two retained-stash model tests pass. The existing menu presentation tests now require the M6-18 actions to be enabled.
+- `just check` passes, including the full workspace tests, linting, dependency checks and spec coverage (127 covered, zero missing).
+- The native binary presents a real frame and exits successfully with `--exit-after-first-frame` under isolated Xvfb. Interactive reference-machine visual smoke has not been performed.

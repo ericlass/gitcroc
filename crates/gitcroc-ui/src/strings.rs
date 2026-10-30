@@ -932,3 +932,83 @@ pub mod branches {
     pub const BUSY: &str = "Another operation is running";
     pub const STOPPED: &str = "The request did not finish";
 }
+
+/// M6-18: rc.1 operation forms and toolbar.
+pub mod operations {
+    pub const STOPPED: &str = "The request did not finish.";
+    pub const NAME: &str = "Name";
+    pub const NEW_NAME: &str = "New name";
+    pub const MESSAGE: &str = "Message (optional for stash)";
+    pub const URL: &str = "URL";
+    pub const PUSH_URL: &str = "Push URL";
+    pub const LOADING: &str = "Loading…";
+    pub const FETCH: &str = "Fetch";
+    pub const PULL: &str = "Pull";
+    pub const PUSH: &str = "Push";
+    pub const BRANCH: &str = "Branch";
+    pub const MERGE: &str = "Merge";
+    pub const STASH: &str = "Stash";
+    pub const PALETTE: &str = "Command palette";
+    pub const SETTINGS: &str = "Settings";
+    pub const RUN: &str = "Run";
+    pub const CREATE_TAG: &str = "Create tag";
+    pub const DELETE_TAG: &str = "Delete tag";
+    pub const RESET: &str = "Reset";
+    pub const ADD_REMOTE: &str = "Add remote";
+    pub const RENAME_REMOTE: &str = "Rename remote";
+    pub const EDIT_URL: &str = "Edit remote URL";
+    pub const CONFIRM: &str = "Confirm";
+    pub const REMOTE: &str = "Choose a remote";
+    pub const PARENT: &str = "Choose which parent's side to keep";
+    pub const REVISION: &str = "Ref to merge or rebase onto";
+    pub const REBASE: &str = "Rebase instead";
+    pub const NO_REFS: &str = "No ref matches.";
+    pub const CONFIG: &str = "Follow git config";
+    pub const PRUNE: &str = "Prune";
+    pub const NO_PRUNE: &str = "Do not prune";
+    pub const FF_ONLY: &str = "Fast-forward only";
+    pub const MERGE_PULL: &str = "Merge";
+    pub const REBASE_PULL: &str = "Rebase";
+    pub const NO_FF: &str = "Always create a merge commit";
+    pub const SOFT: &str = "Soft — keep index and working copy";
+    pub const MIXED: &str = "Mixed — reset index, keep working copy";
+    pub const HARD: &str = "Hard — discard changes in index and working copy";
+    pub const SET_UPSTREAM: &str = "Set upstream";
+    pub const FORCE: &str = "Force with lease";
+    pub const UNTRACKED: &str = "Include untracked files";
+    pub const ANNOTATED: &str = "Annotated tag (off for lightweight)";
+    pub const PUSH_TAG: &str = "Push after creating";
+    pub const ON_REMOTE: &str = "Also delete on remote";
+    pub const FETCH_AFTER: &str = "Fetch after adding";
+    pub const SINGLE_REPO: &str =
+        "Select one repo. Group operations arrive with preflight dialogs.";
+    pub const SELECT_REPO: &str = "Select a repo.";
+    pub const DETACHED: &str = "This operation requires a branch; HEAD is detached.";
+    pub const LATER: &str = "Not available yet";
+    pub const KEEP: &str = "Keep it";
+    pub const DROP: &str = "Drop stash…";
+    pub fn parent(number: usize, parent: &str) -> String {
+        format!("{number}: {parent}")
+    }
+    pub fn title(action: &str, repo: &str) -> String {
+        format!("{action} — {repo}")
+    }
+    pub fn reset_title(branch: &str, commit: &str, repo: &str) -> String {
+        format!("Reset {branch} to {commit} — {repo}")
+    }
+    pub fn merge_title(branch: &str, repo: &str) -> String {
+        format!("Merge into {branch} — {repo}")
+    }
+    pub fn options(action: &str) -> String {
+        format!("{action} options")
+    }
+    pub fn pushes(branch: &str, upstream: &str) -> String {
+        format!("Push {branch} to {upstream}")
+    }
+    pub fn no_upstream(branch: &str) -> String {
+        format!("{branch} has no upstream. Choose its remote.")
+    }
+    pub fn kept(repo: &str, hash: &str) -> String {
+        format!("Git kept stash {hash} after its pop conflicted in {repo}.")
+    }
+}

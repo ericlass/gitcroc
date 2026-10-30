@@ -179,13 +179,26 @@ fn ui_7_remote_add_rename_url_and_confirmed_remove(root: &mut TestAppContext) {
     );
     click(&mut cx, "op-name".into());
     cx.update(|window, cx| {
-        window.press("ctrl-a", cx);
+        window.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
         window.input("archive", cx);
     });
     ready(&mut cx);
     let mut events = f.app().subscribe();
     click(&mut cx, "dialog-submit".into());
     ended(&mut cx, &mut events);
+    r.git([
+        "config",
+        "remote.archive.pushurl",
+        "https://example.invalid/push.git",
+    ])
+    .unwrap();
     let (mut cx, _) = dialog(
         root,
         &f,
@@ -197,12 +210,37 @@ fn ui_7_remote_add_rename_url_and_confirmed_remove(root: &mut TestAppContext) {
     ready(&mut cx);
     click(&mut cx, "op-url".into());
     cx.update(|window, cx| {
-        window.press("ctrl-a", cx);
+        window.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
         window.input("https://example.invalid/new.git", cx);
+    });
+    click(&mut cx, "op-push-url".into());
+    cx.update(|window, cx| {
+        window.press(
+            if cfg!(target_os = "macos") {
+                "cmd-a"
+            } else {
+                "ctrl-a"
+            },
+            cx,
+        );
+        window.input("https://example.invalid/new-push.git", cx);
     });
     let mut events = f.app().subscribe();
     click(&mut cx, "dialog-submit".into());
     ended(&mut cx, &mut events);
+    assert_eq!(
+        r.git(["remote", "get-url", "--push", "archive"])
+            .unwrap()
+            .trim(),
+        "https://example.invalid/new-push.git"
+    );
     assert_eq!(
         r.git(["remote", "get-url", "archive"]).unwrap().trim(),
         "https://example.invalid/new.git"
@@ -644,4 +682,58 @@ fn ops_7_conflicting_pop_offers_to_drop_only_after_resolution(root: &mut TestApp
     click(&mut cx, format!("stash-offer-keep-{}", added[0].1.0).into());
     cx.update(|window, _| assert!(window.try_find(offer).is_none()));
     assert!(!r.git(["stash", "list"]).unwrap().is_empty());
+}
+
+#[gpui::test]
+fn grp_8_toolbar_allows_fetch_during_conflict(root: &mut TestAppContext) {
+    let f = Fixture::start(EVENT_CAPACITY);
+    let made = repos(&["api"]);
+    let r = repo(&made, "api");
+    r.branch("topic").unwrap();
+    r.commit_file("README.md", "main\n", "Main edit").unwrap();
+    r.git(["checkout", "topic"]).unwrap();
+    r.commit_file("README.md", "topic\n", "Topic edit").unwrap();
+    r.git(["checkout", "main"]).unwrap();
+    assert!(r.git(["merge", "topic"]).is_err());
+    let added = add(&f, &made);
+    let (mut cx, window) = crate::support::main_window(root, &f);
+    crate::changes::show_repo(&mut cx, &window, &added, "api");
+    wait_until(&mut cx, |cx| {
+        cx.update(|window, _| window.find("toolbar-1").disabled() == Some(true))
+    });
+    cx.update(|window, _| {
+        assert_ne!(window.find("toolbar-0").disabled(), Some(true));
+        for at in 1..6 {
+            assert_eq!(
+                window
+                    .find(gpui_kit::ElementId::Name(format!("toolbar-{at}").into()))
+                    .disabled(),
+                Some(true)
+            );
+        }
+    });
+}
+#[gpui::test]
+fn ui_20_detached_toolbar_keeps_branch_and_stash_available(root: &mut TestAppContext) {
+    let f = Fixture::start(EVENT_CAPACITY);
+    let made = repos(&["api"]);
+    let r = repo(&made, "api");
+    r.git(["checkout", "--detach"]).unwrap();
+    let added = add(&f, &made);
+    let (mut cx, window) = crate::support::main_window(root, &f);
+    crate::changes::show_repo(&mut cx, &window, &added, "api");
+    wait_until(&mut cx, |cx| {
+        cx.update(|window, _| window.find("toolbar-1").disabled() == Some(true))
+    });
+    cx.update(|window, _| {
+        for at in 0..6 {
+            assert_eq!(
+                window
+                    .find(gpui_kit::ElementId::Name(format!("toolbar-{at}").into()))
+                    .disabled()
+                    == Some(true),
+                [1, 2, 4].contains(&at)
+            );
+        }
+    });
 }
