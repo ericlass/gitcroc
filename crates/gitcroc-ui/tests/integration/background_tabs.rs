@@ -123,7 +123,7 @@ fn ui_31_a_background_tab_releases_history_and_diffs(cx: &mut TestAppContext) {
     let handle = handle.expect("no walk");
 
     // In the background, nothing of it is held, in the UI or in the core.
-    switch_to(&mut cx, &fixture, &java);
+    switch_to(&mut cx, &fixture, &window, &java);
     wait_until(&mut cx, |cx| {
         held(cx, &window, &mine) == (0, None, false, false)
     });
@@ -181,11 +181,11 @@ fn ui_31_returning_reads_the_same_rows_and_scrolls_back(cx: &mut TestAppContext)
     assert!(before.2.1 > 0, "the diff did not scroll");
 
     // Away, and the tab lets go of it all; back, it reads it all again.
-    switch_to(&mut cx, &fixture, &java);
+    switch_to(&mut cx, &fixture, &window, &java);
     wait_until(&mut cx, |cx| {
         held(cx, &window, &mine) == (0, None, false, false)
     });
-    switch_to(&mut cx, &fixture, &mine);
+    switch_to(&mut cx, &fixture, &window, &mine);
     wait_for_rows(&mut cx, &window, all);
     wait_for_view(&mut cx, &window);
     wait_for_diff(&mut cx, &window, "b.txt");
@@ -226,9 +226,9 @@ fn ui_31_a_search_is_kept(cx: &mut TestAppContext) {
     };
     let before = subjects(&mut cx);
 
-    switch_to(&mut cx, &fixture, &java);
+    switch_to(&mut cx, &fixture, &window, &java);
     wait_until(&mut cx, |cx| held(cx, &window, &mine).0 == 0);
-    switch_to(&mut cx, &fixture, &mine);
+    switch_to(&mut cx, &fixture, &window, &mine);
     wait_for_rows(&mut cx, &window, 11);
     assert_eq!(subjects(&mut cx), before);
     assert_eq!(search_text(&mut cx), "Change 1");
