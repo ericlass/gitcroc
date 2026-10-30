@@ -65,6 +65,7 @@ pub fn init(cx: &mut App) {
     gpui_kit::init(cx);
     theme::AppTheme::init(cx);
     keys::bind(cx);
+    conflict::bind(cx);
     menu::bind(cx);
     dialog::bind(cx);
     tab_bar::bind(cx);

@@ -1,4 +1,363 @@
-//! Core-chunk conflict buffer and undo recovery model (OPS-3, OPS-8).
+//! Retained, single-buffer conflict editing. No services or repo writes (OPS-9).
 mod buffer;
 pub mod recovery;
+mod retained;
+use crate::keys::{NextHunk, PreviousHunk};
 pub use buffer::{Buffer, Hunk, Take};
+use gitcroc_core::{ConflictChunk, ConflictLabels};
+use gpui_component::input::{Editor, EditorState, InputEvent};
+use gpui_kit::base::input::{RangeDecoration, RangeDecorationCollection, RopeExt};
+use gpui_kit::{prelude::*, *};
+use recovery::{Recovery, Snapshot};
+pub use retained::{EditorKey, Editors};
+use std::ops::Range;
+
+actions!(
+    conflict,
+    [
+        NextConflict,
+        PreviousConflict,
+        TakeOurs,
+        TakeTheirs,
+        TakeBoth
+    ]
+);
+pub fn bind(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("alt-down", NextConflict, Some("GitcrocConflict > Input")),
+        KeyBinding::new("alt-up", PreviousConflict, Some("GitcrocConflict > Input")),
+        KeyBinding::new("f7", NextConflict, Some("GitcrocConflict > Input")),
+        KeyBinding::new(
+            "shift-f7",
+            PreviousConflict,
+            Some("GitcrocConflict > Input"),
+        ),
+        KeyBinding::new("alt-1", TakeOurs, Some("GitcrocConflict > Input")),
+        KeyBinding::new("alt-2", TakeTheirs, Some("GitcrocConflict > Input")),
+        KeyBinding::new("alt-3", TakeBoth, Some("GitcrocConflict > Input")),
+    ]);
+}
+struct Tracked {
+    hunk: Hunk,
+    anchor: RangeDecorationCollection,
+    // The spike's real-text ghost, with recovery snapshots at document edges.
+    before: RangeDecorationCollection,
+    taken: bool,
+    untouched: bool,
+}
+impl Tracked {
+    fn range(&self, cx: &App) -> Range<usize> {
+        self.anchor
+            .get_ranges(cx)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| {
+                let at = self.before.get_ranges(cx).first().map_or(0, |r| r.end);
+                at..at
+            })
+    }
+}
+fn decoration(range: Range<usize>) -> RangeDecoration {
+    RangeDecoration::new(range).with_color(Hsla::transparent_black())
+}
+fn anchor(
+    state: &mut EditorState,
+    range: Range<usize>,
+    cx: &mut Context<EditorState>,
+) -> RangeDecorationCollection {
+    state.create_range_decorations_collection(vec![decoration(range)], cx)
+}
+pub struct ConflictEditor {
+    pub editor: Entity<EditorState>,
+    hunks: Vec<Tracked>,
+    unsaved: bool,
+    generation: u64,
+    recovery: Option<Task<Recovery>>,
+    pending_takes: Vec<usize>,
+    edits: u64,
+    prepared: Option<Buffer>,
+    _changes: Subscription,
+    restore_focus: bool,
+}
+impl ConflictEditor {
+    pub fn new(buffer: Buffer, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let initial: SharedString = buffer.text.into();
+        let editor = cx.new(|cx| {
+            let mut state = EditorState::new(window, cx)
+                .language("text")
+                .line_number(true)
+                .soft_wrap(false)
+                .folding(false)
+                .scroll_beyond_last_line(None);
+            state.set_value(initial.clone(), window, cx);
+            state
+        });
+        let hunks: Vec<Tracked> = editor.update(cx, |state, cx| {
+            buffer
+                .hunks
+                .into_iter()
+                .map(|hunk| Tracked {
+                    anchor: anchor(state, hunk.range.clone(), cx),
+                    before: anchor(state, 0..hunk.range.start, cx),
+                    hunk,
+                    taken: false,
+                    untouched: true,
+                })
+                .collect()
+        });
+        let snapshot = Snapshot {
+            pinned: false,
+            untouched: vec![true; hunks.len()],
+            unsaved: false,
+            text: editor.read(cx).text().clone(),
+            hunks: hunks
+                .iter()
+                .map(|h| (h.hunk.range.clone(), false))
+                .collect(),
+        };
+        let recovery = Some(cx.background_spawn(async move { Recovery::new(snapshot) }));
+        let changes = cx.subscribe(&editor, |this, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.generation += 1;
+                this.prepared = None;
+                this.refresh(cx);
+            }
+        });
+        Self {
+            editor,
+            hunks,
+            unsaved: false,
+            generation: 0,
+            recovery,
+            pending_takes: Vec::new(),
+            edits: 0,
+            prepared: None,
+            _changes: changes,
+            restore_focus: false,
+        }
+    }
+    pub fn value(&self, cx: &App) -> String {
+        self.editor.read(cx).value().to_string()
+    }
+    pub fn unsaved(&self, _cx: &App) -> bool {
+        self.unsaved
+    }
+    /// Live regions include manually edited hunks; only untouched ones have actions.
+    pub fn ranges(&self, cx: &App) -> Vec<(usize, Range<usize>, bool)> {
+        self.hunks
+            .iter()
+            .filter(|h| !h.taken)
+            .map(|h| {
+                let range = h.range(cx);
+                (h.hunk.id, range, h.untouched)
+            })
+            .collect()
+    }
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.edits += 1;
+        let edits = self.edits;
+        let snapshot = Snapshot {
+            pinned: false,
+            untouched: Vec::new(),
+            unsaved: true,
+            text: self.editor.read(cx).text().clone(),
+            hunks: self
+                .hunks
+                .iter()
+                .map(|h| {
+                    let range = h.range(cx);
+                    (range, h.taken)
+                })
+                .collect(),
+        };
+        self.unsaved = true;
+        for h in &mut self.hunks {
+            h.untouched = false;
+        }
+        let takes = std::mem::take(&mut self.pending_takes);
+        let previous = self.recovery.take();
+        // Serialize recovery even when several edits arrive before a frame.
+        self.recovery = Some(cx.spawn(async move |this, cx| {
+            let mut recovery = match previous {
+                Some(task) => task.await,
+                None => Recovery::new(snapshot.clone()),
+            };
+            let (recovery, snapshot) = cx
+                .background_spawn(async move {
+                    let snapshot = recovery.record(snapshot, &takes);
+                    (recovery, snapshot)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.edits != edits {
+                    return;
+                }
+                this.unsaved = snapshot.unsaved;
+                for ((h, (range, taken)), untouched) in this
+                    .hunks
+                    .iter_mut()
+                    .zip(snapshot.hunks)
+                    .zip(snapshot.untouched)
+                {
+                    h.taken = taken;
+                    h.untouched = untouched;
+                    h.anchor.set(vec![decoration(range.clone())], cx);
+                    h.before.set(vec![decoration(0..range.start)], cx);
+                }
+                cx.notify();
+            });
+            recovery
+        }));
+        cx.notify();
+    }
+    pub fn take(
+        &mut self,
+        id: usize,
+        side: Take,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(h) = self.hunks.get(id) else {
+            return false;
+        };
+        self.accept(id, &h.hunk.taken(side), window, cx)
+    }
+    /// Supplied proposal text follows exactly the same atomic path as Take (AI-12).
+    pub fn accept(
+        &mut self,
+        id: usize,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some((_, range, true)) = self.ranges(cx).into_iter().find(|(at, _, _)| *at == id)
+        else {
+            return false;
+        };
+        self.hunks[id].taken = true;
+        self.pending_takes.push(id);
+        self.editor.update(cx, |state, cx| {
+            state.set_selected_range(range.clone(), cx);
+            state.replace(buffer::normalize(text), window, cx);
+            state.set_selected_range(range.start..range.start, cx);
+            state.focus(window, cx);
+        });
+        true
+    }
+    pub fn navigate(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let cursor = self.editor.read(cx).cursor();
+        let ranges = self.ranges(cx);
+        let current = ranges.iter().find(|(_, r, _)| r.contains(&cursor));
+        let limit = current.map_or(cursor + 1, |(_, r, _)| r.start);
+        let target = if forward {
+            ranges
+                .iter()
+                .find(|(_, r, _)| r.start > cursor)
+                .or(ranges.first())
+        } else {
+            ranges
+                .iter()
+                .rev()
+                .find(|(_, r, _)| r.start < limit)
+                .or(ranges.last())
+        };
+        if let Some((id, range, untouched)) = target {
+            let offset = range.start
+                + if *untouched {
+                    self.hunks[*id].hunk.head
+                } else {
+                    0
+                };
+            self.editor.update(cx, |state, cx| {
+                state.set_selected_range(offset..offset, cx);
+                state.focus(window, cx);
+                let line = state.text().offset_to_point(offset).row;
+                let y = line as f32 * state.line_height().unwrap_or(px(20.))
+                    - state.input_bounds().size.height / 2.;
+                state.set_scroll_offset(point(px(0.), -y.max(px(0.))), cx);
+            });
+        }
+    }
+    fn take_at_cursor(&mut self, side: Take, window: &mut Window, cx: &mut Context<Self>) {
+        let cursor = self.editor.read(cx).cursor();
+        if let Some((id, _, _)) = self
+            .ranges(cx)
+            .into_iter()
+            .find(|(_, r, _)| r.contains(&cursor))
+        {
+            self.take(id, side, window, cx);
+        }
+    }
+    /// Call before hiding; returning only restores focus if no other control has it.
+    pub fn hide(&mut self, window: &Window, cx: &App) {
+        self.restore_focus = self.editor.read(cx).focus_handle(cx).is_focused(window);
+    }
+    pub fn show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.restore_focus && window.focused(cx).is_none() {
+            self.editor.update(cx, |state, cx| state.focus(window, cx));
+        }
+        self.restore_focus = false;
+    }
+    /// Builds chunks off the UI thread. A later request invalidates the earlier one.
+    pub fn prepare(
+        &mut self,
+        chunks: Vec<ConflictChunk>,
+        labels: ConflictLabels,
+        cx: &mut Context<Self>,
+    ) {
+        self.generation += 1;
+        let generation = self.generation;
+        self.prepared = None;
+        cx.spawn(async move |this, cx| {
+            let buffer = cx
+                .background_spawn(async move { Buffer::build(&chunks, &labels) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.generation == generation {
+                    this.prepared = Some(buffer);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+    pub fn prepared(&self) -> Option<&Buffer> {
+        self.prepared.as_ref()
+    }
+    pub fn install_prepared(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(buffer) = self.prepared.take() {
+            let generation = self.generation + 1;
+            *self = Self::new(buffer, window, cx);
+            self.generation = generation;
+        }
+    }
+}
+impl Render for ConflictEditor {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .key_context("GitcrocConflict")
+            .size_full()
+            .on_action(
+                cx.listener(|this, _: &NextConflict, window, cx| this.navigate(true, window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &PreviousConflict, window, cx| {
+                this.navigate(false, window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &NextHunk, window, cx| this.navigate(true, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &PreviousHunk, window, cx| this.navigate(false, window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &TakeOurs, window, cx| {
+                this.take_at_cursor(Take::Ours, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &TakeTheirs, window, cx| {
+                this.take_at_cursor(Take::Theirs, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &TakeBoth, window, cx| {
+                this.take_at_cursor(Take::Both, window, cx)
+            }))
+            .child(Editor::new(&self.editor).h_full().bordered(false))
+    }
+}
