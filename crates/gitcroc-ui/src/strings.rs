@@ -833,3 +833,56 @@ pub mod startup {
         format!("the font {family:?} is not installed; using the default instead")
     }
 }
+
+/// Tree row context menus, ported from rc.1 (D15).
+pub mod tree_menu {
+    pub const FETCH: &str = "Fetch";
+    pub const PULL: &str = "Pull";
+    pub const PUSH: &str = "Push";
+    pub const CHECK_OUT: &str = "Check out";
+    pub const CHECK_OUT_BRANCH: &str = "Check out branch…";
+    pub const CHECK_OUT_DETACHED: &str = "Check out (detached)";
+    pub const NEW_BRANCH: &str = "New branch…";
+    pub const NEW_BRANCH_FROM_HERE: &str = "New branch from here…";
+    pub const DELETE_BRANCH: &str = "Delete branch…";
+    pub const MERGE: &str = "Merge…";
+    pub const REBASE: &str = "Rebase…";
+    pub const CREATE_TAG: &str = "Create tag…";
+    pub const NEW_TAG: &str = "New tag…";
+    pub const RENAME: &str = "Rename…";
+    pub const DELETE: &str = "Delete…";
+    pub const DELETE_ON_REMOTE: &str = "Delete on the remote…";
+    pub const NEW_GROUP: &str = "New group…";
+    pub const ADD_TO_GROUP: &str = "Add to group";
+    pub const REMOVE_FROM_GROUP: &str = "Remove from group";
+    pub const MOVE_UP: &str = "Move up";
+    pub const MOVE_DOWN: &str = "Move down";
+    pub const CLONE_FROM_REMOTE: &str = "Clone from remote…";
+    pub const OPEN_IN_FILE_MANAGER: &str = "Open in file manager";
+    pub const OPEN_IN_TERMINAL: &str = "Open in terminal";
+    pub const REMOVE_FROM_WORKSPACE: &str = "Remove from workspace";
+    pub const SET_UPSTREAM: &str = "Set upstream…";
+    pub const UNSET_UPSTREAM: &str = "Unset upstream";
+    pub const ADD_REMOTE: &str = "Add remote…";
+    pub const EDIT_URL: &str = "Edit URL…";
+    pub const REMOVE: &str = "Remove…";
+    pub const APPLY: &str = "Apply";
+    pub const POP: &str = "Pop";
+    pub const DROP: &str = "Drop…";
+    pub const NOT_AVAILABLE: &str = "Not available yet";
+    pub const ONE_REPO: &str = "Select commits from one repository";
+}
+
+/// Commit row context menu (D15).
+pub mod commit_menu {
+    pub const CHECKOUT: &str = "Check out (detached)";
+    pub const CREATE_BRANCH: &str = "Create branch here…";
+    pub const CREATE_TAG: &str = "Create tag here…";
+    pub const CHERRY_PICK: &str = "Cherry-pick";
+    pub const REVERT: &str = "Revert";
+    pub const RESET: &str = "Reset current branch to here…";
+    pub const COPY_HASH: &str = "Copy hash";
+    pub fn cherry_pick(count: usize) -> String {
+        format!("Cherry-pick {count} commits")
+    }
+}

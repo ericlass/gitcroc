@@ -26,6 +26,7 @@ pub mod menus;
 pub mod panes;
 #[cfg(feature = "perf-trace")]
 pub mod perf;
+pub mod row_menus;
 pub mod services;
 pub mod special_diff;
 pub mod status_bar;
