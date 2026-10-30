@@ -676,6 +676,8 @@ pub mod changes {
     pub const DISCARDED_FILES: &str = "Files to discard";
     /// The commit box (UI-15).
     pub const COMMIT_MESSAGE: &str = "Commit message";
+    /// The splitter above the commit box.
+    pub const RESIZE_COMMIT_BOX: &str = "Resize the commit message box";
     pub const SUBJECT: &str = "Subject";
     pub const BODY: &str = "Body";
     pub const BODY_PLACEHOLDER: &str = "Body (optional)";

@@ -19,6 +19,7 @@ use gpui_kit::{
     App, AppContext, Context, Entity, EventEmitter, InteractiveElement, IntoElement, KeyBinding,
     KeyBindingContextPredicate, ParentElement, Render, Role, SharedString,
     StatefulInteractiveElement, Styled, Subscription, TestSupportExt, Window, actions, div, px,
+    relative,
 };
 
 use crate::changes::Committable;
@@ -38,8 +39,8 @@ actions!(
 /// The key context of the box.
 const CONTEXT: &str = "GitcrocCommitBox";
 
-/// The body's height, about two lines.
-const BODY_HEIGHT: f32 = 56.;
+/// The body's least height, about one line.
+const BODY_MIN_HEIGHT: f32 = 28.;
 
 /// Ctrl or Cmd and Enter in either field commits. The binding is the
 /// fields', in the box, so it comes before theirs, which would add a line.
@@ -288,13 +289,11 @@ impl Render for CommitBox {
             .on_action(cx.listener(Self::commit_now))
             .role(Role::Group)
             .aria_label(text::COMMIT_MESSAGE)
-            .flex_shrink_0()
+            .size_full()
             .flex()
             .flex_col()
             .gap_1()
-            .p_2()
-            .border_t_1()
-            .border_color(tokens.border);
+            .p_2();
         let Some(target) = self.target.clone() else {
             return root;
         };
@@ -325,12 +324,18 @@ impl Render for CommitBox {
                 .id("commit-subject")
                 .aria_label(text::SUBJECT),
         )
+        // The body takes the height the splitter above the box gives it.
         .child(
-            div().id("commit-body").test_support().child(
-                Textarea::new(&self.body)
-                    .h(px(BODY_HEIGHT))
-                    .aria_label(text::BODY),
-            ),
+            div()
+                .id("commit-body")
+                .test_support()
+                .flex_1()
+                .min_h(px(BODY_MIN_HEIGHT))
+                .child(
+                    Textarea::new(&self.body)
+                        .h(relative(1.))
+                        .aria_label(text::BODY),
+                ),
         )
         .children(error)
         .child(

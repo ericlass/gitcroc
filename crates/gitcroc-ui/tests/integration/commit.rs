@@ -330,3 +330,63 @@ fn perf_7_fsmonitor_offer_asks_once(cx: &mut TestAppContext) {
     show_uncommitted(&mut cx, &window, &added, "web");
     assert!(!present(&mut cx, "changes-offer".into()));
 }
+
+/// The bounds element `id` was drawn in.
+fn bounds(cx: &mut VisualTestContext, id: &str) -> gpui_kit::Bounds<gpui_kit::Pixels> {
+    cx.update(|window, cx| {
+        window.render_frame(cx);
+        window.find(ElementId::Name(id.to_owned().into())).bounds()
+    })
+}
+
+fn shown_height(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>) -> f32 {
+    cx.update(|_, cx| {
+        let pane = window.read(cx).changes(cx).expect("no changes pane");
+        pane.read(cx).commit_shown()
+    })
+}
+
+#[gpui::test]
+fn ui_15_the_commit_box_splitter_resizes_it(cx: &mut TestAppContext) {
+    let fixture = Fixture::start(EVENT_CAPACITY);
+    let made = repos(&["api"]);
+    let api = repo(&made, "api");
+    for n in 0..12 {
+        api.write(&format!("f{n:02}.txt"), "x\n").unwrap();
+    }
+    let added = add(&fixture, &made);
+    // At the default size, where the box once squeezed the lists.
+    let (mut cx, window) = main_window(cx, &fixture);
+    crate::changes::show_repo(&mut cx, &window, &added, "api");
+    crate::history::wait_for_element(&mut cx, "history-uncommitted".into());
+    click(&mut cx, "history-uncommitted".into());
+    wait_for_view(&mut cx, &window);
+    let list = bounds(&mut cx, "changes-files").size.height;
+    assert!(f32::from(list) >= 100., "the lists are {list:?} high");
+
+    // Dragged up, the box gets taller and the lists shorter.
+    let before = shown_height(&mut cx, &window);
+    let from = bounds(&mut cx, "commit-box-splitter").center();
+    let to = from - gpui_kit::point(gpui_kit::px(0.), gpui_kit::px(20.));
+    cx.update(|window, cx| window.drag(from, to, cx));
+    cx.run_until_parked();
+    let after = shown_height(&mut cx, &window);
+    assert!((after - before - 20.).abs() < 1., "{before} to {after}");
+    assert!(bounds(&mut cx, "changes-files").size.height < list);
+
+    // Focused, Down makes it shorter, never under its least.
+    click(&mut cx, "commit-box-splitter".into());
+    press(&mut cx, "down");
+    assert!((shown_height(&mut cx, &window) - (after - 16.)).abs() < 1.);
+    for _ in 0..20 {
+        press(&mut cx, "down");
+    }
+    let least = shown_height(&mut cx, &window);
+    assert!(least >= 100., "{least}");
+    // Dragged far up, it leaves the lists room.
+    let from = bounds(&mut cx, "commit-box-splitter").center();
+    let to = from - gpui_kit::point(gpui_kit::px(0.), gpui_kit::px(1000.));
+    cx.update(|window, cx| window.drag(from, to, cx));
+    cx.run_until_parked();
+    assert!(f32::from(bounds(&mut cx, "changes-files").size.height) >= 80.);
+}

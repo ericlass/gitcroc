@@ -13,6 +13,7 @@
 //! (PERF-7). Everything shown comes from the core, which decides what a
 //! request does (ARCH-6); this lays it out and forwards input.
 
+use std::cell::Cell;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -27,11 +28,12 @@ use gpui_component::checkbox::Checkbox;
 use gpui_component::{Disableable, Selectable, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    AnyElement, App, AppContext, ClickEvent, Context, CursorStyle, ElementId, Entity, EventEmitter,
-    FocusHandle, Focusable, Global, Hsla, InteractiveElement, IntoElement, KeyBinding,
-    KeyBindingContextPredicate, ParentElement, Pixels, Point, Render, Role, ScrollStrategy,
-    SharedString, StatefulInteractiveElement, Styled, Subscription, Task, TestSupportExt,
-    UniformListScrollHandle, Window, actions, div, point, px, svg, uniform_list,
+    AnyElement, App, AppContext, ClickEvent, Context, CursorStyle, DragMoveEvent, ElementId,
+    Entity, EventEmitter, FocusHandle, Focusable, Global, Hsla, InteractiveElement, IntoElement,
+    KeyBinding, KeyBindingContextPredicate, MouseButton, MouseDownEvent, Orientation,
+    ParentElement, Pixels, Point, Render, Role, ScrollStrategy, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Task, TestSupportExt,
+    UniformListScrollHandle, Window, actions, canvas, div, point, px, svg, uniform_list,
 };
 
 use crate::changes::{Changes, Click, Entry, FileKey, FileRow, List, Read, move_action};
@@ -40,6 +42,7 @@ use crate::diff_view::{DiffView, HunkAction, HunkControls};
 use crate::history::{self, Selection};
 use crate::history_pane::HistoryPane;
 use crate::icons;
+use crate::panes::{self, SplitterDown, SplitterUp};
 use crate::services::Services;
 use crate::strings::{self, changes as text};
 use crate::theme::{ActiveTokens, tokens::Tokens};
@@ -71,6 +74,13 @@ const MESSAGE_HEIGHT: Pixels = px(160.);
 const FIELD_WIDTH: Pixels = px(84.);
 /// A parent's short hash, as rc.1 shows it.
 const SHORT_HASH: usize = 10;
+/// The commit box's height until its splitter is moved, and the least it
+/// takes: a subject, a line of body and the buttons.
+const COMMIT_BOX_HEIGHT: f32 = 120.;
+const COMMIT_BOX_MIN: f32 = 112.;
+/// What the commit box leaves above it in its column: the title, the files
+/// header and a few rows of the lists.
+const LISTS_MIN: f32 = 150.;
 
 /// The keys of the file list (UI-22).
 pub fn bind(cx: &mut App) {
@@ -112,6 +122,19 @@ impl ChangesPrefs {
     }
 }
 
+/// The splitter above the commit box being dragged.
+#[derive(Debug, Clone, Copy)]
+struct DraggedBoxSplitter;
+
+/// What follows the pointer while the splitter is dragged: nothing.
+struct DraggedBoxSplitterView;
+
+impl Render for DraggedBoxSplitterView {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
+
 /// The dock button was pressed (UI-19); the panes move the pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToggleDock;
@@ -136,6 +159,15 @@ pub struct ChangesPane {
     history: Entity<HistoryPane>,
     diff: Entity<DiffView>,
     commit_box: Entity<CommitBox>,
+    /// The commit box's height, which its splitter sets; kept per tab
+    /// while the app runs (UI-29).
+    commit_height: f32,
+    /// A drag of the splitter: where the pointer and the height started.
+    resizing: Option<(f32, f32)>,
+    splitter_focus: FocusHandle,
+    /// The height of the lists' column when last drawn, which bounds the
+    /// box's.
+    column_height: Rc<Cell<Pixels>>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
     /// Where the pane is docked, for the dock button's label.
@@ -189,6 +221,10 @@ impl ChangesPane {
             history,
             diff,
             commit_box,
+            commit_height: COMMIT_BOX_HEIGHT,
+            resizing: None,
+            splitter_focus: cx.focus_handle(),
+            column_height: Rc::new(Cell::new(Pixels::ZERO)),
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
             dock: Dock::Right,
@@ -213,6 +249,94 @@ impl ChangesPane {
 
     pub fn commit_box(&self) -> &Entity<CommitBox> {
         &self.commit_box
+    }
+
+    /// The most the commit box may take: what leaves the lists a few rows
+    /// of the column as last drawn.
+    fn commit_max(&self) -> f32 {
+        let column = f32::from(self.column_height.get());
+        if column <= 0. {
+            return f32::MAX;
+        }
+        (column - LISTS_MIN).max(COMMIT_BOX_MIN)
+    }
+
+    /// The commit box's height as drawn: the one set, within what the
+    /// column has room for now, as after the window got smaller.
+    pub fn commit_shown(&self) -> f32 {
+        self.commit_height.min(self.commit_max())
+    }
+
+    /// Sets the commit box's height, between its least and what leaves the
+    /// lists a few rows; `false` when it stays as it is.
+    fn set_commit_height(&mut self, height: f32, cx: &mut Context<Self>) -> bool {
+        let height = height.clamp(COMMIT_BOX_MIN, self.commit_max().max(COMMIT_BOX_MIN));
+        if height == self.commit_height {
+            return false;
+        }
+        self.commit_height = height;
+        cx.notify();
+        true
+    }
+
+    fn start_box_resize(&mut self, event: &MouseDownEvent) {
+        self.resizing = Some((f32::from(event.position.y), self.commit_shown()));
+    }
+
+    /// The box is below its splitter: moving up makes it taller.
+    fn drag_box(&mut self, event: &DragMoveEvent<DraggedBoxSplitter>, cx: &mut Context<Self>) {
+        if let Some((start, height)) = self.resizing {
+            let moved = start - f32::from(event.event.position.y);
+            self.set_commit_height(height + moved, cx);
+        }
+    }
+
+    /// Up on the focused splitter makes the box taller, Down shorter.
+    fn box_up(&mut self, _: &SplitterUp, _: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        self.set_commit_height(self.commit_shown() + panes::KEY_STEP, cx);
+    }
+
+    fn box_down(&mut self, _: &SplitterDown, _: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        self.set_commit_height(self.commit_shown() - panes::KEY_STEP, cx);
+    }
+
+    /// The splitter between the lists and the commit box.
+    fn box_splitter(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let tokens = *cx.tokens();
+        let focused = self.splitter_focus.is_focused(window);
+        div()
+            .id("commit-box-splitter")
+            .test_support()
+            .track_focus(&self.splitter_focus)
+            .tab_stop(true)
+            .key_context(panes::CONTEXT)
+            .on_action(cx.listener(Self::box_up))
+            .on_action(cx.listener(Self::box_down))
+            .role(Role::Splitter)
+            .aria_label(text::RESIZE_COMMIT_BOX)
+            .aria_orientation(Orientation::Horizontal)
+            .aria_numeric_value(f64::from(self.commit_shown().round()))
+            .aria_min_numeric_value(f64::from(COMMIT_BOX_MIN))
+            .flex_shrink_0()
+            .h(panes::SPLITTER)
+            .w_full()
+            .bg(tokens.bg_2)
+            .border_t_1()
+            .border_b_1()
+            .border_color(tokens.border)
+            .cursor(CursorStyle::ResizeUpDown)
+            .hover(move |style| style.bg(tokens.accent))
+            .when(focused, |splitter| splitter.bg(tokens.accent))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event, _, _| this.start_box_resize(event)),
+            )
+            .on_drag(DraggedBoxSplitter, |_, _, _, cx| {
+                cx.new(|_| DraggedBoxSplitterView)
+            })
+            .into_any_element()
     }
 
     /// The tab went to the background: the view and diff go, and reads
@@ -1554,7 +1678,7 @@ impl Focusable for ChangesPane {
 }
 
 impl Render for ChangesPane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tokens = *cx.tokens();
         let root = div()
             .id("changes")
@@ -1569,6 +1693,9 @@ impl Render for ChangesPane {
             .on_action(cx.listener(Self::select_last))
             .on_action(cx.listener(Self::move_selected))
             .on_action(cx.listener(Self::discard_selected))
+            .on_drag_move::<DraggedBoxSplitter>(cx.listener(
+                |this, event: &DragMoveEvent<DraggedBoxSplitter>, _, cx| this.drag_box(event, cx),
+            ))
             .size_full()
             .flex()
             .flex_col()
@@ -1634,11 +1761,16 @@ impl Render for ChangesPane {
                 .text_color(tokens.warning)
                 .child(notice)
         });
-        let commit_box = self
-            .changes
-            .committable()
-            .is_some()
-            .then(|| self.commit_box.clone());
+        let commit_box = self.changes.committable().is_some().then(|| {
+            div()
+                .flex_shrink_0()
+                .h(px(self.commit_shown()))
+                .border_t_1()
+                .border_color(tokens.border)
+                .child(self.commit_box.clone())
+        });
+        let splitter = commit_box.as_ref().map(|_| self.box_splitter(window, cx));
+        let column_height = self.column_height.clone();
         let list = div()
             .id("changes-files")
             .test_support()
@@ -1659,6 +1791,7 @@ impl Render for ChangesPane {
         root.children(error)
             .child(
                 div()
+                    .relative()
                     .flex_1()
                     .min_h_0()
                     .flex()
@@ -1668,7 +1801,16 @@ impl Render for ChangesPane {
                     .child(files_header)
                     .children(notice)
                     .child(list)
-                    .children(commit_box),
+                    .children(splitter)
+                    .children(commit_box)
+                    .child(
+                        canvas(
+                            move |bounds, _, _| column_height.set(bounds.size.height),
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .size_full(),
+                    ),
             )
             .child(diff)
     }
