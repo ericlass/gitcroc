@@ -5,6 +5,7 @@
 //! runs until it is cancelled, so a running job needs no timing. The
 //! status bar's 10 s pass on the test executor's clock.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use gitcroc_app::app::EVENT_CAPACITY;
@@ -503,10 +504,14 @@ fn perf_1_the_job_list_lays_out_only_the_rows_on_screen(cx: &mut TestAppContext)
     let added = fixture.add_repos(&workspace, made.path());
     let (mut cx, window) = main_window(cx, &fixture);
     let api = id_of(&added, "api");
-    // One write at a time: a write already running is joined.
+    // One write at a time: a write already running is joined. The core
+    // lets go of a write a little after it has ended, so a new write that
+    // came back with the last one's job is asked for again.
     const JOBS: usize = 60;
-    for _ in 0..JOBS {
+    let mut started = HashSet::new();
+    while started.len() < JOBS {
         let id = write_commit_graph(&fixture, &workspace, &api);
+        started.insert(id);
         fixture.runtime.block_on(async {
             while job(&fixture, id).state != JobState::Ended {
                 tokio::time::sleep(Duration::from_millis(5)).await;
