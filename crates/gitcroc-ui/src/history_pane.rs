@@ -1246,6 +1246,12 @@ impl HistoryPane {
             .iter()
             .filter_map(|id| self.history.commit_of(id))
             .all(|(other, _)| other == repo);
+        let commits = self
+            .marked
+            .iter()
+            .filter_map(|id| self.history.commit_of(id))
+            .map(|(_, hash)| hash)
+            .collect::<Vec<_>>();
         let tree = self.tree.read(cx).tree();
         let blocked = crate::row_context::blocked(tree.summary(&repo));
         let items = crate::row_menus::commit_menu(count, same_repo, blocked)
@@ -1263,6 +1269,36 @@ impl HistoryPane {
                             revision: hash.clone(),
                         },
                     })),
+                    2 => Some(RowChoice::Operation(
+                        crate::operation_dialog::OperationMode::TagCreate {
+                            commit: Some(hash.clone()),
+                        },
+                    )),
+                    3 => Some(RowChoice::Operation(
+                        crate::operation_dialog::OperationMode::Run(
+                            crate::operation_dialog::Operation::Integrate(
+                                gitcroc_core::IntegrateOp::CherryPick {
+                                    commits: commits.clone(),
+                                },
+                            ),
+                        ),
+                    )),
+                    4 => Some(RowChoice::Operation(
+                        crate::operation_dialog::OperationMode::Run(
+                            crate::operation_dialog::Operation::Integrate(
+                                gitcroc_core::IntegrateOp::Revert {
+                                    commit: hash.clone(),
+                                    mainline: None,
+                                },
+                            ),
+                        ),
+                    )),
+                    5 => Some(RowChoice::Operation(
+                        crate::operation_dialog::OperationMode::Reset {
+                            commit: hash.clone(),
+                            mode: gitcroc_core::ResetMode::Mixed,
+                        },
+                    )),
                     6 => Some(RowChoice::Copy(hash.clone())),
                     _ => None,
                 };

@@ -24,6 +24,7 @@ pub mod jobs;
 pub mod keys;
 pub mod menu;
 pub mod menus;
+pub mod operation_dialog;
 pub mod panes;
 #[cfg(feature = "perf-trace")]
 pub mod perf;
@@ -131,3 +132,7 @@ pub fn open_window(
         })
     })
 }
+
+mod toolbar;
+
+pub mod retained_stash;

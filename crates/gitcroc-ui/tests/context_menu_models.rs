@@ -157,7 +157,7 @@ fn ui_13_commit_context_menu() {
     assert!(!entries[0].disabled);
     assert!(!entries[1].disabled);
     assert!(!entries[6].disabled);
-    assert!(entries[2..6].iter().all(|entry| entry.disabled));
+    assert!(entries[2..6].iter().all(|entry| !entry.disabled));
     let blocked = commit_menu(1, true, Some("conflict"));
     assert!(blocked[..6].iter().all(|entry| entry.disabled));
     assert!(!blocked[6].disabled);
@@ -167,8 +167,13 @@ fn ui_13_commit_context_menu() {
 fn ui_13_cherry_pick_needs_rows_of_one_repo() {
     for same_repo in [false, true] {
         let entries = commit_menu(3, same_repo, None);
-        assert!(entries.iter().all(|entry| entry.disabled));
+        assert!(
+            entries
+                .iter()
+                .enumerate()
+                .all(|(at, entry)| entry.disabled == (at != 3 || !same_repo))
+        );
         assert_eq!(entries[3].text.as_ref(), "Cherry-pick 3 commits");
-        assert!(entries[3].description.is_some());
+        assert_eq!(entries[3].description.is_some(), !same_repo);
     }
 }

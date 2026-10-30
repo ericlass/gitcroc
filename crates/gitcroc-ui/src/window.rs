@@ -15,6 +15,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
+use crate::operation_dialog::{OperationDialog, OperationMode};
 use gitcroc_app::app::AppEvent;
 use gitcroc_app::askpass::AskpassPrompt;
 use gitcroc_core::{GitStatus, WorkspaceId, WorkspaceTabs};
@@ -112,7 +113,7 @@ pub struct GitcrocWindow {
     services: Services,
     title_bar: Entity<TitleBar>,
     /// Each open workspace's tree, made when its tab is first shown.
-    trees: HashMap<WorkspaceId, Entity<TreePane>>,
+    pub(crate) trees: HashMap<WorkspaceId, Entity<TreePane>>,
     /// Each open workspace's history, made with its tree.
     histories: HashMap<WorkspaceId, Entity<HistoryPane>>,
     /// Each open workspace's changes, made with its history.
@@ -134,12 +135,14 @@ pub struct GitcrocWindow {
     prompts: VecDeque<AskpassPrompt>,
     askpass: Option<OpenAskpass>,
     controls: Rc<dyn WindowControls>,
-    workspaces: Entity<Workspaces>,
+    pub(crate) workspaces: Entity<Workspaces>,
     tab_bar: Entity<TabBar>,
     /// Shown while no tab is open (UI-27).
     start: Option<Entity<WorkspaceStart>>,
     dialog: Option<OpenDialog>,
     row_menu: Option<OpenRowMenu>,
+    retained_stashes: crate::retained_stash::RetainedStashes,
+    operation_events: Option<Subscription>,
     /// Why the core refused a tab change, until dismissed.
     refused: Option<SharedString>,
     /// The note on workspace files not found at start was dismissed (UI-33).
@@ -244,6 +247,8 @@ impl GitcrocWindow {
             start: None,
             dialog: None,
             row_menu: None,
+            retained_stashes: Default::default(),
+            operation_events: None,
             refused: None,
             missing_dismissed: false,
             git: Git::default(),
@@ -342,6 +347,11 @@ impl GitcrocWindow {
                     }
                     self.close_prompt(window, cx);
                 }
+            }
+            Ok(AppEvent::JobEnded(job)) => {
+                self.retained_stashes
+                    .ended(job.job_id, job.outcome.as_ref());
+                cx.notify();
             }
             Ok(AppEvent::WorkspaceChanged(view)) => {
                 self.workspaces
@@ -469,6 +479,8 @@ impl GitcrocWindow {
                     this.ask_branch(ask.clone(), window, cx)
                 })
                 .detach();
+                // Toolbar availability and retained-stash offers follow selection and summaries.
+                cx.observe(&tree, |_, _, cx| cx.notify()).detach();
                 self.trees.insert(active.clone(), tree);
             }
             if !self.histories.contains_key(&active)
@@ -730,7 +742,12 @@ impl GitcrocWindow {
         .detach();
     }
 
-    fn ask_branch(&mut self, ask: AskBranch, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn ask_branch(
+        &mut self,
+        ask: AskBranch,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.dialog.is_some() {
             return;
         }
@@ -748,6 +765,56 @@ impl GitcrocWindow {
         });
         self.open_dialog(dialog.clone(), window, cx);
         if ask.immediate {
+            dialog.update(cx, |dialog, cx| dialog.submit(window, cx));
+        }
+    }
+    pub(crate) fn ask_operation(
+        &mut self,
+        workspace: WorkspaceId,
+        repo: gitcroc_core::RepoId,
+        repo_name: String,
+        mode: OperationMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let immediate = mode.immediate();
+        let services = self.services.clone();
+        let dialog = cx
+            .new(|cx| OperationDialog::new(services, workspace, repo, repo_name, mode, window, cx));
+        self.operation_events = Some(cx.subscribe(
+            &dialog,
+            |this, _, started: &crate::operation_dialog::Started, cx| {
+                use crate::operation_dialog::Operation;
+                match &started.op {
+                    Operation::Stash(gitcroc_core::StashOp::Pop { stash }) => {
+                        this.retained_stashes.pop(
+                            started.job,
+                            started.workspace.clone(),
+                            started.repo.clone(),
+                            stash.clone(),
+                        );
+                        // The jobs mirror also covers a lost or unusually early end.
+                        if let Some(job) = this.jobs.read(cx).get(started.job)
+                            && job.state == gitcroc_core::JobState::Ended
+                        {
+                            this.retained_stashes
+                                .ended(job.job_id, job.outcome.as_ref());
+                        }
+                    }
+                    Operation::Stash(gitcroc_core::StashOp::Drop { .. })
+                    | Operation::Integrate(gitcroc_core::IntegrateOp::Abort) => this
+                        .retained_stashes
+                        .forget(&started.workspace, &started.repo),
+                    _ => {}
+                }
+                cx.notify();
+            },
+        ));
+        self.open_dialog(dialog.clone(), window, cx);
+        if immediate {
             dialog.update(cx, |dialog, cx| dialog.submit(window, cx));
         }
     }
@@ -811,6 +878,11 @@ impl GitcrocWindow {
                         window,
                         cx,
                     );
+                }
+            }
+            RowChoice::Operation(mode) => {
+                if let Some(repo) = ask.repo {
+                    self.ask_operation(ask.workspace, repo, ask.repo_name, mode, window, cx);
                 }
             }
             RowChoice::Repo(action) => {
@@ -1102,11 +1174,23 @@ impl GitcrocWindow {
                 .aria_label(strings::regions::TOOLBAR)
                 .flex_shrink_0()
                 .h(TOOLBAR_HEIGHT)
+                .flex()
+                .items_center()
+                .gap_1()
+                .px_2()
+                .children(self.operation_toolbar(cx))
                 .bg(tokens.bg_2)
                 .border_b_1()
                 .border_color(tokens.border)
                 .into_any_element(),
-            div().flex_1().min_h_0().children(panes).into_any_element(),
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .children(self.stash_offers(cx))
+                .child(div().flex_1().min_h_0().children(panes))
+                .into_any_element(),
             div()
                 .id("status-bar")
                 .test_support()
@@ -1122,6 +1206,80 @@ impl GitcrocWindow {
                 .child(self.status_bar.clone())
                 .into_any_element(),
         ]
+    }
+
+    fn stash_offers(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(workspace) = self.workspaces.read(cx).active().map(|w| w.id.clone()) else {
+            return Vec::new();
+        };
+        let Some(tree) = self.trees.get(&workspace) else {
+            return Vec::new();
+        };
+        self.retained_stashes
+            .offers(&workspace)
+            .filter_map(|(repo, stash)| {
+                let view = tree.read(cx).tree().summary(repo)?;
+                if view.summary.is_none() || view.conflict || view.refreshing {
+                    return None;
+                }
+                let name = tree
+                    .read(cx)
+                    .tree()
+                    .repo_names()
+                    .get(repo)
+                    .cloned()
+                    .unwrap_or_default();
+                let w = workspace.clone();
+                let r = repo.clone();
+                let s = stash.clone();
+                let keep_w = workspace.clone();
+                let keep_r = repo.clone();
+                Some(
+                    div()
+                        .id(gpui_kit::ElementId::Name(
+                            format!("stash-offer-{}", repo.0).into(),
+                        ))
+                        .test_support()
+                        .role(Role::Status)
+                        .child(strings::operations::kept(&name, &stash.hash))
+                        .child(
+                            Button::new(gpui_kit::ElementId::Name(
+                                format!("stash-offer-drop-{}", repo.0).into(),
+                            ))
+                            .label(strings::operations::DROP)
+                            .on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    this.ask_operation(
+                                        w.clone(),
+                                        r.clone(),
+                                        name.clone(),
+                                        OperationMode::Run(
+                                            crate::operation_dialog::Operation::Stash(
+                                                gitcroc_core::StashOp::Drop { stash: s.clone() },
+                                            ),
+                                        ),
+                                        window,
+                                        cx,
+                                    )
+                                },
+                            )),
+                        )
+                        .child(
+                            Button::new(gpui_kit::ElementId::Name(
+                                format!("stash-offer-keep-{}", repo.0).into(),
+                            ))
+                            .label(strings::operations::KEEP)
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.retained_stashes.forget(&keep_w, &keep_r);
+                                    cx.notify();
+                                },
+                            )),
+                        )
+                        .into_any_element(),
+                )
+            })
+            .collect()
     }
 
     /// What a dialog sits on: the window, dimmed, which it keeps from the

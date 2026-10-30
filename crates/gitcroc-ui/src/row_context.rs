@@ -5,6 +5,7 @@ use gpui_kit::{FocusHandle, Pixels, Point};
 #[derive(Clone)]
 pub enum RowChoice {
     Branch(BranchMode),
+    Operation(crate::operation_dialog::OperationMode),
     Repo(TreeAction),
     Copy(String),
 }

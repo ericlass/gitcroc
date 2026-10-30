@@ -672,13 +672,62 @@ impl TreePane {
                     }),
                     _ => None,
                 };
-                let choice = mode.map(RowChoice::Branch).or_else(|| {
-                    matches!(
-                        entry.action,
-                        A::OpenFileManager | A::OpenTerminal | A::RemoveRepo
-                    )
-                    .then_some(RowChoice::Repo(entry.action))
-                });
+                let operation = {
+                    use crate::operation_dialog::{Operation, OperationMode as M};
+                    use gitcroc_core::{RemoteOp, StashOp, StashRef, TagOp};
+                    match entry.action {
+                        A::TagCreate => Some(M::TagCreate { commit: None }),
+                        A::TagPush => Some(M::Run(Operation::Tag(TagOp::Push {
+                            name: name.clone(),
+                            remote: None,
+                        }))),
+                        A::TagDelete => Some(M::TagDelete { name: name.clone() }),
+                        A::RemoteAdd => Some(M::RemoteAdd),
+                        A::RemoteRename | A::RemoteUrl | A::RemoteRemove => {
+                            if let TreeItem::Remote { remote, .. } = item {
+                                Some(match entry.action {
+                                    A::RemoteRename => M::RemoteRename {
+                                        name: remote.clone(),
+                                    },
+                                    A::RemoteUrl => M::RemoteUrl {
+                                        name: remote.clone(),
+                                    },
+                                    _ => M::Run(Operation::Remote(RemoteOp::Remove {
+                                        name: remote.clone(),
+                                    })),
+                                })
+                            } else {
+                                None
+                            }
+                        }
+                        A::StashApply | A::StashPop | A::StashDrop => {
+                            if let TreeItem::Stash { index, hash, .. } = item {
+                                let stash = StashRef {
+                                    index: *index,
+                                    hash: hash.clone(),
+                                };
+                                Some(M::Run(Operation::Stash(match entry.action {
+                                    A::StashApply => StashOp::Apply { stash },
+                                    A::StashPop => StashOp::Pop { stash },
+                                    _ => StashOp::Drop { stash },
+                                })))
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                };
+                let choice = mode
+                    .map(RowChoice::Branch)
+                    .or_else(|| operation.map(RowChoice::Operation))
+                    .or_else(|| {
+                        matches!(
+                            entry.action,
+                            A::OpenFileManager | A::OpenTerminal | A::RemoveRepo
+                        )
+                        .then_some(RowChoice::Repo(entry.action))
+                    });
                 (entry.item, choice)
             })
             .collect::<Vec<_>>();
