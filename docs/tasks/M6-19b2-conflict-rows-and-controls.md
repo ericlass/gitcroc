@@ -24,3 +24,16 @@ Write first: `ops_4_headers_keep_core_labels_for_merge_and_rebase`,
 
 Acceptance: these tests and `just check` pass. Show base and proposal cards
 remain M6-19b3.
+
+## Findings: the spike's first frame at the end
+- Reproduction: `perf_1_conflict_first_frame_at_the_end_is_not_slow`
+  (ignored; `just timing`) scrolls the 10,000-line, 50-hunk buffer 100 px a
+  frame in a 1920×1003 window, as the spike did, with this slice's rows,
+  headers and controls.
+- On the GPUI test platform (release build, 2026-10-30), the first step that
+  shows the last line took 0.85 ms against a 2.10 ms median per step (two
+  frames). The editor's and the overlays' layout show no slow frame at the end.
+- The test platform has no GPU and does no real text shaping, so this does
+  not reproduce or rule out the spike's 50–55 ms frame; the cause is not
+  found. It remains to be measured on the reference machine once M6-19c opens
+  the editor in the app.

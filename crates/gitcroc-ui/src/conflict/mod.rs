@@ -1,22 +1,26 @@
 //! Retained, single-buffer conflict editing. No services or repo writes (OPS-9).
 mod buffer;
 mod look;
+mod overlay;
 pub mod recovery;
 mod retained;
 mod syntax;
 use crate::keys::{NextHunk, PreviousHunk};
 use crate::strings::conflict as text;
-use crate::theme::AppTheme;
 use crate::theme::code_themes::Syntax;
+use crate::theme::{ActiveTokens, AppTheme};
 pub use buffer::{Buffer, Hunk, Take};
 use gitcroc_core::{ConflictChunk, ConflictLabels};
 use gpui_component::input::{Editor, EditorState, InputEvent};
 use gpui_kit::base::input::{RangeDecoration, RangeDecorationCollection, RopeExt};
 use gpui_kit::{prelude::*, *};
 pub use look::Look;
+use overlay::Measured;
 use recovery::{Recovery, Snapshot};
 pub use retained::{EditorKey, Editors};
+use std::cell::Cell;
 use std::ops::Range;
+use std::rc::Rc;
 
 actions!(
     conflict,
@@ -25,19 +29,21 @@ actions!(
         PreviousConflict,
         TakeOurs,
         TakeTheirs,
-        TakeBoth
+        TakeBoth,
+        /// F7: the next hunk's first control (UI-22).
+        NextControl,
+        PreviousControl,
+        /// Escape on a hunk's control: back to the text at that hunk.
+        ReturnToText
     ]
 );
 pub fn bind(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("alt-down", NextConflict, Some("GitcrocConflict > Input")),
         KeyBinding::new("alt-up", PreviousConflict, Some("GitcrocConflict > Input")),
-        KeyBinding::new("f7", NextConflict, Some("GitcrocConflict > Input")),
-        KeyBinding::new(
-            "shift-f7",
-            PreviousConflict,
-            Some("GitcrocConflict > Input"),
-        ),
+        KeyBinding::new("f7", NextControl, Some("GitcrocConflict")),
+        KeyBinding::new("shift-f7", PreviousControl, Some("GitcrocConflict")),
+        KeyBinding::new("escape", ReturnToText, Some(overlay::CONTROLS)),
         KeyBinding::new("alt-1", TakeOurs, Some("GitcrocConflict > Input")),
         KeyBinding::new("alt-2", TakeTheirs, Some("GitcrocConflict > Input")),
         KeyBinding::new("alt-3", TakeBoth, Some("GitcrocConflict > Input")),
@@ -83,12 +89,21 @@ pub struct ConflictEditor {
     edits: u64,
     prepared: Option<Buffer>,
     _changes: Subscription,
+    _observe: Subscription,
     restore_focus: bool,
+    labels: ConflictLabels,
     path: Option<String>,
     lines: syntax::Lines,
+    /// The first control of the hunk F7 went to.
+    controls: FocusHandle,
+    control_hunk: Option<usize>,
+    laid_out: usize,
+    /// The editor's layout as last painted, which the overlays follow.
+    measured: Rc<Cell<Option<Measured>>>,
 }
 impl ConflictEditor {
     pub fn new(buffer: Buffer, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let labels = buffer.labels;
         let initial: SharedString = buffer.text.into();
         let editor = cx.new(|cx| {
             let mut state = EditorState::new(window, cx)
@@ -124,6 +139,8 @@ impl ConflictEditor {
                 .collect(),
         };
         let recovery = Some(cx.background_spawn(async move { Recovery::new(snapshot) }));
+        // Scrolling and caret moves redraw the overlays in the same frame.
+        let observe = cx.observe(&editor, |_, _, cx| cx.notify());
         let changes = cx.subscribe(&editor, |this, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
                 this.generation += 1;
@@ -141,9 +158,15 @@ impl ConflictEditor {
             edits: 0,
             prepared: None,
             _changes: changes,
+            _observe: observe,
             restore_focus: false,
+            labels,
             path: None,
             lines: syntax::Lines::default(),
+            controls: cx.focus_handle(),
+            control_hunk: None,
+            laid_out: 0,
+            measured: Rc::default(),
         }
     }
     /// Highlights the buffer as the file at `path`; a type syntect does not
@@ -163,6 +186,49 @@ impl ConflictEditor {
     /// The colours in use: the code theme's, whatever the app theme.
     pub fn look(&self, cx: &App) -> Look {
         Look::of(&AppTheme::global(cx).code_theme().colors)
+    }
+    /// Where an untouched hunk's three marker lines start.
+    pub fn marker_offsets(&self, id: usize, cx: &App) -> Option<(usize, usize, usize)> {
+        let (_, range, _) = self
+            .ranges(cx)
+            .into_iter()
+            .find(|(at, _, untouched)| *at == id && *untouched)?;
+        let hunk = &self.hunks[id].hunk;
+        Some((
+            range.start,
+            range.start + hunk.separator,
+            range.start + hunk.end,
+        ))
+    }
+    /// How many hunks the last frame laid out overlays for (PERF-1).
+    pub fn laid_out(&self) -> usize {
+        self.laid_out
+    }
+    /// F7 and Shift+F7 (UI-22): the next or previous hunk, and its Take
+    /// ours, which Tab goes on from and Escape leaves for the text.
+    fn focus_control(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.navigate(forward, window, cx);
+        let cursor = self.editor.read(cx).cursor();
+        self.control_hunk = self
+            .ranges(cx)
+            .into_iter()
+            .find(|(_, range, untouched)| *untouched && range.contains(&cursor))
+            .map(|(id, _, _)| id);
+        if self.control_hunk.is_some() {
+            window.focus(&self.controls, cx);
+        }
+        cx.notify();
+    }
+    fn return_to_text(&mut self, id: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let at = self
+            .marker_offsets(id, cx)
+            .map(|(head, _, _)| head + self.hunks[id].hunk.head);
+        self.editor.update(cx, |state, cx| {
+            if let Some(at) = at {
+                state.set_selected_range(at..at, cx);
+            }
+            state.focus(window, cx);
+        });
     }
     pub fn value(&self, cx: &App) -> String {
         self.editor.read(cx).value().to_string()
@@ -364,14 +430,32 @@ impl ConflictEditor {
         }
     }
 }
+/// A layer over the editor's viewport that clips what is outside it.
+fn clip(viewport: Option<Bounds<Pixels>>) -> Div {
+    let viewport = viewport.unwrap_or_default();
+    div()
+        .absolute()
+        .left(viewport.origin.x)
+        .top(viewport.origin.y)
+        .w(viewport.size.width)
+        .h(viewport.size.height)
+        .overflow_hidden()
+}
 impl Render for ConflictEditor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let look = self.look(cx);
+        let tokens = *cx.tokens();
+        let overlays = self.overlays(&look, &tokens, cx);
         let (editor, style) = (self.editor.clone(), look.editor_style());
+        let (checked, measured, this) =
+            (self.editor.clone(), self.measured.clone(), cx.weak_entity());
+        let scroll = self.editor.read(cx).scroll_offset();
+        let viewport = self.measured.get().map(|m| m.viewport);
         div()
             .key_context("GitcrocConflict")
             .relative()
             .size_full()
+            .overflow_hidden()
             .bg(look.background)
             .text_color(look.text)
             .on_action(
@@ -381,11 +465,19 @@ impl Render for ConflictEditor {
                 this.navigate(false, window, cx)
             }))
             .on_action(
-                cx.listener(|this, _: &NextHunk, window, cx| this.navigate(true, window, cx)),
+                cx.listener(|this, _: &NextHunk, window, cx| this.focus_control(true, window, cx)),
             )
+            .on_action(cx.listener(|this, _: &PreviousHunk, window, cx| {
+                this.focus_control(false, window, cx)
+            }))
             .on_action(
-                cx.listener(|this, _: &PreviousHunk, window, cx| this.navigate(false, window, cx)),
+                cx.listener(|this, _: &NextControl, window, cx| {
+                    this.focus_control(true, window, cx)
+                }),
             )
+            .on_action(cx.listener(|this, _: &PreviousControl, window, cx| {
+                this.focus_control(false, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &TakeOurs, window, cx| {
                 this.take_at_cursor(Take::Ours, window, cx)
             }))
@@ -395,6 +487,7 @@ impl Render for ConflictEditor {
             .on_action(cx.listener(|this, _: &TakeBoth, window, cx| {
                 this.take_at_cursor(Take::Both, window, cx)
             }))
+            .child(clip(viewport).children(overlays.rows))
             // gpui-component's editor takes the app theme's colours each
             // frame; the code theme's go over them before it prepaints.
             .child(
@@ -416,6 +509,28 @@ impl Render for ConflictEditor {
                     .when_some(self.path.as_deref(), |editor, path| {
                         editor.aria_label(text::resolution(path))
                     }),
+            )
+            .child(clip(viewport).children(overlays.headers))
+            // Measures the editor once it painted. A layout that moved after
+            // the overlays were placed (a deferred scroll, a new font size)
+            // places them again on the next frame.
+            .child(
+                canvas(
+                    |_, _, _| {},
+                    move |bounds, _, _, cx| {
+                        let now = Measured::read(checked.read(cx), bounds);
+                        let before = measured.replace(now);
+                        if now.is_some_and(|now| now.moved(before, scroll)) {
+                            cx.defer(move |cx| {
+                                let _ = this.update(cx, |_, cx| cx.notify());
+                            });
+                        }
+                    },
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
             )
     }
 }

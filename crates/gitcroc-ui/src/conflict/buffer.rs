@@ -15,7 +15,10 @@ pub struct Hunk {
     pub base: String,
     pub theirs: String,
     pub original: String,
+    /// Where the marker lines start in `original`: `<<<<<<<` is at 0.
     pub head: usize,
+    pub separator: usize,
+    pub end: usize,
 }
 impl Hunk {
     pub fn taken(&self, side: Take) -> String {
@@ -30,6 +33,8 @@ impl Hunk {
 pub struct Buffer {
     pub text: String,
     pub hunks: Vec<Hunk>,
+    /// The core's labels on one line each, as the headers show them (OPS-4).
+    pub labels: ConflictLabels,
 }
 pub fn normalize(text: &str) -> String {
     text.replace("\r\n", "\n").replace('\r', "\n")
@@ -69,6 +74,8 @@ impl Buffer {
                     let (ours, base, theirs) =
                         (normalize(ours), normalize(base), normalize(theirs));
                     let head = format!("<<<<<<< {}\n", one_line(&labels.ours));
+                    let separator = head.len() + closed(&ours).len();
+                    let end = separator + "=======\n".len() + closed(&theirs).len();
                     let original = format!(
                         "{head}{}=======\n{}>>>>>>> {}\n",
                         closed(&ours),
@@ -82,12 +89,22 @@ impl Buffer {
                         base,
                         theirs,
                         head: head.len(),
+                        separator,
+                        end,
                         original: original.clone(),
                     });
                     text.push_str(&original);
                 }
             }
         }
-        Self { text, hunks }
+        let labels = ConflictLabels {
+            ours: one_line(&labels.ours),
+            theirs: one_line(&labels.theirs),
+        };
+        Self {
+            text,
+            hunks,
+            labels,
+        }
     }
 }

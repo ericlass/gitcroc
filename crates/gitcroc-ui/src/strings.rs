@@ -1015,6 +1015,32 @@ pub mod operations {
 
 /// The conflict editor (OPS-3, OPS-4), as rc.1's `conflict` strings.
 pub mod conflict {
+    /// A hunk, as the editor's controls name it.
+    pub fn which(number: usize) -> String {
+        format!("conflict {number}")
+    }
+    /// A side's header, with the core's label (OPS-4).
+    pub fn ours(label: &str) -> String {
+        format!("Ours: {label}")
+    }
+    pub fn theirs(label: &str) -> String {
+        format!("Theirs: {label}")
+    }
+    pub fn end_of(number: usize) -> String {
+        format!("End of conflict {number}")
+    }
+    pub const TAKE_OURS: &str = "Take ours";
+    pub const TAKE_THEIRS: &str = "Take theirs";
+    pub const TAKE_BOTH: &str = "Take both";
+    pub fn take_ours_in(which: &str) -> String {
+        format!("Take ours in {which}")
+    }
+    pub fn take_theirs_in(which: &str) -> String {
+        format!("Take theirs in {which}")
+    }
+    pub fn take_both_in(which: &str) -> String {
+        format!("Take both in {which}")
+    }
     /// The editor, as screen readers name it.
     pub fn resolution(path: &str) -> String {
         format!("Resolution of {path}")
