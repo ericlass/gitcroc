@@ -8,6 +8,7 @@ pub mod changes;
 pub mod changes_pane;
 pub mod commit;
 pub mod commit_box;
+pub mod conflict;
 pub mod dialog;
 pub mod dialogs;
 pub mod diff;

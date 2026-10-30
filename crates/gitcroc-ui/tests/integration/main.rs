@@ -14,6 +14,7 @@ mod branches;
 mod changes;
 mod colors;
 mod commit;
+mod conflict;
 mod diff;
 mod git_setup;
 mod history;
