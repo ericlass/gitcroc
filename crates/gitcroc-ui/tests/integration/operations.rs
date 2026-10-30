@@ -10,10 +10,12 @@ use gpui_kit::{AppContext, Entity, TestAppContext, VisualTestContext};
 // repo-gen gives only its own commands an identity through environment
 // variables. App-started commands must also work on runners with no global
 // git config, so give these fixtures a repo-local committer identity.
+// Keep app and fixture commands consistent when the host enables autocrlf.
 fn repos(names: &[&str]) -> repo_gen::Fixture {
     let made = crate::history::repos(names);
     for name in names {
         let repo = repo(&made, name);
+        repo.git(["config", "core.autocrlf", "false"]).unwrap();
         repo.git(["config", "user.name", "Test User"]).unwrap();
         repo.git(["config", "user.email", "test@example.com"])
             .unwrap();
