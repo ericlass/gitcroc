@@ -15,6 +15,8 @@ mod changes;
 mod colors;
 mod commit;
 mod conflict;
+mod conflict_cards;
+mod conflict_view;
 mod diff;
 mod git_setup;
 mod history;
