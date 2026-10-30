@@ -201,7 +201,7 @@ The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
 rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
 not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-15c and M6-27 have theirs;
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-17 and M6-27 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
@@ -230,8 +230,8 @@ several pull requests (DEV-4).
 | [M6-15a](M6-15a-status-bar-and-job-list.md) | Status bar, job list, tab badges and markers | M6-09 |
 | [M6-15b](M6-15b-askpass-and-update-notice.md) | Askpass dialog, update notice and update dialog | M6-15a |
 | [M6-15c](M6-15c-askpass-on-quit.md) | Askpass prompts end when the app quits; no git or helper left running | M6-15b |
-| M6-16 | Stage, unstage and discard; commit and amend; fsmonitor offer | M6-13a, M6-15a |
-| M6-17 | Tree and history context menus; branch dialogs | M6-11d, M6-15a |
+| [M6-16](M6-16-stage-commit-and-fsmonitor.md) | Stage, unstage and discard; commit and amend; fsmonitor offer | M6-13a, M6-15a |
+| [M6-17](M6-17-context-menus-and-branch-dialogs.md) | Tree and history context menus; branch dialogs | M6-11d, M6-15a |
 | M6-18 † | Sync, integrate, stash, tag, reset and remote dialogs | M6-15b, M6-17 |
 | M6-19 † | Conflict banner and conflict editor | M6-02, M6-16 |
 | M6-20 | Clone, add folder, missing repos | M6-15b |
