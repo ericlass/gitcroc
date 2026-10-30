@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use gitcroc_app::askpass::{
     ADDRESS_VAR, Answer, AskpassPrompt, AskpassServer, AskpassUi, PromptKind, TOKEN_VAR,
 };
-use gitcroc_app::platform::{LocalSockets, PlatformSockets};
+use gitcroc_app::platform::{LocalListener, LocalSockets, PlatformSockets};
 use gitcroc_core::{
     AppLog, AskpassIssuer, ConfigDir, GitRunner, JobEvents, JobState, JobView, Jobs, LogDir,
     NothingToDo, OnCancel, Outcome, SearchEnv, Summaries, SummaryCache, SummaryView, WorkspaceId,
@@ -250,6 +250,55 @@ fn d10_askpass_refuses_a_wrong_token() {
         assert!(output.stdout.is_empty(), "{vars:?}");
     }
     assert!(ui.asked().is_empty());
+}
+
+/// D10: a helper waiting on its reply exits with status 1, so that git
+/// fails, when the app's end of the socket goes before it replied. Nothing
+/// waits for a time: the deadline only ends a hung test.
+#[test]
+fn d10_askpass_helper_exits_when_the_app_goes() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let mut listener = runtime.block_on(async { PlatformSockets::listen().unwrap() });
+    let mut helper = std::process::Command::new(helper())
+        .arg("Password for 'https://git.example.com': ")
+        .env(ADDRESS_VAR, listener.address())
+        .env(TOKEN_VAR, "token")
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    runtime.block_on(async {
+        use tokio::io::AsyncBufReadExt;
+        let stream = listener.accept().await.unwrap();
+        let mut request = String::new();
+        tokio::io::BufReader::new(stream)
+            .read_line(&mut request)
+            .await
+            .unwrap();
+        assert!(request.contains("Password for"), "{request}");
+        // The stream is dropped here, unanswered.
+    });
+    drop(listener);
+    drop(runtime);
+
+    let status = wait_for_exit(&mut helper);
+    assert_eq!(status.code(), Some(1));
+    let mut answer = String::new();
+    std::io::Read::read_to_string(&mut helper.stdout.take().unwrap(), &mut answer).unwrap();
+    assert!(answer.is_empty(), "{answer}");
+}
+
+/// Waits until `child` has exited, without blocking past the deadline,
+/// which only ends a hung test.
+#[track_caller]
+pub(crate) fn wait_for_exit(child: &mut std::process::Child) -> std::process::ExitStatus {
+    for _ in 0..3000 {
+        if let Some(status) = child.try_wait().unwrap() {
+            return status;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let _ = child.kill();
+    panic!("the helper is still waiting");
 }
 
 /// Records nothing; the test reads the job's end from its handle.

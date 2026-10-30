@@ -35,7 +35,7 @@ use event::Hub;
 pub use event::{AppEvent, EVENT_CAPACITY, RepoRef};
 
 use crate::ai::{AiBackend, AiProviders};
-use crate::askpass::EventAskpassUi;
+use crate::askpass::{AskpassServer, EventAskpassUi};
 use crate::platform::{DesktopFonts, Dialogs, Installation, Keychain, PlatformInstallation};
 use crate::update::{CHECKS, SystemClock, UpdateTest};
 
@@ -93,6 +93,8 @@ struct Inner {
     jobs: Arc<Jobs>,
     groups: Arc<GroupOps>,
     askpass: Arc<EventAskpassUi>,
+    /// `None` when the askpass socket could not be opened.
+    askpass_server: Option<Arc<AskpassServer>>,
     updates: Arc<Updates>,
     ai: Arc<AiProviders>,
     ai_jobs: Arc<AiJobs>,
@@ -149,12 +151,17 @@ impl App {
         // Network writes ask through the UI (D10). Without the socket they
         // run without, and git fails as it would.
         let askpass = Arc::new(askpass_ui(&hub));
-        match crate::askpass::serve(setup.askpass_helper, askpass.clone(), &setup.runtime) {
-            Ok(server) => {
-                jobs.use_askpass(server);
-            }
-            Err(error) => log.warn(&format!("git cannot ask for credentials: {error}")),
-        }
+        let askpass_server =
+            match crate::askpass::serve(setup.askpass_helper, askpass.clone(), &setup.runtime) {
+                Ok(server) => {
+                    jobs.use_askpass(server.clone());
+                    Some(server)
+                }
+                Err(error) => {
+                    log.warn(&format!("git cannot ask for credentials: {error}"));
+                    None
+                }
+            };
         let preflights = hub.clone();
         let groups = GroupOps::new(
             hub.workspaces.clone(),
@@ -213,6 +220,7 @@ impl App {
                 jobs,
                 groups,
                 askpass,
+                askpass_server,
                 updates,
                 ai,
                 ai_jobs,

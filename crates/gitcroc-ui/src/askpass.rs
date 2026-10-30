@@ -93,6 +93,14 @@ impl AskpassDialog {
         cx.emit(Closed);
     }
 
+    /// Empties the field of a prompt git no longer waits on, sending
+    /// nothing (SEC-1).
+    pub fn withdraw(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.answered = true;
+        self.input
+            .update(cx, |input, cx| input.set_value("", window, cx));
+    }
+
     /// Sends what was typed.
     fn answer_typed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let value = self.input.read(cx).value().to_string();

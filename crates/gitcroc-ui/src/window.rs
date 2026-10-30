@@ -323,6 +323,10 @@ impl GitcrocWindow {
                     .as_ref()
                     .map(|open| open.dialog.read(cx).prompt_id());
                 if shown == Some(prompt_id) {
+                    if let Some(open) = &self.askpass {
+                        open.dialog
+                            .update(cx, |dialog, cx| dialog.withdraw(window, cx));
+                    }
                     self.close_prompt(window, cx);
                 }
             }

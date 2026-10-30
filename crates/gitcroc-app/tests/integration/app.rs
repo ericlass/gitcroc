@@ -4,6 +4,7 @@
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use gitcroc_ai::{ApiKey, Provider, ProviderSpec};
@@ -150,6 +151,15 @@ struct Started {
 /// Starts an app with `capacity` events per subscriber, and waits until git
 /// has been detected.
 async fn start(capacity: usize) -> Started {
+    start_with(
+        capacity,
+        PathBuf::from(env!("CARGO_BIN_EXE_askpass-helper")),
+    )
+    .await
+}
+
+/// As [`start`], with `askpass_helper` as git's helper.
+async fn start_with(capacity: usize, askpass_helper: PathBuf) -> Started {
     let dir = tempfile::tempdir().unwrap();
     let dirs = Dirs(dir.path().to_owned());
     let dialogs = Arc::new(FakeDialogs::default());
@@ -164,7 +174,7 @@ async fn start(capacity: usize) -> Started {
         keychain: Arc::new(MemoryKeychain::default()),
         ai: Arc::new(NoProviders),
         updates: Arc::new(NoUpdates),
-        askpass_helper: PathBuf::from(env!("CARGO_BIN_EXE_askpass-helper")),
+        askpass_helper,
         update_test: None,
         commit_graph_threshold: gitcroc_core::COMMIT_GRAPH_THRESHOLD,
     });
@@ -770,6 +780,133 @@ async fn d10_askpass_prompt_round_trips_through_app_events() {
     // base64 of `alice:s3cret-for-askpass`.
     let sent = Some("Basic YWxpY2U6czNjcmV0LWZvci1hc2twYXNz".to_owned());
     assert!(seen.lock().unwrap().contains(&sent), "{seen:?}");
+}
+
+/// A host that wants a password and keeps each connection open, as git's
+/// remote helper does while it asks. Returns a repo URL on it, and how many
+/// connections are open.
+async fn keeping_host() -> (String, Arc<AtomicUsize>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/api.git", listener.local_addr().unwrap());
+    let open = Arc::new(AtomicUsize::new(0));
+    let counted = open.clone();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            counted.fetch_add(1, Ordering::SeqCst);
+            let counted = counted.clone();
+            tokio::spawn(async move {
+                let mut stream = tokio::io::BufReader::new(stream);
+                let mut line = String::new();
+                // Each request ends with an empty line; the connection ends
+                // when git's remote helper closes it or exits.
+                while matches!(stream.read_line(&mut line).await, Ok(1..)) {
+                    if line == "\r\n"
+                        && stream
+                            .get_mut()
+                            .write_all(
+                                b"HTTP/1.1 401 Unauthorized\r\n\
+                                  WWW-Authenticate: Basic realm=\"gitcroc\"\r\n\
+                                  Content-Length: 0\r\n\r\n",
+                            )
+                            .await
+                            .is_err()
+                    {
+                        break;
+                    }
+                    line.clear();
+                }
+                counted.fetch_sub(1, Ordering::SeqCst);
+            });
+        }
+    });
+    (url, open)
+}
+
+/// Waits until `done` holds. The deadline only ends a hung test.
+#[track_caller]
+fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    for _ in 0..3000 {
+        if done() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("{what}");
+}
+
+/// D10: the app quits, as `gitcroc-next`'s `main` does, while a fetch
+/// waits on git's prompt. The shutdown gives the helper no answer and it
+/// exits with status 1; then git's remote helper, the process that talks
+/// to the host and that git waits on, ends: nothing is left waiting on the
+/// app.
+#[test]
+fn d10_quit_ends_an_open_askpass_prompt() {
+    // The host outlives the app, on a runtime of its own.
+    let host = tokio::runtime::Runtime::new().unwrap();
+    let (url, open) = host.block_on(keeping_host());
+    let fixture = repo_gen::Fixture::new().unwrap();
+    let repo = fixture.repo("api").unwrap();
+    repo.commit_file("README.md", "hello\n", "First").unwrap();
+    repo.git(["remote", "add", "origin", &url]).unwrap();
+    repo.git(["config", "credential.helper", ""]).unwrap();
+    repo.git(["config", "http.proxy", ""]).unwrap();
+    // A copy of the helper that writes down how it exited.
+    let programs = tempfile::tempdir().unwrap();
+    let program = programs.path().join(
+        Path::new(env!("CARGO_BIN_EXE_askpass-helper"))
+            .file_name()
+            .unwrap(),
+    );
+    std::fs::copy(env!("CARGO_BIN_EXE_askpass-helper"), &program).unwrap();
+    let suffixed = |suffix: &str| {
+        let mut name = program.clone().into_os_string();
+        name.push(suffix);
+        PathBuf::from(name)
+    };
+    std::fs::write(suffixed(".record"), "").unwrap();
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let started = runtime.block_on(async {
+        let mut started = start_with(EVENT_CAPACITY, program.clone()).await;
+        let workspace = active(&started.app);
+        let repo_id = add(&mut started, &workspace, fixture.path())
+            .await
+            .remove(0);
+        let start = started
+            .app
+            .op_sync(
+                workspace,
+                SyncRequest {
+                    repo_id,
+                    op: SyncOp::Fetch {
+                        prune: Prune::NoPrune,
+                    },
+                    confirmed: false,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(matches!(start, SyncStart::Started { .. }), "{start:?}");
+        next(&mut started.events, |event| {
+            matches!(event, AppEvent::AskpassPrompt(_))
+        })
+        .await;
+        started
+    });
+    assert!(open.load(Ordering::SeqCst) > 0, "git holds no connection");
+
+    // The helper has its reply before the runtime goes, so it does not
+    // lean on the socket closing with the app.
+    runtime.block_on(started.app.shutdown());
+    let exit = suffixed(".exit");
+    wait_until("the helper is still waiting", || {
+        std::fs::read_to_string(&exit).is_ok_and(|code| !code.is_empty())
+    });
+    assert_eq!(std::fs::read_to_string(&exit).unwrap(), "1");
+    runtime.shutdown_background();
+    wait_until("git's remote helper is still running", || {
+        open.load(Ordering::SeqCst) == 0
+    });
 }
 
 /// GRP-5: a group operation on a multi-selection runs through its
