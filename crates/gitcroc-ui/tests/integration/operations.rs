@@ -1,11 +1,25 @@
 //! M6-18 real-git operation dialogs; tests precede the UI implementation.
-use crate::history::{add, click, label_of, repo, repos, wait_until};
+use crate::history::{add, click, label_of, repo, wait_until};
 use crate::support::{Fixture, open, settle};
 use gitcroc_app::app::{AppEvent, EVENT_CAPACITY};
 use gitcroc_core::{RepoId, ResetMode};
 use gitcroc_ui::operation_dialog::{OperationDialog, OperationMode};
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{AppContext, Entity, TestAppContext, VisualTestContext};
+
+// repo-gen gives only its own commands an identity through environment
+// variables. App-started commands must also work on runners with no global
+// git config, so give these fixtures a repo-local committer identity.
+fn repos(names: &[&str]) -> repo_gen::Fixture {
+    let made = crate::history::repos(names);
+    for name in names {
+        let repo = repo(&made, name);
+        repo.git(["config", "user.name", "Test User"]).unwrap();
+        repo.git(["config", "user.email", "test@example.com"])
+            .unwrap();
+    }
+    made
+}
 
 fn dialog(
     cx: &mut TestAppContext,
