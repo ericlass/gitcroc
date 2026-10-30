@@ -20,6 +20,7 @@ mod history;
 mod history_merged;
 mod history_search;
 mod jobs;
+mod operations;
 mod panes;
 mod perf;
 mod stage;
