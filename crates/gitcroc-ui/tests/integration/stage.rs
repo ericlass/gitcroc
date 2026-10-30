@@ -230,11 +230,18 @@ fn show_diff(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>, list: L
     });
 }
 
+/// Keeps git from turning line ends into CRLF when it writes files back,
+/// as a Windows runner's config asks, so a test can compare their text.
+fn exact_line_ends(repo: &repo_gen::Repo) {
+    repo.git(["config", "core.autocrlf", "false"]).unwrap();
+}
+
 /// A repo `api` whose `a.txt`, committed with 60 lines, has lines 5 and 55
 /// changed: two hunks.
 fn two_hunks() -> repo_gen::Fixture {
     let made = repos(&["api"]);
     let api = repo(&made, "api");
+    exact_line_ends(&api);
     let old = numbered(60);
     api.write("a.txt", &old).unwrap();
     api.commit_all("Lines").unwrap();
@@ -518,6 +525,7 @@ fn grp_9_discard_asks_and_names_the_files(cx: &mut TestAppContext) {
     let fixture = Fixture::start(EVENT_CAPACITY);
     let made = repos(&["api"]);
     let api = repo(&made, "api");
+    exact_line_ends(&api);
     api.write("README.md", "changed\n").unwrap();
     let added = add(&fixture, &made);
     let (mut cx, window) = main_window(cx, &fixture);
