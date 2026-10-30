@@ -6,6 +6,12 @@ atomic take and accept actions, undo, and state that survives being hidden.
 This is the first of three M6-19 PRs; M6-19b draws its controls and M6-19c
 connects it to the changes pane and conflict jobs.
 
+## Implementation split (DEV-4)
+- [M6-19a1: buffer and recovery model](M6-19a1-conflict-buffer-transactions.md).
+- [M6-19a2: editor, state and keys](M6-19a2-conflict-editor-state-and-keys.md).
+
+Both are required to complete this parent slice; its acceptance remains unchanged.
+
 ## Depends on
 - M6-02: the accepted single-buffer editor design and measured workarounds.
 - M6-07: code themes and fonts.

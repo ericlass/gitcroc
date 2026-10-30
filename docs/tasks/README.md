@@ -233,7 +233,7 @@ several pull requests (DEV-4).
 | [M6-16](M6-16-stage-commit-and-fsmonitor.md) | Stage, unstage and discard; commit and amend; fsmonitor offer | M6-13a, M6-15a |
 | [M6-17](M6-17-context-menus-and-branch-dialogs.md) | Tree and history context menus; branch dialogs | M6-11d, M6-15a |
 | [M6-18](M6-18-operation-dialogs.md) † | Sync, integrate, stash, tag, reset and remote dialogs | M6-15b, M6-17 |
-| [M6-19a](M6-19a-conflict-buffer-and-state.md) | Conflict buffer, anchors, take/accept, undo and kept state | M6-02, M6-07, M6-16 |
+| [M6-19a](M6-19a-conflict-buffer-and-state.md) ([a1](M6-19a1-conflict-buffer-transactions.md), [a2](M6-19a2-conflict-editor-state-and-keys.md)) | Conflict buffer, anchors, take/accept, undo and kept state | M6-02, M6-07, M6-16 |
 | [M6-19b](M6-19b-conflict-presentation.md) | Conflict rows, headers, base/proposal cards and code colours | M6-19a, M6-07, M6-13b |
 | [M6-19c](M6-19c-conflict-flow-and-jobs.md) | Conflict banner, file switching, choice conflicts, Mark resolved, Abort/Continue | M6-19a, M6-19b, M6-09, M6-14, M6-15b, M6-16, M6-18 |
 | M6-20 | Clone, add folder, missing repos | M6-15b |
