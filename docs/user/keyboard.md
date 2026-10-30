@@ -107,6 +107,8 @@ The borders between the column headers can be focused with Tab; the **arrow keys
 | Ctrl+Enter (Cmd+Enter on macOS) | Mark resolved; while editing a proposal, accept the edited text |
 | Escape | Cancel editing a proposal |
 
+The next and previous conflict keys wrap around, reveal the target and move the caret to its text. Taking a side is one undo step: Ctrl+Z (Cmd+Z on macOS) restores the hunk. The buffer shortcuts apply while its editor has focus; Enter and Space remain ordinary text input there.
+
 On macOS, Alt is the Option key.
 
 ## Job list and result report
