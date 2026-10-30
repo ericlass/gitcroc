@@ -123,6 +123,7 @@ pub struct Menu {
     label: SharedString,
     items: Vec<MenuItem>,
     focus: Vec<FocusHandle>,
+    fallback: FocusHandle,
     /// The menu's corner `anchor` is at `at`, in window coordinates.
     at: Point<Pixels>,
     anchor: Anchor,
@@ -140,6 +141,7 @@ impl Menu {
     ) -> Self {
         let focus = items.iter().map(|_| cx.focus_handle()).collect();
         Self {
+            fallback: cx.focus_handle(),
             label: label.into(),
             items,
             focus,
@@ -152,6 +154,8 @@ impl Menu {
     pub fn focus_first(&self, window: &mut Window, cx: &mut App) {
         if let Some(at) = self.first_enabled() {
             self.select(at, window, cx);
+        } else {
+            window.focus(&self.fallback, cx);
         }
     }
 
@@ -233,11 +237,11 @@ impl Menu {
 }
 
 impl Focusable for Menu {
-    fn focus_handle(&self, cx: &App) -> FocusHandle {
-        self.focus
-            .first()
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.first_enabled()
+            .and_then(|at| self.focus.get(at))
             .cloned()
-            .unwrap_or_else(|| cx.focus_handle())
+            .unwrap_or_else(|| self.fallback.clone())
     }
 }
 
@@ -294,6 +298,7 @@ impl Render for Menu {
                     div()
                         .id("menu")
                         .test_support()
+                        .track_focus(&self.fallback)
                         .key_context(CONTEXT)
                         .on_action(cx.listener(Self::select_next))
                         .on_action(cx.listener(Self::select_previous))

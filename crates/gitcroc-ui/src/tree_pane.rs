@@ -6,6 +6,12 @@
 //! (UI-29). Everything shown comes from the core; this lays it out and
 //! forwards input.
 
+use crate::branch_dialog::{AskBranch, BranchMode};
+use crate::row_context::{AskRowMenu, RowChoice};
+use crate::row_menus::{self, TreeAction as A};
+use gitcroc_core::{BranchOp, RemoteBranchRef, StartPoint};
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
@@ -17,11 +23,12 @@ use gitcroc_core::{
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    Animation, AnimationExt, AnyElement, App, AppContext, ClickEvent, Context, ElementId, Entity,
-    FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding,
-    KeyBindingContextPredicate, ParentElement, Pixels, Render, Role, ScrollStrategy, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Task, TestSupportExt, Transformation,
-    UniformListScrollHandle, Window, actions, div, percentage, px, svg, uniform_list,
+    Animation, AnimationExt, AnyElement, App, AppContext, Bounds, ClickEvent, Context, ElementId,
+    Entity, EventEmitter, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement,
+    KeyBinding, KeyBindingContextPredicate, MouseButton, MouseDownEvent, ParentElement, Pixels,
+    Point, Render, Role, ScrollStrategy, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, Task, TestSupportExt, Transformation, UniformListScrollHandle, Window, actions,
+    canvas, div, percentage, point, px, svg, uniform_list,
 };
 
 use crate::icons;
@@ -33,6 +40,7 @@ use crate::tree::{Row, RowKind, Tree, repo_of};
 actions!(
     tree,
     [
+        OpenRowMenu,
         SelectNext,
         SelectPrevious,
         /// Shift+Down: the multi-selection grows over repo rows (UI-6).
@@ -70,6 +78,8 @@ pub fn bind(cx: &mut App) {
         KeyBinding::load(keys, action, context.clone(), false, None, cx).ok()
     };
     let bindings = [
+        bind("shift-f10", Box::new(OpenRowMenu), cx),
+        bind("menu", Box::new(OpenRowMenu), cx),
         bind("down", Box::new(SelectNext), cx),
         bind("up", Box::new(SelectPrevious), cx),
         bind("shift-down", Box::new(ExtendNext), cx),
@@ -107,8 +117,13 @@ pub struct TreePane {
     scroll: UniformListScrollHandle,
     /// Summaries heard while the first read runs, applied after it.
     heard: Option<Vec<SummaryView>>,
+    row_bounds: Rc<RefCell<HashMap<usize, Bounds<Pixels>>>>,
+    operation_error: Option<SharedString>,
     _filter_events: Subscription,
 }
+
+impl EventEmitter<AskRowMenu> for TreePane {}
+impl EventEmitter<AskBranch> for TreePane {}
 
 impl TreePane {
     pub fn new(
@@ -133,6 +148,8 @@ impl TreePane {
             filter,
             scroll: UniformListScrollHandle::new(),
             heard: None,
+            row_bounds: Rc::default(),
+            operation_error: None,
             _filter_events: filter_events,
         };
         this.read_tree(cx);
@@ -480,7 +497,10 @@ impl TreePane {
         }
     }
 
-    fn activate(&mut self, _: &Activate, _: &mut Window, cx: &mut Context<Self>) {
+    fn activate(&mut self, _: &Activate, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            return;
+        }
         if let Some(index) = self.selected_index() {
             let row = self.rows[index].clone();
             self.toggle_row(&row, cx);
@@ -522,8 +542,162 @@ impl TreePane {
             && how == How::Select
             && let Some(row) = self.rows.get(index).cloned()
         {
-            self.toggle_row(&row, cx);
+            if let Some(gitcroc_core::TreeItem::Branch {
+                repo_id,
+                name,
+                current,
+                ..
+            }) = row.item()
+            {
+                if !current && crate::row_context::blocked(self.tree.summary(repo_id)).is_none() {
+                    cx.emit(AskBranch {
+                        workspace: self.workspace_id.clone(),
+                        repo: repo_id.clone(),
+                        repo_name: self
+                            .tree
+                            .repo_names()
+                            .get(repo_id)
+                            .cloned()
+                            .unwrap_or_default(),
+                        mode: BranchMode::Run {
+                            op: BranchOp::Checkout { name: name.clone() },
+                        },
+                        immediate: true,
+                    });
+                }
+            } else {
+                self.toggle_row(&row, cx);
+            }
         }
+    }
+
+    pub fn operation_error(&mut self, error: Option<SharedString>, cx: &mut Context<Self>) {
+        self.operation_error = error;
+        cx.notify();
+    }
+    fn keyboard_row_menu(&mut self, _: &OpenRowMenu, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            return;
+        }
+        if let Some(index) = self.selected_index() {
+            let at = self
+                .row_bounds
+                .borrow()
+                .get(&index)
+                .map(|b| point(b.left(), b.bottom()))
+                .unwrap_or_default();
+            self.row_menu(index, at, window, cx);
+        }
+    }
+    fn row_menu(
+        &mut self,
+        index: usize,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_at(index, How::Select, cx);
+        window.focus(&self.focus, cx);
+        let Some(item) = self.rows.get(index).and_then(|row| row.item()) else {
+            return;
+        };
+        let repo = repo_of(item).cloned();
+        let view = repo.as_ref().and_then(|repo| self.tree.summary(repo));
+        let entries = row_menus::tree_menu(
+            item,
+            crate::row_context::blocked(view),
+            view.is_some_and(|v| v.missing),
+        );
+        let revision = match item {
+            TreeItem::Branch { name, .. }
+            | TreeItem::RemoteBranch { name, .. }
+            | TreeItem::Tag { name, .. } => Some(name.clone()),
+            _ => None,
+        };
+        let name = revision.clone().unwrap_or_default();
+        let remote = match item {
+            TreeItem::RemoteBranch { remote, branch, .. } => Some(RemoteBranchRef {
+                remote: remote.clone(),
+                branch: branch.clone(),
+            }),
+            _ => None,
+        };
+        let items = entries
+            .into_iter()
+            .map(|entry| {
+                let mode = match entry.action {
+                    A::Create => Some(BranchMode::Create {
+                        start: revision
+                            .clone()
+                            .map(|revision| StartPoint::Revision { revision })
+                            .unwrap_or(StartPoint::Head),
+                    }),
+                    A::Rename => Some(BranchMode::Rename { name: name.clone() }),
+                    A::Delete => Some(BranchMode::Delete {
+                        name: name.clone(),
+                        tracked: matches!(
+                            item,
+                            TreeItem::Branch {
+                                upstream: Some(_),
+                                ..
+                            }
+                        ),
+                    }),
+                    A::SetUpstream => Some(BranchMode::Upstream {
+                        name: name.clone(),
+                        upstream: match item {
+                            TreeItem::Branch { upstream, .. } => upstream.clone(),
+                            _ => None,
+                        },
+                    }),
+                    A::UnsetUpstream => Some(BranchMode::Run {
+                        op: BranchOp::SetUpstream {
+                            name: name.clone(),
+                            upstream: None,
+                        },
+                    }),
+                    A::Checkout => Some(BranchMode::Run {
+                        op: BranchOp::Checkout { name: name.clone() },
+                    }),
+                    A::CheckoutRemote => remote.clone().map(|branch| BranchMode::Run {
+                        op: BranchOp::CheckoutRemote { branch },
+                    }),
+                    A::DeleteRemote => remote.clone().map(|branch| BranchMode::Run {
+                        op: BranchOp::DeleteRemote { branch },
+                    }),
+                    A::CheckoutDetached => Some(BranchMode::Run {
+                        op: BranchOp::CheckoutDetached {
+                            revision: name.clone(),
+                        },
+                    }),
+                    _ => None,
+                };
+                let choice = mode.map(RowChoice::Branch).or_else(|| {
+                    matches!(
+                        entry.action,
+                        A::OpenFileManager | A::OpenTerminal | A::RemoveRepo
+                    )
+                    .then_some(RowChoice::Repo(entry.action))
+                });
+                (entry.item, choice)
+            })
+            .collect::<Vec<_>>();
+        if items.is_empty() {
+            return;
+        }
+        let repo_name = repo
+            .as_ref()
+            .and_then(|repo| self.tree.repo_names().get(repo).cloned())
+            .unwrap_or_default();
+        cx.emit(AskRowMenu {
+            label: strings::branches::TREE_ACTIONS,
+            workspace: self.workspace_id.clone(),
+            repo,
+            repo_name,
+            items,
+            at,
+            focus: self.focus.clone(),
+        });
     }
 
     fn click_chevron(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -828,6 +1002,7 @@ impl TreePane {
         let id = format!("tree-row-{}", row.id);
         let indent = px(4. + row.depth as f32 * INDENT);
         let base = div()
+            .relative()
             .id(ElementId::Name(id.clone().into()))
             .test_support()
             .h(ROW_HEIGHT)
@@ -911,6 +1086,24 @@ impl TreePane {
                 row.border_1().border_color(tokens.focus_ring)
             })
             .hover(|row| row.bg(tokens.bg_3))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.row_menu(index, event.position, window, cx);
+                }),
+            )
+            .child({
+                let bounds = self.row_bounds.clone();
+                canvas(
+                    move |b, _, _| {
+                        bounds.borrow_mut().insert(index, b);
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full()
+            })
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.click(index, event, window, cx);
             }))
@@ -985,6 +1178,7 @@ impl Render for TreePane {
                 ),
             )
             .children(error)
+            .children(crate::dialog::refusal(&self.operation_error, cx))
             .child(
                 div()
                     .id("tree-list")
@@ -1003,6 +1197,7 @@ impl Render for TreePane {
                     .on_action(cx.listener(Self::expand_selected))
                     .on_action(cx.listener(Self::collapse_selected))
                     .on_action(cx.listener(Self::activate))
+                    .on_action(cx.listener(Self::keyboard_row_menu))
                     .on_action(cx.listener(Self::select_first))
                     .on_action(cx.listener(Self::select_last))
                     .flex_1()

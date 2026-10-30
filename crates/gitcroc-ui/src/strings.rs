@@ -875,6 +875,7 @@ pub mod tree_menu {
 
 /// Commit row context menu (D15).
 pub mod commit_menu {
+    pub const MENU: &str = "Commit actions";
     pub const CHECKOUT: &str = "Check out (detached)";
     pub const CREATE_BRANCH: &str = "Create branch here…";
     pub const CREATE_TAG: &str = "Create tag here…";
@@ -885,4 +886,49 @@ pub mod commit_menu {
     pub fn cherry_pick(count: usize) -> String {
         format!("Cherry-pick {count} commits")
     }
+}
+
+/// Branch dialogs, ported from rc.1 (D15).
+pub mod branches {
+    pub const NAME: &str = "Name";
+    pub const START_POINT: &str = "Start point";
+    pub const CURRENT_HEAD: &str = "Current HEAD";
+    pub const DEFAULT_BRANCH: &str = "Default branch";
+    pub const REVISION: &str = "Branch, tag or commit:";
+    pub const REVISION_LABEL: &str = "Branch, tag or commit";
+    pub const CHECK_OUT_NEW: &str = "Check out the new branch";
+    pub const CREATE: &str = "Create";
+    pub const NEW_NAME: &str = "New name";
+    pub const RENAME: &str = "Rename";
+    pub const FORCE: &str = "Delete it even if it is not merged";
+    pub const ON_REMOTE: &str = "Also delete the branch it tracks on the remote";
+    pub const DELETE: &str = "Delete";
+    pub const REMOTE_BRANCH: &str = "Remote branch";
+    pub const LOADING: &str = "Loading…";
+    pub const PICK_REMOTE_BRANCH: &str = "Pick a remote branch";
+    pub const NO_REMOTE_BRANCHES: &str = "The repo has no remote branches.";
+    pub const SET_UPSTREAM: &str = "Set upstream";
+    pub const OPERATION: &str = "Branch operation";
+    pub fn create_dialog(repo: &str) -> String {
+        format!("New branch in {repo}")
+    }
+    pub fn rename_dialog(name: &str, repo: &str) -> String {
+        format!("Rename {name} in {repo}")
+    }
+    pub fn delete_dialog(name: &str, repo: &str) -> String {
+        format!("Delete branch {name} in {repo}?")
+    }
+    pub fn upstream_dialog(name: &str, repo: &str) -> String {
+        format!("Upstream of {name} in {repo}")
+    }
+    pub fn confirm(repo: &str) -> String {
+        format!("Confirm branch operation in {repo}")
+    }
+    pub fn cannot_read(error: &str) -> String {
+        format!("Cannot read the branches: {error}")
+    }
+    pub const RUN: &str = "Continue";
+    pub const TREE_ACTIONS: &str = "Tree row actions";
+    pub const BUSY: &str = "Another operation is running";
+    pub const STOPPED: &str = "The request did not finish";
 }
