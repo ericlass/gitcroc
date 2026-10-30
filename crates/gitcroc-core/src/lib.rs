@@ -73,12 +73,12 @@ pub use gitcroc_git::{
 };
 pub use gitcroc_git::{
     ChangedFile, ChoiceKind, CommitDetails, CommitRow, Conflict, ConflictChunk, ConflictContent,
-    ConflictDetails, ConflictError, ConflictStages, ContentKey, Context, Cursor, DiffError,
-    DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback, FileDiff, FileStatus, Filter,
-    GitError, GitRepo, GitRunner, GraphRow, Head, HistoryError, HistoryStart, Hunk, HunkPatch,
-    Image, ImageFormat, Line, LineKind, LocalBranch, MergedCursor, MergedRow, OpenError, Operation,
-    PAGE_SIZE, Page, Person, RefKind, Refs, RefsError, RemoteBranches, RepoRead, RepoState,
-    RepoSummary, SearchEnv, SideHolds, SideMessages, SidesRead, SidesReader, StashEntry,
+    ConflictDetails, ConflictError, ConflictLabels, ConflictStages, ContentKey, Context, Cursor,
+    DiffError, DiffOptions, DiffRead, DiffSource, Edge, Engine, Fallback, FileDiff, FileStatus,
+    Filter, GitError, GitRepo, GitRunner, GraphRow, Head, HistoryError, HistoryStart, Hunk,
+    HunkPatch, Image, ImageFormat, Line, LineKind, LocalBranch, MergedCursor, MergedRow, OpenError,
+    Operation, PAGE_SIZE, Page, Person, RefKind, Refs, RefsError, RemoteBranches, RepoRead,
+    RepoState, RepoSummary, SearchEnv, SideHolds, SideMessages, SidesRead, SidesReader, StashEntry,
     StatusError, StatusRead, StatusReader, Step, Tag, TextDiff, Time, UnmergedFile, UnmergedKind,
     WorkingCopy, merged_history,
 };
