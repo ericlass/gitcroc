@@ -1013,8 +1013,10 @@ pub mod operations {
     }
 }
 
-/// The conflict editor (OPS-3, OPS-4), as rc.1's `conflict` strings.
+/// The conflict editor (OPS-3, OPS-4, AI-11), as rc.1's `conflict` strings.
 pub mod conflict {
+    use gitcroc_core::ProposalConfidence;
+
     /// A hunk, as the editor's controls name it.
     pub fn which(number: usize) -> String {
         format!("conflict {number}")
@@ -1040,6 +1042,62 @@ pub mod conflict {
     }
     pub fn take_both_in(which: &str) -> String {
         format!("Take both in {which}")
+    }
+    pub const SHOW_BASE: &str = "Show base";
+    pub const HIDE_BASE: &str = "Hide base";
+    pub fn show_base_of(which: &str) -> String {
+        format!("Show base of {which}")
+    }
+    pub fn hide_base_of(which: &str) -> String {
+        format!("Hide base of {which}")
+    }
+    pub const BASE: &str = "Base";
+    pub fn base_of(which: &str) -> String {
+        format!("Base of {which}")
+    }
+    /// An empty base.
+    pub const NOTHING: &str = "(nothing)";
+    /// A hunk's AI proposal (AI-11).
+    pub const AI_PROPOSAL: &str = "AI proposal";
+    pub fn proposal_for(which: &str) -> String {
+        format!("Proposal for {which}")
+    }
+    /// The confidence as a word, and a marker whose shape tells the level
+    /// without colour (UI-25).
+    pub fn confidence(confidence: ProposalConfidence) -> (&'static str, &'static str) {
+        match confidence {
+            ProposalConfidence::High => ("High confidence", "●●●"),
+            ProposalConfidence::Medium => ("Medium confidence", "●●○"),
+            ProposalConfidence::Low => ("Low confidence", "●○○"),
+        }
+    }
+    /// The confidence as the card shows it: its shape, then its word.
+    pub fn confidence_label(level: ProposalConfidence) -> String {
+        let (word, marker) = confidence(level);
+        format!("{marker} {word}")
+    }
+    pub const NOT_RESOLVED: &str = "Not resolved";
+    pub const HUNK_CHANGED: &str = "Hunk changed";
+    pub const ACCEPT: &str = "Accept";
+    pub const REJECT: &str = "Reject";
+    pub const EDIT: &str = "Edit";
+    pub fn accept_for(which: &str) -> String {
+        format!("Accept the proposal for {which}")
+    }
+    pub fn reject_for(which: &str) -> String {
+        format!("Reject the proposal for {which}")
+    }
+    pub fn edit_for(which: &str) -> String {
+        format!("Edit the proposal for {which}")
+    }
+    pub fn edited_proposal_for(which: &str) -> String {
+        format!("Edited proposal for {which}")
+    }
+    pub fn accept_edited_for(which: &str) -> String {
+        format!("Accept the edited proposal for {which}")
+    }
+    pub fn cancel_edit_for(which: &str) -> String {
+        format!("Cancel editing the proposal for {which}")
     }
     /// The editor, as screen readers name it.
     pub fn resolution(path: &str) -> String {

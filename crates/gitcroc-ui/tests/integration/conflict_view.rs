@@ -15,7 +15,7 @@ use gpui_kit::{
 };
 
 #[derive(Clone, Copy, Debug)]
-enum Dock {
+pub(super) enum Dock {
     Full,
     Right,
     Bottom,
@@ -23,11 +23,12 @@ enum Dock {
 
 /// The editor in a pane docked as the app docks the changes pane, beside
 /// a control that can hold the focus.
-struct Host {
-    view: Entity<ConflictEditor>,
+pub(super) struct Host {
+    pub view: Entity<ConflictEditor>,
+    pub visible: bool,
     dock: Dock,
-    other: FocusHandle,
-    presses: usize,
+    pub other: FocusHandle,
+    pub presses: usize,
 }
 impl Render for Host {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -40,7 +41,7 @@ impl Render for Host {
             .min_w_0()
             .min_h_0()
             .overflow_hidden()
-            .child(self.view.clone());
+            .when(self.visible, |pane| pane.child(self.view.clone()));
         let side = div().flex_none().child(other);
         match self.dock {
             Dock::Full => div().size_full().flex().flex_col().child(side.h(px(40.))),
@@ -51,20 +52,20 @@ impl Render for Host {
     }
 }
 
-fn labels(ours: &str, theirs: &str) -> ConflictLabels {
+pub(super) fn labels(ours: &str, theirs: &str) -> ConflictLabels {
     ConflictLabels {
         ours: ours.into(),
         theirs: theirs.into(),
     }
 }
-fn chunk(ours: &str, base: &str, theirs: &str) -> ConflictChunk {
+pub(super) fn chunk(ours: &str, base: &str, theirs: &str) -> ConflictChunk {
     ConflictChunk::Hunk {
         ours: ours.into(),
         base: base.into(),
         theirs: theirs.into(),
     }
 }
-fn resolved(text: &str) -> ConflictChunk {
+pub(super) fn resolved(text: &str) -> ConflictChunk {
     ConflictChunk::Resolved { text: text.into() }
 }
 /// A Rust file of `lines` lines with `hunks` hunks spread evenly, as the
@@ -94,7 +95,7 @@ fn generated(lines: usize, hunks: usize) -> Buffer {
     Buffer::build(&chunks, &labels("main", "feature"))
 }
 
-fn hosted(
+pub(super) fn hosted(
     cx: &mut TestAppContext,
     buffer: Buffer,
     dock: Dock,
@@ -102,6 +103,7 @@ fn hosted(
     let (mut cx, host) = open(cx, |window, cx| {
         cx.new(|cx| Host {
             view: cx.new(|cx| ConflictEditor::new(buffer, window, cx)),
+            visible: true,
             dock,
             other: cx.focus_handle(),
             presses: 0,
@@ -111,25 +113,28 @@ fn hosted(
     frame(&mut cx);
     (cx, host, view)
 }
-fn editor(cx: &mut TestAppContext, buffer: Buffer) -> (VisualTestContext, Entity<ConflictEditor>) {
+pub(super) fn editor(
+    cx: &mut TestAppContext,
+    buffer: Buffer,
+) -> (VisualTestContext, Entity<ConflictEditor>) {
     let (cx, _, view) = hosted(cx, buffer, Dock::Full);
     (cx, view)
 }
 /// Settles the editor's work and draws until its geometry is stable.
-fn frame(cx: &mut VisualTestContext) {
+pub(super) fn frame(cx: &mut VisualTestContext) {
     for _ in 0..3 {
         cx.run_until_parked();
         cx.update(|window, cx| window.render_frame(cx));
     }
 }
-fn press(cx: &mut VisualTestContext, key: &str) {
+pub(super) fn press(cx: &mut VisualTestContext, key: &str) {
     cx.update(|window, cx| window.press(key, cx));
     frame(cx);
 }
-fn value(cx: &mut VisualTestContext, view: &Entity<ConflictEditor>) -> String {
+pub(super) fn value(cx: &mut VisualTestContext, view: &Entity<ConflictEditor>) -> String {
     cx.update(|_, cx| view.read(cx).value(cx))
 }
-fn edit(
+pub(super) fn edit(
     cx: &mut VisualTestContext,
     view: &Entity<ConflictEditor>,
     range: std::ops::Range<usize>,
@@ -145,7 +150,7 @@ fn edit(
     });
     frame(cx);
 }
-fn undo(cx: &mut VisualTestContext) {
+pub(super) fn undo(cx: &mut VisualTestContext) {
     press(
         cx,
         if cfg!(target_os = "macos") {
@@ -155,7 +160,7 @@ fn undo(cx: &mut VisualTestContext) {
         },
     );
 }
-fn focus_text(cx: &mut VisualTestContext, view: &Entity<ConflictEditor>, at: usize) {
+pub(super) fn focus_text(cx: &mut VisualTestContext, view: &Entity<ConflictEditor>, at: usize) {
     cx.update(|window, cx| {
         view.read(cx).editor.clone().update(cx, |state, cx| {
             state.set_selected_range(at..at, cx);
@@ -172,28 +177,28 @@ fn scroll_to(cx: &mut VisualTestContext, view: &Entity<ConflictEditor>, y: Pixel
     });
     frame(cx);
 }
-fn bounds_of(cx: &mut VisualTestContext, label: &str) -> Option<Bounds<Pixels>> {
+pub(super) fn bounds_of(cx: &mut VisualTestContext, label: &str) -> Option<Bounds<Pixels>> {
     cx.update(|window, _| window.try_find_by_label(label).map(|e| e.bounds()))
 }
 /// Clicks the control named `label` at its centre, as a pointer would.
-fn click(cx: &mut VisualTestContext, label: &str) {
+pub(super) fn click(cx: &mut VisualTestContext, label: &str) {
     cx.update(|window, cx| {
         let id = window.find_by_label(label).path().last().cloned().unwrap();
         window.click(id, cx);
     });
     frame(cx);
 }
-fn has(cx: &mut VisualTestContext, label: &str) -> bool {
+pub(super) fn has(cx: &mut VisualTestContext, label: &str) -> bool {
     bounds_of(cx, label).is_some()
 }
-fn focused(cx: &mut VisualTestContext, label: &str) -> bool {
+pub(super) fn focused(cx: &mut VisualTestContext, label: &str) -> bool {
     cx.update(|window, _| {
         window
             .try_find_by_label(label)
             .is_some_and(|e| e.focused() == Some(true))
     })
 }
-fn text_focused(cx: &mut VisualTestContext, view: &Entity<ConflictEditor>) -> bool {
+pub(super) fn text_focused(cx: &mut VisualTestContext, view: &Entity<ConflictEditor>) -> bool {
     cx.update(|window, cx| view.read(cx).editor.focus_handle(cx).is_focused(window))
 }
 /// Where the editor draws the line that starts at `offset`.
@@ -212,7 +217,7 @@ fn line_bounds(
 fn line_height(cx: &mut VisualTestContext, view: &Entity<ConflictEditor>) -> Pixels {
     cx.update(|_, cx| view.read(cx).editor.read(cx).line_height().unwrap())
 }
-fn hunk_range(
+pub(super) fn hunk_range(
     cx: &mut VisualTestContext,
     view: &Entity<ConflictEditor>,
     id: usize,
@@ -574,6 +579,16 @@ fn ui_22_hunk_controls_are_keyboard_reachable(cx: &mut TestAppContext) {
     assert!(focused(&mut cx, "Take theirs in conflict 2"));
     press(&mut cx, "tab");
     assert!(focused(&mut cx, "Take both in conflict 2"));
+    press(&mut cx, "tab");
+    assert!(focused(&mut cx, "Show base of conflict 2"));
+    press(&mut cx, "space");
+    assert!(has(&mut cx, "Base of conflict 2"));
+    assert!(focused(&mut cx, "Hide base of conflict 2"));
+    press(&mut cx, "enter");
+    assert!(!has(&mut cx, "Base of conflict 2"));
+    assert!(focused(&mut cx, "Show base of conflict 2"));
+    press(&mut cx, "shift-tab");
+    assert!(focused(&mut cx, "Take both in conflict 2"));
     let original = value(&mut cx, &view);
     press(&mut cx, "space");
     assert!(value(&mut cx, &view).ends_with("c\nd\n"));
@@ -608,9 +623,46 @@ fn sec_3_conflict_labels_and_proposals_are_literal_text(cx: &mut TestAppContext)
         &[chunk("<script>\n", "<i>base</i>\n", "b\n")],
         &labels(ours, theirs),
     );
-    let (mut cx, _) = editor(cx, b);
+    let (mut cx, view) = editor(cx, b);
     assert!(has(&mut cx, &format!("Ours: {ours}")));
     assert!(has(&mut cx, &format!("Theirs: {theirs}")));
+    click(&mut cx, "Show base of conflict 1");
+    // The model's words too: shown as given, never as markup (AI-11).
+    let resolution = "<img src=x onerror=alert(1)>\n\u{202e}$(id)";
+    let explanation = "**bold** <a href=\"https://example.com\">link</a>";
+    cx.update(|_, cx| {
+        view.update(cx, |view, cx| {
+            view.set_proposal(
+                Some(gitcroc_core::FileProposal {
+                    hunks: vec![gitcroc_core::ProposedHunk {
+                        id: 1,
+                        status: gitcroc_core::ProposalStatus::Resolved,
+                        resolution: Some(resolution.into()),
+                        explanation: explanation.into(),
+                        confidence: gitcroc_core::ProposalConfidence::High,
+                    }],
+                    usage: Vec::new(),
+                }),
+                cx,
+            )
+        })
+    });
+    frame(&mut cx);
+    let text = |cx: &mut VisualTestContext, id: &'static str| {
+        cx.update(|window, _| window.find(id).value().map(str::to_owned))
+    };
+    assert_eq!(
+        text(&mut cx, "conflict-base-text-0").as_deref(),
+        Some("<i>base</i>")
+    );
+    assert_eq!(
+        text(&mut cx, "conflict-proposal-text-0").as_deref(),
+        Some(resolution.trim_end_matches('\n'))
+    );
+    assert_eq!(
+        text(&mut cx, "conflict-explanation-0").as_deref(),
+        Some(explanation)
+    );
 }
 
 /// The spike's slow first frame at the document end (M6-02): scrolls the

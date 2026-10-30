@@ -1,5 +1,6 @@
 //! Retained, single-buffer conflict editing. No services or repo writes (OPS-9).
 mod buffer;
+mod card;
 mod look;
 mod overlay;
 pub mod recovery;
@@ -10,7 +11,7 @@ use crate::strings::conflict as text;
 use crate::theme::code_themes::Syntax;
 use crate::theme::{ActiveTokens, AppTheme};
 pub use buffer::{Buffer, Hunk, Take};
-use gitcroc_core::{ConflictChunk, ConflictLabels};
+use gitcroc_core::{ConflictChunk, ConflictLabels, ProposedHunk};
 use gpui_component::input::{Editor, EditorState, InputEvent};
 use gpui_kit::base::input::{RangeDecoration, RangeDecorationCollection, RopeExt};
 use gpui_kit::{prelude::*, *};
@@ -19,6 +20,7 @@ use overlay::Measured;
 use recovery::{Recovery, Snapshot};
 pub use retained::{EditorKey, Editors};
 use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -34,7 +36,11 @@ actions!(
         NextControl,
         PreviousControl,
         /// Escape on a hunk's control: back to the text at that hunk.
-        ReturnToText
+        ReturnToText,
+        /// Alt+4, Alt+5 and Alt+6: the proposal at the cursor (AI-11).
+        AcceptProposal,
+        RejectProposal,
+        EditProposal
     ]
 );
 pub fn bind(cx: &mut App) {
@@ -44,10 +50,31 @@ pub fn bind(cx: &mut App) {
         KeyBinding::new("f7", NextControl, Some("GitcrocConflict")),
         KeyBinding::new("shift-f7", PreviousControl, Some("GitcrocConflict")),
         KeyBinding::new("escape", ReturnToText, Some(overlay::CONTROLS)),
+        KeyBinding::new("alt-4", AcceptProposal, Some("GitcrocConflict > Input")),
+        KeyBinding::new("alt-5", RejectProposal, Some("GitcrocConflict > Input")),
+        KeyBinding::new("alt-6", EditProposal, Some("GitcrocConflict > Input")),
         KeyBinding::new("alt-1", TakeOurs, Some("GitcrocConflict > Input")),
         KeyBinding::new("alt-2", TakeTheirs, Some("GitcrocConflict > Input")),
         KeyBinding::new("alt-3", TakeBoth, Some("GitcrocConflict > Input")),
     ]);
+    // The proposal's editor: Ctrl or Cmd and Enter accepts, Escape cancels.
+    // `secondary` needs the platform, which `KeyBinding::new` cannot see.
+    let accept = if cx.platform_info().is_mac() {
+        "cmd-enter"
+    } else {
+        "ctrl-enter"
+    };
+    let context = KeyBindingContextPredicate::parse(&format!("{} > Input", card::EDITING))
+        .ok()
+        .map(Rc::new);
+    let load = |keys: &str, action: Box<dyn gpui_kit::Action>, cx: &mut App| {
+        KeyBinding::load(keys, action, context.clone(), false, None, cx).ok()
+    };
+    let bindings = [
+        load(accept, Box::new(card::AcceptEdited), cx),
+        load("escape", Box::new(card::CancelEdit), cx),
+    ];
+    cx.bind_keys(bindings.into_iter().flatten());
 }
 struct Tracked {
     hunk: Hunk,
@@ -94,6 +121,10 @@ pub struct ConflictEditor {
     labels: ConflictLabels,
     path: Option<String>,
     lines: syntax::Lines,
+    show_base: HashSet<usize>,
+    /// The supplied proposal's hunks, and what was done with each (AI-11).
+    proposal: Vec<ProposedHunk>,
+    reviews: HashMap<usize, card::Review>,
     /// The first control of the hunk F7 went to.
     controls: FocusHandle,
     control_hunk: Option<usize>,
@@ -163,6 +194,9 @@ impl ConflictEditor {
             labels,
             path: None,
             lines: syntax::Lines::default(),
+            show_base: HashSet::new(),
+            proposal: Vec::new(),
+            reviews: HashMap::new(),
             controls: cx.focus_handle(),
             control_hunk: None,
             laid_out: 0,
@@ -372,6 +406,14 @@ impl ConflictEditor {
             });
         }
     }
+    /// The live hunk the caret is in.
+    fn hunk_at_cursor(&self, cx: &App) -> Option<usize> {
+        let cursor = self.editor.read(cx).cursor();
+        self.ranges(cx)
+            .into_iter()
+            .find(|(_, r, _)| r.contains(&cursor))
+            .map(|(id, _, _)| id)
+    }
     fn take_at_cursor(&mut self, side: Take, window: &mut Window, cx: &mut Context<Self>) {
         let cursor = self.editor.read(cx).cursor();
         if let Some((id, _, _)) = self
@@ -453,6 +495,7 @@ impl Render for ConflictEditor {
         let viewport = self.measured.get().map(|m| m.viewport);
         div()
             .key_context("GitcrocConflict")
+            .tab_group()
             .relative()
             .size_full()
             .overflow_hidden()
@@ -487,6 +530,21 @@ impl Render for ConflictEditor {
             .on_action(cx.listener(|this, _: &TakeBoth, window, cx| {
                 this.take_at_cursor(Take::Both, window, cx)
             }))
+            .on_action(cx.listener(|this, _: &AcceptProposal, window, cx| {
+                if let Some(hunk) = this.hunk_at_cursor(cx) {
+                    this.accept_proposal(hunk, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &RejectProposal, window, cx| {
+                if let Some(hunk) = this.hunk_at_cursor(cx) {
+                    this.reject_proposal(hunk, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &EditProposal, window, cx| {
+                if let Some(hunk) = this.hunk_at_cursor(cx) {
+                    this.edit_proposal(hunk, window, cx);
+                }
+            }))
             .child(clip(viewport).children(overlays.rows))
             // gpui-component's editor takes the app theme's colours each
             // frame; the code theme's go over them before it prepaints.
@@ -511,6 +569,7 @@ impl Render for ConflictEditor {
                     }),
             )
             .child(clip(viewport).children(overlays.headers))
+            .child(clip(viewport).children(overlays.cards))
             // Measures the editor once it painted. A layout that moved after
             // the overlays were placed (a deferred scroll, a new font size)
             // places them again on the next frame.

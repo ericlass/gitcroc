@@ -34,6 +34,10 @@ pub struct Look {
     pub rows: Color,
     /// The marker lines, under their headers, and the edge of a card.
     pub marker: Color,
+    /// A proposal, its edge, and its confidence: high, medium, low (AI-11).
+    pub proposal: Color,
+    pub proposal_edge: Color,
+    pub confidence: [Color; 3],
     colors: CodeThemeColors,
 }
 
@@ -47,6 +51,9 @@ impl Look {
             selection: colors.selection,
             rows: colors.conflict,
             marker: colors.conflict_word,
+            proposal: colors.added,
+            proposal_edge: colors.added_word,
+            confidence: [colors.added_word, colors.changed_word, colors.removed_word],
             colors: *colors,
         }
     }
@@ -66,6 +73,14 @@ impl Look {
             for kind in SYNTAX {
                 pairs.push((format!("{kind:?} on {on}"), self.syntax(kind), back));
             }
+        }
+        for (on, back) in [
+            ("proposal", self.proposal),
+            ("high", self.confidence[0]),
+            ("medium", self.confidence[1]),
+            ("low", self.confidence[2]),
+        ] {
+            pairs.push((format!("text on {on}"), self.text, back));
         }
         pairs.push(("line number".into(), self.gutter_text, self.gutter));
         pairs.push(("current line number".into(), self.text, self.gutter));
