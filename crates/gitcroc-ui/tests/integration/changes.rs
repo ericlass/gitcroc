@@ -172,10 +172,23 @@ pub(crate) fn show_repo(
     panic!("{node} never showed its history: tree selects {tree:?}; {history}");
 }
 
-/// Switches to tab `id` and waits until the core has it active.
-pub(crate) fn switch_to(cx: &mut VisualTestContext, fixture: &Fixture, id: &WorkspaceId) {
+/// Switches to tab `id` and waits until the core has it active and the
+/// window shows its panes. Repo ids repeat across workspaces, so a row
+/// clicked before then can be the old tab's row of the same id.
+pub(crate) fn switch_to(
+    cx: &mut VisualTestContext,
+    fixture: &Fixture,
+    window: &Entity<GitcrocWindow>,
+    id: &WorkspaceId,
+) {
     click(cx, tab(id));
-    wait_until(cx, |_| fixture.active() == *id);
+    wait_until(cx, |cx| {
+        fixture.active() == *id
+            && cx.update(|_, cx| {
+                let shown = window.read(cx);
+                shown.tabs(cx).active.as_ref() == Some(id) && shown.tree(cx).is_some()
+            })
+    });
 }
 
 #[gpui::test]
@@ -367,7 +380,7 @@ fn ui_14_file_list_flat_and_tree(cx: &mut TestAppContext) {
     assert_eq!(shown_file(&mut cx).as_deref(), Some("src/util/deep/x.rs"));
 
     // The other tab lists as a tree too.
-    switch_to(&mut cx, &fixture, &java);
+    switch_to(&mut cx, &fixture, &window, &java);
     show_repo(&mut cx, &window, &other_added, "core");
     click(&mut cx, history_row(0));
     wait_for_view(&mut cx, &window);

@@ -474,7 +474,7 @@ fn ui_29_each_tab_keeps_its_diff(cx: &mut TestAppContext) {
     assert!(before.0 > 0, "the diff did not scroll");
 
     // The other tab shows its own diff, side by side too.
-    switch_to(&mut cx, &fixture, &java);
+    switch_to(&mut cx, &fixture, &window, &java);
     show_repo(&mut cx, &window, &other_added, "core");
     click(&mut cx, history_row(0));
     wait_for_view(&mut cx, &window);
