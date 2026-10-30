@@ -5,7 +5,7 @@
 //! real ones made by `repo-gen` and added through the app (QA-2); each
 //! action is a job, waited for by the lists it changes, never by time.
 
-use gitcroc_app::app::EVENT_CAPACITY;
+use gitcroc_app::app::{AppEvent, EVENT_CAPACITY};
 use gitcroc_core::{ChangesContent, JobView, RepoId};
 use gitcroc_ui::changes::{FileRow, List};
 use gitcroc_ui::diff_view::DiffView;
@@ -658,7 +658,9 @@ fn grp_9_discard_asks_and_names_the_files(cx: &mut TestAppContext) {
         "changed\n"
     );
 
-    // Discard drops them.
+    // Discard drops them. Subscribe before submitting: an empty changes
+    // list can arrive before the job's post-write summary read has ended.
+    let mut events = fixture.app().subscribe();
     click(&mut cx, row_part(readme, "discard"));
     wait_for_element(&mut cx, "discard-dialog".into());
     act_until(
@@ -673,6 +675,25 @@ fn grp_9_discard_asks_and_names_the_files(cx: &mut TestAppContext) {
         "hello\n"
     );
     assert!(!present(&mut cx, "discard-dialog".into()));
+
+    // Wait for the job, not only its empty list, before writing the next
+    // fixture state. Otherwise a still-running post-discard read can see
+    // the clean repo and publish that snapshot after the refresh below.
+    wait_until(&mut cx, |_| {
+        while let Ok(event) = events.try_recv() {
+            if let AppEvent::JobEnded(job) = event
+                && job.label.starts_with("Discard")
+            {
+                assert_eq!(
+                    job.outcome,
+                    Some(gitcroc_core::Outcome::Succeeded),
+                    "{job:?}"
+                );
+                return true;
+            }
+        }
+        false
+    });
 
     // Twelve files: ten names and a count of the rest.
     let names: Vec<String> = (1..=12).map(|n| format!("f{n:02}.txt")).collect();
