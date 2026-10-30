@@ -6,31 +6,37 @@
 //! (PERF-1), and one file is selected; its diff is the [`DiffView`] below
 //! them, with the diff options and the dock button in the pane header
 //! (UI-17, UI-19). The window keeps one per open workspace, so each tab
-//! keeps its own (UI-29). Everything shown comes from the core; this lays
-//! it out and forwards input.
+//! keeps its own (UI-29). For uncommitted changes, files and hunks can be
+//! staged, unstaged and discarded, several files at once, and the commit
+//! box below the lists commits or amends (UI-15); a discard asks first, in
+//! the window's dialog (GRP-9). A large repo gets the fsmonitor offer
+//! (PERF-7). Everything shown comes from the core, which decides what a
+//! request does (ARCH-6); this lays it out and forwards input.
 
 use std::ops::Range;
 use std::rc::Rc;
 
 use gitcroc_app::app::AppEvent;
 use gitcroc_core::{
-    ChangesContent, ChangesSettings, CommitDetails, Context as DiffContext, DiffMode, Dock,
-    FileListMode, FileStatus, Person, UnmergedKind, WorkspaceId,
+    ChangeAction, ChangeRequest, ChangeStart, ChangeTarget, ChangesContent, ChangesSettings,
+    CommitDetails, Context as DiffContext, DiffMode, Dock, FileListMode, FileStatus, Person,
+    RepoId, UnmergedKind, WorkspaceId,
 };
-use gpui_component::Selectable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
+use gpui_component::{Disableable, Selectable, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     AnyElement, App, AppContext, ClickEvent, Context, CursorStyle, ElementId, Entity, EventEmitter,
     FocusHandle, Focusable, Global, Hsla, InteractiveElement, IntoElement, KeyBinding,
     KeyBindingContextPredicate, ParentElement, Pixels, Point, Render, Role, ScrollStrategy,
-    SharedString, StatefulInteractiveElement, Styled, Subscription, TestSupportExt,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, Task, TestSupportExt,
     UniformListScrollHandle, Window, actions, div, point, px, svg, uniform_list,
 };
 
-use crate::changes::{Changes, Entry, FileKey, FileRow, List, Read};
-use crate::diff_view::DiffView;
+use crate::changes::{Changes, Click, Entry, FileKey, FileRow, List, Read, move_action};
+use crate::commit_box::{CommitBox, ReadAgain};
+use crate::diff_view::{DiffView, HunkAction, HunkControls};
 use crate::history::{self, Selection};
 use crate::history_pane::HistoryPane;
 use crate::icons;
@@ -40,7 +46,16 @@ use crate::theme::{ActiveTokens, tokens::Tokens};
 
 actions!(
     changes_pane,
-    [SelectNext, SelectPrevious, SelectFirst, SelectLast]
+    [
+        SelectNext,
+        SelectPrevious,
+        SelectFirst,
+        SelectLast,
+        /// Stages or unstages the selected files.
+        MoveSelected,
+        /// Asks to discard the selected unstaged files (GRP-9).
+        DiscardSelected,
+    ]
 );
 
 /// The key context of the file list.
@@ -63,11 +78,20 @@ pub fn bind(cx: &mut App) {
     let bind = |keys: &str, action: Box<dyn gpui_kit::Action>, cx: &mut App| {
         KeyBinding::load(keys, action, context.clone(), false, None, cx).ok()
     };
+    // On macOS the key marked delete is Backspace.
+    let delete = if cx.platform_info().is_mac() {
+        "backspace"
+    } else {
+        "delete"
+    };
     let bindings = [
         bind("down", Box::new(SelectNext), cx),
         bind("up", Box::new(SelectPrevious), cx),
         bind("home", Box::new(SelectFirst), cx),
         bind("end", Box::new(SelectLast), cx),
+        bind("enter", Box::new(MoveSelected), cx),
+        bind("space", Box::new(MoveSelected), cx),
+        bind(delete, Box::new(DiscardSelected), cx),
     ];
     cx.bind_keys(bindings.into_iter().flatten());
 }
@@ -92,6 +116,18 @@ impl ChangesPrefs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToggleDock;
 
+/// A discard waits for the user's confirmation (GRP-9): the window asks,
+/// naming what the core named, and sends `request` confirmed with
+/// [`ChangesPane::send_confirmed`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AskDiscard {
+    pub repo: String,
+    pub files: Vec<String>,
+    /// One hunk, not whole files.
+    pub hunk: bool,
+    pub request: ChangeRequest,
+}
+
 /// The changes of one workspace.
 pub struct ChangesPane {
     services: Services,
@@ -99,6 +135,7 @@ pub struct ChangesPane {
     changes: Changes,
     history: Entity<HistoryPane>,
     diff: Entity<DiffView>,
+    commit_box: Entity<CommitBox>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
     /// Where the pane is docked, for the dock button's label.
@@ -110,6 +147,8 @@ pub struct ChangesPane {
     scroll_back: Option<Point<Pixels>>,
     _history_watch: Subscription,
     _prefs_watch: Subscription,
+    _hunk_actions: Subscription,
+    _commit_reads: Subscription,
 }
 
 impl ChangesPane {
@@ -117,6 +156,7 @@ impl ChangesPane {
         services: Services,
         workspace_id: WorkspaceId,
         history: Entity<HistoryPane>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let history_watch = cx.observe(&history, |this, _, cx| {
@@ -134,12 +174,21 @@ impl ChangesPane {
         let mut changes = Changes::default();
         changes.set_mode(ChangesPrefs::get(cx).file_list);
         let diff = cx.new(|cx| DiffView::new(services.clone(), workspace_id.clone(), cx));
+        let hunk_actions = cx.subscribe(&diff, |this, _, action: &HunkAction, cx| {
+            this.apply_hunk(*action, cx);
+        });
+        let commit_box =
+            cx.new(|cx| CommitBox::new(services.clone(), workspace_id.clone(), window, cx));
+        let commit_reads = cx.subscribe(&commit_box, |this, _, _: &ReadAgain, cx| {
+            this.reload(cx);
+        });
         let mut this = Self {
             services,
             workspace_id,
             changes,
             history,
             diff,
+            commit_box,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
             dock: Dock::Right,
@@ -147,6 +196,8 @@ impl ChangesPane {
             scroll_back: None,
             _history_watch: history_watch,
             _prefs_watch: prefs_watch,
+            _hunk_actions: hunk_actions,
+            _commit_reads: commit_reads,
         };
         this.follow_history(cx);
         this
@@ -158,6 +209,10 @@ impl ChangesPane {
 
     pub fn diff(&self) -> &Entity<DiffView> {
         &self.diff
+    }
+
+    pub fn commit_box(&self) -> &Entity<CommitBox> {
+        &self.commit_box
     }
 
     /// The tab went to the background: the view and diff go, and reads
@@ -200,15 +255,30 @@ impl ChangesPane {
             .update(cx, |diff, cx| diff.step_hunk(step, window, cx));
     }
 
-    /// Shows the selected file's diff, or none.
+    /// Shows the selected file's diff, or none, with its hunks' controls,
+    /// and the commit box of the repo shown.
     fn sync_diff(&mut self, cx: &mut Context<Self>) {
         let target = self.changes.diff_target();
-        self.diff.update(cx, |diff, cx| diff.show(target, cx));
+        let file = self.changes.file();
+        let controls = target.as_ref().zip(file).and_then(|(target, file)| {
+            self.changes.changeable(file)?;
+            let blocked = self.changes.blocked(file.repo.as_ref()).map(str::to_owned);
+            HunkControls::of(target.file.list, blocked)
+        });
+        self.diff.update(cx, |diff, cx| {
+            diff.set_controls(controls, cx);
+            diff.show(target, cx);
+        });
+        let committable = self.changes.committable();
+        self.commit_box
+            .update(cx, |commit_box, cx| commit_box.set_target(committable, cx));
     }
 
     /// Follows the app's events about this workspace: a working copy shown
     /// that was read anew is read again (OPS-7).
     pub fn on_event(&mut self, event: &AppEvent, cx: &mut Context<Self>) {
+        self.commit_box
+            .update(cx, |commit_box, cx| commit_box.on_event(event, cx));
         if let AppEvent::RepoSummary(view) = event
             && view.workspace_id == self.workspace_id
             && !view.refreshing
@@ -369,6 +439,226 @@ impl ChangesPane {
         self.select_row(index, window, cx);
     }
 
+    /// A click on a file row (UI-15): Ctrl or Cmd adds or removes it, Shift
+    /// selects the run from the selected file, and a double-click stages or
+    /// unstages it.
+    fn click_file(
+        &mut self,
+        index: usize,
+        event: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.focus(&self.focus, cx);
+        let modifiers = event.modifiers();
+        let click = if modifiers.secondary(cx) {
+            Click::Toggle
+        } else if modifiers.shift {
+            Click::Range
+        } else {
+            Click::Plain
+        };
+        if !self.changes.click(index, click) {
+            return;
+        }
+        self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+        self.sync_diff(cx);
+        cx.notify();
+        if event.click_count() == 2
+            && click == Click::Plain
+            && let Some(FileRow::File { file, .. }) = self.changes.rows().get(index)
+            && let Some(action) = self.changes.changeable(file).and_then(move_action)
+        {
+            let file = file.clone();
+            self.apply_files(action, &[file], cx);
+        }
+    }
+
+    /// Enter or Space on the list: stages or unstages the selected files.
+    /// On a control in the pane, the keys are the control's.
+    fn move_selected(&mut self, _: &MoveSelected, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        let Some(file) = self.changes.file().cloned() else {
+            return;
+        };
+        if let Some(action) = self.changes.changeable(&file).and_then(move_action) {
+            let files = self.changes.targets(&file);
+            self.apply_files(action, &files, cx);
+        }
+    }
+
+    /// Delete on the list: asks to discard the selected unstaged files
+    /// (GRP-9).
+    fn discard_selected(
+        &mut self,
+        _: &DiscardSelected,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
+        let Some(file) = self.changes.file().cloned() else {
+            return;
+        };
+        if self.changes.changeable(&file) == Some(List::Unstaged) {
+            let files = self.changes.targets(&file);
+            self.apply_files(ChangeAction::Discard, &files, cx);
+        }
+    }
+
+    /// Stages, unstages or discards `files`: one request per repo, which
+    /// the core runs as a job, or answers with the discard to confirm
+    /// (UI-15, UI-34). Nothing is sent for a blocked repo (GRP-8).
+    fn apply_files(&mut self, action: ChangeAction, files: &[FileKey], cx: &mut Context<Self>) {
+        let open: Vec<FileKey> = files
+            .iter()
+            .filter(|file| self.changes.blocked(file.repo.as_ref()).is_none())
+            .cloned()
+            .collect();
+        for (handle, files) in self.changes.requests(action, &open) {
+            let request = ChangeRequest {
+                handle,
+                action,
+                target: ChangeTarget::Files { files },
+                confirmed: false,
+            };
+            self.send(request, false, cx).detach();
+        }
+    }
+
+    /// A hunk's control was used: stages, unstages or discards that hunk
+    /// of the file shown.
+    fn apply_hunk(&mut self, action: HunkAction, cx: &mut Context<Self>) {
+        let Some(target) = self.changes.diff_target() else {
+            return;
+        };
+        if let Some(file) = self.changes.file()
+            && self.changes.blocked(file.repo.as_ref()).is_some()
+        {
+            return;
+        }
+        let Ok(hunk) = u32::try_from(action.hunk) else {
+            return;
+        };
+        let request = ChangeRequest {
+            handle: target.handle,
+            action: action.action,
+            target: ChangeTarget::Hunk {
+                file: target.file,
+                hunk,
+            },
+            confirmed: false,
+        };
+        self.send(request, false, cx).detach();
+    }
+
+    /// Sends the discard the user confirmed (GRP-9); resolves to the core's
+    /// refusal, which the dialog shows.
+    pub fn send_confirmed(
+        &mut self,
+        request: ChangeRequest,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), SharedString>> {
+        let request = ChangeRequest {
+            confirmed: true,
+            ..request
+        };
+        self.send(request, true, cx)
+    }
+
+    /// Sends `request` (ARCH-7). A discard comes back asking for the
+    /// user's confirmation; a hunk whose file changed, or a request a newer
+    /// read of the lists overtook, says so and reads the lists again. A
+    /// refusal shows in the pane, or, from the dialog, in it.
+    fn send(
+        &mut self,
+        request: ChangeRequest,
+        from_dialog: bool,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), SharedString>> {
+        if self.changes.notice().is_some() {
+            self.changes.set_notice(None);
+            cx.notify();
+        }
+        let workspace = self.workspace_id.clone();
+        let sent = request.clone();
+        let call = self
+            .services
+            .with_app(move |app| async move { app.changes_apply(workspace, sent).await });
+        cx.spawn(async move |this, cx| {
+            let result = call.await;
+            this.update(cx, |this, cx| {
+                let outcome = match result {
+                    Some(Ok(None)) => {
+                        this.changes.set_notice(Some(text::LIST_CHANGED.to_owned()));
+                        this.reload(cx);
+                        Ok(())
+                    }
+                    Some(Ok(Some(ChangeStart::Confirm { repo, files }))) => {
+                        let hunk = matches!(request.target, ChangeTarget::Hunk { .. });
+                        cx.emit(AskDiscard {
+                            repo,
+                            files,
+                            hunk,
+                            request,
+                        });
+                        Ok(())
+                    }
+                    Some(Ok(Some(ChangeStart::FileChanged))) => {
+                        this.changes.set_notice(Some(text::FILE_CHANGED.to_owned()));
+                        this.reload(cx);
+                        Ok(())
+                    }
+                    // The job's end reads the repo again (OPS-7).
+                    Some(Ok(Some(ChangeStart::Started { .. }))) | None => Ok(()),
+                    Some(Err(error)) if from_dialog => Err(SharedString::from(error.message)),
+                    Some(Err(error)) => {
+                        this.changes.set_notice(Some(error.message));
+                        Ok(())
+                    }
+                };
+                cx.notify();
+                outcome
+            })
+            .unwrap_or(Ok(()))
+        })
+    }
+
+    /// Answers the fsmonitor offer of `repo` (PERF-7): "Turn on" turns the
+    /// keys on as a job, "Don't ask again" keeps the answer. Either way the
+    /// strip goes; a refusal shows in its place.
+    fn answer_offer(&mut self, repo: RepoId, accept: bool, cx: &mut Context<Self>) {
+        self.changes.answer_offer(repo.clone());
+        cx.notify();
+        let workspace = self.workspace_id.clone();
+        let call = self.services.with_app(move |app| async move {
+            if accept {
+                app.fsmonitor_enable(workspace, repo).await.map(|_| ())
+            } else {
+                app.fsmonitor_decline(workspace, repo).await
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            if let Some(Err(error)) = call.await {
+                let _ = this.update(cx, |this, cx| {
+                    let error = if accept {
+                        text::cannot_turn_on(&error.message)
+                    } else {
+                        text::cannot_keep_answer(&error.message)
+                    };
+                    this.changes.set_offer_error(Some(error));
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
     fn select_next(&mut self, _: &SelectNext, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(index) = self.changes.step(1) {
             self.select_row(index, window, cx);
@@ -392,6 +682,11 @@ impl ChangesPane {
             self.select_row(index, window, cx);
         }
     }
+}
+
+/// Whether a file row shows its line counts, which sit at its right end.
+fn entry_counts(entry: Entry) -> bool {
+    matches!(entry, Entry::Changed(file) if file.added.is_some() || file.removed.is_some())
 }
 
 /// A file status's letter, name and colour.
@@ -434,6 +729,32 @@ fn section_name(list: List) -> &'static str {
         List::Unmerged => text::UNMERGED,
         List::Staged => text::STAGED,
         List::Unstaged | List::Commit => text::UNSTAGED,
+    }
+}
+
+/// The name, mark and id part of a row's control.
+fn control_look(action: ChangeAction) -> (&'static str, &'static str, &'static str) {
+    match action {
+        ChangeAction::Stage => (text::STAGE, text::STAGE_MARK, "stage"),
+        ChangeAction::Unstage => (text::UNSTAGE, text::UNSTAGE_MARK, "unstage"),
+        ChangeAction::Discard => (text::DISCARD, text::DISCARD_MARK, "discard"),
+    }
+}
+
+/// The controls of a file row of `list`, in the order shown.
+fn row_actions(list: List) -> &'static [ChangeAction] {
+    match list {
+        List::Staged => &[ChangeAction::Unstage],
+        List::Unstaged => &[ChangeAction::Discard, ChangeAction::Stage],
+        List::Commit | List::Unmerged => &[],
+    }
+}
+
+/// What the button that moves all of `list` says.
+fn all_label(list: List) -> &'static str {
+    match list {
+        List::Staged => text::UNSTAGE_ALL,
+        _ => text::STAGE_ALL,
     }
 }
 
@@ -501,6 +822,13 @@ impl ChangesPane {
         match row {
             FileRow::Section { list, count } => {
                 let label = text::counted(section_name(*list), *count);
+                let files = self.changes.list_files(*list, None);
+                let button = (!files.is_empty())
+                    .then(|| move_action(*list))
+                    .flatten()
+                    .map(|action| {
+                        self.list_button(index, all_label(*list), action, files, None, cx)
+                    });
                 base.role(Role::Heading)
                     .aria_level(1)
                     .aria_label(label.clone())
@@ -508,34 +836,48 @@ impl ChangesPane {
                     .bg(tokens.bg_2)
                     .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                     .text_color(tokens.text_secondary)
-                    .child(label)
+                    .child(div().flex_1().min_w_0().truncate().child(label))
+                    .children(button)
                     .into_any_element()
             }
             FileRow::Repo {
+                repo,
                 name,
+                list,
                 count,
                 blocked,
-                ..
-            } => base
-                .role(Role::Heading)
-                .aria_level(2)
-                .aria_label(name.clone())
-                .pl(indent(0))
-                .text_color(tokens.text_primary)
-                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .child(text::counted(name, *count)),
-                )
-                .children(blocked.as_ref().map(|reason| {
-                    part(row_id(index, "blocked"), Role::Label, text::BLOCKED)
-                        .aria_description(reason.clone())
-                        .text_color(tokens.warning)
-                        .child(text::BLOCKED)
-                }))
-                .into_any_element(),
+            } => {
+                let files = self.changes.list_files(*list, Some(repo));
+                let button = (!files.is_empty())
+                    .then(|| move_action(*list))
+                    .flatten()
+                    .map(|action| {
+                        let label = all_label(*list);
+                        self.list_button(index, label, action, files, blocked.clone(), cx)
+                            .accessibility_label(text::all_in(label, name))
+                    });
+                base.role(Role::Heading)
+                    .aria_level(2)
+                    .aria_label(name.clone())
+                    .pl(indent(0))
+                    .text_color(tokens.text_primary)
+                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .child(text::counted(name, *count)),
+                    )
+                    .children(blocked.as_ref().map(|reason| {
+                        part(row_id(index, "blocked"), Role::Label, text::BLOCKED)
+                            .aria_description(reason.clone())
+                            .text_color(tokens.warning)
+                            .child(text::BLOCKED)
+                    }))
+                    .child(div().flex_1())
+                    .children(button)
+                    .into_any_element()
+            }
             FileRow::Folder {
                 name,
                 depth,
@@ -588,13 +930,15 @@ impl ChangesPane {
     ) -> AnyElement {
         let tokens = *cx.tokens();
         let selected = self.changes.file() == Some(file);
+        // One of several files selected with the selected one.
+        let marked = !selected && self.changes.marked().len() > 1 && self.changes.is_marked(file);
         let focused = self.focus.is_focused(window);
         let name = SharedString::from(name.to_owned());
         let mut row = row_base(index)
             .role(Role::TreeItem)
             .aria_label(name.clone())
             .aria_level(depth + 1)
-            .aria_selected(selected)
+            .aria_selected(selected || marked)
             .when(selected && focused, |row| row.aria_active_descendant())
             // Room for a folder's chevron, so names line up in a tree.
             .pl(px(8. + INDENT * depth as f32 + f32::from(ICON) + 4.))
@@ -602,9 +946,12 @@ impl ChangesPane {
             .when(selected && focused, |row| {
                 row.border_1().border_color(tokens.focus_ring)
             })
-            .when(!selected, |row| row.hover(|row| row.bg(tokens.bg_3)))
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.click(index, window, cx);
+            .when(marked, |row| row.bg(tokens.selection_bg))
+            .when(!selected && !marked, |row| {
+                row.hover(|row| row.bg(tokens.bg_3))
+            })
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                this.click_file(index, event, window, cx);
             }));
         let Some(entry) = self.changes.entry_of(file) else {
             return row.child(name).into_any_element();
@@ -669,7 +1016,67 @@ impl ChangesPane {
                 );
             }
         }
+        if let Some(list) = self.changes.changeable(file) {
+            let path = entry.path().to_owned();
+            let blocked = self.changes.blocked(file.repo.as_ref()).map(str::to_owned);
+            let controls = row_actions(list).iter().map(|&action| {
+                let (name, mark, part) = control_look(action);
+                let file = file.clone();
+                Button::new(row_id(index, part))
+                    .xsmall()
+                    .compact()
+                    .ghost()
+                    .label(mark)
+                    .accessibility_label(text::control(name, &path))
+                    .tooltip(blocked.clone().unwrap_or_else(|| name.to_owned()))
+                    .disabled(blocked.is_some())
+                    .tab_stop(false)
+                    .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        // A double-click on a control is the control's.
+                        if event.click_count() > 1 {
+                            return;
+                        }
+                        let files = this.changes.targets(&file);
+                        this.apply_files(action, &files, cx);
+                    }))
+            });
+            row = row.child(
+                div()
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_row()
+                    .gap_0p5()
+                    .when(entry_counts(entry), |controls| controls.ml_1())
+                    .when(!entry_counts(entry), |controls| controls.ml_auto())
+                    .children(controls),
+            );
+        }
         row.into_any_element()
+    }
+
+    /// The button of a section or a repo's part that moves all its files to
+    /// the other list; disabled, with the reason, in a blocked repo.
+    fn list_button(
+        &self,
+        index: usize,
+        label: &'static str,
+        action: ChangeAction,
+        files: Vec<FileKey>,
+        blocked: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Button {
+        Button::new(row_id(index, "all"))
+            .xsmall()
+            .compact()
+            .ghost()
+            .label(label)
+            .when_some(blocked.clone(), |button, why| button.tooltip(why))
+            .disabled(blocked.is_some())
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                this.apply_files(action, &files, cx);
+            }))
     }
 
     /// One line of the commit header: its name, then its value.
@@ -994,6 +1401,86 @@ impl ChangesPane {
             .into_any_element()
     }
 
+    /// The offer to speed up a large repo's status (PERF-7), above the
+    /// lists, or why its answer failed.
+    fn offer_strip(&self, tokens: &Tokens, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let strip = |id: &'static str, role: Role, label: SharedString| {
+            div()
+                .id(id)
+                .test_support()
+                .role(role)
+                .aria_label(label)
+                .flex_shrink_0()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .px_2()
+                .py_1()
+                .bg(tokens.warning_bg)
+                .text_color(tokens.text_primary)
+                .border_b_1()
+                .border_color(tokens.border)
+        };
+        if let Some(error) = self.changes.offer_error() {
+            let error = SharedString::from(error.to_owned());
+            return Some(
+                strip("changes-offer-error", Role::Alert, error.clone())
+                    .child(error)
+                    .child(
+                        div().child(
+                            Button::new("changes-offer-dismiss")
+                                .compact()
+                                .ghost()
+                                .label(strings::common::DISMISS)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.changes.set_offer_error(None);
+                                    cx.notify();
+                                })),
+                        ),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let offer = self.changes.offer()?;
+        let why = SharedString::from(text::fsmonitor_why(&offer.keys));
+        let (enable, decline) = (offer.repo.clone(), offer.repo);
+        Some(
+            strip("changes-offer", Role::Group, text::FSMONITOR_OFFER.into())
+                .child(
+                    div()
+                        .id("changes-offer-text")
+                        .test_support()
+                        .role(Role::Paragraph)
+                        .aria_label(why.clone())
+                        .child(why),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap_2()
+                        .child(
+                            Button::new("changes-offer-enable")
+                                .compact()
+                                .label(text::TURN_ON)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.answer_offer(enable.clone(), true, cx);
+                                })),
+                        )
+                        .child(
+                            Button::new("changes-offer-decline")
+                                .compact()
+                                .ghost()
+                                .label(text::DONT_ASK_AGAIN)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.answer_offer(decline.clone(), false, cx);
+                                })),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// The selected file's header and its diff.
     fn diff_area(&self, tokens: &Tokens) -> AnyElement {
         let area = div()
@@ -1058,6 +1545,8 @@ impl ChangesPane {
 
 impl EventEmitter<ToggleDock> for ChangesPane {}
 
+impl EventEmitter<AskDiscard> for ChangesPane {}
+
 impl Focusable for ChangesPane {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
@@ -1078,6 +1567,8 @@ impl Render for ChangesPane {
             .on_action(cx.listener(Self::select_previous))
             .on_action(cx.listener(Self::select_first))
             .on_action(cx.listener(Self::select_last))
+            .on_action(cx.listener(Self::move_selected))
+            .on_action(cx.listener(Self::discard_selected))
             .size_full()
             .flex()
             .flex_col()
@@ -1129,6 +1620,25 @@ impl Render for ChangesPane {
                 .into_any_element(),
         };
         let files_header = self.files_header(&tokens, cx);
+        let offer = self.offer_strip(&tokens, cx);
+        let notice = self.changes.notice().map(|notice| {
+            let notice = SharedString::from(notice.to_owned());
+            div()
+                .id("changes-notice")
+                .test_support()
+                .role(Role::Status)
+                .aria_label(notice.clone())
+                .flex_shrink_0()
+                .px_2()
+                .py_1()
+                .text_color(tokens.warning)
+                .child(notice)
+        });
+        let commit_box = self
+            .changes
+            .committable()
+            .is_some()
+            .then(|| self.commit_box.clone());
         let list = div()
             .id("changes-files")
             .test_support()
@@ -1153,9 +1663,12 @@ impl Render for ChangesPane {
                     .min_h_0()
                     .flex()
                     .flex_col()
+                    .children(offer)
                     .child(header)
                     .child(files_header)
-                    .child(list),
+                    .children(notice)
+                    .child(list)
+                    .children(commit_box),
             )
             .child(diff)
     }

@@ -177,6 +177,7 @@ async fn start_with(capacity: usize, askpass_helper: PathBuf) -> Started {
         askpass_helper,
         update_test: None,
         commit_graph_threshold: gitcroc_core::COMMIT_GRAPH_THRESHOLD,
+        fsmonitor_threshold: gitcroc_core::FSMONITOR_THRESHOLD,
     });
     let mut events = app.subscribe();
     // The result is kept before it is sent, so while the state still says

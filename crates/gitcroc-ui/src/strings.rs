@@ -633,6 +633,81 @@ pub mod changes {
         format!("{side}: {commit}")
     }
 
+    /// The controls of the file lists and the hunks (UI-15).
+    pub const STAGE: &str = "Stage";
+    pub const UNSTAGE: &str = "Unstage";
+    pub const DISCARD: &str = "Discard";
+    pub const STAGE_ALL: &str = "Stage all";
+    pub const UNSTAGE_ALL: &str = "Unstage all";
+    /// The marks on a row's controls.
+    pub const STAGE_MARK: &str = "+";
+    pub const UNSTAGE_MARK: &str = "−";
+    pub const DISCARD_MARK: &str = "↺";
+    /// A row's control as a screen reader names it: "Stage src/a.rs".
+    pub fn control(action: &str, path: &str) -> String {
+        format!("{action} {path}")
+    }
+    /// A repo's list button in a merged view: "Stage all in api".
+    pub fn all_in(action: &str, repo: &str) -> String {
+        format!("{action} in {repo}")
+    }
+    pub const STAGE_HUNK: &str = "Stage hunk";
+    pub const UNSTAGE_HUNK: &str = "Unstage hunk";
+    pub const DISCARD_HUNK: &str = "Discard hunk";
+    /// A hunk's control as a screen reader names it: "Stage hunk 2".
+    pub fn hunk_control(action: &str, number: usize) -> String {
+        format!("{action} {number}")
+    }
+    /// What a refused or overtaken action says.
+    pub const FILE_CHANGED: &str = "The file changed; showing it again.";
+    pub const LIST_CHANGED: &str = "The list changed; showing it again.";
+    /// The discard dialog (GRP-9).
+    pub fn discard_dialog(repo: &str) -> String {
+        format!("Discard changes in {repo}?")
+    }
+    pub const HUNK_LOST: &str = "This hunk is lost; it cannot be restored:";
+    pub const FILE_LOST: &str = "The changes to this file are lost; they cannot be restored:";
+    pub fn files_lost(count: usize) -> String {
+        format!("The changes to these {count} files are lost; they cannot be restored:")
+    }
+    pub fn and_more(count: usize) -> String {
+        format!("and {count} more")
+    }
+    pub const DISCARDED_FILES: &str = "Files to discard";
+    /// The commit box (UI-15).
+    pub const COMMIT_MESSAGE: &str = "Commit message";
+    pub const SUBJECT: &str = "Subject";
+    pub const BODY: &str = "Body";
+    pub const BODY_PLACEHOLDER: &str = "Body (optional)";
+    pub const AMEND: &str = "Amend";
+    pub const AMEND_TITLE: &str = "Replace the last commit with this message and the staged changes. \
+         With an empty box, fill in the last commit's message first.";
+    pub const COMMITTING: &str = "Committing…";
+    /// Why Commit or Amend is disabled.
+    pub const NOTHING_STAGED: &str = "Stage changes first";
+    pub const NO_SUBJECT: &str = "Write the commit message first";
+    pub const NOTHING_TO_AMEND: &str = "There is no commit to amend";
+    pub const COMMIT_RUNNING: &str = "A commit of this repository is running";
+    pub const IN_CONFLICT: &str = "The repository is in conflict state; Continue makes the commit";
+    pub const COMMIT_FAILED: &str = "The commit failed. The job list shows what git said.";
+    /// The offer to speed up status (PERF-7), naming the keys it turns on.
+    pub const FSMONITOR_OFFER: &str = "Status settings offer";
+    pub fn fsmonitor_why(keys: &[String]) -> String {
+        format!(
+            "This repo tracks many files, so reading its status is slow. Git can speed it up \
+             with {}, turned on in the repo's own config; nothing else changes.",
+            keys.join(" and ")
+        )
+    }
+    pub const TURN_ON: &str = "Turn on";
+    pub const DONT_ASK_AGAIN: &str = "Don't ask again";
+    pub fn cannot_turn_on(error: &str) -> String {
+        format!("Cannot turn the settings on: {error}")
+    }
+    pub fn cannot_keep_answer(error: &str) -> String {
+        format!("Cannot keep the answer: {error}")
+    }
+
     /// `count` with its thousands apart, as rc.1's `toLocaleString`
     /// showed them in English: "20,001".
     fn grouped(count: u32) -> String {

@@ -212,6 +212,9 @@ pub struct Options {
     /// How slow a first history page must be to earn the commit-graph
     /// offer (PERF-2): never by default, so no test sees it by chance.
     pub commit_graph_threshold: Duration,
+    /// How many files a repo must track to earn the fsmonitor offer
+    /// (PERF-7): never by default, so no test sees it by chance.
+    pub fsmonitor_threshold: usize,
     /// Where updates come from, with the package and whether the app
     /// checks; `None` never finds one, as a debug build never checks (D12).
     pub updates: Option<(Arc<dyn UpdateSource>, UpdateTest)>,
@@ -225,6 +228,7 @@ impl Default for Options {
             wait_for_git: true,
             picked: None,
             commit_graph_threshold: Duration::MAX,
+            fsmonitor_threshold: usize::MAX,
             updates: None,
         }
     }
@@ -297,6 +301,7 @@ impl Fixture {
                 askpass_helper: PathBuf::from(env!("CARGO_BIN_EXE_gitcroc-next")),
                 event_capacity: options.capacity,
                 commit_graph_threshold: options.commit_graph_threshold,
+                fsmonitor_threshold: options.fsmonitor_threshold,
             })
         };
         if options.wait_for_git {

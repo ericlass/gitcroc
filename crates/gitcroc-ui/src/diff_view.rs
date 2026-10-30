@@ -8,18 +8,23 @@
 //! The rows show plain text until their syntax colours arrive from the
 //! background (UI-24); the diffs that are not text are `special_diff`'s
 //! (UI-18). Each tab's changes pane has one, so each keeps its diff, a large
-//! diff it loaded and its images (UI-29).
+//! diff it loaded and its images (UI-29). An uncommitted file's hunk headers
+//! carry the stage, unstage and discard controls the pane gives them
+//! (UI-15), except while whitespace is ignored, as those hunks do not apply
+//! to the file; F7 gives the hunk's first control the focus.
 
 use std::collections::HashSet;
 use std::ops::Range;
 
-use gitcroc_core::{DiffMode, DiffRequest, FileDiff, LineKind, WorkspaceId};
+use gitcroc_core::{ChangeAction, DiffMode, DiffRequest, FileDiff, LineKind, WorkspaceId};
+use gpui_component::button::Button;
+use gpui_component::{Disableable, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    AnyElement, App, AppContext, ClickEvent, Context, CursorStyle, Div, ElementId, FocusHandle,
-    HighlightStyle, Hsla, InteractiveElement, IntoElement, ListAlignment, ListOffset, ListState,
-    ParentElement, Pixels, Point, Render, Role, ScrollEvent, ScrollStrategy, SharedString,
-    StatefulInteractiveElement, Styled, StyledText, Subscription, SvgRenderer, Task,
+    AnyElement, App, AppContext, ClickEvent, Context, CursorStyle, Div, ElementId, EventEmitter,
+    FocusHandle, HighlightStyle, Hsla, InteractiveElement, IntoElement, ListAlignment, ListOffset,
+    ListState, ParentElement, Pixels, Point, Render, Role, ScrollEvent, ScrollStrategy,
+    SharedString, StatefulInteractiveElement, Styled, StyledText, Subscription, SvgRenderer, Task,
     TestSupportExt, UniformListScrollHandle, Window, div, font, list, point, px, uniform_list,
 };
 
@@ -119,6 +124,45 @@ struct Metrics {
     sign: Pixels,
 }
 
+/// The controls each hunk of an uncommitted file's diff gets (UI-15).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HunkControls {
+    /// In the order shown.
+    pub actions: Vec<ChangeAction>,
+    /// Why they are disabled, as in a blocked repo (GRP-8).
+    pub blocked: Option<String>,
+}
+
+impl HunkControls {
+    /// The controls of a hunk of `list`'s file: Unstage for a staged one,
+    /// Stage and Discard for an unstaged one.
+    pub fn of(list: gitcroc_core::FileList, blocked: Option<String>) -> Option<Self> {
+        let actions = match list {
+            gitcroc_core::FileList::Staged => vec![ChangeAction::Unstage],
+            gitcroc_core::FileList::Unstaged => vec![ChangeAction::Stage, ChangeAction::Discard],
+            gitcroc_core::FileList::Commit => return None,
+        };
+        Some(Self { actions, blocked })
+    }
+}
+
+/// A hunk's control was used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HunkAction {
+    pub action: ChangeAction,
+    /// The hunk, from 0.
+    pub hunk: usize,
+}
+
+/// The name and id part of a hunk control.
+fn control_name(action: ChangeAction) -> (&'static str, &'static str) {
+    match action {
+        ChangeAction::Stage => (text::STAGE_HUNK, "stage"),
+        ChangeAction::Unstage => (text::UNSTAGE_HUNK, "unstage"),
+        ChangeAction::Discard => (text::DISCARD_HUNK, "discard"),
+    }
+}
+
 /// What a diff let go of in a background tab keeps for the same file read
 /// again (UI-31).
 #[derive(Debug, Clone)]
@@ -157,6 +201,8 @@ pub struct DiffView {
     /// The hunk F7 last went to.
     hunk: Option<usize>,
     hunk_focus: FocusHandle,
+    /// The hunks' controls; `None` for a commit's diff.
+    controls: Option<HunkControls>,
     /// The tab went to the background and the content was let go (UI-31).
     released: bool,
     kept: Option<Kept>,
@@ -187,6 +233,7 @@ impl DiffView {
             gutter: Pixels::ZERO,
             hunk: None,
             hunk_focus: cx.focus_handle(),
+            controls: None,
             released: false,
             kept: None,
             _prefs_watch: prefs_watch,
@@ -307,6 +354,22 @@ impl DiffView {
     /// The hunk F7 last went to.
     pub fn hunk(&self) -> Option<usize> {
         self.hunk
+    }
+
+    /// The controls the hunks get, as the pane decides (UI-15).
+    pub fn set_controls(&mut self, controls: Option<HunkControls>, cx: &mut Context<Self>) {
+        if self.controls != controls {
+            self.controls = controls;
+            cx.notify();
+        }
+    }
+
+    /// The controls the hunks show: none while whitespace is ignored, as
+    /// those hunks do not apply to the file.
+    pub fn shown_controls(&self) -> Option<&HunkControls> {
+        self.controls
+            .as_ref()
+            .filter(|_| self.asked.is_some_and(|asked| !asked.ignore_whitespace))
     }
 
     /// The first row on screen.
@@ -780,17 +843,50 @@ impl DiffView {
                 index: hunk,
                 header,
             }) => {
+                let hunk = *hunk;
                 let label = text::hunk(hunk + 1, header);
+                let controls = self.shown_controls();
+                // F7 gives the focus to the hunk's first control, or to its
+                // header when it has none.
+                let current = self.hunk == Some(hunk);
+                let buttons = controls.map(|controls| {
+                    let blocked = controls.blocked.clone();
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .pr_2()
+                        .children(controls.actions.iter().enumerate().map(|(at, &action)| {
+                            let (name, part) = control_name(action);
+                            Button::new(id(format!("diff-hunk-{hunk}-{part}")))
+                                .xsmall()
+                                .compact()
+                                .outline()
+                                .label(name)
+                                .accessibility_label(text::hunk_control(name, hunk + 1))
+                                .when_some(blocked.clone(), |button, why| button.tooltip(why))
+                                .disabled(blocked.is_some())
+                                .when(current && at == 0, |button| {
+                                    button.track_focus(&self.hunk_focus)
+                                })
+                                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                                    cx.emit(HunkAction { action, hunk });
+                                }))
+                        }))
+                });
+                let focus_header = current && buttons.is_none();
                 base(format!("diff-hunk-{hunk}"))
                     .role(Role::Heading)
                     .aria_level(3)
                     .aria_label(label)
-                    .when(self.hunk == Some(*hunk), |row| {
-                        row.track_focus(&self.hunk_focus)
-                    })
+                    .when(focus_header, |row| row.track_focus(&self.hunk_focus))
+                    .items_center()
                     .bg(colors.hunk_background)
                     .text_color(colors.hunk_text)
                     .child(line_text(header.clone(), &[], &colors, self.offset, wrap).pl_2())
+                    .children(buttons)
                     .into_any_element()
             }
             Shown::Row(DiffRow::Line {
@@ -894,6 +990,8 @@ fn note(id_name: &'static str, role: Role, label: String, color: impl Into<Hsla>
         .child(label)
         .into_any_element()
 }
+
+impl EventEmitter<HunkAction> for DiffView {}
 
 impl Render for DiffView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

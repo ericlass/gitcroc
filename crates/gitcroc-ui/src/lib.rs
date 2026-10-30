@@ -5,10 +5,13 @@
 pub mod askpass;
 pub mod changes;
 pub mod changes_pane;
+pub mod commit;
+pub mod commit_box;
 pub mod dialog;
 pub mod dialogs;
 pub mod diff;
 pub mod diff_view;
+pub mod discard_dialog;
 pub mod git_setup;
 pub mod highlight;
 pub mod history;
@@ -65,6 +68,7 @@ pub fn init(cx: &mut App) {
     tree_pane::bind(cx);
     history_pane::bind(cx);
     changes_pane::bind(cx);
+    commit_box::bind(cx);
     panes::bind(cx);
     menus::init(cx);
 }
