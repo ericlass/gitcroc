@@ -102,6 +102,7 @@ fn main() -> ExitCode {
     });
     drop(entered);
     let system_title_bar = app.settings_get().settings.appearance.system_title_bar;
+    let quitting = app.clone();
     let services = Services::new(app, runtime.handle().clone());
     if first_frame {
         std::thread::spawn(|| {
@@ -156,7 +157,9 @@ fn main() -> ExitCode {
             });
         }
     });
-    // Jobs still running are abandoned, as when the Tauri app closed.
+    // Git's prompts get no answer, so nothing waits on the app (D10). Jobs
+    // still running are abandoned, as when the Tauri app closed.
+    runtime.block_on(quitting.shutdown());
     runtime.shutdown_background();
     if NO_FONTS.load(Ordering::SeqCst) {
         return ExitCode::FAILURE;

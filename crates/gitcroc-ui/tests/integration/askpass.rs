@@ -224,6 +224,37 @@ fn d10_askpass_prompts_queue(cx: &mut TestAppContext) {
     assert!(titles[1].contains(": web in "), "{titles:?}");
 }
 
+/// D10: the app shuts down, as `gitcroc-next` does when it quits, while
+/// the dialog is open: git gets no answer, the dialog goes, and what was
+/// typed is emptied (SEC-1).
+#[gpui::test]
+fn d10_quit_closes_the_askpass_dialog(cx: &mut TestAppContext) {
+    let fixture = Fixture::start(EVENT_CAPACITY);
+    let made = made(&refusing_host(&fixture).0);
+    let workspace = fixture.active();
+    let added = fixture.add_repos(&workspace, made.path());
+    let (mut cx, window) = main_window(cx, &fixture);
+
+    let id = fetch(&fixture, &workspace, &id_of(&added, "api"));
+    let dialog = wait_for_dialog(&mut cx, &window, None);
+    cx.update(|window, cx| window.input("alice", cx));
+    cx.run_until_parked();
+    let field = cx.update(|_, cx| {
+        assert_eq!(dialog.read(cx).field().read(cx).value(), "alice");
+        dialog.read(cx).field().downgrade()
+    });
+    drop(dialog);
+
+    fixture.runtime.block_on(fixture.app().shutdown());
+    wait_until(&mut cx, |cx| {
+        cx.update(|_, cx| window.read(cx).askpass_dialog().is_none())
+    });
+    wait_for_end(&mut cx, &fixture, id, &Outcome::Failed);
+    // GPUI's test window may still hold the field; its text is gone.
+    let left = cx.update(|_, cx| field.upgrade().map(|field| field.read(cx).value()));
+    assert!(left.as_ref().is_none_or(|text| text.is_empty()), "{left:?}");
+}
+
 type Answers = Rc<RefCell<Vec<(u32, Option<String>)>>>;
 
 /// A dialog of `prompt` alone, whose answers are kept.

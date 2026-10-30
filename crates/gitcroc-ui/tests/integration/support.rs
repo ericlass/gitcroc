@@ -243,6 +243,15 @@ pub struct Fixture {
     dir: tempfile::TempDir,
 }
 
+/// The app goes as `gitcroc-next`'s does when it quits: git's prompts get
+/// no answer first (D10). Dropping the runtime then waits for the threads
+/// that read git's output, so a git process left running hangs the test.
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        self.runtime.block_on(self.app().shutdown());
+    }
+}
+
 impl Fixture {
     /// Starts the app with an event channel of `capacity`, and waits for its
     /// git detection.

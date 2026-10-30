@@ -12,6 +12,10 @@
 //! the UI shows as a dialog, or the tests' fake. The answer goes to the
 //! helper and nowhere else: it is never stored, logged or cached (D10,
 //! SEC-1).
+//!
+//! When the app quits, [`AskpassServer::close`] answers every helper still
+//! waiting with no answer, as a cancel would, so that git fails and nothing
+//! is left waiting on an app that has gone.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write as _};
@@ -23,7 +27,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use gitcroc_core::{Askpass, AskpassGrant, AskpassIssuer, JobView};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::{Notify, oneshot, watch};
 
 use crate::platform::{LocalListener, LocalSockets, PlatformSockets};
 
@@ -106,11 +110,35 @@ struct Issued {
     revoked: Arc<Notify>,
 }
 
-type Tokens = Mutex<HashMap<String, Issued>>;
+/// The jobs whose prompts may be asked, by token; none once the server is
+/// closed.
+#[derive(Default)]
+struct Issuance {
+    issued: HashMap<String, Issued>,
+    closed: bool,
+}
 
-fn lock(tokens: &Tokens) -> MutexGuard<'_, HashMap<String, Issued>> {
-    // Each change is one insert or removal.
+type Tokens = Mutex<Issuance>;
+
+fn lock(tokens: &Tokens) -> MutexGuard<'_, Issuance> {
+    // Each change is one insert or removal, or the close.
     tokens.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// A helper being answered, counted until its reply is sent.
+struct Replying(watch::Sender<usize>);
+
+impl Replying {
+    fn new(count: &watch::Sender<usize>) -> Self {
+        count.send_modify(|open| *open += 1);
+        Self(count.clone())
+    }
+}
+
+impl Drop for Replying {
+    fn drop(&mut self) {
+        self.0.send_modify(|open| *open -= 1);
+    }
 }
 
 /// The app's end: issues tokens to network jobs and answers the helper.
@@ -120,6 +148,8 @@ pub struct AskpassServer {
     ui: Arc<dyn AskpassUi>,
     tokens: Arc<Tokens>,
     prompt_ids: AtomicU32,
+    /// How many helpers are being answered.
+    replying: watch::Sender<usize>,
 }
 
 impl std::fmt::Debug for AskpassServer {
@@ -145,6 +175,7 @@ impl AskpassServer {
             ui,
             tokens: Arc::default(),
             prompt_ids: AtomicU32::new(1),
+            replying: watch::Sender::new(0),
         });
         let serving = Arc::downgrade(&server);
         tokio::spawn(async move {
@@ -153,10 +184,32 @@ impl AskpassServer {
                 let Some(server) = serving.upgrade() else {
                     return;
                 };
-                tokio::spawn(async move { server.serve(stream).await });
+                let replying = Replying::new(&server.replying);
+                tokio::spawn(async move {
+                    server.serve(stream).await;
+                    drop(replying);
+                });
             }
         });
         server
+    }
+
+    /// Ends every prompt, as the app quits: each helper waiting is answered
+    /// with no answer, as after a cancel, and its dialog is withdrawn. No
+    /// token is issued again, so git asks no more (D10). Returns once every
+    /// helper being answered has its reply.
+    pub async fn close(&self) {
+        let issued = {
+            let mut tokens = lock(&self.tokens);
+            tokens.closed = true;
+            std::mem::take(&mut tokens.issued)
+        };
+        for job in issued.into_values() {
+            job.revoked.notify_waiters();
+        }
+        let mut replying = self.replying.subscribe();
+        // The sender lives as long as `self`.
+        let _ = replying.wait_for(|open| *open == 0).await;
     }
 
     /// Where the helper connects.
@@ -189,7 +242,7 @@ impl AskpassServer {
     async fn answer(&self, request: Request) -> Option<String> {
         let (prompt, revoked) = {
             let tokens = lock(&self.tokens);
-            let issued = tokens.get(&request.token)?;
+            let issued = tokens.issued.get(&request.token)?;
             let prompt = AskpassPrompt {
                 prompt_id: self.prompt_ids.fetch_add(1, Ordering::Relaxed),
                 kind: PromptKind::of(&request.prompt),
@@ -203,7 +256,7 @@ impl AskpassServer {
         let mut ended = std::pin::pin!(revoked.notified());
         ended.as_mut().enable();
         // Revoked between the lookup and `enable`: the job has ended.
-        if !lock(&self.tokens).contains_key(&request.token) {
+        if !lock(&self.tokens).issued.contains_key(&request.token) {
             return None;
         }
         tokio::select! {
@@ -214,6 +267,7 @@ impl AskpassServer {
 }
 
 impl AskpassIssuer for AskpassServer {
+    /// `None` once the server is closed: git then runs without a helper.
     fn issue(&self, job: &JobView) -> Option<AskpassGrant> {
         let token = format!(
             "{}{}",
@@ -221,15 +275,21 @@ impl AskpassIssuer for AskpassServer {
             uuid::Uuid::new_v4().simple()
         );
         let revoked = Arc::new(Notify::new());
-        lock(&self.tokens).insert(
-            token.clone(),
-            Issued {
-                workspace_name: job.workspace_name.clone(),
-                repo_names: job.repo_names.clone(),
-                job_label: job.label.clone(),
-                revoked: revoked.clone(),
-            },
-        );
+        {
+            let mut tokens = lock(&self.tokens);
+            if tokens.closed {
+                return None;
+            }
+            tokens.issued.insert(
+                token.clone(),
+                Issued {
+                    workspace_name: job.workspace_name.clone(),
+                    repo_names: job.repo_names.clone(),
+                    job_label: job.label.clone(),
+                    revoked: revoked.clone(),
+                },
+            );
+        }
         let askpass = Askpass {
             program: self.program.clone(),
             env: vec![
@@ -239,7 +299,7 @@ impl AskpassIssuer for AskpassServer {
         };
         let tokens = self.tokens.clone();
         Some(AskpassGrant::new(askpass, move || {
-            lock(&tokens).remove(&token);
+            lock(&tokens).issued.remove(&token);
             revoked.notify_waiters();
         }))
     }
