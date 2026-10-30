@@ -41,11 +41,11 @@ const DEFAULT_TREE: u32 = 280;
 const DEFAULT_HISTORY: u32 = 560;
 const DEFAULT_CHANGES: u32 = 320;
 /// What an arrow key moves a focused splitter by, as in rc.1.
-const KEY_STEP: f32 = 16.;
-const SPLITTER: Pixels = px(4.);
+pub(crate) const KEY_STEP: f32 = 16.;
+pub(crate) const SPLITTER: Pixels = px(4.);
 
 /// The key context of a splitter.
-const CONTEXT: &str = "GitcrocPaneSplitter";
+pub(crate) const CONTEXT: &str = "GitcrocPaneSplitter";
 
 actions!(
     panes,

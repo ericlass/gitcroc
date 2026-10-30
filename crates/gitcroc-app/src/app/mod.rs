@@ -71,6 +71,10 @@ pub struct AppSetup<'a> {
     /// be to earn the offer to write one (PERF-2):
     /// [`gitcroc_core::COMMIT_GRAPH_THRESHOLD`], or another in tests of it.
     pub commit_graph_threshold: Duration,
+    /// How many files a repo's index must track to earn the offer to turn
+    /// on `core.fsmonitor` and `core.untrackedCache` (PERF-7):
+    /// [`gitcroc_core::FSMONITOR_THRESHOLD`], or fewer in tests of it.
+    pub fsmonitor_threshold: usize,
 }
 
 /// The running app's state and operations. Cheap to clone; every clone is
@@ -215,7 +219,7 @@ impl App {
                 settings,
                 palettes: Arc::new(Palettes::new()),
                 histories: Arc::new(Histories::new(setup.commit_graph_threshold)),
-                changes: Arc::new(Changes::new()),
+                changes: Arc::new(Changes::with_fsmonitor_threshold(setup.fsmonitor_threshold)),
                 watchers,
                 jobs,
                 groups,

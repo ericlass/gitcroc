@@ -1,16 +1,18 @@
-//! What one workspace's changes pane shows (UI-14, UI-16, UI-34): the
-//! history's selection, the core's view of it, and the rows of its file
-//! lists, flat or as a folder tree, with the selected file. A port of rc.1's
-//! `stores/changes.ts` and `changes/fileRows.ts`, without a UI toolkit and
-//! without the diff (M6-13). The core reads the lists (ARCH-6) and names
-//! each file by list and id, never by path (PLAT-2); this keeps its latest
-//! answer and lays its lists out.
+//! What one workspace's changes pane shows (UI-14, UI-15, UI-16, UI-34):
+//! the history's selection, the core's view of it, and the rows of its file
+//! lists, flat or as a folder tree, with the selected file and the files
+//! selected with it. A port of rc.1's `stores/changes.ts` and
+//! `changes/fileRows.ts`, without a UI toolkit and without the diff
+//! (M6-13). The core reads the lists and decides what a stage, unstage or
+//! discard does (ARCH-6) and names each file by list and id, never by path
+//! (PLAT-2); this keeps its latest answer, lays its lists out, and says
+//! which files a control names.
 
 use std::collections::{BTreeMap, HashSet};
 
 use gitcroc_core::{
-    ChangedFile, ChangesContent, ChangesTarget, ChangesView, FileList, FileListMode, FileRef,
-    RepoId, TargetSet, UnmergedFile,
+    ChangeAction, ChangedFile, ChangesContent, ChangesTarget, ChangesView, CommitMessage, FileList,
+    FileListMode, FileRef, RepoId, TargetSet, UnmergedFile,
 };
 
 use crate::history::Selection;
@@ -448,6 +450,70 @@ pub struct Changes {
     /// The tab went to the background and the view was let go (UI-31);
     /// `keep` is the file to select when it is read again.
     released: bool,
+    /// The files selected together, of one list of one repo, the selected
+    /// file among them (UI-15).
+    marked: Vec<FileKey>,
+    /// A short message about the last action, such as a hunk refused
+    /// because its file changed.
+    notice: Option<String>,
+    /// Repos whose fsmonitor offer was answered while the app runs; it is
+    /// not shown again (PERF-7).
+    offer_answered: HashSet<RepoId>,
+    /// Why the last answer to the offer failed.
+    offer_error: Option<String>,
+}
+
+/// How a file row was clicked (UI-15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Click {
+    /// Selects the file alone.
+    Plain,
+    /// Ctrl or Cmd: adds the file to the selection, or takes it out.
+    Toggle,
+    /// Shift: selects the run from the selected file.
+    Range,
+}
+
+/// The list a stage, unstage or discard takes its files from, as the core
+/// checks it.
+pub fn action_list(action: ChangeAction) -> List {
+    match action {
+        ChangeAction::Stage | ChangeAction::Discard => List::Unstaged,
+        ChangeAction::Unstage => List::Staged,
+    }
+}
+
+/// What a double-click on a file of `list` does: it moves the file to the
+/// other list.
+pub fn move_action(list: List) -> Option<ChangeAction> {
+    match list {
+        List::Staged => Some(ChangeAction::Unstage),
+        List::Unstaged => Some(ChangeAction::Stage),
+        List::Commit | List::Unmerged => None,
+    }
+}
+
+/// What the commit box of a repo's uncommitted changes works with (UI-15).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Committable {
+    pub repo: RepoId,
+    /// The view the commit is made from.
+    pub handle: u32,
+    /// Something is staged.
+    pub staged: bool,
+    /// The last commit's message, which Amend starts from; `None` when
+    /// there is nothing to amend.
+    pub last_message: Option<CommitMessage>,
+    /// In conflict state, where Continue makes the commit (OPS-1).
+    pub in_conflict: bool,
+}
+
+/// The fsmonitor offer of a repo, while it is to be shown (PERF-7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Offer {
+    pub repo: RepoId,
+    /// The config keys it would turn on.
+    pub keys: Vec<String>,
 }
 
 impl Changes {
@@ -555,6 +621,8 @@ impl Changes {
         self.file = None;
         self.rows.clear();
         self.keep = None;
+        self.marked.clear();
+        self.notice = None;
         true
     }
 
@@ -617,12 +685,14 @@ impl Changes {
         self.rebuild();
         let again = keep.and_then(|keep| self.find(&keep));
         self.file = again.or_else(|| self.first_file());
+        self.marked = self.file.iter().cloned().collect();
     }
 
     pub fn set_error(&mut self, error: String) {
         self.loading = false;
         self.view = None;
         self.file = None;
+        self.marked.clear();
         self.rows.clear();
         self.error = Some(error);
     }
@@ -649,6 +719,7 @@ impl Changes {
     }
 
     pub fn select(&mut self, file: FileKey) {
+        self.marked = vec![file.clone()];
         self.file = Some(file);
     }
 
@@ -697,7 +768,8 @@ impl Changes {
     pub fn select_index(&mut self, index: usize) -> bool {
         match self.rows.get(index) {
             Some(FileRow::File { file, .. }) => {
-                self.file = Some(file.clone());
+                let file = file.clone();
+                self.select(file);
                 true
             }
             _ => false,
@@ -716,6 +788,7 @@ impl Changes {
         self.view = None;
         self.rows = Vec::new();
         self.file = None;
+        self.marked.clear();
         self.loading = false;
         self.error = None;
     }
@@ -741,6 +814,246 @@ impl Changes {
             (_, Some(ChangesContent::Merged { members, .. })) => members.clone(),
             _ => Vec::new(),
         }
+    }
+
+    /// The files selected together, the selected one among them.
+    pub fn marked(&self) -> &[FileKey] {
+        &self.marked
+    }
+
+    pub fn is_marked(&self, file: &FileKey) -> bool {
+        self.marked.contains(file)
+    }
+
+    /// Clicks the file of row `index` (UI-15): Ctrl or Cmd adds or removes
+    /// it, and Shift selects the run from the selected file, within one
+    /// list of one repo; a click in another list starts a new selection.
+    /// `false` when the row is no file.
+    pub fn click(&mut self, index: usize, click: Click) -> bool {
+        let Some(FileRow::File { file, .. }) = self.rows.get(index) else {
+            return false;
+        };
+        let file = file.clone();
+        let same_list = |other: &FileKey| {
+            other.list == file.list && other.repo == file.repo && file.list != List::Unmerged
+        };
+        let anchor = self.file.clone().filter(|selected| same_list(selected));
+        match (click, anchor) {
+            (Click::Toggle, Some(_)) => {
+                let mut marked: Vec<FileKey> = self
+                    .marked
+                    .iter()
+                    .filter(|other| same_list(other))
+                    .cloned()
+                    .collect();
+                if let Some(at) = marked.iter().position(|other| *other == file) {
+                    marked.remove(at);
+                } else {
+                    marked.push(file.clone());
+                }
+                match marked.last().cloned() {
+                    Some(last) => {
+                        self.file = Some(last);
+                        self.marked = marked;
+                    }
+                    None => self.select(file),
+                }
+            }
+            (Click::Range, Some(anchor)) => {
+                let from = self.selected_index().unwrap_or(index);
+                let (low, high) = if from < index {
+                    (from, index)
+                } else {
+                    (index, from)
+                };
+                self.marked = self.rows[low..=high]
+                    .iter()
+                    .filter_map(|row| match row {
+                        FileRow::File { file, .. } if same_list(file) => Some(file.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                self.file = Some(anchor);
+            }
+            _ => self.select(file),
+        }
+        true
+    }
+
+    /// The files a control of `file`'s row acts on: the selection when the
+    /// row is in it, else the file alone.
+    pub fn targets(&self, file: &FileKey) -> Vec<FileKey> {
+        if self.is_marked(file) {
+            self.marked
+                .iter()
+                .filter(|other| other.list == file.list && other.repo == file.repo)
+                .cloned()
+                .collect()
+        } else {
+            vec![file.clone()]
+        }
+    }
+
+    /// Every file of `list`, of `repo` in a merged view: what Stage all or
+    /// Unstage all acts on.
+    pub fn list_files(&self, list: List, repo: Option<&RepoId>) -> Vec<FileKey> {
+        let keys = |files: &[ChangedFile]| -> Vec<FileKey> {
+            files
+                .iter()
+                .map(|file| FileKey {
+                    list,
+                    id: file.id,
+                    repo: repo.cloned(),
+                })
+                .collect()
+        };
+        let pick = |staged: &'_ [ChangedFile], unstaged: &'_ [ChangedFile]| match list {
+            List::Staged => keys(staged),
+            List::Unstaged => keys(unstaged),
+            List::Commit | List::Unmerged => Vec::new(),
+        };
+        match (self.view.as_ref().map(|view| &view.content), repo) {
+            (
+                Some(ChangesContent::Uncommitted {
+                    staged, unstaged, ..
+                }),
+                None,
+            ) => pick(staged, unstaged),
+            (Some(ChangesContent::Merged { repos, .. }), Some(repo)) => repos
+                .iter()
+                .find(|shown| &shown.repo_id == repo)
+                .map(|shown| pick(&shown.staged, &shown.unstaged))
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Why `repo`'s files of a merged view cannot be changed (GRP-8).
+    pub fn blocked(&self, repo: Option<&RepoId>) -> Option<&str> {
+        let repo = repo?;
+        match &self.view.as_ref()?.content {
+            ChangesContent::Merged { repos, .. } => repos
+                .iter()
+                .find(|shown| &shown.repo_id == repo)?
+                .blocked
+                .as_deref(),
+            _ => None,
+        }
+    }
+
+    /// The list of `file` when its row has stage controls: a staged or
+    /// unstaged file of uncommitted changes, not an unmerged one (OPS-3).
+    pub fn changeable(&self, file: &FileKey) -> Option<List> {
+        let uncommitted = matches!(
+            self.view.as_ref().map(|view| &view.content),
+            Some(ChangesContent::Uncommitted { .. } | ChangesContent::Merged { .. })
+        );
+        (uncommitted && matches!(file.list, List::Staged | List::Unstaged)).then_some(file.list)
+    }
+
+    /// The handle that names `repo`'s lists: its own in a merged view
+    /// (UI-34), else the view's.
+    pub fn handle_of(&self, repo: Option<&RepoId>) -> Option<u32> {
+        let view = self.view.as_ref()?;
+        match &view.content {
+            ChangesContent::Merged { repos, .. } => repos
+                .iter()
+                .find(|shown| Some(&shown.repo_id) == repo)
+                .map(|shown| shown.handle),
+            _ => Some(view.handle),
+        }
+    }
+
+    /// What `action` on `files` asks of the core: one request per repo,
+    /// each with the files of the list the action takes them from.
+    pub fn requests(&self, action: ChangeAction, files: &[FileKey]) -> Vec<(u32, Vec<FileRef>)> {
+        let list = action_list(action);
+        let mut by_repo: Vec<(Option<RepoId>, Vec<FileRef>)> = Vec::new();
+        for file in files.iter().filter(|file| file.list == list) {
+            let Ok(id) = u32::try_from(file.id) else {
+                continue;
+            };
+            let file_ref = FileRef {
+                list: match list {
+                    List::Staged => FileList::Staged,
+                    _ => FileList::Unstaged,
+                },
+                id,
+            };
+            match by_repo.iter_mut().find(|(repo, _)| *repo == file.repo) {
+                Some((_, refs)) => refs.push(file_ref),
+                None => by_repo.push((file.repo.clone(), vec![file_ref])),
+            }
+        }
+        by_repo
+            .into_iter()
+            .filter_map(|(repo, refs)| Some((self.handle_of(repo.as_ref())?, refs)))
+            .collect()
+    }
+
+    /// What the commit box works with: a repo's uncommitted changes, not a
+    /// merged view's (UI-34).
+    pub fn committable(&self) -> Option<Committable> {
+        let Some(Selection::Uncommitted { repo }) = &self.selection else {
+            return None;
+        };
+        let view = self.view.as_ref()?;
+        match &view.content {
+            ChangesContent::Uncommitted {
+                staged,
+                last_message,
+                in_conflict,
+                ..
+            } => Some(Committable {
+                repo: repo.clone(),
+                handle: view.handle,
+                staged: !staged.is_empty(),
+                last_message: last_message.clone(),
+                in_conflict: *in_conflict,
+            }),
+            _ => None,
+        }
+    }
+
+    /// The fsmonitor offer of the repo shown, unless it was answered
+    /// (PERF-7).
+    pub fn offer(&self) -> Option<Offer> {
+        let Some(Selection::Uncommitted { repo }) = &self.selection else {
+            return None;
+        };
+        match &self.view.as_ref()?.content {
+            ChangesContent::Uncommitted {
+                offer_fsmonitor: Some(keys),
+                ..
+            } if !self.offer_answered.contains(repo) => Some(Offer {
+                repo: repo.clone(),
+                keys: keys.clone(),
+            }),
+            _ => None,
+        }
+    }
+
+    /// The offer of `repo` was answered: it is not shown again while the
+    /// app runs.
+    pub fn answer_offer(&mut self, repo: RepoId) {
+        self.offer_answered.insert(repo);
+        self.offer_error = None;
+    }
+
+    pub fn offer_error(&self) -> Option<&str> {
+        self.offer_error.as_deref()
+    }
+
+    pub fn set_offer_error(&mut self, error: Option<String>) {
+        self.offer_error = error;
+    }
+
+    pub fn notice(&self) -> Option<&str> {
+        self.notice.as_deref()
+    }
+
+    pub fn set_notice(&mut self, notice: Option<String>) {
+        self.notice = notice;
     }
 
     fn rebuild(&mut self) {

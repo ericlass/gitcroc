@@ -27,8 +27,9 @@ use gpui_kit::{
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::askpass::AskpassDialog;
-use crate::changes_pane::{ChangesPane, ChangesPrefs};
+use crate::changes_pane::{AskDiscard, ChangesPane, ChangesPrefs};
 use crate::dialog::{Closed, Modal, NameDialog, Question};
+use crate::discard_dialog::DiscardDialog;
 use crate::git_setup::GitSetup;
 use crate::history_pane::HistoryPane;
 use crate::job_list::JobList;
@@ -468,7 +469,17 @@ impl GitcrocWindow {
                 && let Some(history) = self.histories.get(&active).cloned()
             {
                 let services = self.services.clone();
-                let changes = cx.new(|cx| ChangesPane::new(services, active.clone(), history, cx));
+                let changes =
+                    cx.new(|cx| ChangesPane::new(services, active.clone(), history, window, cx));
+                // It ends with the pane, which the window outlives.
+                cx.subscribe_in(
+                    &changes,
+                    window,
+                    |this, pane, ask: &AskDiscard, window, cx| {
+                        this.ask_discard(pane.clone(), ask.clone(), window, cx);
+                    },
+                )
+                .detach();
                 self.changes.insert(active.clone(), changes);
             }
             if !self.panes.contains_key(&active)
@@ -768,6 +779,27 @@ impl GitcrocWindow {
         }
         self.show_prompt(window, cx);
         cx.notify();
+    }
+
+    /// Asks before a discard the core named (GRP-9); the confirmed request
+    /// goes back to `pane`.
+    fn ask_discard(
+        &mut self,
+        pane: Entity<ChangesPane>,
+        ask: AskDiscard,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let request = ask.request;
+        let send = Box::new(move |(), cx: &mut gpui_kit::App| {
+            let request = request.clone();
+            pane.update(cx, |pane, cx| pane.send_confirmed(request, cx))
+        });
+        let dialog = cx.new(|cx| DiscardDialog::new(&ask.repo, ask.files, ask.hunk, send, cx));
+        self.open_dialog(dialog, window, cx);
     }
 
     /// Opens the update dialog (PLAT-4).
