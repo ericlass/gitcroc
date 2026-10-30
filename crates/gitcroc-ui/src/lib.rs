@@ -3,6 +3,7 @@
 //! own (ARCH-6). `gitcroc-next` runs it until M6-30.
 
 pub mod askpass;
+pub mod branch_dialog;
 pub mod changes;
 pub mod changes_pane;
 pub mod commit;
@@ -26,6 +27,8 @@ pub mod menus;
 pub mod panes;
 #[cfg(feature = "perf-trace")]
 pub mod perf;
+pub mod row_context;
+pub mod row_menus;
 pub mod services;
 pub mod special_diff;
 pub mod status_bar;

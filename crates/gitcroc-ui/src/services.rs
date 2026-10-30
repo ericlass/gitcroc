@@ -7,6 +7,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use gitcroc_app::app::App;
+use gitcroc_app::platform::{FileManager, Launch, PlatformFileManager, PlatformTerminal, Terminal};
+use std::path::Path;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
@@ -15,11 +17,25 @@ use tokio::task::JoinHandle;
 pub struct Services {
     app: App,
     runtime: Handle,
+    pub(crate) file_manager: fn(&Path) -> Launch,
+    pub(crate) terminal: fn(&Path) -> Vec<Launch>,
 }
 
 impl Services {
     pub fn new(app: App, runtime: Handle) -> Self {
-        Self { app, runtime }
+        Self {
+            app,
+            runtime,
+            file_manager: PlatformFileManager::show,
+            terminal: PlatformTerminal::open_in,
+        }
+    }
+
+    /// Chooses platform implementations without changing the core's repo paths.
+    pub fn with_repo_openers<F: FileManager, T: Terminal>(mut self) -> Self {
+        self.file_manager = F::show;
+        self.terminal = T::open_in;
+        self
     }
 
     pub fn app(&self) -> &App {

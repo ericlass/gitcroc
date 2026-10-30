@@ -27,6 +27,7 @@ use gpui_kit::{
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::askpass::AskpassDialog;
+use crate::branch_dialog::{AskBranch, BranchDialog, BranchMode};
 use crate::changes_pane::{AskDiscard, ChangesPane, ChangesPrefs};
 use crate::dialog::{Closed, Modal, NameDialog, Question};
 use crate::discard_dialog::DiscardDialog;
@@ -38,7 +39,10 @@ use crate::keys::{
     self, Minimize, MoveTabLeft, MoveTabRight, NextHunk, NextRegion, NextTab, PreviousHunk,
     PreviousRegion, PreviousTab, Zoom,
 };
+use crate::menu::{Menu, MenuEvent};
 use crate::panes::Panes;
+use crate::row_context::{AskRowMenu, RowChoice};
+use crate::row_menus::TreeAction;
 use crate::services::Services;
 use crate::status_bar::{ShowJobs, ShowUpdate, StatusBar};
 use crate::strings;
@@ -80,6 +84,12 @@ impl Git {
 type CloseDialog = Box<dyn Fn(&mut gpui_kit::App)>;
 
 /// The dialog over the window: there is at most one.
+struct OpenRowMenu {
+    menu: Entity<Menu>,
+    request: AskRowMenu,
+    _events: Subscription,
+}
+
 struct OpenDialog {
     view: AnyView,
     /// Where the focus goes back to when it closes.
@@ -129,6 +139,7 @@ pub struct GitcrocWindow {
     /// Shown while no tab is open (UI-27).
     start: Option<Entity<WorkspaceStart>>,
     dialog: Option<OpenDialog>,
+    row_menu: Option<OpenRowMenu>,
     /// Why the core refused a tab change, until dismissed.
     refused: Option<SharedString>,
     /// The note on workspace files not found at start was dismissed (UI-33).
@@ -232,6 +243,7 @@ impl GitcrocWindow {
             tab_bar,
             start: None,
             dialog: None,
+            row_menu: None,
             refused: None,
             missing_dismissed: false,
             git: Git::default(),
@@ -449,6 +461,14 @@ impl GitcrocWindow {
             if !self.trees.contains_key(&active) {
                 let services = self.services.clone();
                 let tree = cx.new(|cx| TreePane::new(services, active.clone(), window, cx));
+                cx.subscribe_in(&tree, window, |this, _, ask: &AskRowMenu, window, cx| {
+                    this.open_row_menu(ask.clone(), window, cx)
+                })
+                .detach();
+                cx.subscribe_in(&tree, window, |this, _, ask: &AskBranch, window, cx| {
+                    this.ask_branch(ask.clone(), window, cx)
+                })
+                .detach();
                 self.trees.insert(active.clone(), tree);
             }
             if !self.histories.contains_key(&active)
@@ -463,6 +483,10 @@ impl GitcrocWindow {
                 let history = cx.new(|cx| {
                     HistoryPane::new(services, active.clone(), tree, saved_columns, window, cx)
                 });
+                cx.subscribe_in(&history, window, |this, _, ask: &AskRowMenu, window, cx| {
+                    this.open_row_menu(ask.clone(), window, cx)
+                })
+                .detach();
                 self.histories.insert(active.clone(), history);
             }
             if !self.changes.contains_key(&active)
@@ -706,6 +730,132 @@ impl GitcrocWindow {
         .detach();
     }
 
+    fn ask_branch(&mut self, ask: AskBranch, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let services = self.services.clone();
+        let dialog = cx.new(|cx| {
+            BranchDialog::new(
+                services,
+                ask.workspace,
+                ask.repo,
+                ask.repo_name,
+                ask.mode,
+                window,
+                cx,
+            )
+        });
+        self.open_dialog(dialog.clone(), window, cx);
+        if ask.immediate {
+            dialog.update(cx, |dialog, cx| dialog.submit(window, cx));
+        }
+    }
+    fn open_row_menu(&mut self, request: AskRowMenu, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let items = request.items.iter().map(|(item, _)| item.clone()).collect();
+        let menu = cx.new(|cx| {
+            Menu::new(
+                request.label,
+                items,
+                request.at,
+                gpui_kit::Anchor::TopLeft,
+                cx,
+            )
+        });
+        let events = cx.subscribe_in(&menu, window, |this, _, event: &MenuEvent, window, cx| {
+            let Some(open) = this.row_menu.take() else {
+                return;
+            };
+            window.focus(&open.request.focus, cx);
+            cx.notify();
+            if let MenuEvent::Chosen(at) = event
+                && let Some((item, Some(choice))) = open.request.items.get(*at)
+                && !item.disabled
+            {
+                this.row_choice(open.request.clone(), choice.clone(), window, cx);
+            }
+        });
+        menu.update(cx, |menu, cx| menu.focus_first(window, cx));
+        self.row_menu = Some(OpenRowMenu {
+            menu,
+            request,
+            _events: events,
+        });
+        cx.notify();
+    }
+    fn row_choice(
+        &mut self,
+        ask: AskRowMenu,
+        choice: RowChoice,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match choice {
+            RowChoice::Copy(hash) => {
+                cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(hash))
+            }
+            RowChoice::Branch(mode) => {
+                if let Some(repo) = ask.repo {
+                    let immediate = matches!(mode, BranchMode::Run { .. });
+                    self.ask_branch(
+                        AskBranch {
+                            workspace: ask.workspace,
+                            repo,
+                            repo_name: ask.repo_name,
+                            mode,
+                            immediate,
+                        },
+                        window,
+                        cx,
+                    );
+                }
+            }
+            RowChoice::Repo(action) => {
+                let Some(repo) = ask.repo else {
+                    return;
+                };
+                let workspace = ask.workspace;
+                let tree = self.trees.get(&workspace).cloned();
+                let file_manager = self.services.file_manager;
+                let terminal = self.services.terminal;
+                let call = self.services.with_app(move |app| async move {
+                    match action {
+                        TreeAction::OpenFileManager => {
+                            app.repo_open_file_manager_using(workspace, repo, file_manager)
+                                .await
+                        }
+                        TreeAction::OpenTerminal => {
+                            app.repo_open_terminal_using(workspace, repo, terminal)
+                                .await
+                        }
+                        TreeAction::RemoveRepo => {
+                            app.workspace_remove_repo(workspace, repo).await.map(|_| ())
+                        }
+                        _ => Ok(()),
+                    }
+                });
+                cx.spawn(async move |_, cx| {
+                    let result = call.await;
+                    let error = match result {
+                        Some(Ok(())) => None,
+                        Some(Err(error)) => Some(error.to_string().into()),
+                        None => Some(strings::branches::STOPPED.into()),
+                    };
+                    if let Some(tree) = tree {
+                        tree.update(cx, |tree, cx| {
+                            tree.operation_error(error, cx);
+                            tree.read_again(cx);
+                        });
+                    }
+                })
+                .detach();
+            }
+        }
+    }
+
     /// Shows `dialog` over the window, with the focus in it.
     fn open_dialog<V: Modal>(
         &mut self,
@@ -827,6 +977,7 @@ impl GitcrocWindow {
         self.git.usable()
             && self.dialog.is_none()
             && self.askpass.is_none()
+            && self.row_menu.is_none()
             && !self.tab_bar.read(cx).menu_open()
     }
 
@@ -1168,6 +1319,7 @@ impl Render for GitcrocWindow {
                     .child(self.title_bar.clone()),
             )
             .children(body)
+            .children(self.row_menu.as_ref().map(|open| open.menu.clone()))
             .children(self.dialog_layer(cx))
             .children(self.askpass_layer(cx));
         // The root `open_window` puts around the window draws the frame's

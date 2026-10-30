@@ -357,8 +357,19 @@ impl App {
         workspace_id: WorkspaceId,
         repo_id: RepoId,
     ) -> Result<(), AppError> {
+        self.repo_open_file_manager_using(workspace_id, repo_id, PlatformFileManager::show)
+            .await
+    }
+
+    /// Platform adapter, injectable by native UI tests.
+    pub async fn repo_open_file_manager_using(
+        &self,
+        workspace_id: WorkspaceId,
+        repo_id: RepoId,
+        show: fn(&std::path::Path) -> crate::platform::Launch,
+    ) -> Result<(), AppError> {
         let path = self.workspaces().repo_path(&workspace_id, &repo_id)?;
-        let launch = PlatformFileManager::show(&path);
+        let launch = show(&path);
         self.blocking(move || crate::platform::start(&[launch]))
             .await??;
         Ok(())
@@ -371,8 +382,19 @@ impl App {
         workspace_id: WorkspaceId,
         repo_id: RepoId,
     ) -> Result<(), AppError> {
+        self.repo_open_terminal_using(workspace_id, repo_id, PlatformTerminal::open_in)
+            .await
+    }
+
+    /// Platform adapter, injectable by native UI tests.
+    pub async fn repo_open_terminal_using(
+        &self,
+        workspace_id: WorkspaceId,
+        repo_id: RepoId,
+        open: fn(&std::path::Path) -> Vec<crate::platform::Launch>,
+    ) -> Result<(), AppError> {
         let path = self.workspaces().repo_path(&workspace_id, &repo_id)?;
-        let candidates = PlatformTerminal::open_in(&path);
+        let candidates = open(&path);
         self.blocking(move || crate::platform::start(&candidates))
             .await??;
         Ok(())

@@ -10,8 +10,11 @@
 //! UI-36). Everything shown comes from the core; this lays it out and
 //! forwards input.
 
+use crate::branch_dialog::BranchMode;
+use crate::row_context::{AskRowMenu, RowChoice};
+use gitcroc_core::{BranchOp, StartPoint};
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -25,7 +28,7 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     Anchor, AnyElement, App, AppContext, Bounds, ClickEvent, ContentMask, Context, CursorStyle,
-    DispatchPhase, DragMoveEvent, ElementId, Entity, FocusHandle, Focusable, Hsla,
+    DispatchPhase, DragMoveEvent, ElementId, Entity, EventEmitter, FocusHandle, Focusable, Hsla,
     InteractiveElement, IntoElement, KeyBinding, KeyBindingContextPredicate, MouseButton,
     MouseDownEvent, MouseUpEvent, ParentElement, PathBuilder, Pixels, Point, Render, Role,
     ScrollStrategy, SharedString, StatefulInteractiveElement, Styled, Subscription, TestSupportExt,
@@ -45,6 +48,7 @@ use crate::tree_pane::TreePane;
 actions!(
     history_pane,
     [
+        OpenCommitMenu,
         SelectNext,
         SelectPrevious,
         PageNext,
@@ -86,6 +90,8 @@ pub fn bind(cx: &mut App) {
         KeyBinding::load(keys, action, context.clone(), false, None, cx).ok()
     };
     let bindings = [
+        bind("shift-f10", Box::new(OpenCommitMenu), cx),
+        bind("menu", Box::new(OpenCommitMenu), cx),
         bind("down", Box::new(SelectNext), cx),
         bind("up", Box::new(SelectPrevious), cx),
         bind("pagedown", Box::new(PageNext), cx),
@@ -221,11 +227,16 @@ pub struct HistoryPane {
     /// The subject's laid-out width, so a resize keeps its minimum.
     subject_width: Rc<Cell<f32>>,
     menu: Option<OpenColumnsMenu>,
+    marked: BTreeSet<String>,
+    selection_anchor: Option<usize>,
+    row_bounds: Rc<RefCell<HashMap<usize, Bounds<Pixels>>>>,
     saving: bool,
     save_again: bool,
     _tree_watch: Subscription,
     _search_events: Subscription,
 }
+
+impl EventEmitter<AskRowMenu> for HistoryPane {}
 
 impl HistoryPane {
     pub fn new(
@@ -275,6 +286,9 @@ impl HistoryPane {
             header_bounds: Rc::new(RefCell::new(Vec::new())),
             subject_width: Rc::new(Cell::new(0.)),
             menu: None,
+            marked: BTreeSet::new(),
+            selection_anchor: None,
+            row_bounds: Rc::default(),
             saving: false,
             save_again: false,
             _tree_watch: tree_watch,
@@ -745,6 +759,8 @@ impl HistoryPane {
         };
         let show = self.history.show(source);
         if show != Show::Kept {
+            self.marked.clear();
+            self.selection_anchor = None;
             self.show_text = true;
         }
         if self.history.merged() {
@@ -1019,6 +1035,19 @@ impl HistoryPane {
     }
 
     fn restore_scroll(&mut self, restore: Restore) {
+        let loaded: BTreeSet<String> = self
+            .history
+            .rows()
+            .iter()
+            .map(|row| self.history.row_id(row))
+            .collect();
+        self.marked.retain(|id| loaded.contains(id));
+        if self.marked.is_empty()
+            && let Some(id) = self.history.selected()
+            && self.history.commit_of(id).is_some()
+        {
+            self.marked.insert(id.to_owned());
+        }
         self.history.set_scroll_top(restore.scroll_top);
         if restore.scroll_top > 0. {
             let state = self.scroll.0.borrow_mut();
@@ -1048,6 +1077,11 @@ impl HistoryPane {
             return;
         };
         window.focus(&self.focus, cx);
+        self.marked.clear();
+        if self.history.commit_of(&row_id).is_some() {
+            self.marked.insert(row_id.clone());
+        }
+        self.selection_anchor = Some(index);
         self.history.select(Some(row_id));
         self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
         cx.notify();
@@ -1124,6 +1158,127 @@ impl HistoryPane {
 
     fn click(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.select(index, window, cx);
+    }
+
+    pub fn marked(&self) -> &BTreeSet<String> {
+        &self.marked
+    }
+    fn commit_click(
+        &mut self,
+        index: usize,
+        event: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.history.list_id_at(index) else {
+            return;
+        };
+        if self.history.commit_of(&id).is_none() {
+            self.select(index, window, cx);
+            return;
+        }
+        let mut marked = self.marked.clone();
+        let anchor = self.selection_anchor;
+        let modifiers = event.modifiers();
+        if modifiers.shift {
+            marked.clear();
+            for at in anchor.unwrap_or(index).min(index)..=anchor.unwrap_or(index).max(index) {
+                if let Some(id) = self.history.list_id_at(at)
+                    && self.history.commit_of(&id).is_some()
+                {
+                    marked.insert(id);
+                }
+            }
+        } else if modifiers.secondary(cx) {
+            if !marked.remove(&id) {
+                marked.insert(id.clone());
+            }
+        } else {
+            marked.clear();
+            marked.insert(id);
+        }
+        self.select(index, window, cx);
+        self.marked = marked;
+        if modifiers.shift {
+            self.selection_anchor = anchor;
+        }
+        cx.notify();
+    }
+    fn keyboard_commit_menu(
+        &mut self,
+        _: &OpenCommitMenu,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.focus.is_focused(window) {
+            return;
+        }
+        if let Some(index) = self.selected_index() {
+            let at = self
+                .row_bounds
+                .borrow()
+                .get(&index)
+                .map(|b| point(b.left(), b.bottom()))
+                .unwrap_or_default();
+            self.commit_menu(index, at, window, cx);
+        }
+    }
+    fn commit_menu(
+        &mut self,
+        index: usize,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = self.history.list_id_at(index) else {
+            return;
+        };
+        let Some((repo, hash)) = self.history.commit_of(&id) else {
+            return;
+        };
+        if !self.marked.contains(&id) {
+            self.select(index, window, cx);
+        }
+        window.focus(&self.focus, cx);
+        let count = self.marked.len();
+        let same_repo = self
+            .marked
+            .iter()
+            .filter_map(|id| self.history.commit_of(id))
+            .all(|(other, _)| other == repo);
+        let tree = self.tree.read(cx).tree();
+        let blocked = crate::row_context::blocked(tree.summary(&repo));
+        let items = crate::row_menus::commit_menu(count, same_repo, blocked)
+            .into_iter()
+            .enumerate()
+            .map(|(at, item)| {
+                let choice = match at {
+                    0 => Some(RowChoice::Branch(BranchMode::Run {
+                        op: BranchOp::CheckoutDetached {
+                            revision: hash.clone(),
+                        },
+                    })),
+                    1 => Some(RowChoice::Branch(BranchMode::Create {
+                        start: StartPoint::Revision {
+                            revision: hash.clone(),
+                        },
+                    })),
+                    6 => Some(RowChoice::Copy(hash.clone())),
+                    _ => None,
+                };
+                (item, choice)
+            })
+            .collect();
+        let repo_name = tree.repo_names().get(&repo).cloned().unwrap_or_default();
+        cx.emit(AskRowMenu {
+            label: strings::commit_menu::MENU,
+            workspace: self.workspace_id.clone(),
+            repo: Some(repo),
+            repo_name,
+            items,
+            at,
+            focus: self.focus.clone(),
+        });
     }
 
     fn header(&mut self, tokens: &Tokens, window: &Window, cx: &mut Context<Self>) -> AnyElement {
@@ -1433,9 +1588,10 @@ impl HistoryPane {
         let tokens = *cx.tokens();
         let id = format!("history-row-{commit}");
         let row_id = self.history.row_id(row);
-        let selected = self.history.selected() == Some(row_id.as_str());
+        let selected = self.marked.contains(&row_id);
         let focused = self.focus.is_focused(window);
         let mut line = div()
+            .relative()
             .id(ElementId::Name(id.clone().into()))
             .test_support()
             .role(Role::ListBoxOption)
@@ -1453,8 +1609,26 @@ impl HistoryPane {
             .text_size(px(13.))
             .when(selected, |row| row.bg(tokens.selection_bg))
             .when(!selected, |row| row.hover(|style| style.bg(tokens.bg_3)))
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.click(index, window, cx);
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.commit_menu(index, event.position, window, cx);
+                }),
+            )
+            .child({
+                let bounds = self.row_bounds.clone();
+                canvas(
+                    move |b, _, _| {
+                        bounds.borrow_mut().insert(index, b);
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full()
+            })
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                this.commit_click(index, event, window, cx);
             }));
         for column in self.columns.order().iter().copied() {
             let width = self.columns.width(column);
@@ -1662,6 +1836,7 @@ impl HistoryPane {
         let summary = view.as_ref().and_then(|view| view.summary.as_ref());
         let stale = view.as_ref().is_none_or(|view| view.stale);
         let mut line = div()
+            .relative()
             .id(ElementId::Name(id.clone().into()))
             .test_support()
             .role(Role::ListItem)
@@ -2012,6 +2187,7 @@ impl Render for HistoryPane {
             .key_context(CONTEXT)
             .role(Role::Group)
             .aria_label(strings::regions::HISTORY)
+            .on_action(cx.listener(Self::keyboard_commit_menu))
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::select_previous))
             .on_action(cx.listener(Self::page_next))

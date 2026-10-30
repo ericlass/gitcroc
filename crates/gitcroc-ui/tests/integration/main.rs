@@ -10,6 +10,7 @@ extern crate gpui_kit as gpui;
 
 mod askpass;
 mod background_tabs;
+mod branches;
 mod changes;
 mod colors;
 mod commit;
