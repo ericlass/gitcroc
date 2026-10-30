@@ -5,6 +5,13 @@ Render the kept conflict buffer with labelled, keyboard-reachable hunk
 controls, syntax and conflict colours, and base/proposal cards beside the hunk.
 This is the second M6-19 PR; the real application flow lands in M6-19c.
 
+## Implementation split (DEV-4)
+- [M6-19b1: code colours and syntax](M6-19b1-conflict-code-colours.md).
+- [M6-19b2: rows, headers and hunk controls](M6-19b2-conflict-rows-and-controls.md).
+- [M6-19b3: base and proposal cards](M6-19b3-conflict-cards.md).
+
+All three are required to complete this parent slice; its acceptance remains unchanged.
+
 ## Depends on
 - M6-19a: tracked hunks, atomic replacement, navigation and retained entities.
 - M6-07 and M6-13b: code themes, fonts and syntax highlighting.
