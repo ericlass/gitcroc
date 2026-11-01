@@ -98,6 +98,8 @@ The borders between the column headers can be focused with Tab; the **arrow keys
 | Keys | What they do |
 | --- | --- |
 | Alt+Down, Alt+Up | Next or previous conflict |
+| F7, Shift+F7 | The buttons of the next or previous conflict |
+| Escape on a conflict's button | Back to the text, at that conflict |
 | Alt+1 | Take ours in the conflict at the cursor |
 | Alt+2 | Take theirs |
 | Alt+3 | Take both |
@@ -107,7 +109,7 @@ The borders between the column headers can be focused with Tab; the **arrow keys
 | Ctrl+Enter (Cmd+Enter on macOS) | Mark resolved; while editing a proposal, accept the edited text |
 | Escape | Cancel editing a proposal |
 
-The next and previous conflict keys wrap around, reveal the target and move the caret to its text. Taking a side is one undo step: Ctrl+Z (Cmd+Z on macOS) restores the hunk. The buffer shortcuts apply while its editor has focus; Enter and Space remain ordinary text input there.
+The next and previous conflict keys wrap around, reveal the target and move the caret to its text. F7 and Shift+F7 do the same and then focus the conflict's **Take ours** button; Tab moves on to **Take theirs** and **Take both**, and Enter or Space presses the focused one. Taking a side is one undo step: Ctrl+Z (Cmd+Z on macOS) restores the hunk. The buffer shortcuts apply while its editor has focus; Enter and Space remain ordinary text input there.
 
 On macOS, Alt is the Option key.
 
