@@ -460,3 +460,250 @@ fn diverge_steps(r: &repo_gen::Repo) {
     r.write("b.txt", lines("second")).unwrap();
     r.commit_all("Second").unwrap();
 }
+
+// M6-19c3: edited outside (OPS-8) and choice conflicts (OPS-6).
+
+fn row_click(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>, path: &str) {
+    let row = row_of(cx, window, List::Unmerged, path);
+    click(cx, crate::changes::row(row));
+}
+
+fn present(cx: &mut VisualTestContext, id: &'static str) -> bool {
+    cx.update(|window, cx| {
+        window.render_frame(cx);
+        window.try_find(id).is_some()
+    })
+}
+
+/// OPS-8: a file edited outside asks first. Keep the file as it is opens
+/// its disk text with no hunks, even marker-like text; Start over opens the
+/// conflict's hunks; neither writes, and the answer stays with the file.
+/// Without disk text, Keep is disabled and says why.
+#[gpui::test]
+fn ops_8_edited_outside_requires_a_choice(root: &mut TestAppContext) {
+    let f = Fixture::start(EVENT_CAPACITY);
+    let made = repos(&["api"]);
+    let r = repo(&made, "api");
+    merge_conflict(&r, &["a.txt", "b.txt", "c.txt"]);
+    let marker_like = format!(
+        "{} disk\nkept\n=======\nalso kept\n{} disk\n",
+        "<".repeat(7),
+        ">".repeat(7)
+    );
+    r.write("a.txt", &marker_like).unwrap();
+    r.write("b.txt", "edited outside\n").unwrap();
+    // Not UTF-8: the core has no disk text to keep.
+    r.write("c.txt", [0xff_u8, 0xfe, b'\n']).unwrap();
+    let added = add(&f, &made);
+    let api = id_of(&added, "api");
+    let (mut cx, window) = main_window(root, &f);
+    show_uncommitted(&mut cx, &window, &added, "api");
+
+    // a.txt: Keep the file as it is.
+    row_click(&mut cx, &window, "a.txt");
+    wait_for_element(&mut cx, "conflict-outside".into());
+    assert!(shown(&mut cx, &window).is_none());
+    assert_eq!(
+        label_of(&mut cx, "conflict-outside-text".into()),
+        Some(text::changed_outside("a.txt"))
+    );
+    assert!(!disabled(&mut cx, "conflict-keep-disk".into()));
+    click(&mut cx, "conflict-keep-disk".into());
+    let editor = wait_for_editor(&mut cx, &window, "a.txt");
+    assert_eq!(value(&mut cx, &editor), marker_like);
+    assert!(cx.update(|_, cx| editor.read(cx).ranges(cx).is_empty()));
+    assert!(!present(&mut cx, "conflict-0-take-ours"));
+    assert_eq!(on_disk(&r, "a.txt"), marker_like);
+
+    // b.txt: Start over from the conflict.
+    row_click(&mut cx, &window, "b.txt");
+    wait_for_element(&mut cx, "conflict-start-over".into());
+    click(&mut cx, "conflict-start-over".into());
+    let b = wait_for_editor(&mut cx, &window, "b.txt");
+    assert!(value(&mut cx, &b).contains("<<<<<<< "));
+    assert_eq!(cx.update(|_, cx| b.read(cx).ranges(cx).len()), 1);
+    assert_eq!(on_disk(&r, "b.txt"), "edited outside\n");
+
+    // c.txt: no disk text to keep.
+    row_click(&mut cx, &window, "c.txt");
+    wait_for_element(&mut cx, "conflict-outside".into());
+    assert!(disabled(&mut cx, "conflict-keep-disk".into()));
+    assert_eq!(
+        label_of(&mut cx, "conflict-no-disk".into()).as_deref(),
+        Some(text::CANNOT_SHOW_DISK)
+    );
+
+    // The answers stay with the files.
+    row_click(&mut cx, &window, "a.txt");
+    let again = wait_for_editor(&mut cx, &window, "a.txt");
+    assert_eq!(again, editor);
+    assert!(!present(&mut cx, "conflict-outside"));
+    assert_eq!(
+        cx.update(|_, cx| window
+            .read(cx)
+            .changes(cx)
+            .unwrap()
+            .read(cx)
+            .kept_conflict(&api, "a.txt")),
+        Some(editor)
+    );
+    assert!(unmerged(&r).contains("a.txt"));
+    assert!(unmerged(&r).contains("b.txt"));
+}
+
+/// Conflicts the editor cannot show as text: binary, deleted on one side,
+/// added with different modes and a submodule, each in one repo.
+fn choice_conflicts(r: &repo_gen::Repo) {
+    let add = |path: &str, contents: &[u8]| {
+        r.write(path, contents).unwrap();
+        r.git(["add", "--", path]).unwrap();
+    };
+    let gitlink = |commit: &str| {
+        r.git([
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{commit},sub"),
+        ])
+        .unwrap();
+    };
+    add("f.bin", b"\0base");
+    add("d.txt", b"base\n");
+    gitlink(SUB_BASE);
+    r.git(["commit", "--quiet", "-m", "Base"]).unwrap();
+    r.branch("feature").unwrap();
+    add("f.bin", b"\0main");
+    add("d.txt", b"main\n");
+    add("f.sh", b"same\n");
+    r.git(["update-index", "--chmod=+x", "--", "f.sh"]).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let sh = r.path().join("f.sh");
+        std::fs::set_permissions(sh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    gitlink(SUB_MAIN);
+    r.git(["commit", "--quiet", "-m", "Main"]).unwrap();
+    r.git(["checkout", "--quiet", "feature"]).unwrap();
+    add("f.bin", b"\0feature");
+    r.git(["rm", "--quiet", "d.txt"]).unwrap();
+    add("f.sh", b"same\n");
+    gitlink(SUB_FEATURE);
+    r.git(["commit", "--quiet", "-m", "Feature"]).unwrap();
+    r.git(["checkout", "--quiet", "main"]).unwrap();
+    r.merge_with_conflicts("feature").unwrap();
+}
+
+const SUB_BASE: &str = "1111111111111111111111111111111111111111";
+const SUB_MAIN: &str = "2222222222222222222222222222222222222222";
+const SUB_FEATURE: &str = "3333333333333333333333333333333333333333";
+
+/// OPS-6: each choice conflict shows the core's reason and both labelled
+/// sides with what they hold, literally, and no editor; Use this version
+/// resolves with that side's stage.
+#[gpui::test]
+fn ops_6_choice_conflicts_show_and_use_core_versions(root: &mut TestAppContext) {
+    use gitcroc_core::{ChoiceKind, SideHolds};
+    let f = Fixture::start(EVENT_CAPACITY);
+    let made = repos(&["api"]);
+    let r = repo(&made, "api");
+    choice_conflicts(&r);
+    let added = add(&f, &made);
+    let (mut cx, window) = main_window(root, &f);
+    show_uncommitted(&mut cx, &window, &added, "api");
+    let file = |size: u64, executable: bool| SideHolds::File { size, executable };
+    let cases = [
+        ("f.bin", ChoiceKind::Binary, file(5, false), file(8, false)),
+        (
+            "d.txt",
+            ChoiceKind::DeletedByThem,
+            file(5, false),
+            SideHolds::Deleted,
+        ),
+        ("f.sh", ChoiceKind::Mode, file(5, true), file(5, false)),
+        (
+            "sub",
+            ChoiceKind::Submodule,
+            SideHolds::Submodule {
+                commit: SUB_MAIN.into(),
+            },
+            SideHolds::Submodule {
+                commit: SUB_FEATURE.into(),
+            },
+        ),
+    ];
+    for (path, reason, ours, theirs) in &cases {
+        row_click(&mut cx, &window, path);
+        wait_until(&mut cx, |cx| {
+            label_of(cx, "conflict-choice-reason".into())
+                == Some(text::choose(text::reason(*reason)))
+        });
+        assert!(shown(&mut cx, &window).is_none());
+        assert!(!present(&mut cx, "conflict-mark-resolved"));
+        assert_eq!(
+            label_of(&mut cx, "conflict-holds-ours".into()),
+            Some(text::holds(ours))
+        );
+        assert_eq!(
+            label_of(&mut cx, "conflict-holds-theirs".into()),
+            Some(text::holds(theirs))
+        );
+        assert_eq!(
+            label_of(&mut cx, "conflict-side-ours".into()),
+            Some(text::ours("main"))
+        );
+        assert_eq!(
+            label_of(&mut cx, "conflict-side-theirs".into()),
+            Some(text::theirs("feature"))
+        );
+    }
+    assert!(
+        text::holds(&SideHolds::Submodule {
+            commit: SUB_MAIN.into()
+        })
+        .contains(&SUB_MAIN[..12])
+    );
+
+    // Use this version, for each side.
+    let mut events = f.app().subscribe();
+    row_click(&mut cx, &window, "f.bin");
+    wait_for_element(&mut cx, "conflict-use-theirs".into());
+    click(&mut cx, "conflict-use-theirs".into());
+    assert_eq!(job_end(&mut cx, &mut events), Some(Outcome::Succeeded));
+    assert_eq!(r.git(["show", ":f.bin"]).unwrap(), "\0feature");
+    let mut events = f.app().subscribe();
+    wait_until(&mut cx, |cx| {
+        with_changes(cx, &window, |changes| {
+            !changes.loading()
+                && changes.rows().iter().any(
+                    |row| matches!(row, FileRow::File { file, .. } if file.list == List::Unmerged),
+                )
+        }) && row_of_opt(cx, &window, "f.bin").is_none()
+    });
+    row_click(&mut cx, &window, "d.txt");
+    wait_for_element(&mut cx, "conflict-use-ours".into());
+    click(&mut cx, "conflict-use-ours".into());
+    assert_eq!(job_end(&mut cx, &mut events), Some(Outcome::Succeeded));
+    assert_eq!(r.git(["show", ":d.txt"]).unwrap(), "main\n");
+    assert!(!unmerged(&r).contains("f.bin"));
+    assert!(!unmerged(&r).contains("d.txt"));
+    assert!(unmerged(&r).contains("f.sh"));
+}
+
+fn row_of_opt(
+    cx: &mut VisualTestContext,
+    window: &Entity<GitcrocWindow>,
+    path: &str,
+) -> Option<usize> {
+    with_changes(cx, window, |changes| {
+        changes.rows().iter().position(|row| match row {
+            FileRow::File { file, .. } => {
+                file.list == List::Unmerged
+                    && changes
+                        .entry_of(file)
+                        .is_some_and(|entry| entry.path() == path)
+            }
+            _ => false,
+        })
+    })
+}

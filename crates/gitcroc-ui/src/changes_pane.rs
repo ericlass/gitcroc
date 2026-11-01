@@ -185,6 +185,10 @@ pub struct ChangesPane {
     conflicts: ConflictFiles,
     mark_focus: FocusHandle,
     anyway_focus: FocusHandle,
+    /// The first and second buttons of the edited-outside question or of
+    /// a choice conflict.
+    first_focus: FocusHandle,
+    second_focus: FocusHandle,
     _history_watch: Subscription,
     _prefs_watch: Subscription,
     _hunk_actions: Subscription,
@@ -241,6 +245,8 @@ impl ChangesPane {
             conflicts: ConflictFiles::default(),
             mark_focus: cx.focus_handle(),
             anyway_focus: cx.focus_handle(),
+            first_focus: cx.focus_handle(),
+            second_focus: cx.focus_handle(),
             _history_watch: history_watch,
             _prefs_watch: prefs_watch,
             _hunk_actions: hunk_actions,

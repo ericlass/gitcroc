@@ -13,8 +13,8 @@ use std::collections::{HashMap, VecDeque};
 
 use gitcroc_app::app::AppEvent;
 use gitcroc_core::{
-    ChangesContent, Conflict, ConflictContent, ConflictRead, ConflictStart, JobId, JobView,
-    Outcome, ResolveRequest,
+    ChangesContent, ChooseRequest, Conflict, ConflictChoice, ConflictContent, ConflictRead,
+    ConflictStart, JobId, JobView, Outcome, ResolveRequest,
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{Disableable, Sizable};
@@ -638,15 +638,242 @@ impl ChangesPane {
             .into_any_element()
     }
 
-    /// The edited-outside question or a choice conflict, which come with
-    /// M6-19c3; `None` for an editor.
+    /// Answers the edited-outside question (OPS-8): the editor starts from
+    /// the file on disk or from the conflict. Nothing is written.
+    fn answer(&mut self, key: &EditorKey, start: Start, window: &Window, cx: &mut Context<Self>) {
+        let Some(file) = self.conflicts.files.get_mut(key) else {
+            return;
+        };
+        if start == Start::Disk && file.conflict.on_disk.is_none() {
+            return;
+        }
+        file.start = Some(start);
+        // The answer was given from the keyboard or the pointer; the
+        // editor takes the focus either way, where the question had it.
+        self.conflicts.refocus = self.first_focus.contains_focused(window, cx)
+            || self.second_focus.contains_focused(window, cx)
+            || window.focused(cx).is_none();
+        self.build_buffer(key, cx);
+        cx.notify();
+    }
+
+    /// Use this version (OPS-6): resolves with `side`'s stage, as a job.
+    fn choose(
+        &mut self,
+        key: &EditorKey,
+        side: ConflictChoice,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(file) = self.conflicts.files.get_mut(key) else {
+            return;
+        };
+        if file.sending {
+            return;
+        }
+        let Some((handle, id)) = self.conflict_target(key) else {
+            self.reload(cx);
+            return;
+        };
+        self.conflicts.refocus =
+            self.first_focus.is_focused(window) || self.second_focus.is_focused(window);
+        if let Some(file) = self.conflicts.files.get_mut(key) {
+            file.sending = true;
+            file.error = None;
+        }
+        let workspace = self.workspace_id.clone();
+        let request = ChooseRequest {
+            handle,
+            file: id,
+            side,
+        };
+        let call = self
+            .services
+            .with_app(move |app| async move { app.conflict_choose(workspace, request).await });
+        self.settle(key.clone(), call, cx);
+        cx.notify();
+    }
+
+    /// The edited-outside question or a choice conflict, in place of the
+    /// editor; `None` for an editor.
     fn special_conflict(
         &self,
-        _key: &EditorKey,
-        _file: &KeptFile,
-        _cx: &mut Context<Self>,
+        key: &EditorKey,
+        file: &KeptFile,
+        cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        None
+        let tokens = *cx.tokens();
+        let paragraph = |id: &'static str, said: String| {
+            let said: SharedString = said.into();
+            div()
+                .id(id)
+                .test_support()
+                .role(Role::Paragraph)
+                .aria_label(said.clone())
+                .child(said)
+        };
+        if let ConflictContent::Choice {
+            reason,
+            ours,
+            theirs,
+        } = &file.conflict.content
+        {
+            let labels = &file.conflict.labels;
+            let side = |which: ConflictChoice,
+                        label: String,
+                        holds: &gitcroc_core::SideHolds,
+                        focus: &FocusHandle,
+                        cx: &mut Context<Self>| {
+                let (id, holds_id, use_id) = match which {
+                    ConflictChoice::Ours => (
+                        "conflict-side-ours",
+                        "conflict-holds-ours",
+                        "conflict-use-ours",
+                    ),
+                    ConflictChoice::Theirs => (
+                        "conflict-side-theirs",
+                        "conflict-holds-theirs",
+                        "conflict-use-theirs",
+                    ),
+                };
+                let chosen = key.clone();
+                let label: SharedString = label.into();
+                div()
+                    .id(id)
+                    .test_support()
+                    .role(Role::Region)
+                    .aria_label(label.clone())
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .p_2()
+                    .border_1()
+                    .border_color(tokens.border)
+                    .child(
+                        div()
+                            .id(gpui_kit::ElementId::Name(format!("{id}-heading").into()))
+                            .role(Role::Heading)
+                            .aria_level(3)
+                            .aria_label(label.clone())
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                            .child(label.clone()),
+                    )
+                    .child(paragraph(holds_id, text::holds(holds)))
+                    .child(
+                        Button::new(use_id)
+                            .small()
+                            .label(text::USE_THIS)
+                            .accessibility_label(text::use_this(&label))
+                            .track_focus(focus)
+                            .disabled(file.sending)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.choose(&chosen, which, window, cx)
+                            })),
+                    )
+            };
+            let ours = side(
+                ConflictChoice::Ours,
+                text::ours(&labels.ours),
+                ours,
+                &self.first_focus,
+                cx,
+            );
+            let theirs = side(
+                ConflictChoice::Theirs,
+                text::theirs(&labels.theirs),
+                theirs,
+                &self.second_focus,
+                cx,
+            );
+            let error = file.error.as_ref().map(|error| {
+                let error: SharedString = text::cannot_resolve(error).into();
+                div()
+                    .id("conflict-error")
+                    .test_support()
+                    .role(Role::Alert)
+                    .aria_label(error.clone())
+                    .text_color(tokens.danger)
+                    .child(error)
+            });
+            return Some(
+                div()
+                    .id("conflict-choice")
+                    .test_support()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .p_2()
+                    .child(paragraph(
+                        "conflict-choice-reason",
+                        text::choose(text::reason(*reason)),
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(ours)
+                            .child(theirs),
+                    )
+                    .children(error)
+                    .into_any_element(),
+            );
+        }
+        if file.start.is_some() {
+            return None;
+        }
+        let no_disk = file.conflict.on_disk.is_none();
+        let keep = key.clone();
+        let over = key.clone();
+        Some(
+            div()
+                .id("conflict-outside")
+                .test_support()
+                .role(Role::Group)
+                .aria_label(text::EDITED_OUTSIDE)
+                .flex()
+                .flex_col()
+                .gap_2()
+                .p_2()
+                .child(paragraph(
+                    "conflict-outside-text",
+                    text::changed_outside(&key.path),
+                ))
+                .children(
+                    no_disk
+                        .then(|| paragraph("conflict-no-disk", text::CANNOT_SHOW_DISK.to_owned())),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap_2()
+                        .child(
+                            Button::new("conflict-keep-disk")
+                                .small()
+                                .label(text::KEEP_DISK)
+                                .track_focus(&self.first_focus)
+                                .disabled(no_disk)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.answer(&keep, Start::Disk, window, cx)
+                                })),
+                        )
+                        .child(
+                            Button::new("conflict-start-over")
+                                .small()
+                                .label(text::START_OVER)
+                                .track_focus(&self.second_focus)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.answer(&over, Start::Conflict, window, cx)
+                                })),
+                        ),
+                )
+                .into_any_element(),
+        )
     }
 }
 

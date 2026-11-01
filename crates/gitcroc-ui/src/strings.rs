@@ -1148,6 +1148,74 @@ pub mod conflict {
     pub fn cannot_resolve(error: &str) -> String {
         format!("Cannot resolve it: {error}")
     }
+    /// Edited outside (OPS-8).
+    pub const EDITED_OUTSIDE: &str = "Edited outside";
+    pub fn changed_outside(path: &str) -> String {
+        format!(
+            "{path} was changed outside gitcroc since the conflict began. Keep the file as it is, or start over from the conflict?"
+        )
+    }
+    pub const CANNOT_SHOW_DISK: &str =
+        "The file cannot be shown as it is: it is missing, not UTF-8 text, or too large.";
+    pub const KEEP_DISK: &str = "Keep the file as it is";
+    pub const START_OVER: &str = "Start over from the conflict";
+    /// A choice between the two versions (OPS-6).
+    pub const USE_THIS: &str = "Use this version";
+    pub fn use_this(side: &str) -> String {
+        format!("Use this version: {side}")
+    }
+    pub fn choose(reason: &str) -> String {
+        format!("{reason} Choose the version to keep.")
+    }
+    pub fn reason(kind: gitcroc_core::ChoiceKind) -> &'static str {
+        use gitcroc_core::ChoiceKind as Kind;
+        match kind {
+            Kind::Binary => "The file is binary.",
+            Kind::DeletedByUs => "Our side deleted the file and theirs changed it.",
+            Kind::DeletedByThem => "Their side deleted the file and ours changed it.",
+            Kind::BothDeleted => "Neither side kept the file at this path.",
+            Kind::Mode => "Both sides changed the file's mode differently.",
+            Kind::Submodule => "A side is a submodule.",
+            Kind::TypeChange => "One side has a file and the other a symbolic link.",
+            Kind::Symlink => "Both sides changed the symbolic link.",
+            Kind::NotUtf8 => "The file is not UTF-8 text.",
+            Kind::TooLarge => "The file is too large to edit here.",
+            Kind::MarkerLike => {
+                "The file has lines that cannot be told apart from conflict markers."
+            }
+        }
+    }
+    fn bytes(size: u64) -> String {
+        if size == 1 {
+            return "1 byte".to_owned();
+        }
+        let digits = size.to_string();
+        let mut grouped = String::new();
+        for (at, digit) in digits.chars().enumerate() {
+            if at > 0 && (digits.len() - at).is_multiple_of(3) {
+                grouped.push(',');
+            }
+            grouped.push(digit);
+        }
+        format!("{grouped} bytes")
+    }
+    /// What a side of a choice holds, in words.
+    pub fn holds(holds: &gitcroc_core::SideHolds) -> String {
+        use gitcroc_core::SideHolds;
+        match holds {
+            SideHolds::Deleted => "Deleted".to_owned(),
+            SideHolds::File { size, executable } => format!(
+                "File, {}{}",
+                bytes(*size),
+                if *executable { ", executable" } else { "" }
+            ),
+            SideHolds::Symlink { size } => format!("Symbolic link, {}", bytes(*size)),
+            SideHolds::Submodule { commit } => {
+                let short: String = commit.chars().take(12).collect();
+                format!("Submodule at commit {short}")
+            }
+        }
+    }
 
     /// A hunk, as the editor's controls name it.
     pub fn which(number: usize) -> String {
