@@ -17,6 +17,7 @@ mod commit;
 mod conflict;
 mod conflict_banner;
 mod conflict_cards;
+mod conflict_flow;
 mod conflict_view;
 mod diff;
 mod git_setup;

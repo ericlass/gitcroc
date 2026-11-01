@@ -40,7 +40,10 @@ actions!(
         /// Alt+4, Alt+5 and Alt+6: the proposal at the cursor (AI-11).
         AcceptProposal,
         RejectProposal,
-        EditProposal
+        EditProposal,
+        /// Ctrl or Cmd and Enter: Mark resolved (OPS-5), which the changes
+        /// pane carries out.
+        MarkResolved
     ]
 );
 pub fn bind(cx: &mut App) {
@@ -75,6 +78,13 @@ pub fn bind(cx: &mut App) {
         load("escape", Box::new(card::CancelEdit), cx),
     ];
     cx.bind_keys(bindings.into_iter().flatten());
+    let editing = KeyBindingContextPredicate::parse("GitcrocConflict > Input")
+        .ok()
+        .map(Rc::new);
+    if let Ok(binding) = KeyBinding::load(accept, Box::new(MarkResolved), editing, false, None, cx)
+    {
+        cx.bind_keys([binding]);
+    }
 }
 struct Tracked {
     hunk: Hunk,

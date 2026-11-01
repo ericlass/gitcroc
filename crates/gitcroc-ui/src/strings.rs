@@ -478,6 +478,9 @@ pub mod changes {
     pub fn conflict_kind(kind: &str) -> String {
         format!("Conflict: {kind}")
     }
+    /// An unmerged file whose conflict editor has unsaved edits (OPS-9).
+    pub const UNSAVED: &str = "unsaved edits";
+    pub const UNSAVED_MARK: &str = "●";
     /// The conflict kind after an unmerged file's name: "(both modified)".
     pub fn conflict_mark(kind: &str) -> String {
         format!("({kind})")
@@ -1127,6 +1130,24 @@ pub mod integrate {
 /// The conflict editor (OPS-3, OPS-4, AI-11), as rc.1's `conflict` strings.
 pub mod conflict {
     use gitcroc_core::ProposalConfidence;
+
+    pub const TOOLBAR: &str = "Conflict";
+    pub const MARK_RESOLVED: &str = "Mark resolved";
+    pub const MARK_RESOLVED_TITLE: &str = "Write this text to the file and stage it (Ctrl+Enter)";
+    pub const MARK_RESOLVED_ANYWAY: &str = "Mark resolved anyway";
+    pub const READING: &str = "Reading the conflict…";
+    pub fn marker_line(line: u32) -> String {
+        format!("Line {line} is still a conflict marker line, so the file was not marked resolved.")
+    }
+    pub fn cannot_mark_resolved(error: &str) -> String {
+        format!("Cannot mark it resolved: {error}")
+    }
+    pub fn cannot_read(error: &str) -> String {
+        format!("Cannot read the conflict: {error}")
+    }
+    pub fn cannot_resolve(error: &str) -> String {
+        format!("Cannot resolve it: {error}")
+    }
 
     /// A hunk, as the editor's controls name it.
     pub fn which(number: usize) -> String {
