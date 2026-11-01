@@ -91,9 +91,20 @@ pub struct ConflictFiles {
     read_error: Option<(EditorKey, String)>,
     /// Jobs that ended, newest last, with what went wrong.
     ended: VecDeque<(JobId, Option<Outcome>, Option<String>)>,
-    /// The resolved file's view had the focus: the next one takes it, so
-    /// files are resolved one after another from the keyboard.
-    pub(super) refocus: bool,
+    /// Which view takes the focus once it can (UI-22).
+    refocus: Refocus,
+}
+
+/// Which conflict view takes the focus once it is shown and built.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+enum Refocus {
+    #[default]
+    None,
+    /// The shown file's, as Enter on its row or an answer asked.
+    Shown,
+    /// The next file's after this one, which had the focus when it was
+    /// resolved, so files are resolved one after another.
+    After(EditorKey),
 }
 
 impl ConflictFiles {
@@ -339,10 +350,58 @@ impl ChangesPane {
             }
         }));
         file.editor = Some(editor.clone());
-        if std::mem::take(&mut self.conflicts.refocus) {
-            let state = editor.read(cx).editor.clone();
-            state.update(cx, |state, cx| state.focus(window, cx));
+    }
+
+    /// The resolved file's view had the focus and no unmerged file is left
+    /// to take it: the file list takes it, so the keys go on working.
+    pub(super) fn refocus_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(self.conflicts.refocus, Refocus::After(_))
+            || self.selected_conflict().is_some()
+            || self.changes.loading()
+        {
+            return;
         }
+        self.conflicts.refocus = Refocus::None;
+        let list = self.focus.clone();
+        window.defer(cx, move |window, cx| window.focus(&list, cx));
+    }
+
+    /// The resolved file's view had the focus: the next file's view takes
+    /// it once it can, its editor or its first button.
+    fn take_refocus(&mut self, key: &EditorKey, window: &mut Window, cx: &mut Context<Self>) {
+        match &self.conflicts.refocus {
+            Refocus::None => return,
+            Refocus::After(resolved) if resolved == key => {
+                // Refused or failed: it stays, and so does the focus.
+                if self
+                    .conflicts
+                    .get(key)
+                    .is_some_and(|file| file.error.is_some() || file.markers.is_some())
+                {
+                    self.conflicts.refocus = Refocus::None;
+                }
+                return;
+            }
+            _ => {}
+        }
+        let Some(file) = self.conflicts.get(key) else {
+            return;
+        };
+        let target = if let Some(editor) = &file.editor {
+            editor.read(cx).editor.read(cx).focus_handle(cx)
+        } else if matches!(file.conflict.content, ConflictContent::Choice { .. })
+            || file.start.is_none()
+        {
+            if file.start.is_none() && file.conflict.on_disk.is_none() {
+                self.second_focus.clone()
+            } else {
+                self.first_focus.clone()
+            }
+        } else {
+            return;
+        };
+        self.conflicts.refocus = Refocus::None;
+        window.defer(cx, move |window, cx| window.focus(&target, cx));
     }
 
     fn on_mark_resolved(&mut self, _: &MarkResolved, window: &mut Window, cx: &mut Context<Self>) {
@@ -374,7 +433,7 @@ impl ChangesPane {
             self.reload(cx);
             return;
         };
-        self.conflicts.refocus = editor
+        let focused = editor
             .read(cx)
             .editor
             .read(cx)
@@ -382,6 +441,9 @@ impl ChangesPane {
             .contains_focused(window, cx)
             || self.mark_focus.is_focused(window)
             || self.anyway_focus.is_focused(window);
+        if focused {
+            self.conflicts.refocus = Refocus::After(key.clone());
+        }
         let text = editor.read(cx).value(cx);
         if let Some(file) = self.conflicts.files.get_mut(&key) {
             file.sending = true;
@@ -467,14 +529,81 @@ impl ChangesPane {
     /// A job ended: a resolution's failure is said by its file, which
     /// keeps its buffer (OPS-9).
     pub(super) fn conflict_event(&mut self, event: &AppEvent, cx: &mut Context<Self>) {
-        let AppEvent::JobEnded(job) = event else {
+        match event {
+            AppEvent::JobEnded(job) if job.workspace_id == self.workspace_id => {
+                self.job_ended(job);
+                cx.notify();
+            }
+            // A fresh, loaded summary out of conflict state: the conflict
+            // ended, here or in a terminal, and its edits go with it. A
+            // refreshing, stale or unread summary proves nothing (OPS-9).
+            AppEvent::RepoSummary(view)
+                if view.workspace_id == self.workspace_id
+                    && !view.refreshing
+                    && !view.stale
+                    && view.summary.is_some()
+                    && !view.conflict =>
+            {
+                self.forget_conflict_repo(&view.repo_id, cx);
+            }
+            _ => {}
+        }
+    }
+
+    /// Drops the kept files of `repo`: its conflict state ended (OPS-9).
+    pub fn forget_conflict_repo(&mut self, repo: &gitcroc_core::RepoId, cx: &mut Context<Self>) {
+        let before = self.conflicts.files.len();
+        self.conflicts.forget_repo(repo);
+        if self.conflicts.files.len() != before {
+            cx.notify();
+        }
+    }
+
+    /// Enter or Space on an unmerged row: the focus moves into its view,
+    /// the editor or the first button (UI-22).
+    pub(super) fn focus_conflict(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(key) = self.selected_conflict() else {
             return;
         };
-        if job.workspace_id != self.workspace_id {
-            return;
+        match self.conflicts.get(&key) {
+            Some(file) if file.editor.is_some() => {
+                if let Some(editor) = &file.editor {
+                    let state = editor.read(cx).editor.clone();
+                    state.update(cx, |state, cx| state.focus(window, cx));
+                }
+            }
+            Some(file)
+                if file.start.is_none()
+                    || matches!(file.conflict.content, ConflictContent::Choice { .. }) =>
+            {
+                let first = if file.start.is_none() && file.conflict.on_disk.is_none() {
+                    self.second_focus.clone()
+                } else {
+                    self.first_focus.clone()
+                };
+                window.focus(&first, cx);
+            }
+            // Not read or built yet: it takes the focus when it is.
+            _ => {
+                self.conflicts.refocus = Refocus::Shown;
+                cx.notify();
+            }
         }
-        self.job_ended(job);
-        cx.notify();
+    }
+
+    /// F7 and Shift+F7 with an unmerged file shown: its next or previous
+    /// hunk's controls (UI-22). `false` when no conflict editor is shown.
+    pub(super) fn step_conflict(
+        &mut self,
+        step: isize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(editor) = self.shown_conflict(cx) else {
+            return false;
+        };
+        editor.update(cx, |editor, cx| editor.navigate(step > 0, window, cx));
+        true
     }
 
     fn job_ended(&mut self, job: &JobView) {
@@ -539,6 +668,7 @@ impl ChangesPane {
             return div().into_any_element();
         };
         self.install_editor(&key, window, cx);
+        self.take_refocus(&key, window, cx);
         let alert = |id: &'static str, message: String| {
             let message: SharedString = message.into();
             div()
@@ -650,9 +780,12 @@ impl ChangesPane {
         file.start = Some(start);
         // The answer was given from the keyboard or the pointer; the
         // editor takes the focus either way, where the question had it.
-        self.conflicts.refocus = self.first_focus.contains_focused(window, cx)
+        if self.first_focus.contains_focused(window, cx)
             || self.second_focus.contains_focused(window, cx)
-            || window.focused(cx).is_none();
+            || window.focused(cx).is_none()
+        {
+            self.conflicts.refocus = Refocus::Shown;
+        }
         self.build_buffer(key, cx);
         cx.notify();
     }
@@ -675,8 +808,9 @@ impl ChangesPane {
             self.reload(cx);
             return;
         };
-        self.conflicts.refocus =
-            self.first_focus.is_focused(window) || self.second_focus.is_focused(window);
+        if self.first_focus.is_focused(window) || self.second_focus.is_focused(window) {
+            self.conflicts.refocus = Refocus::After(key.clone());
+        }
         if let Some(file) = self.conflicts.files.get_mut(key) {
             file.sending = true;
             file.error = None;

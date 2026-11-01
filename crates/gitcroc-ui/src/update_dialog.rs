@@ -3,8 +3,9 @@
 //! (SEC-3), and what the package does with an update: Install and restart
 //! for the Windows installer, the macOS app and the AppImage, Open download
 //! page for the others. Later hides the notice until the next start or a
-//! newer version. Rc.1 asked before restarting with unsaved conflict edits
-//! (OPS-9); the conflict editor, and that question, come with M6-19.
+//! newer version. With unsaved conflict edits in any tab, Install asks
+//! first, listing them, as rc.1 did (OPS-9): Cancel changes nothing, and
+//! only the explicit answer installs and restarts.
 
 use chrono::{DateTime, Local};
 use gitcroc_core::UpdateStatus;
@@ -24,8 +25,16 @@ use crate::updates::Updates;
 
 const NOTES_HEIGHT: gpui_kit::Pixels = px(200.);
 
+/// The files with unsaved conflict edits in every tab, read when Install
+/// is pressed.
+pub type Unsaved = std::rc::Rc<dyn Fn(&App) -> Vec<String>>;
+
 pub struct UpdateDialog {
     updates: Entity<Updates>,
+    unsaved: Unsaved,
+    /// Install was pressed with these unsaved files: the question shows.
+    asking: Option<Vec<String>>,
+    cancel: FocusHandle,
     error: Option<SharedString>,
     sending: bool,
     focus: FocusHandle,
@@ -46,10 +55,13 @@ pub fn format_date(date: &str) -> String {
 }
 
 impl UpdateDialog {
-    pub fn new(updates: Entity<Updates>, cx: &mut Context<Self>) -> Self {
+    pub fn new(updates: Entity<Updates>, unsaved: Unsaved, cx: &mut Context<Self>) -> Self {
         let updates_changed = cx.observe(&updates, |_, _, cx| cx.notify());
         Self {
             updates,
+            unsaved,
+            asking: None,
+            cancel: cx.focus_handle(),
             error: None,
             sending: false,
             focus: cx.focus_handle(),
@@ -80,7 +92,19 @@ impl UpdateDialog {
         .detach();
     }
 
-    fn install(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn install(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let unsaved = (self.unsaved)(cx);
+        if !unsaved.is_empty() {
+            self.asking = Some(unsaved);
+            window.focus(&self.cancel, cx);
+            cx.notify();
+            return;
+        }
+        self.install_now(cx);
+    }
+
+    /// The user agreed to lose the unsaved edits, or there were none.
+    fn install_now(&mut self, cx: &mut Context<Self>) {
         let request = self.updates.update(cx, |updates, cx| updates.install(cx));
         self.send(request, cx);
     }
@@ -147,6 +171,48 @@ impl Render for UpdateDialog {
             _ => None,
         });
         let has_offer = offer.is_some();
+        if let Some(files) = self.asking.clone() {
+            let lost = files.into_iter().enumerate().map(|(at, file)| {
+                div()
+                    .id(("update-unsaved-file", at))
+                    .test_support()
+                    .role(Role::Paragraph)
+                    .aria_label(SharedString::from(file.clone()))
+                    .child(file)
+            });
+            return dialog::frame(
+                "update-frame",
+                Role::AlertDialog,
+                &SharedString::from(text::UNSAVED_TITLE),
+                cx,
+            )
+            .test_support()
+            .track_focus(&self.focus)
+            .key_context(dialog::CONTEXT)
+            .on_action(cx.listener(Self::close))
+            .w(px(560.))
+            .child(paragraph("update-unsaved", text::UNSAVED_LOST))
+            .children(lost)
+            .children(dialog::refusal(&self.error, cx))
+            .child(
+                dialog::actions_row()
+                    .child(
+                        Button::new("update-cancel")
+                            .label(crate::strings::common::CANCEL)
+                            .track_focus(&self.cancel)
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(Closed))),
+                    )
+                    .child(
+                        Button::new("update-anyway")
+                            .danger()
+                            .label(text::UPDATE_ANYWAY)
+                            .disabled(self.sending)
+                            .on_click(cx.listener(|this, _, _, cx| this.install_now(cx))),
+                    ),
+            )
+            .focus_trap("update-dialog", &self.focus)
+            .into_any_element();
+        }
         let mut frame = dialog::frame("update-frame", Role::Dialog, &title, cx)
             .test_support()
             .track_focus(&self.focus)
@@ -224,6 +290,7 @@ impl Render for UpdateDialog {
             )
             // The trap takes the place of the frame, under the dialog's id.
             .focus_trap("update-dialog", &self.focus)
+            .into_any_element()
     }
 }
 

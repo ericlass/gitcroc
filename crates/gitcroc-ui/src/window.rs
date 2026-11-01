@@ -142,6 +142,9 @@ pub struct GitcrocWindow {
     dialog: Option<OpenDialog>,
     row_menu: Option<OpenRowMenu>,
     retained_stashes: crate::retained_stash::RetainedStashes,
+    /// Abort jobs of conflict banners, whose success ends their repo's
+    /// conflict state and its kept edits (OPS-9).
+    aborts: HashMap<gitcroc_core::JobId, (WorkspaceId, gitcroc_core::RepoId)>,
     operation_events: Option<Subscription>,
     /// Why the core refused a tab change, until dismissed.
     refused: Option<SharedString>,
@@ -248,6 +251,7 @@ impl GitcrocWindow {
             dialog: None,
             row_menu: None,
             retained_stashes: Default::default(),
+            aborts: HashMap::new(),
             operation_events: None,
             refused: None,
             missing_dismissed: false,
@@ -351,6 +355,7 @@ impl GitcrocWindow {
             Ok(AppEvent::JobEnded(job)) => {
                 self.retained_stashes
                     .ended(job.job_id, job.outcome.as_ref());
+                self.abort_ended(&job, cx);
                 cx.notify();
             }
             Ok(AppEvent::WorkspaceChanged(view)) => {
@@ -738,9 +743,7 @@ impl GitcrocWindow {
                 let sent = Workspaces::export(&workspaces, id, cx);
                 self.refuse_with(sent, strings::workspaces::cannot_export, cx);
             }
-            Choice::Close(id) => self
-                .tab_bar
-                .update(cx, |tab_bar, cx| tab_bar.close(id, window, cx)),
+            Choice::Close(id) => self.close_tab(id, window, cx),
         }
     }
 
@@ -824,10 +827,23 @@ impl GitcrocWindow {
                                 .ended(job.job_id, job.outcome.as_ref());
                         }
                     }
-                    Operation::Stash(gitcroc_core::StashOp::Drop { .. })
-                    | Operation::Integrate(gitcroc_core::IntegrateOp::Abort) => this
+                    Operation::Stash(gitcroc_core::StashOp::Drop { .. }) => this
                         .retained_stashes
                         .forget(&started.workspace, &started.repo),
+                    Operation::Integrate(gitcroc_core::IntegrateOp::Abort) => {
+                        this.retained_stashes
+                            .forget(&started.workspace, &started.repo);
+                        this.aborts.insert(
+                            started.job,
+                            (started.workspace.clone(), started.repo.clone()),
+                        );
+                        // The jobs mirror also covers an end heard first.
+                        if let Some(job) = this.jobs.read(cx).get(started.job).cloned()
+                            && job.state == gitcroc_core::JobState::Ended
+                        {
+                            this.abort_ended(&job, cx);
+                        }
+                    }
                     _ => {}
                 }
                 cx.notify();
@@ -1044,13 +1060,114 @@ impl GitcrocWindow {
         self.open_dialog(dialog, window, cx);
     }
 
-    /// Opens the update dialog (PLAT-4).
+    /// Opens the update dialog (PLAT-4). It asks before restarting when
+    /// any tab has unsaved conflict edits (OPS-9).
     fn open_update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.dialog.is_some() {
             return;
         }
         let updates = self.updates.clone();
-        let dialog = cx.new(|cx| UpdateDialog::new(updates, cx));
+        let this = cx.entity().downgrade();
+        let unsaved: crate::update_dialog::Unsaved = Rc::new(move |cx: &gpui_kit::App| {
+            this.upgrade()
+                .map(|this| this.read(cx).unsaved_everywhere(cx))
+                .unwrap_or_default()
+        });
+        let dialog = cx.new(|cx| UpdateDialog::new(updates, unsaved, cx));
+        self.open_dialog(dialog, window, cx);
+    }
+
+    /// A banner's Abort ended: when it succeeded, its repo's conflict
+    /// ended, and so do its kept edits; a failed one keeps them (OPS-9).
+    fn abort_ended(&mut self, job: &gitcroc_core::JobView, cx: &mut Context<Self>) {
+        let Some((workspace, repo)) = self.aborts.remove(&job.job_id) else {
+            return;
+        };
+        if matches!(job.outcome, Some(gitcroc_core::Outcome::Succeeded))
+            && let Some(changes) = self.changes.get(&workspace)
+        {
+            changes.update(cx, |changes, cx| changes.forget_conflict_repo(&repo, cx));
+        }
+    }
+
+    /// The files with unsaved conflict edits in tab `id`, as
+    /// `repo: path`.
+    fn unsaved_in(&self, id: &WorkspaceId, cx: &gpui_kit::App) -> Vec<(String, String)> {
+        let Some(changes) = self.changes.get(id) else {
+            return Vec::new();
+        };
+        let names = self
+            .trees
+            .get(id)
+            .map(|tree| tree.read(cx).tree().repo_names())
+            .unwrap_or_default();
+        changes
+            .read(cx)
+            .conflicts()
+            .unsaved()
+            .into_iter()
+            .map(|key| {
+                let repo = names
+                    .get(&key.repo)
+                    .cloned()
+                    .unwrap_or_else(|| key.repo.0.clone());
+                (repo, key.path.clone())
+            })
+            .collect()
+    }
+
+    /// The files with unsaved conflict edits in every tab, which a restart
+    /// into an update loses (OPS-9).
+    pub fn unsaved_everywhere(&self, cx: &gpui_kit::App) -> Vec<String> {
+        let tabs = self.workspaces.read(cx).tabs().clone();
+        tabs.open
+            .iter()
+            .flat_map(|view| {
+                self.unsaved_in(&view.id, cx)
+                    .into_iter()
+                    .map(|(repo, path)| strings::update::unsaved_file(&view.name, &repo, &path))
+            })
+            .collect()
+    }
+
+    /// Closes tab `id`, asking first when it holds unsaved conflict edits
+    /// (UI-29); Cancel keeps it, Close tab closes it and lets its editors
+    /// go with its panes. Its jobs keep running (UI-21).
+    fn close_tab(&mut self, id: WorkspaceId, window: &mut Window, cx: &mut Context<Self>) {
+        let files = self.unsaved_in(&id, cx);
+        if files.is_empty() {
+            self.tab_bar
+                .update(cx, |tab_bar, cx| tab_bar.close_now(id, window, cx));
+            return;
+        }
+        if self.dialog.is_some() {
+            return;
+        }
+        let name = self
+            .workspaces
+            .read(cx)
+            .view(&id)
+            .map(|view| view.name.clone())
+            .unwrap_or_default();
+        let mut said: Vec<SharedString> = vec![strings::workspaces::UNSAVED_LOST.into()];
+        said.extend(
+            files
+                .iter()
+                .map(|(repo, path)| strings::workspaces::unsaved_file(repo, path).into()),
+        );
+        let workspaces = self.workspaces.clone();
+        let send = Box::new(move |(), cx: &mut gpui_kit::App| {
+            Workspaces::close(&workspaces, id.clone(), cx)
+        });
+        let dialog = cx.new(|cx| {
+            Question::new(
+                strings::workspaces::close_dialog(&name),
+                said,
+                strings::workspaces::CLOSE_TAB,
+                send,
+                cx,
+            )
+        });
         self.open_dialog(dialog, window, cx);
     }
 

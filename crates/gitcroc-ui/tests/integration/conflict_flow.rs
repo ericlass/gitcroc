@@ -15,9 +15,9 @@ use gitcroc_ui::window::GitcrocWindow;
 use gpui_kit::test::{TestQueryExt, TestWindowExt};
 use gpui_kit::{Entity, TestAppContext, VisualTestContext};
 
-/// Ten lines; line 5 differs on each side.
+/// 120 lines, enough to scroll; line 5 differs on each side.
 pub(crate) fn lines(middle: &str) -> String {
-    (1..=10)
+    (1..=120)
         .map(|n| {
             if n == 5 {
                 format!("{middle}\n")

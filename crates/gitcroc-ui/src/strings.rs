@@ -162,6 +162,14 @@ pub mod update {
     pub const LATER: &str = "Later";
     pub const NOTIFY_ONLY: &str =
         "This package does not update itself. Download the new version from the release page.";
+    /// Asked before restarting with unsaved conflict edits (OPS-9).
+    pub const UNSAVED_TITLE: &str = "Update and restart?";
+    pub const UNSAVED_LOST: &str = "Restarting loses the unsaved conflict edits of these files:";
+    pub const UPDATE_ANYWAY: &str = "Install and restart";
+    /// A file with unsaved conflict edits, as the question lists it.
+    pub fn unsaved_file(workspace: &str, repo: &str, path: &str) -> String {
+        format!("{workspace}: {repo}: {path}")
+    }
 }
 
 /// Jobs, as the status bar and the job list show them (UI-21, GRP-7).
@@ -730,6 +738,15 @@ pub mod changes {
 
 /// The workspace files, their menu and their dialogs (UI-28).
 pub mod workspaces {
+    /// Asked before closing a tab with unsaved conflict edits (UI-29).
+    pub fn close_dialog(workspace: &str) -> String {
+        format!("Close {workspace}?")
+    }
+    pub const CLOSE_TAB: &str = "Close tab";
+    pub const UNSAVED_LOST: &str = "The unsaved conflict edits of these files are lost:";
+    pub fn unsaved_file(repo: &str, path: &str) -> String {
+        format!("{repo}: {path}")
+    }
     pub const LABEL: &str = "Workspaces";
     pub const MENU: &str = "Open workspace";
     pub const OPEN: &str = "(open)";

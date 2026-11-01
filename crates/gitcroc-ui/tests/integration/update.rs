@@ -35,6 +35,19 @@ impl UpdateSource for Offer {
     }
 }
 
+/// A fake source offering `VERSION`, for an AppImage that checks.
+pub(crate) fn offer() -> (Arc<dyn UpdateSource>, UpdateTest) {
+    (
+        Arc::new(Offer {
+            notes: String::new(),
+        }),
+        UpdateTest {
+            package: Package::AppImage,
+            checks: true,
+        },
+    )
+}
+
 /// An app from `package` that is offered `VERSION` with `notes`, and a
 /// window showing the notice.
 fn offered(cx: &mut TestAppContext, package: Package, notes: &str) -> (Fixture, VisualTestContext) {

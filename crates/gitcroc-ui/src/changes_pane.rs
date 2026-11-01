@@ -392,6 +392,9 @@ impl ChangesPane {
 
     /// F7 and Shift+F7 (UI-22).
     pub fn step_hunk(&mut self, step: isize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.step_conflict(step, window, cx) {
+            return;
+        }
         self.diff
             .update(cx, |diff, cx| diff.step_hunk(step, window, cx));
     }
@@ -628,6 +631,10 @@ impl ChangesPane {
         let Some(file) = self.changes.file().cloned() else {
             return;
         };
+        if file.list == List::Unmerged {
+            self.focus_conflict(window, cx);
+            return;
+        }
         if let Some(action) = self.changes.changeable(&file).and_then(move_action) {
             let files = self.changes.targets(&file);
             self.apply_files(action, &files, cx);
@@ -1716,6 +1723,7 @@ impl Focusable for ChangesPane {
 impl Render for ChangesPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tokens = *cx.tokens();
+        self.refocus_list(window, cx);
         let root = div()
             .id("changes")
             .test_support()
