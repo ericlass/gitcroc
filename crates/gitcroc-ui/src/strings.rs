@@ -1013,6 +1013,117 @@ pub mod operations {
     }
 }
 
+/// The conflict banner above a repo's history (OPS-2, UI-10), as rc.1's
+/// `integrate` strings.
+pub mod integrate {
+    use gitcroc_core::{ConflictDetails, Operation, Step};
+
+    pub const CONFLICT_STATE: &str = "Conflict state";
+    pub const ABORT: &str = "Abort";
+    pub const CONTINUE: &str = "Continue";
+    pub const ALL_RESOLVED: &str = "All conflicts are resolved and staged.";
+    pub const ABORT_STASH_APPLY: &str = "Put the files the stash apply changed back to HEAD; the stash and other local changes are kept";
+    pub const STASH_APPLY_ENDS: &str = "A stash apply ends when its last path is marked resolved";
+    pub const RESOLVE_FIRST: &str = "Resolve and stage every unmerged path first";
+    pub const BUSY: &str = "A job is running on this repo";
+
+    pub fn name(operation: Operation) -> &'static str {
+        match operation {
+            Operation::Merge => "Merge",
+            Operation::Rebase => "Rebase",
+            Operation::ApplyMailbox => "Patch application",
+            Operation::CherryPick => "Cherry-pick",
+            Operation::Revert => "Revert",
+            Operation::StashApply => "Stash apply",
+        }
+    }
+    fn applying_what(
+        verb: &str,
+        joint: &str,
+        applying: Option<&str>,
+        onto: Option<&str>,
+    ) -> String {
+        match (applying, onto) {
+            (None, _) => String::new(),
+            (Some(applying), None) => format!(": {verb} {applying}"),
+            (Some(applying), Some(onto)) => format!(": {verb} {applying} {joint} {onto}"),
+        }
+    }
+    fn step_of(step: Option<&Step>, word: &str, lead: &str) -> String {
+        step.map_or_else(String::new, |step| {
+            format!("{lead}{word} {} of {}", step.current, step.total)
+        })
+    }
+    /// The banner's line for `operation`, with what the core read of it when
+    /// `details` are of the same operation.
+    pub fn in_progress(operation: Operation, details: &ConflictDetails) -> String {
+        let known = details.operation == Some(operation);
+        let applying = details.applying.as_deref().filter(|_| known);
+        let onto = details.onto.as_deref().filter(|_| known);
+        let step = details.step.as_ref().filter(|_| known);
+        match operation {
+            Operation::Merge => format!(
+                "Merge in progress{}",
+                applying_what("merging", "into", applying, onto)
+            ),
+            Operation::Rebase => format!(
+                "Rebase in progress{}{}",
+                applying_what("rebasing", "onto", applying, onto),
+                step_of(step, "step", ", ")
+            ),
+            Operation::CherryPick => format!(
+                "Cherry-pick in progress{}",
+                applying_what("applying", "onto", applying, onto)
+            ),
+            Operation::Revert => format!(
+                "Revert in progress{}",
+                applying_what("reverting", "on", applying, onto)
+            ),
+            Operation::ApplyMailbox => format!(
+                "Patch application in progress{}",
+                step_of(step, "patch", ": ")
+            ),
+            Operation::StashApply => match onto {
+                Some(onto) => format!("Stash apply stopped with conflicts on {onto}"),
+                None => "Stash apply stopped with conflicts".to_owned(),
+            },
+        }
+    }
+    fn unmerged_count(paths: u32) -> String {
+        if paths == 1 {
+            "1 path is unmerged".to_owned()
+        } else {
+            format!("{paths} paths are unmerged")
+        }
+    }
+    fn them(paths: u32) -> &'static str {
+        if paths == 1 { "it" } else { "them" }
+    }
+    pub fn mark_resolved(paths: u32) -> String {
+        format!(
+            "{}: mark {} resolved, and the stash apply ends.",
+            unmerged_count(paths),
+            them(paths)
+        )
+    }
+    pub fn resolve_and_stage(paths: u32) -> String {
+        format!(
+            "{}: resolve and stage {}, then Continue.",
+            unmerged_count(paths),
+            them(paths)
+        )
+    }
+    pub fn abort_title(operation: Operation) -> String {
+        format!(
+            "Abort the {} and go back to where it started",
+            name(operation).to_lowercase()
+        )
+    }
+    pub fn cannot_read(error: &str) -> String {
+        format!("Cannot read the operation: {error}")
+    }
+}
+
 /// The conflict editor (OPS-3, OPS-4, AI-11), as rc.1's `conflict` strings.
 pub mod conflict {
     use gitcroc_core::ProposalConfidence;

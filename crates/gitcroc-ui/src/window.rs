@@ -499,6 +499,26 @@ impl GitcrocWindow {
                     this.open_row_menu(ask.clone(), window, cx)
                 })
                 .detach();
+                // The conflict banner's Abort and Continue (OPS-2).
+                cx.subscribe_in(
+                    &history,
+                    window,
+                    |this, _, ask: &crate::banner::AskIntegrate, window, cx| {
+                        let ask = ask.clone();
+                        let mode = OperationMode::Run(
+                            crate::operation_dialog::Operation::Integrate(ask.op),
+                        );
+                        this.ask_operation(
+                            ask.workspace,
+                            ask.repo,
+                            ask.repo_name,
+                            mode,
+                            window,
+                            cx,
+                        );
+                    },
+                )
+                .detach();
                 self.histories.insert(active.clone(), history);
             }
             if !self.changes.contains_key(&active)

@@ -232,11 +232,15 @@ pub struct HistoryPane {
     row_bounds: Rc<RefCell<HashMap<usize, Bounds<Pixels>>>>,
     saving: bool,
     save_again: bool,
+    /// What the conflict banner read of each repo (OPS-2).
+    banner: crate::banner::Banner,
     _tree_watch: Subscription,
     _search_events: Subscription,
 }
 
 impl EventEmitter<AskRowMenu> for HistoryPane {}
+
+impl EventEmitter<crate::banner::AskIntegrate> for HistoryPane {}
 
 impl HistoryPane {
     pub fn new(
@@ -291,6 +295,7 @@ impl HistoryPane {
             row_bounds: Rc::default(),
             saving: false,
             save_again: false,
+            banner: crate::banner::Banner::default(),
             _tree_watch: tree_watch,
             _search_events: search_events,
         };
@@ -680,6 +685,16 @@ impl HistoryPane {
                 if !self.history.shows_repo(&view.repo_id) {
                     return;
                 }
+                // A step went by, a path was staged or the operation
+                // changed: what the banner names is read again (OPS-2).
+                if self.banner_repo().as_ref() == Some(&view.repo_id)
+                    && view
+                        .summary
+                        .as_ref()
+                        .is_some_and(|summary| summary.state.operation.is_some())
+                {
+                    self.read_banner(view.repo_id.clone(), cx);
+                }
                 let seen = self.refs_versions.entry(view.repo_id.clone()).or_insert(0);
                 if view.refs_version <= *seen {
                     return;
@@ -781,9 +796,70 @@ impl HistoryPane {
             Show::Load(restore) => {
                 self.resolve_targets(cx);
                 self.read_first(restore, cx);
+                if let Some(repo) = self.banner_repo() {
+                    self.read_banner(repo, cx);
+                }
             }
         }
         show
+    }
+
+    /// The single repo whose history is shown, which may have a banner.
+    fn banner_repo(&self) -> Option<RepoId> {
+        self.history.source()?.repo.clone()
+    }
+
+    /// Reads what the banner names for `repo` (OPS-2), when it is in
+    /// conflict state.
+    fn read_banner(&mut self, repo: RepoId, cx: &mut Context<Self>) {
+        let in_conflict = self
+            .tree
+            .read(cx)
+            .tree()
+            .summary(&repo)
+            .and_then(|view| view.summary.as_ref())
+            .is_some_and(|summary| summary.state.operation.is_some());
+        if !in_conflict {
+            return;
+        }
+        let read = self.banner.start_read(&repo);
+        let workspace = self.workspace_id.clone();
+        let asked = repo.clone();
+        let call = self
+            .services
+            .with_app(move |app| async move { app.conflict_details(workspace, asked).await });
+        cx.spawn(async move |this, cx| {
+            let result = call.await;
+            let _ = this.update(cx, |this, cx| {
+                let Some(result) = result else {
+                    return;
+                };
+                if this
+                    .banner
+                    .answer(repo, read, result.map_err(|error| error.to_string()))
+                {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The conflict banner of the repo shown (OPS-2, UI-10).
+    fn banner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let repo = self.banner_repo()?;
+        let (view, name) = {
+            let tree = self.tree.read(cx).tree();
+            let view = tree.summary(&repo)?.clone();
+            let name = tree
+                .repo_names()
+                .get(&repo)
+                .cloned()
+                .unwrap_or_else(|| repo.0.clone());
+            (view, name)
+        };
+        let workspace = self.workspace_id.clone();
+        self.banner.render(&workspace, &repo, &name, &view, cx)
     }
 
     /// The changed paths of the repo shown (UI-10), or the dirty repos of a
@@ -2167,6 +2243,7 @@ impl Render for HistoryPane {
             )
         });
         let offer = self.offer(&tokens, cx);
+        let banner = shown.then(|| self.banner(cx)).flatten();
         let header = shown.then(|| self.header(&tokens, window, cx));
         let view = cx.entity().downgrade();
         let error = self.history.error().filter(|_| shown).map(|error| {
@@ -2235,6 +2312,7 @@ impl Render for HistoryPane {
             .flex_col()
             .text_sm()
             .children(strip)
+            .children(banner)
             .children(search)
             .children(offer)
             .children(header)

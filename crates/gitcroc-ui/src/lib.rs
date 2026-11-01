@@ -3,6 +3,7 @@
 //! own (ARCH-6). `gitcroc-next` runs it until M6-30.
 
 pub mod askpass;
+pub mod banner;
 pub mod branch_dialog;
 pub mod changes;
 pub mod changes_pane;
