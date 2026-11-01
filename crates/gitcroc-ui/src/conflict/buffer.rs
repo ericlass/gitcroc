@@ -63,6 +63,19 @@ fn one_line(label: &str) -> String {
     result
 }
 impl Buffer {
+    /// `text` as it is, with no hunks: the file kept as it is on disk
+    /// (OPS-8), even where its lines look like conflict markers.
+    pub fn plain(text: &str, labels: &ConflictLabels) -> Self {
+        Self {
+            text: normalize(text),
+            hunks: Vec::new(),
+            labels: ConflictLabels {
+                ours: one_line(&labels.ours),
+                theirs: one_line(&labels.theirs),
+            },
+        }
+    }
+
     /// Prepare on a background executor before constructing the editor (ARCH-7).
     pub fn build(chunks: &[ConflictChunk], labels: &ConflictLabels) -> Self {
         let mut text = String::new();

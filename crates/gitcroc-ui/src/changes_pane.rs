@@ -36,6 +36,10 @@ use gpui_kit::{
     UniformListScrollHandle, Window, actions, canvas, div, point, px, svg, uniform_list,
 };
 
+mod conflicts;
+
+pub use conflicts::{ConflictFiles, KeptFile, Start};
+
 use crate::changes::{Changes, Click, Entry, FileKey, FileRow, List, Read, move_action};
 use crate::commit_box::{CommitBox, ReadAgain};
 use crate::diff_view::{DiffView, HunkAction, HunkControls};
@@ -177,6 +181,14 @@ pub struct ChangesPane {
     /// Where the list was scrolled when the tab went to the background,
     /// for the view read on return (UI-31).
     scroll_back: Option<Point<Pixels>>,
+    /// The unmerged files' kept conflict state (OPS-9, UI-29).
+    conflicts: ConflictFiles,
+    mark_focus: FocusHandle,
+    anyway_focus: FocusHandle,
+    /// The first and second buttons of the edited-outside question or of
+    /// a choice conflict.
+    first_focus: FocusHandle,
+    second_focus: FocusHandle,
     _history_watch: Subscription,
     _prefs_watch: Subscription,
     _hunk_actions: Subscription,
@@ -230,6 +242,11 @@ impl ChangesPane {
             dock: Dock::Right,
             request: 0,
             scroll_back: None,
+            conflicts: ConflictFiles::default(),
+            mark_focus: cx.focus_handle(),
+            anyway_focus: cx.focus_handle(),
+            first_focus: cx.focus_handle(),
+            second_focus: cx.focus_handle(),
             _history_watch: history_watch,
             _prefs_watch: prefs_watch,
             _hunk_actions: hunk_actions,
@@ -375,6 +392,9 @@ impl ChangesPane {
 
     /// F7 and Shift+F7 (UI-22).
     pub fn step_hunk(&mut self, step: isize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.step_conflict(step, window, cx) {
+            return;
+        }
         self.diff
             .update(cx, |diff, cx| diff.step_hunk(step, window, cx));
     }
@@ -396,6 +416,7 @@ impl ChangesPane {
         let committable = self.changes.committable();
         self.commit_box
             .update(cx, |commit_box, cx| commit_box.set_target(committable, cx));
+        self.sync_conflict(cx);
     }
 
     /// Follows the app's events about this workspace: a working copy shown
@@ -403,6 +424,7 @@ impl ChangesPane {
     pub fn on_event(&mut self, event: &AppEvent, cx: &mut Context<Self>) {
         self.commit_box
             .update(cx, |commit_box, cx| commit_box.on_event(event, cx));
+        self.conflict_event(event, cx);
         if let AppEvent::RepoSummary(view) = event
             && view.workspace_id == self.workspace_id
             && !view.refreshing
@@ -474,6 +496,7 @@ impl ChangesPane {
                 match result {
                     Some(Ok(Some(view))) => {
                         this.changes.set_view(view);
+                        this.prune_conflicts();
                         match this.scroll_back.take() {
                             Some(offset) => this.scroll.0.borrow().base_handle.set_offset(offset),
                             None => this.scroll_to_selected(),
@@ -608,6 +631,10 @@ impl ChangesPane {
         let Some(file) = self.changes.file().cloned() else {
             return;
         };
+        if file.list == List::Unmerged {
+            self.focus_conflict(window, cx);
+            return;
+        }
         if let Some(action) = self.changes.changeable(&file).and_then(move_action) {
             let files = self.changes.targets(&file);
             self.apply_files(action, &files, cx);
@@ -1129,6 +1156,13 @@ impl ChangesPane {
             }
             Entry::Unmerged(unmerged) => {
                 let kind = conflict_name(unmerged.conflict);
+                if self.conflict_unsaved(file.repo.as_ref(), &unmerged.path) {
+                    row = row.child(
+                        part(row_id(index, "unsaved"), Role::Label, text::UNSAVED)
+                            .text_color(tokens.warning)
+                            .child(text::UNSAVED_MARK),
+                    );
+                }
                 row = row.child(
                     part(
                         row_id(index, "conflict"),
@@ -1606,7 +1640,12 @@ impl ChangesPane {
     }
 
     /// The selected file's header and its diff.
-    fn diff_area(&self, tokens: &Tokens) -> AnyElement {
+    fn diff_area(
+        &mut self,
+        tokens: &Tokens,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let area = div()
             .id("changes-diff")
             .test_support()
@@ -1639,8 +1678,9 @@ impl ChangesPane {
             ),
             Entry::Unmerged(file) => (file.path.clone(), None),
         };
-        let diff = matches!(entry, Entry::Changed(_)).then(|| self.diff.clone());
-        area.child(
+        let unmerged = matches!(entry, Entry::Unmerged(_));
+        let diff = (!unmerged).then(|| self.diff.clone().into_any_element());
+        let area = area.child(
             div()
                 .id("changes-file")
                 .test_support()
@@ -1661,9 +1701,12 @@ impl ChangesPane {
                         .text_color(tokens.text_secondary)
                         .child(mode)
                 })),
-        )
-        .children(diff)
-        .into_any_element()
+        );
+        let shown = match diff {
+            Some(diff) => diff,
+            None => self.conflict_area(window, cx),
+        };
+        area.child(shown).into_any_element()
     }
 }
 
@@ -1680,6 +1723,7 @@ impl Focusable for ChangesPane {
 impl Render for ChangesPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tokens = *cx.tokens();
+        self.refocus_list(window, cx);
         let root = div()
             .id("changes")
             .test_support()
@@ -1787,7 +1831,7 @@ impl Render for ChangesPane {
                 .track_scroll(&self.scroll)
                 .size_full(),
             );
-        let diff = self.diff_area(&tokens);
+        let diff = self.diff_area(&tokens, window, cx);
         root.children(error)
             .child(
                 div()

@@ -162,6 +162,14 @@ pub mod update {
     pub const LATER: &str = "Later";
     pub const NOTIFY_ONLY: &str =
         "This package does not update itself. Download the new version from the release page.";
+    /// Asked before restarting with unsaved conflict edits (OPS-9).
+    pub const UNSAVED_TITLE: &str = "Update and restart?";
+    pub const UNSAVED_LOST: &str = "Restarting loses the unsaved conflict edits of these files:";
+    pub const UPDATE_ANYWAY: &str = "Install and restart";
+    /// A file with unsaved conflict edits, as the question lists it.
+    pub fn unsaved_file(workspace: &str, repo: &str, path: &str) -> String {
+        format!("{workspace}: {repo}: {path}")
+    }
 }
 
 /// Jobs, as the status bar and the job list show them (UI-21, GRP-7).
@@ -478,6 +486,9 @@ pub mod changes {
     pub fn conflict_kind(kind: &str) -> String {
         format!("Conflict: {kind}")
     }
+    /// An unmerged file whose conflict editor has unsaved edits (OPS-9).
+    pub const UNSAVED: &str = "unsaved edits";
+    pub const UNSAVED_MARK: &str = "●";
     /// The conflict kind after an unmerged file's name: "(both modified)".
     pub fn conflict_mark(kind: &str) -> String {
         format!("({kind})")
@@ -727,6 +738,15 @@ pub mod changes {
 
 /// The workspace files, their menu and their dialogs (UI-28).
 pub mod workspaces {
+    /// Asked before closing a tab with unsaved conflict edits (UI-29).
+    pub fn close_dialog(workspace: &str) -> String {
+        format!("Close {workspace}?")
+    }
+    pub const CLOSE_TAB: &str = "Close tab";
+    pub const UNSAVED_LOST: &str = "The unsaved conflict edits of these files are lost:";
+    pub fn unsaved_file(repo: &str, path: &str) -> String {
+        format!("{repo}: {path}")
+    }
     pub const LABEL: &str = "Workspaces";
     pub const MENU: &str = "Open workspace";
     pub const OPEN: &str = "(open)";
@@ -1013,9 +1033,206 @@ pub mod operations {
     }
 }
 
+/// The conflict banner above a repo's history (OPS-2, UI-10), as rc.1's
+/// `integrate` strings.
+pub mod integrate {
+    use gitcroc_core::{ConflictDetails, Operation, Step};
+
+    pub const CONFLICT_STATE: &str = "Conflict state";
+    pub const ABORT: &str = "Abort";
+    pub const CONTINUE: &str = "Continue";
+    pub const ALL_RESOLVED: &str = "All conflicts are resolved and staged.";
+    pub const ABORT_STASH_APPLY: &str = "Put the files the stash apply changed back to HEAD; the stash and other local changes are kept";
+    pub const STASH_APPLY_ENDS: &str = "A stash apply ends when its last path is marked resolved";
+    pub const RESOLVE_FIRST: &str = "Resolve and stage every unmerged path first";
+    pub const BUSY: &str = "A job is running on this repo";
+
+    pub fn name(operation: Operation) -> &'static str {
+        match operation {
+            Operation::Merge => "Merge",
+            Operation::Rebase => "Rebase",
+            Operation::ApplyMailbox => "Patch application",
+            Operation::CherryPick => "Cherry-pick",
+            Operation::Revert => "Revert",
+            Operation::StashApply => "Stash apply",
+        }
+    }
+    fn applying_what(
+        verb: &str,
+        joint: &str,
+        applying: Option<&str>,
+        onto: Option<&str>,
+    ) -> String {
+        match (applying, onto) {
+            (None, _) => String::new(),
+            (Some(applying), None) => format!(": {verb} {applying}"),
+            (Some(applying), Some(onto)) => format!(": {verb} {applying} {joint} {onto}"),
+        }
+    }
+    fn step_of(step: Option<&Step>, word: &str, lead: &str) -> String {
+        step.map_or_else(String::new, |step| {
+            format!("{lead}{word} {} of {}", step.current, step.total)
+        })
+    }
+    /// The banner's line for `operation`, with what the core read of it when
+    /// `details` are of the same operation.
+    pub fn in_progress(operation: Operation, details: &ConflictDetails) -> String {
+        let known = details.operation == Some(operation);
+        let applying = details.applying.as_deref().filter(|_| known);
+        let onto = details.onto.as_deref().filter(|_| known);
+        let step = details.step.as_ref().filter(|_| known);
+        match operation {
+            Operation::Merge => format!(
+                "Merge in progress{}",
+                applying_what("merging", "into", applying, onto)
+            ),
+            Operation::Rebase => format!(
+                "Rebase in progress{}{}",
+                applying_what("rebasing", "onto", applying, onto),
+                step_of(step, "step", ", ")
+            ),
+            Operation::CherryPick => format!(
+                "Cherry-pick in progress{}",
+                applying_what("applying", "onto", applying, onto)
+            ),
+            Operation::Revert => format!(
+                "Revert in progress{}",
+                applying_what("reverting", "on", applying, onto)
+            ),
+            Operation::ApplyMailbox => format!(
+                "Patch application in progress{}",
+                step_of(step, "patch", ": ")
+            ),
+            Operation::StashApply => match onto {
+                Some(onto) => format!("Stash apply stopped with conflicts on {onto}"),
+                None => "Stash apply stopped with conflicts".to_owned(),
+            },
+        }
+    }
+    fn unmerged_count(paths: u32) -> String {
+        if paths == 1 {
+            "1 path is unmerged".to_owned()
+        } else {
+            format!("{paths} paths are unmerged")
+        }
+    }
+    fn them(paths: u32) -> &'static str {
+        if paths == 1 { "it" } else { "them" }
+    }
+    pub fn mark_resolved(paths: u32) -> String {
+        format!(
+            "{}: mark {} resolved, and the stash apply ends.",
+            unmerged_count(paths),
+            them(paths)
+        )
+    }
+    pub fn resolve_and_stage(paths: u32) -> String {
+        format!(
+            "{}: resolve and stage {}, then Continue.",
+            unmerged_count(paths),
+            them(paths)
+        )
+    }
+    pub fn abort_title(operation: Operation) -> String {
+        format!(
+            "Abort the {} and go back to where it started",
+            name(operation).to_lowercase()
+        )
+    }
+    pub fn cannot_read(error: &str) -> String {
+        format!("Cannot read the operation: {error}")
+    }
+}
+
 /// The conflict editor (OPS-3, OPS-4, AI-11), as rc.1's `conflict` strings.
 pub mod conflict {
     use gitcroc_core::ProposalConfidence;
+
+    pub const TOOLBAR: &str = "Conflict";
+    pub const MARK_RESOLVED: &str = "Mark resolved";
+    pub const MARK_RESOLVED_TITLE: &str = "Write this text to the file and stage it (Ctrl+Enter)";
+    pub const MARK_RESOLVED_ANYWAY: &str = "Mark resolved anyway";
+    pub const READING: &str = "Reading the conflict…";
+    pub fn marker_line(line: u32) -> String {
+        format!("Line {line} is still a conflict marker line, so the file was not marked resolved.")
+    }
+    pub fn cannot_mark_resolved(error: &str) -> String {
+        format!("Cannot mark it resolved: {error}")
+    }
+    pub fn cannot_read(error: &str) -> String {
+        format!("Cannot read the conflict: {error}")
+    }
+    pub fn cannot_resolve(error: &str) -> String {
+        format!("Cannot resolve it: {error}")
+    }
+    /// Edited outside (OPS-8).
+    pub const EDITED_OUTSIDE: &str = "Edited outside";
+    pub fn changed_outside(path: &str) -> String {
+        format!(
+            "{path} was changed outside gitcroc since the conflict began. Keep the file as it is, or start over from the conflict?"
+        )
+    }
+    pub const CANNOT_SHOW_DISK: &str =
+        "The file cannot be shown as it is: it is missing, not UTF-8 text, or too large.";
+    pub const KEEP_DISK: &str = "Keep the file as it is";
+    pub const START_OVER: &str = "Start over from the conflict";
+    /// A choice between the two versions (OPS-6).
+    pub const USE_THIS: &str = "Use this version";
+    pub fn use_this(side: &str) -> String {
+        format!("Use this version: {side}")
+    }
+    pub fn choose(reason: &str) -> String {
+        format!("{reason} Choose the version to keep.")
+    }
+    pub fn reason(kind: gitcroc_core::ChoiceKind) -> &'static str {
+        use gitcroc_core::ChoiceKind as Kind;
+        match kind {
+            Kind::Binary => "The file is binary.",
+            Kind::DeletedByUs => "Our side deleted the file and theirs changed it.",
+            Kind::DeletedByThem => "Their side deleted the file and ours changed it.",
+            Kind::BothDeleted => "Neither side kept the file at this path.",
+            Kind::Mode => "Both sides changed the file's mode differently.",
+            Kind::Submodule => "A side is a submodule.",
+            Kind::TypeChange => "One side has a file and the other a symbolic link.",
+            Kind::Symlink => "Both sides changed the symbolic link.",
+            Kind::NotUtf8 => "The file is not UTF-8 text.",
+            Kind::TooLarge => "The file is too large to edit here.",
+            Kind::MarkerLike => {
+                "The file has lines that cannot be told apart from conflict markers."
+            }
+        }
+    }
+    fn bytes(size: u64) -> String {
+        if size == 1 {
+            return "1 byte".to_owned();
+        }
+        let digits = size.to_string();
+        let mut grouped = String::new();
+        for (at, digit) in digits.chars().enumerate() {
+            if at > 0 && (digits.len() - at).is_multiple_of(3) {
+                grouped.push(',');
+            }
+            grouped.push(digit);
+        }
+        format!("{grouped} bytes")
+    }
+    /// What a side of a choice holds, in words.
+    pub fn holds(holds: &gitcroc_core::SideHolds) -> String {
+        use gitcroc_core::SideHolds;
+        match holds {
+            SideHolds::Deleted => "Deleted".to_owned(),
+            SideHolds::File { size, executable } => format!(
+                "File, {}{}",
+                bytes(*size),
+                if *executable { ", executable" } else { "" }
+            ),
+            SideHolds::Symlink { size } => format!("Symbolic link, {}", bytes(*size)),
+            SideHolds::Submodule { commit } => {
+                let short: String = commit.chars().take(12).collect();
+                format!("Submodule at commit {short}")
+            }
+        }
+    }
 
     /// A hunk, as the editor's controls name it.
     pub fn which(number: usize) -> String {

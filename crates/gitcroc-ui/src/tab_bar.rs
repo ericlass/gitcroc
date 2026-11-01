@@ -261,7 +261,14 @@ impl TabBar {
     }
 
     /// Closes tab `id`; the workspace file stays (UI-28).
-    pub fn close(&mut self, id: WorkspaceId, window: &mut Window, cx: &mut Context<Self>) {
+    /// Asks the window to close tab `id`, which asks first when the tab
+    /// has unsaved conflict edits (UI-29).
+    pub fn close(&mut self, id: WorkspaceId, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(TabBarEvent::Chose(Choice::Close(id)));
+    }
+
+    /// Closes tab `id` now.
+    pub fn close_now(&mut self, id: WorkspaceId, window: &mut Window, cx: &mut Context<Self>) {
         let sent = Workspaces::close(&self.workspaces, id, cx);
         self.send(sent, None, window, cx);
     }

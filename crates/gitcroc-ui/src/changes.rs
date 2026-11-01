@@ -683,7 +683,18 @@ impl Changes {
         let keep = self.keep.take();
         self.view = Some(view);
         self.rebuild();
+        // A resolved file leaves the Unmerged list: the next unmerged file
+        // follows it, so files are resolved one after another (OPS-3).
+        let resolved = keep
+            .as_ref()
+            .is_some_and(|keep| keep.list == List::Unmerged);
         let again = keep.and_then(|keep| self.find(&keep));
+        let again = match again {
+            Some(file) if resolved && file.list != List::Unmerged => {
+                self.first_unmerged().or(Some(file))
+            }
+            again => again,
+        };
         self.file = again.or_else(|| self.first_file());
         self.marked = self.file.iter().cloned().collect();
     }
@@ -1061,6 +1072,11 @@ impl Changes {
             Some(view) => file_rows(&lists(&view.content), self.mode, &self.collapsed),
             None => Vec::new(),
         };
+    }
+
+    /// The first unmerged file the lists show.
+    fn first_unmerged(&self) -> Option<FileKey> {
+        self.first_file().filter(|file| file.list == List::Unmerged)
     }
 
     /// The first file the lists show, collapsed folders aside.

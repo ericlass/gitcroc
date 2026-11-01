@@ -5,6 +5,14 @@ Resolve a real repo conflict in the native UI: open unmerged files, keep edits
 while switching, Mark resolved, then Continue or Abort through core jobs.
 This is the final M6-19 slice.
 
+## Implementation split (DEV-4)
+- [M6-19c1: conflict banner, Abort and Continue](M6-19c1-conflict-banner.md).
+- [M6-19c2: unmerged files open in the kept editor; Mark resolved](M6-19c2-conflict-files-and-resolve.md).
+- [M6-19c3: edited outside and choice conflicts](M6-19c3-edited-outside-and-choices.md).
+- [M6-19c4: dropping state, closing tabs, restart, switching and keyboard](M6-19c4-conflict-lifecycle.md).
+
+All four are required to complete this parent slice; its acceptance remains unchanged.
+
 ## Depends on
 - M6-19a/b: retained editor and its visible hunk controls.
 - M6-16: stage/commit, working-copy views and job refresh.

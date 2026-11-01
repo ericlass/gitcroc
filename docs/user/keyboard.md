@@ -89,6 +89,7 @@ The borders between the column headers can be focused with Tab; the **arrow keys
 | --- | --- |
 | Up, Down, Home, End | Select another file |
 | Space or Enter | Stage the selected file, or unstage it in **Staged** |
+| Space or Enter on an unmerged file | Move into its conflict editor, or to its first button |
 | Delete (Backspace on macOS) | Discard the selected unstaged file's changes, after you confirm |
 | F7, Shift+F7 | Next or previous hunk of the diff |
 | Ctrl+Enter (Cmd+Enter on macOS) in the message box | Commit |
@@ -110,6 +111,8 @@ The borders between the column headers can be focused with Tab; the **arrow keys
 | Escape | Cancel editing a proposal |
 
 The next and previous conflict keys wrap around, reveal the target and move the caret to its text. F7 and Shift+F7 do the same and then focus the conflict's **Take ours** button; Tab moves on to **Take theirs** and **Take both**, and Enter or Space presses the focused one. Taking a side is one undo step: Ctrl+Z (Cmd+Z on macOS) restores the hunk. The buffer shortcuts apply while its editor has focus; Enter and Space remain ordinary text input there.
+
+When a file is marked resolved from its editor, the next unmerged file opens with the focus in its editor, so you can resolve files one after another. Once none is left, the focus goes back to the file list. The conflict banner's **Abort** and **Continue** are reached with F6 to the history, then Tab.
 
 On macOS, Alt is the Option key.
 
