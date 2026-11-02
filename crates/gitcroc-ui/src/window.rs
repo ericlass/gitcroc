@@ -598,6 +598,25 @@ impl GitcrocWindow {
                     },
                 )
                 .detach();
+                // The group commit runs through the preflight, and the box
+                // follows its job (UI-34).
+                let commit_box = changes.read(cx).commit_box().clone();
+                cx.subscribe_in(
+                    &commit_box,
+                    window,
+                    |this, commit_box, run: &crate::group_ops::RunGroup, _, cx| {
+                        let run = run.clone();
+                        let commit_box = commit_box.downgrade();
+                        let started: crate::group_ops::Started = Box::new(move |job, cx| {
+                            let _ = commit_box
+                                .update(cx, |commit_box, cx| commit_box.group_started(job, cx));
+                        });
+                        this.group_ops.update(cx, |ops, cx| {
+                            ops.run_then(run.workspace, run.target, run.op, started, cx)
+                        });
+                    },
+                )
+                .detach();
                 self.changes.insert(active.clone(), changes);
             }
             if !self.panes.contains_key(&active)

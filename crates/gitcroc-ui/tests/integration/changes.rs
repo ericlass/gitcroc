@@ -515,6 +515,8 @@ fn ui_34_merged_lists_are_sectioned_by_repo(cx: &mut TestAppContext) {
         ],
     );
     let (mut cx, window) = main_window(cx, &fixture);
+    // Room for every row above the group commit box.
+    crate::stage::enlarge(&mut cx);
     let node = group_node(&backend);
     wait_for_element(&mut cx, tree_row(&node));
     click(&mut cx, tree_row(&node));
