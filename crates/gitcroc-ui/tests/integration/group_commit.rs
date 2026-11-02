@@ -150,10 +150,11 @@ fn ui_34_uncommitted_row_sections_lists_by_repo_and_labels_commit_with_the_repo_
     let group = setup.group("Backend", &FOUR);
     let (mut cx, window) = open(cx, &setup, &group);
     wait_for_element(&mut cx, "history-uncommitted".into());
-    assert_eq!(
-        label_of(&mut cx, "history-uncommitted".into()).as_deref(),
-        Some("Uncommitted changes (4 repos)")
-    );
+    // The row counts each dirty repo as its summary comes in.
+    wait_until(&mut cx, |cx| {
+        label_of(cx, "history-uncommitted".into()).as_deref()
+            == Some("Uncommitted changes (4 repos)")
+    });
     show(&mut cx, &window, &setup, &group);
 
     // The lists are sectioned by repo.
