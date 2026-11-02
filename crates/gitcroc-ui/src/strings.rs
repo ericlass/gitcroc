@@ -1405,3 +1405,20 @@ pub mod share {
         }
     }
 }
+
+/// M6-21: the group dialogs, ported from rc.1's `strings.groups` (D15).
+pub mod groups {
+    pub const NEW_DIALOG: &str = "New group";
+    pub const CREATE: &str = "Create";
+    pub fn rename_dialog(group: &str) -> String {
+        format!("Rename {group}")
+    }
+    pub const RENAME: &str = "Rename";
+    pub fn delete_dialog(group: &str) -> String {
+        format!("Delete the group {group}?")
+    }
+    pub const DELETE: &str = "Delete";
+    pub const DELETE_WHAT: &str =
+        "Its repositories stay in the workspace. Nothing on disk is touched.";
+    pub const STOPPED: &str = "The request did not finish";
+}

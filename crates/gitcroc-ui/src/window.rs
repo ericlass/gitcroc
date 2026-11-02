@@ -906,6 +906,13 @@ impl GitcrocWindow {
             {
                 this.row_choice(open.request.clone(), choice.clone(), window, cx);
             }
+            // An item of a second menu, such as Add to group's (M6-21).
+            if let MenuEvent::ChosenIn(at, sub) = event
+                && let Some((_, Some(RowChoice::Submenu(choices)))) = open.request.items.get(*at)
+                && let Some(Some(choice)) = choices.get(*sub)
+            {
+                this.row_choice(open.request.clone(), choice.clone(), window, cx);
+            }
         });
         menu.update(cx, |menu, cx| menu.focus_first(window, cx));
         self.row_menu = Some(OpenRowMenu {
@@ -923,6 +930,20 @@ impl GitcrocWindow {
         cx: &mut Context<Self>,
     ) {
         match choice {
+            RowChoice::Group(crate::groups::GroupChoice::Op(op)) => {
+                if let Some(tree) = self.trees.get(&ask.workspace) {
+                    tree.update(cx, |tree, cx| tree.send_group_op(op, cx));
+                }
+            }
+            RowChoice::Group(crate::groups::GroupChoice::Dialog(dialog)) => {
+                use crate::group_dialog::{Made, make};
+                match make(self.services.clone(), ask.workspace, dialog, window, cx) {
+                    Made::Name(dialog) => self.open_dialog(dialog, window, cx),
+                    Made::Question(dialog) => self.open_dialog(dialog, window, cx),
+                }
+            }
+            // The menu opens it.
+            RowChoice::Submenu(_) => {}
             RowChoice::Copy(hash) => {
                 cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(hash))
             }

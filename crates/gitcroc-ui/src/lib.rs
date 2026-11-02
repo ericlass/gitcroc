@@ -18,6 +18,8 @@ pub mod diff;
 pub mod diff_view;
 pub mod discard_dialog;
 pub mod git_setup;
+pub mod group_dialog;
+pub mod groups;
 pub mod highlight;
 pub mod history;
 pub mod history_columns;

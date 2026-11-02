@@ -32,11 +32,15 @@ use gpui_kit::{
     canvas, div, percentage, point, px, svg, uniform_list,
 };
 
+use crate::groups;
 use crate::icons;
+
+mod group_drag;
 use crate::services::Services;
 use crate::strings::{self, tree as text};
 use crate::theme::ActiveTokens;
 use crate::tree::{Row, RowKind, Tree, repo_of};
+pub use group_drag::DraggedRow;
 
 actions!(
     tree,
@@ -125,6 +129,8 @@ pub struct TreePane {
     add_report: Entity<AddReportView>,
     /// A cloned repo to select once its row is shown.
     pending_select: Option<RepoId>,
+    /// A row being dragged onto another (UI-7).
+    drag: Option<group_drag::Drag>,
     _filter_events: Subscription,
 }
 
@@ -165,6 +171,7 @@ impl TreePane {
             add_menu,
             add_report,
             pending_select: None,
+            drag: None,
             _filter_events: filter_events,
         };
         this.read_tree(cx);
@@ -278,6 +285,10 @@ impl TreePane {
                 this.changed(cx);
                 this.refilter(cx);
                 this.select_pending(cx);
+                // Members may have joined or left: the Branches nodes
+                // count again (UI-5).
+                let counts = this.tree.group_loads();
+                this.reload(counts, cx);
             });
         })
         .detach();
@@ -645,11 +656,21 @@ impl TreePane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_at(index, How::Select, cx);
+        // A repo row of a multi-selection keeps it: its group entries act
+        // on every selected repo (UI-6, GRP-5).
+        let keeps = self.tree.is_multi()
+            && self
+                .rows
+                .get(index)
+                .is_some_and(|row| row.is_repo() && self.tree.is_selected(&row.id));
+        if !keeps {
+            self.select_at(index, How::Select, cx);
+        }
         window.focus(&self.focus, cx);
         let Some(item) = self.rows.get(index).and_then(|row| row.item()) else {
             return;
         };
+        let (groups, chosen) = self.group_context(item);
         let repo = repo_of(item).cloned();
         let view = repo.as_ref().and_then(|repo| self.tree.summary(repo));
         let entries = row_menus::tree_menu(
@@ -674,6 +695,11 @@ impl TreePane {
         let items = entries
             .into_iter()
             .map(|entry| {
+                if let Some(group) = groups::group_entry(entry.action, item, &groups, &chosen) {
+                    let disabled = entry.item.disabled || group.disabled;
+                    let shown = entry.item.disabled(disabled).submenu(group.submenu);
+                    return (shown, group.choice);
+                }
                 let mode = match entry.action {
                     A::Create => Some(BranchMode::Create {
                         start: revision
@@ -1169,7 +1195,8 @@ impl TreePane {
             .filter(|_| row.is_repo())
             .and_then(|repo| self.tree.summary(repo))
             .is_none_or(|view| view.stale);
-        base.role(Role::TreeItem)
+        let row_element = base
+            .role(Role::TreeItem)
             .aria_label(label.clone())
             .aria_level(row.depth + 1)
             .aria_selected(selected)
@@ -1206,7 +1233,8 @@ impl TreePane {
                 this.click(index, event, window, cx);
             }))
             .child(chevron)
-            .children(content)
+            .children(content);
+        self.with_drag(row_element, index, &id, label, item, cx)
             .into_any_element()
     }
 
@@ -1225,6 +1253,7 @@ impl TreePane {
 
 impl Render for TreePane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.end_drag_if_over(cx);
         let tokens = *cx.tokens();
         let error = self.tree.error().map(|error| {
             let error = text::cannot_read(error);

@@ -23,6 +23,7 @@ mod conflict_lifecycle;
 mod conflict_view;
 mod diff;
 mod git_setup;
+mod groups;
 mod history;
 mod history_merged;
 mod history_search;

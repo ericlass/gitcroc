@@ -124,7 +124,8 @@ impl AddMenu {
                     parent: self.parent.clone(),
                 });
             }
-            MenuEvent::Chosen(_) | MenuEvent::Dismissed => {}
+            // The add menu has no second menu; its item is chosen itself.
+            MenuEvent::Chosen(_) | MenuEvent::ChosenIn(_, _) | MenuEvent::Dismissed => {}
         }
     }
 

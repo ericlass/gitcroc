@@ -269,6 +269,30 @@ impl Tree {
             .collect()
     }
 
+    /// The loaded Branches nodes of groups still in the tree, to load again
+    /// when the members change (UI-5).
+    pub fn group_loads(&self) -> Vec<TreeItem> {
+        let groups = crate::groups::groups_of(self.roots());
+        self.loaded_for
+            .values()
+            .filter(|item| {
+                matches!(item, TreeItem::GroupBranches { group_id }
+                    if groups.iter().any(|group| &group.id == group_id))
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// The unfiltered skeleton; empty until the first read.
+    pub fn roots(&self) -> &[TreeNode] {
+        self.roots.as_deref().unwrap_or_default()
+    }
+
+    /// Repo rows are multi-selected (UI-6).
+    pub fn is_multi(&self) -> bool {
+        self.multi.is_some()
+    }
+
     /// Everything loaded, to load again after the app's events were missed.
     pub fn all_loads(&self) -> Vec<TreeItem> {
         self.loaded_for.values().cloned().collect()
