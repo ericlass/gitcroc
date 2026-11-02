@@ -487,12 +487,12 @@ pub(crate) fn press(cx: &mut VisualTestContext, keys: &str) {
     cx.run_until_parked();
 }
 
-fn right_click(cx: &mut VisualTestContext, id: ElementId) {
+pub(crate) fn right_click(cx: &mut VisualTestContext, id: ElementId) {
     cx.update(|window, cx| window.right_click(id, cx));
     cx.run_until_parked();
 }
 
-fn double_click(cx: &mut VisualTestContext, id: ElementId) {
+pub(crate) fn double_click(cx: &mut VisualTestContext, id: ElementId) {
     cx.update(|window, cx| window.double_click(id, cx));
     cx.run_until_parked();
 }
@@ -531,7 +531,7 @@ fn header_labels(cx: &mut VisualTestContext) -> Vec<String> {
     labels_in(cx, "history-header".into(), Role::ColumnHeader)
 }
 
-fn click_menu(cx: &mut VisualTestContext, name: &str) {
+pub(crate) fn click_menu(cx: &mut VisualTestContext, name: &str) {
     let id = cx.update(|window, _| {
         window
             .within("menu")
@@ -544,7 +544,7 @@ fn click_menu(cx: &mut VisualTestContext, name: &str) {
     click(cx, id);
 }
 
-fn menu_labels(cx: &mut VisualTestContext) -> Vec<String> {
+pub(crate) fn menu_labels(cx: &mut VisualTestContext) -> Vec<String> {
     labels_in(cx, "menu".into(), Role::MenuItem)
 }
 

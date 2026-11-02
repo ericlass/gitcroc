@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use gitcroc_git::{GitRepo, GitRunner, StatusRead, StatusReader};
 use serde::{Deserialize, Serialize};
 
-pub use op::{Class, GroupOp, GroupOperation, MissingBranch, RunFuture};
+pub use op::{Class, GroupOp, GroupOperation, MissingBranch, RunFuture, revision_check};
 pub use summary::{GroupBranch, GroupSummary, group_summaries};
 
 use crate::unblocked::{BUSY, IN_CONFLICT, MISSING};

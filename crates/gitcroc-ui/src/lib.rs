@@ -19,6 +19,7 @@ pub mod diff_view;
 pub mod discard_dialog;
 pub mod git_setup;
 pub mod group_dialog;
+pub mod group_name_dialog;
 pub mod group_ops;
 pub mod group_sync_dialog;
 pub mod groups;

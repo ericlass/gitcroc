@@ -136,6 +136,7 @@ pub struct TreePane {
 
 impl EventEmitter<AskRowMenu> for TreePane {}
 impl EventEmitter<AskBranch> for TreePane {}
+impl EventEmitter<crate::group_ops::RunGroup> for TreePane {}
 
 impl TreePane {
     pub fn new(
@@ -635,6 +636,17 @@ impl TreePane {
                         immediate: true,
                     });
                 }
+            } else if let Some(gitcroc_core::TreeItem::GroupBranch { group_id, name, .. }) =
+                row.item()
+            {
+                // UI-5: a group checkout of that name on every member,
+                // through the preflight; never in one repo only.
+                let (target, op) = crate::group_ops::group_checkout(group_id.clone(), name.clone());
+                cx.emit(crate::group_ops::RunGroup {
+                    workspace: self.workspace_id.clone(),
+                    target,
+                    op,
+                });
             } else {
                 self.toggle_row(&row, cx);
             }

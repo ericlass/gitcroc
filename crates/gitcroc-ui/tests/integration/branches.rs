@@ -714,11 +714,10 @@ fn ui_7_tag_menu_creates_a_branch_at_the_tag(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn ui_7_a_menu_with_only_later_actions_still_closes_from_the_keyboard(cx: &mut TestAppContext) {
+fn ui_7_a_group_branch_menu_works_from_the_keyboard(cx: &mut TestAppContext) {
     let f = Fixture::start(EVENT_CAPACITY);
     let made = repos(&["api"]);
     let added = add(&f, &made);
-    // A group's branch has only M6-22's entries.
     let group = crate::history_merged::group(&f, "Both", vec![added[0].1.clone()]);
     let (mut cx, _) = crate::support::main_window(cx, &f);
     let node = format!("{}:branches", crate::history_merged::group_node(&group));
@@ -726,11 +725,30 @@ fn ui_7_a_menu_with_only_later_actions_still_closes_from_the_keyboard(cx: &mut T
     click(&mut cx, crate::history::tree_part(&node, "chevron"));
     let row = crate::history::tree_row(&format!("{node}:ref:main"));
     crate::history::wait_for_element(&mut cx, row.clone());
-    cx.update(|window, cx| window.right_click(row, cx));
-    cx.run_until_parked();
-    crate::history::wait_for_element(&mut cx, "menu".into());
-    crate::history::press(&mut cx, "enter");
-    cx.update(|window, _| assert!(window.try_find("menu").is_some()));
+    let open_menu = |cx: &mut VisualTestContext| {
+        cx.update(|window, cx| window.right_click(row.clone(), cx));
+        cx.run_until_parked();
+        crate::history::wait_for_element(cx, "menu".into());
+    };
+    // Escape closes it without doing anything.
+    let jobs = f.app().jobs_get().len();
+    open_menu(&mut cx);
     crate::history::press(&mut cx, "escape");
     cx.update(|window, _| assert!(window.try_find("menu").is_none()));
+    assert_eq!(f.app().jobs_get().len(), jobs);
+    // Enter chooses Check out, which runs on the group through the preflight.
+    let mut events = f.app().subscribe();
+    open_menu(&mut cx);
+    crate::history::press(&mut cx, "enter");
+    cx.update(|window, _| assert!(window.try_find("menu").is_none()));
+    wait_until(&mut cx, |_| {
+        while let Ok(event) = events.try_recv() {
+            if let AppEvent::JobEnded(job) = event
+                && job.report.is_some()
+            {
+                return true;
+            }
+        }
+        false
+    });
 }

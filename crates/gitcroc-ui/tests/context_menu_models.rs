@@ -86,21 +86,9 @@ fn ui_7_tree_menu_entries_match_rc1_row_kinds() {
     };
     let entries = tree_menu(&group, None, false);
     assert_eq!(entries.len(), 14);
-    // M6-21 enables the membership entries; M6-22a the group Fetch, Pull
-    // and Push; the branch and tag operations wait for M6-22b.
+    // M6-22b enables the last of them: every group entry can be chosen.
     for entry in &entries {
-        let enabled = matches!(
-            entry.action,
-            A::GroupFetch
-                | A::GroupPull
-                | A::GroupPush
-                | A::GroupRename
-                | A::GroupDelete
-                | A::NewGroup
-                | A::MoveUp
-                | A::MoveDown
-        );
-        assert_eq!(entry.item.disabled, !enabled, "{:?}", entry.action);
+        assert!(!entry.item.disabled, "{:?}", entry.action);
     }
     let cases = vec![
         (
@@ -168,15 +156,18 @@ fn ui_7_tree_menu_entries_match_rc1_row_kinds() {
             entries.iter().map(|entry| entry.action).collect::<Vec<_>>(),
             actions
         );
-        for entry in &entries {
-            if entry.item.disabled {
-                assert_eq!(entry.item.description.as_deref(), Some("Not available yet"));
-            }
-        }
+        assert!(entries.iter().all(|entry| !entry.item.disabled), "{row:?}");
         assert!(
             tree_menu(&row, Some("conflict"), false)
                 .iter()
-                .filter(|entry| entry.action != A::NewGroup)
+                // A blocked repo (GRP-8) does not block a group's entries;
+                // the preflight classes each member.
+                .filter(|entry| {
+                    !matches!(
+                        entry.action,
+                        A::NewGroup | A::GroupCheckout | A::GroupDeleteBranch
+                    )
+                })
                 .all(|entry| entry.item.disabled)
         );
     }

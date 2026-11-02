@@ -56,6 +56,27 @@ impl SyncKind {
     }
 }
 
+/// A group operation a view asks the window to run through the preflight,
+/// as a group branch's double-click does (UI-5).
+#[derive(Debug, Clone)]
+pub struct RunGroup {
+    pub workspace: WorkspaceId,
+    pub target: TargetSet,
+    pub op: GroupOp,
+}
+
+/// A group checkout of branch `name` on `group`'s members, with the skip
+/// policy (UI-5).
+pub fn group_checkout(group: gitcroc_core::GroupId, name: String) -> (TargetSet, GroupOp) {
+    (
+        TargetSet::Group { group_id: group },
+        GroupOp::Checkout {
+            name,
+            missing: gitcroc_core::MissingBranch::Skip,
+        },
+    )
+}
+
 /// The preflight the user follows, as its dialog shows it.
 #[derive(Debug, Clone)]
 pub struct PendingPreflight {

@@ -80,7 +80,7 @@ fn strip_marks(cx: &mut VisualTestContext, index: usize) -> Vec<String> {
     labels_in(cx, strip_line(index), Role::Image)
 }
 
-fn click_with(cx: &mut VisualTestContext, id: ElementId, modifiers: Modifiers) {
+pub(crate) fn click_with(cx: &mut VisualTestContext, id: ElementId, modifiers: Modifiers) {
     cx.update(|window, cx| {
         window.render_frame(cx);
         window.click_with_modifiers(id, modifiers, cx);
@@ -89,7 +89,7 @@ fn click_with(cx: &mut VisualTestContext, id: ElementId, modifiers: Modifiers) {
 }
 
 /// Cmd on macOS, Ctrl elsewhere.
-fn secondary_modifiers() -> Modifiers {
+pub(crate) fn secondary_modifiers() -> Modifiers {
     if cfg!(target_os = "macos") {
         Modifiers::command()
     } else {

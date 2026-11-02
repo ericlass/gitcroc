@@ -57,9 +57,9 @@ branch or tag name as the user types (SEC-4), resolves X in each repo
     that name with the skip policy, through the preflight; it never checks
     out in one repo only;
   - the toolbar's Branch opens Create branch and Merge opens Merge for a
-    group or a multi-selection;
-  - a multi-selection's repo menu offers the same entries on the selected
-    repos (GRP-5).
+    group or a multi-selection (GRP-5). As in rc.1, a multi-selection's
+    repo menu keeps its single-repo entries; the palette (M6-24) reaches
+    the other operations on it.
 - **The conflict prediction** (GRP-13): a *needs attention* repo shows the
   core's reason, such as the predicted files, in the preflight row; a repo
   where git stops in conflict is *conflict* in the report, and selecting it

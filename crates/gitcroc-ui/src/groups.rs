@@ -8,6 +8,7 @@
 use gitcroc_app::app::{App, AppError};
 use gitcroc_core::{GroupId, RepoId, TreeItem, TreeNode, WorkspaceId};
 
+use crate::group_name_dialog::NameKind;
 use crate::group_ops::SyncKind;
 use crate::menu::MenuItem;
 use crate::row_context::RowChoice;
@@ -329,6 +330,19 @@ pub enum GroupChoice {
         group: GroupId,
         kind: SyncKind,
     },
+    /// The group name dialog of operation `kind` on the group, starting
+    /// with `name` (section 5).
+    Name {
+        group: GroupId,
+        kind: NameKind,
+        name: String,
+    },
+    /// A group checkout of branch `name` with the skip policy, at once
+    /// (UI-5).
+    Checkout {
+        group: GroupId,
+        name: String,
+    },
 }
 
 /// What a group entry of a row's menu needs beyond its label.
@@ -385,6 +399,32 @@ pub fn group_entry(
             entry(Some(GroupChoice::Sync {
                 group: group_id.clone(),
                 kind: SyncKind::Push,
+            }))
+        }
+        (
+            TreeAction::GroupCheckout
+            | TreeAction::GroupCreate
+            | TreeAction::GroupDeleteBranch
+            | TreeAction::GroupMerge
+            | TreeAction::GroupRebase
+            | TreeAction::GroupTag,
+            TreeItem::Group { group_id, .. },
+        ) => entry(name_kind(action).map(|kind| GroupChoice::Name {
+            group: group_id.clone(),
+            kind,
+            name: String::new(),
+        })),
+        (TreeAction::GroupCheckout, TreeItem::GroupBranch { group_id, name, .. }) => {
+            entry(Some(GroupChoice::Checkout {
+                group: group_id.clone(),
+                name: name.clone(),
+            }))
+        }
+        (TreeAction::GroupDeleteBranch, TreeItem::GroupBranch { group_id, name, .. }) => {
+            entry(Some(GroupChoice::Name {
+                group: group_id.clone(),
+                kind: NameKind::Delete,
+                name: name.clone(),
             }))
         }
         (TreeAction::GroupRename, TreeItem::Group { group_id, .. }) => {
@@ -454,6 +494,19 @@ pub fn group_entry(
             | TreeAction::GroupDelete,
             _,
         ) => entry(None),
+        _ => return None,
+    })
+}
+
+/// The group name dialog a group row's entry opens.
+fn name_kind(action: TreeAction) -> Option<NameKind> {
+    Some(match action {
+        TreeAction::GroupCheckout => NameKind::Checkout,
+        TreeAction::GroupCreate => NameKind::Create,
+        TreeAction::GroupDeleteBranch => NameKind::Delete,
+        TreeAction::GroupMerge => NameKind::Merge,
+        TreeAction::GroupRebase => NameKind::Rebase,
+        TreeAction::GroupTag => NameKind::Tag,
         _ => return None,
     })
 }
@@ -662,6 +715,41 @@ mod tests {
                 at: 0
             })
         );
+    }
+
+    #[test]
+    fn ui_7_group_operations_open_the_name_dialog_or_check_out_at_once() {
+        let groups = groups();
+        let named =
+            |action| group_entry(action, &group("b"), &groups, &[]).and_then(|entry| entry.choice);
+        assert!(matches!(
+            named(TreeAction::GroupMerge),
+            Some(RowChoice::Group(GroupChoice::Name { kind: NameKind::Merge, name, .. })) if name.is_empty()
+        ));
+        assert!(matches!(
+            named(TreeAction::GroupTag),
+            Some(RowChoice::Group(GroupChoice::Name {
+                kind: NameKind::Tag,
+                ..
+            }))
+        ));
+        // A group branch checks out at once, and its Delete… starts with its name.
+        let branch = TreeItem::GroupBranch {
+            group_id: gid("b"),
+            name: "topic".into(),
+            present: 1,
+            members: 2,
+        };
+        let on_branch =
+            |action| group_entry(action, &branch, &groups, &[]).and_then(|entry| entry.choice);
+        assert!(matches!(
+            on_branch(TreeAction::GroupCheckout),
+            Some(RowChoice::Group(GroupChoice::Checkout { name, .. })) if name == "topic"
+        ));
+        assert!(matches!(
+            on_branch(TreeAction::GroupDeleteBranch),
+            Some(RowChoice::Group(GroupChoice::Name { kind: NameKind::Delete, name, .. })) if name == "topic"
+        ));
     }
 
     #[test]

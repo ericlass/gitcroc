@@ -48,44 +48,6 @@ pub enum TreeAction {
 }
 
 impl TreeAction {
-    fn available(self) -> bool {
-        matches!(
-            self,
-            Self::Checkout
-                | Self::CheckoutRemote
-                | Self::CheckoutDetached
-                | Self::Create
-                | Self::Rename
-                | Self::Delete
-                | Self::DeleteRemote
-                | Self::SetUpstream
-                | Self::UnsetUpstream
-                | Self::OpenFileManager
-                | Self::OpenTerminal
-                | Self::RemoveRepo
-                | Self::CloneMissing
-                | Self::TagCreate
-                | Self::TagPush
-                | Self::TagDelete
-                | Self::RemoteAdd
-                | Self::RemoteRename
-                | Self::RemoteUrl
-                | Self::RemoteRemove
-                | Self::StashApply
-                | Self::StashPop
-                | Self::StashDrop
-                | Self::AddToGroup
-                | Self::RemoveFromGroup
-                | Self::MoveUp
-                | Self::MoveDown
-                | Self::NewGroup
-                | Self::GroupFetch
-                | Self::GroupPull
-                | Self::GroupPush
-                | Self::GroupRename
-                | Self::GroupDelete
-        )
-    }
     /// Entries a blocked repo (GRP-8) keeps: they write no repo, as the
     /// group entries never do (GRP-3).
     fn read_only(self) -> bool {
@@ -103,6 +65,12 @@ impl TreeAction {
                 | Self::GroupFetch
                 | Self::GroupPull
                 | Self::GroupPush
+                | Self::GroupCheckout
+                | Self::GroupCreate
+                | Self::GroupDeleteBranch
+                | Self::GroupMerge
+                | Self::GroupRebase
+                | Self::GroupTag
                 | Self::GroupRename
                 | Self::GroupDelete
         )
@@ -115,16 +83,14 @@ pub struct TreeEntry {
     pub item: MenuItem,
 }
 
-/// All entries remain visible. Later tasks supply the currently disabled
-/// group operations.
+/// Every entry of `row`'s menu, in rc.1's order; a blocked repo (GRP-8)
+/// keeps only the entries that write no repo.
 pub fn tree_menu(row: &TreeItem, blocked: Option<&str>, missing: bool) -> Vec<TreeEntry> {
     use TreeAction as A;
     let mut entries = Vec::new();
     let mut add = |action: TreeAction, label: &'static str, disabled: bool| {
         let reason = if !action.read_only() && blocked.is_some() {
             blocked
-        } else if !action.available() {
-            Some(text::NOT_AVAILABLE)
         } else {
             None
         };
