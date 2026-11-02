@@ -201,7 +201,7 @@ The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
 rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
 not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-22 and M6-27 have theirs;
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-23 and M6-27 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
@@ -241,7 +241,9 @@ several pull requests (DEV-4).
 | [M6-22a](M6-22a-preflight-report-and-group-sync.md) | Preflight dialog, result report and Retry failed; group Fetch, Pull and Push | M6-18, M6-21 |
 | [M6-22b](M6-22b-group-branch-and-tag-operations.md) | Group checkout, branch, merge, rebase and tag; the Branches node's menu and double-click | M6-22a |
 | [M6-22c](M6-22c-group-commit.md) | Group commit from the merged uncommitted row | M6-16, M6-22a |
-| M6-23 † | AI settings, providers, consent, proposals, Resolve all | M6-19c |
+| [M6-23a](M6-23a-ai-settings.md) | Settings dialog with its AI tab: AI features, providers, models, self-test, exclude list | M6-06, M6-15a |
+| [M6-23b](M6-23b-resolve-with-ai.md) | Resolve with AI per file, consent dialog, workspace AI switch, live proposals | M6-23a, M6-19c |
+| [M6-23c](M6-23c-resolve-all-with-ai.md) | Resolve all with AI from the banner: progress per file, cancel | M6-23b |
 | M6-24 | Command palette and keyboard pass | M6-18 to M6-23 |
 | M6-25 | Accessibility pass, to the bar decided after M6-04 | M6-04, M6-24 |
 | M6-26 | Settings dialog, all four tabs | M6-07, M6-23 |
@@ -347,6 +349,7 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Conflict editor | gpui-component's code editor, one buffer; the base and the AI proposal in a card beside the hunk (Eric, 2026-10-27, after M6-02) | M6-19, M6-23 |
 | The Tauri app during M6 | Not kept: 1.0.0-rc.1 is its last release. M6-05 deletes the shell, its workflows and the IPC layer; no app runs on `main` until M6-06, and none is released until M6-28 (Eric, 2026-10-27) | M6-05 |
 | `ui/` during M6 | Stays in the tree as the reference the tasks port from, out of `just check` and CI, runnable with its fake core; M6-30 deletes it (Eric, 2026-10-27) | M6-05, M6-06, M6-30 |
+| Settings dialog before M6-26 | M6-23a builds the dialog with only its AI tab; M6-26 adds Appearance, Git and Updates to it | M6-23a, M6-26 |
 | Updater proof | Tests on every platform in M6-27; on the runners in M6-28, with the GPUI packages: GPUI A to B, and rc.1 to the GPUI build | M6-27, M6-28 |
 | `gitcroc-next` and user files | Reads and writes the same config, cache and workspace files as an installed rc.1; running both at once is not supported | M6-06 |
 | Config directory name | `gitcroc` under the platform config, cache and log dirs | M0-07 |
