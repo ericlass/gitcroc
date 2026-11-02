@@ -79,6 +79,9 @@ impl TreeAction {
                 | Self::MoveUp
                 | Self::MoveDown
                 | Self::NewGroup
+                | Self::GroupFetch
+                | Self::GroupPull
+                | Self::GroupPush
                 | Self::GroupRename
                 | Self::GroupDelete
         )
@@ -97,6 +100,9 @@ impl TreeAction {
                 | Self::MoveUp
                 | Self::MoveDown
                 | Self::NewGroup
+                | Self::GroupFetch
+                | Self::GroupPull
+                | Self::GroupPush
                 | Self::GroupRename
                 | Self::GroupDelete
         )

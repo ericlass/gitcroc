@@ -35,6 +35,8 @@ use crate::clone_dialog::CloneDialog;
 use crate::dialog::{Closed, Modal, NameDialog, Question};
 use crate::discard_dialog::DiscardDialog;
 use crate::git_setup::GitSetup;
+use crate::group_ops::GroupOps;
+use crate::group_sync_dialog::{GroupSyncDialog, RunGroupOp};
 use crate::history_pane::HistoryPane;
 use crate::job_list::JobList;
 use crate::jobs::Jobs;
@@ -45,6 +47,7 @@ use crate::keys::{
 use crate::menu::{Menu, MenuEvent};
 use crate::missing_repos::MissingReposDialog;
 use crate::panes::Panes;
+use crate::preflight_dialog::PreflightDialog;
 use crate::row_context::{AskRowMenu, RowChoice};
 use crate::row_menus::TreeAction;
 use crate::services::Services;
@@ -131,6 +134,12 @@ pub struct GitcrocWindow {
     toolbar_focus: FocusHandle,
     /// This run's jobs, of every tab (UI-21).
     jobs: Entity<Jobs>,
+    /// The group operation the user follows (section 5, UI-20).
+    pub(crate) group_ops: Entity<GroupOps>,
+    /// A repo a report line asked for, selected once its tab is shown.
+    pending_repo_select: Option<(WorkspaceId, gitcroc_core::RepoId)>,
+    /// A report to open once the preflight dialog that hid it closes.
+    pending_report: Option<gitcroc_core::JobId>,
     /// The updater's view (PLAT-4).
     updates: Entity<Updates>,
     status_bar: Entity<StatusBar>,
@@ -179,6 +188,7 @@ impl GitcrocWindow {
         // In memory, loaded at start: what the first frame shows.
         let workspaces = cx.new(|_| Workspaces::new(services.clone()));
         let jobs = cx.new(|cx| Jobs::new(services.clone(), cx));
+        let group_ops = cx.new(|cx| GroupOps::new(services.clone(), cx));
         let tab_bar = cx.new(|cx| TabBar::new(workspaces.clone(), jobs.clone(), cx));
         let updates = cx.new(|cx| Updates::new(services.clone(), cx));
         let status_bar = cx.new(|cx| StatusBar::new(jobs.clone(), updates.clone(), cx));
@@ -217,6 +227,9 @@ impl GitcrocWindow {
             cx.observe_in(&workspaces, window, |this, _, window, cx| {
                 this.show_tabs(window, cx)
             }),
+            cx.observe_in(&group_ops, window, |this, _, window, cx| {
+                this.sync_preflight(window, cx)
+            }),
             cx.subscribe_in(&tab_bar, window, |this, _, event, window, cx| match event {
                 TabBarEvent::Chose(choice) => this.choose(choice.clone(), window, cx),
                 TabBarEvent::Refused(error) => {
@@ -225,7 +238,7 @@ impl GitcrocWindow {
                 }
             }),
             cx.subscribe_in(&status_bar, window, |this, _, _: &ShowJobs, window, cx| {
-                this.open_job_list(window, cx);
+                this.open_job_list(None, window, cx);
             }),
             cx.subscribe_in(
                 &status_bar,
@@ -246,6 +259,9 @@ impl GitcrocWindow {
             title_focus: cx.focus_handle(),
             toolbar_focus: cx.focus_handle(),
             jobs,
+            group_ops,
+            pending_repo_select: None,
+            pending_report: None,
             updates,
             status_bar,
             prompts: VecDeque::new(),
@@ -363,7 +379,14 @@ impl GitcrocWindow {
                 self.retained_stashes
                     .ended(job.job_id, job.outcome.as_ref());
                 self.abort_ended(&job, cx);
+                // A group report with a failed or conflict repo opens by
+                // itself in its own tab (UI-21).
+                self.maybe_open_report(&job, window, cx);
                 cx.notify();
+            }
+            Ok(AppEvent::PreflightReady(ready)) => {
+                self.group_ops.update(cx, |ops, cx| ops.on_ready(ready, cx));
+                self.sync_preflight(window, cx);
             }
             Ok(AppEvent::WorkspaceChanged(view)) => {
                 self.workspaces
@@ -604,6 +627,14 @@ impl GitcrocWindow {
                 self.resume(shown, cx);
             }
             self.shown = shown.clone();
+        }
+        // A report line's repo is selected once its tab is shown.
+        if let Some((workspace, repo)) = self.pending_repo_select.clone()
+            && tabs.active.as_ref() == Some(&workspace)
+            && let Some(tree) = self.trees.get(&workspace)
+        {
+            tree.update(cx, |tree, cx| tree.select_repo(&repo, cx));
+            self.pending_repo_select = None;
         }
         // The status bar shows the active tab's jobs (UI-21).
         self.jobs.update(cx, |jobs, cx| jobs.set_active(shown, cx));
@@ -935,6 +966,13 @@ impl GitcrocWindow {
                     tree.update(cx, |tree, cx| tree.send_group_op(op, cx));
                 }
             }
+            RowChoice::Group(crate::groups::GroupChoice::Sync { group, kind }) => {
+                let workspace = ask.workspace.clone();
+                let target = gitcroc_core::TargetSet::Group { group_id: group };
+                self.group_ops.update(cx, |ops, cx| {
+                    ops.run(workspace, target, kind.default_op(), cx)
+                });
+            }
             RowChoice::Group(crate::groups::GroupChoice::Dialog(dialog)) => {
                 use crate::group_dialog::{Made, make};
                 match make(self.services.clone(), ask.workspace, dialog, window, cx) {
@@ -1071,6 +1109,7 @@ impl GitcrocWindow {
                 window.focus(&restore, cx);
             }
             cx.notify();
+            this.sync_preflight(window, cx);
         });
         let restore = window.focused(cx);
         dialog.update(cx, |dialog, cx| dialog.focus_first(window, cx));
@@ -1264,14 +1303,176 @@ impl GitcrocWindow {
         self.open_dialog(dialog, window, cx);
     }
 
-    /// Opens the job list of every tab (UI-21).
-    fn open_job_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Opens the job list of every tab (UI-21), on `initial` or its newest
+    /// job.
+    fn open_job_list(
+        &mut self,
+        initial: Option<gitcroc_core::JobId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.dialog.is_some() {
             return;
         }
         let jobs = self.jobs.clone();
-        let list = cx.new(|cx| JobList::new(jobs, cx));
+        let list = cx.new(|cx| JobList::new(jobs, initial, cx));
+        cx.subscribe_in(
+            &list,
+            window,
+            |this, _, event: &crate::job_list::JobListEvent, window, cx| {
+                this.job_list_event(event.clone(), window, cx);
+            },
+        )
+        .detach();
         self.open_dialog(list, window, cx);
+    }
+
+    /// A group report with a failed or conflict repo opens by itself, in its
+    /// own tab (UI-21); the others do not.
+    fn maybe_open_report(
+        &mut self,
+        job: &gitcroc_core::JobView,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(report) = &job.report else {
+            return;
+        };
+        if !report.iter().any(|line| {
+            matches!(
+                line.outcome,
+                gitcroc_core::Outcome::Failed | gitcroc_core::Outcome::Conflict
+            )
+        }) {
+            return;
+        }
+        let active = self
+            .workspaces
+            .read(cx)
+            .active()
+            .map(|view| view.id.clone());
+        if active.as_ref() != Some(&job.workspace_id) {
+            return;
+        }
+        if self.dialog_of::<PreflightDialog>().is_some() {
+            // The job ended before the start's answer closed the checking
+            // dialog: open its report once that dialog is gone.
+            self.pending_report = Some(job.job_id);
+            return;
+        }
+        if self.dialog.is_some() {
+            return;
+        }
+        self.open_job_list(Some(job.job_id), window, cx);
+    }
+
+    /// A report line asked for a repo, or for Retry failed (GRP-11).
+    fn job_list_event(
+        &mut self,
+        event: crate::job_list::JobListEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::job_list::JobListEvent;
+        match event {
+            JobListEvent::SelectRepo { workspace, repo } => {
+                if let Some(open) = self.dialog.take()
+                    && let Some(restore) = open.restore
+                {
+                    window.focus(&restore, cx);
+                }
+                cx.notify();
+                let active = self
+                    .workspaces
+                    .read(cx)
+                    .active()
+                    .map(|view| view.id.clone());
+                if let Some(tree) = self.trees.get(&workspace) {
+                    tree.update(cx, |tree, cx| tree.select_repo(&repo, cx));
+                }
+                if active.as_ref() != Some(&workspace) {
+                    self.pending_repo_select = Some((workspace.clone(), repo));
+                    self.tab_bar
+                        .update(cx, |bar, cx| bar.activate(workspace, window, cx));
+                }
+            }
+            JobListEvent::Retry { workspace, job } => {
+                if let Some(open) = self.dialog.take()
+                    && let Some(restore) = open.restore
+                {
+                    window.focus(&restore, cx);
+                }
+                cx.notify();
+                self.group_ops
+                    .update(cx, |ops, cx| ops.retry(workspace, job, cx));
+            }
+        }
+    }
+
+    /// The group operation the user follows, for the tests.
+    pub fn group_ops(&self) -> &Entity<GroupOps> {
+        &self.group_ops
+    }
+
+    /// Shows the preflight dialog while a preflight is pending, closes it
+    /// when the flow is done, and follows its focus.
+    fn sync_preflight(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let pending = self.group_ops.read(cx).pending().is_some();
+        if pending {
+            if let Some(dialog) = self.dialog_of::<PreflightDialog>() {
+                dialog.update(cx, |dialog, cx| {
+                    dialog.reflect_focus(window, cx);
+                    cx.notify();
+                });
+            } else if self.dialog.is_none() {
+                let group_ops = self.group_ops.clone();
+                let dialog = cx.new(|cx| PreflightDialog::new(group_ops, cx));
+                self.open_dialog(dialog, window, cx);
+                if let Some(dialog) = self.dialog_of::<PreflightDialog>() {
+                    dialog.update(cx, |dialog, cx| {
+                        dialog.reflect_focus(window, cx);
+                        cx.notify();
+                    });
+                }
+            }
+        } else if self.dialog_of::<PreflightDialog>().is_some() {
+            self.close_open_dialog(window, cx);
+            if let Some(job) = self.pending_report.take() {
+                self.open_job_list(Some(job), window, cx);
+            }
+        }
+    }
+
+    /// Closes the dialog over the window without a refusal.
+    fn close_open_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(open) = self.dialog.take()
+            && let Some(restore) = open.restore
+        {
+            window.focus(&restore, cx);
+        }
+        cx.notify();
+    }
+
+    /// Opens the options dialog of a group Fetch, Pull or Push (UI-20).
+    pub(crate) fn open_group_sync(
+        &mut self,
+        workspace: WorkspaceId,
+        target: gitcroc_core::TargetSet,
+        kind: crate::group_ops::SyncKind,
+        target_name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let group_ops = self.group_ops.clone();
+        let run: RunGroupOp = Box::new(move |op, cx| {
+            let (workspace, target) = (workspace.clone(), target.clone());
+            group_ops.update(cx, |ops, cx| ops.run(workspace, target, op, cx));
+        });
+        let dialog = cx.new(|cx| GroupSyncDialog::new(kind, target_name, run, cx));
+        self.open_dialog(dialog, window, cx);
     }
 
     /// The tab shortcuts work while no dialog or menu is open (UI-22).
