@@ -652,8 +652,13 @@ fn grp_7_the_report_lists_every_repo_with_one_outcome(cx: &mut TestAppContext) {
         selected_group(&mut cx, &window),
         TargetSet::Group { group_id: pulling }
     );
+    // Merge explicitly: with git config unset the default pull is
+    // fast-forward only, which fails rather than conflicts.
+    click(&mut cx, "toolbar-options-1".into());
+    wait_for_element(&mut cx, "group-sync".into());
+    click(&mut cx, "group-sync-choice-2".into());
     let mut events = setup.fixture.app().subscribe();
-    click(&mut cx, "toolbar-1".into());
+    click(&mut cx, "group-sync-submit".into());
     let job = wait_group_end(&mut cx, &mut events);
     assert_eq!(job.outcome, Some(Outcome::Conflict));
     assert_eq!(job.report.as_ref().unwrap()[0].outcome, Outcome::Conflict);
