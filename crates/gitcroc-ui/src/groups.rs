@@ -8,6 +8,7 @@
 use gitcroc_app::app::{App, AppError};
 use gitcroc_core::{GroupId, RepoId, TreeItem, TreeNode, WorkspaceId};
 
+use crate::group_ops::SyncKind;
 use crate::menu::MenuItem;
 use crate::row_context::RowChoice;
 use crate::row_menus::TreeAction;
@@ -323,6 +324,11 @@ pub enum GroupDialog {
 pub enum GroupChoice {
     Dialog(GroupDialog),
     Op(GroupOp),
+    /// Fetch, Pull or Push on the group (UI-20).
+    Sync {
+        group: GroupId,
+        kind: SyncKind,
+    },
 }
 
 /// What a group entry of a row's menu needs beyond its label.
@@ -363,6 +369,24 @@ pub fn group_entry(
     let step = if action == TreeAction::MoveUp { -1 } else { 1 };
     Some(match (action, item) {
         (TreeAction::NewGroup, _) => entry(Some(new_group())),
+        (TreeAction::GroupFetch, TreeItem::Group { group_id, .. }) => {
+            entry(Some(GroupChoice::Sync {
+                group: group_id.clone(),
+                kind: SyncKind::Fetch,
+            }))
+        }
+        (TreeAction::GroupPull, TreeItem::Group { group_id, .. }) => {
+            entry(Some(GroupChoice::Sync {
+                group: group_id.clone(),
+                kind: SyncKind::Pull,
+            }))
+        }
+        (TreeAction::GroupPush, TreeItem::Group { group_id, .. }) => {
+            entry(Some(GroupChoice::Sync {
+                group: group_id.clone(),
+                kind: SyncKind::Push,
+            }))
+        }
         (TreeAction::GroupRename, TreeItem::Group { group_id, .. }) => {
             entry(Some(GroupChoice::Dialog(GroupDialog::Rename {
                 group: group_id.clone(),

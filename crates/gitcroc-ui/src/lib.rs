@@ -19,6 +19,8 @@ pub mod diff_view;
 pub mod discard_dialog;
 pub mod git_setup;
 pub mod group_dialog;
+pub mod group_ops;
+pub mod group_sync_dialog;
 pub mod groups;
 pub mod highlight;
 pub mod history;
@@ -35,6 +37,7 @@ pub mod operation_dialog;
 pub mod panes;
 #[cfg(feature = "perf-trace")]
 pub mod perf;
+pub mod preflight_dialog;
 pub mod row_context;
 pub mod row_menus;
 pub mod services;

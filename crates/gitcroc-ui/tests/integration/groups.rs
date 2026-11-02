@@ -468,12 +468,13 @@ fn ui_7_group_and_repo_context_menus_offer_the_group_operations(cx: &mut TestApp
         "Move down",
     ];
 
-    // The group operations wait for M6-22; the membership entries are
-    // enabled, Move up and Move down but at the ends.
+    // M6-22a enables Fetch, Pull and Push; the branch and tag operations
+    // wait for M6-22b. Move up and Move down are enabled but at the ends of
+    // the shorter group.
     right_click(&mut cx, &backend);
     assert_eq!(menu_labels(&mut cx), group_entries);
     cx.update(|window, _| {
-        for at in 0..9 {
+        for at in 3..9 {
             assert_eq!(
                 window.find(menu_item(at)).description(),
                 Some(strings::tree_menu::NOT_AVAILABLE),
@@ -482,11 +483,16 @@ fn ui_7_group_and_repo_context_menus_offer_the_group_operations(cx: &mut TestApp
         }
     });
     // The focus goes only to the entries that can be chosen.
-    assert!(focused(&mut cx, menu_item(9)));
+    assert!(focused(&mut cx, menu_item(0)));
     press(&mut cx, "end");
     assert!(focused(&mut cx, menu_item(13)));
     press(&mut cx, "up");
     assert!(focused(&mut cx, menu_item(11)), "Move up is disabled first");
+    press(&mut cx, "escape");
+    // M6-22a: Fetch on a group runs through its preflight.
+    right_click(&mut cx, &backend);
+    click(&mut cx, menu_item(0));
+    wait_for_element(&mut cx, "preflight".into());
     press(&mut cx, "escape");
     right_click(&mut cx, &frontend);
     press(&mut cx, "end");

@@ -86,12 +86,19 @@ fn ui_7_tree_menu_entries_match_rc1_row_kinds() {
     };
     let entries = tree_menu(&group, None, false);
     assert_eq!(entries.len(), 14);
-    // M6-21 enables the membership entries; the group operations wait for
-    // M6-22's preflight.
+    // M6-21 enables the membership entries; M6-22a the group Fetch, Pull
+    // and Push; the branch and tag operations wait for M6-22b.
     for entry in &entries {
         let enabled = matches!(
             entry.action,
-            A::GroupRename | A::GroupDelete | A::NewGroup | A::MoveUp | A::MoveDown
+            A::GroupFetch
+                | A::GroupPull
+                | A::GroupPush
+                | A::GroupRename
+                | A::GroupDelete
+                | A::NewGroup
+                | A::MoveUp
+                | A::MoveDown
         );
         assert_eq!(entry.item.disabled, !enabled, "{:?}", entry.action);
     }

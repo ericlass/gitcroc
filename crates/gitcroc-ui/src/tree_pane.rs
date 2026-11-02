@@ -447,6 +447,16 @@ impl TreePane {
         self.changed(cx);
     }
 
+    /// Selects the first row of `repo`, as a report line asks (UI-21).
+    pub fn select_repo(&mut self, repo: &RepoId, cx: &mut Context<Self>) {
+        let Some(index) = self.rows.iter().position(
+            |row| matches!(row.item(), Some(TreeItem::Repo { repo_id, .. }) if repo_id == repo),
+        ) else {
+            return;
+        };
+        self.select_at(index, How::Select, cx);
+    }
+
     /// Selects the row of `repo` within the selection, as clicking its line
     /// of the summary strip does (UI-11).
     pub fn select_member(&mut self, repo: &RepoId, cx: &mut Context<Self>) {

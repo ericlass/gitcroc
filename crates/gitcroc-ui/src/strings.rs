@@ -211,6 +211,10 @@ pub mod jobs {
     pub fn waiting_for(repos: &str) -> String {
         format!("waiting for {repos}")
     }
+    /// A sub-job's repo and where it is, as the report's list says it.
+    pub fn repo_state(repo: &str, state: &str) -> String {
+        format!("{repo}: {state}")
+    }
     pub fn milliseconds(ms: u32) -> String {
         format!("{ms} ms")
     }
@@ -221,6 +225,18 @@ pub mod jobs {
         format!("{minutes} min {seconds} s")
     }
     pub const NO_OUTPUT: &str = "No output.";
+    /// A sub-job that waits for a worker (UI-21).
+    pub const WAITING: &str = "Waiting";
+    /// The sub-jobs and a report's lines, as a list.
+    pub const REPOS_LABEL: &str = "Repos";
+    pub const RETRY_TITLE: &str = "Run the operation again on the failed repos";
+    pub const NO_REPO_FAILED: &str = "No repo failed";
+    pub const RETRY_FAILED: &str = "Retry failed";
+    pub const RESULT_REPORT: &str = "Result report";
+    pub fn output_in(repo: &str) -> String {
+        format!("Git's output in {repo}")
+    }
+    pub const SELECT_IN_TREE: &str = "Select it in the tree";
     pub const STOPPING: &str = "Stopping git…";
     pub const CANNOT_STOP: &str = "This job cannot be stopped; it runs to its end.";
     pub const CANCEL: &str = "Cancel";
@@ -1000,8 +1016,8 @@ pub mod operations {
     pub const PUSH_TAG: &str = "Push after creating";
     pub const ON_REMOTE: &str = "Also delete on remote";
     pub const FETCH_AFTER: &str = "Fetch after adding";
-    pub const SINGLE_REPO: &str =
-        "Select one repo. Group operations arrive with preflight dialogs.";
+    pub const SINGLE_REPO: &str = "Select one repo.";
+    pub const STASH_ONE_REPO: &str = "Stash works on one repository at a time.";
     pub const SELECT_REPO: &str = "Select a repo.";
     pub const DETACHED: &str = "This operation requires a branch; HEAD is detached.";
     pub const LATER: &str = "Not available yet";
@@ -1421,4 +1437,81 @@ pub mod groups {
     pub const DELETE_WHAT: &str =
         "Its repositories stay in the workspace. Nothing on disk is touched.";
     pub const STOPPED: &str = "The request did not finish";
+}
+
+/// M6-22a: the preflight dialog, the result report and the group sync
+/// dialogs (D15), ported from rc.1's `strings.groupOps` and `strings.jobs`.
+pub mod group_ops {
+    use gitcroc_core::Class;
+
+    /// The options dialog of a group Fetch, Pull or Push (UI-20).
+    pub mod sync {
+        pub const PRUNE: &str = "Prune";
+        pub const PRUNE_CONFIG: &str = "As git config says";
+        pub const PRUNE_ON: &str = "Remove remote-tracking branches gone from the remote";
+        pub const PRUNE_OFF: &str = "Keep them";
+        pub const STRATEGY: &str = "Strategy";
+        pub const STRATEGY_CONFIG: &str = "Follow git config";
+        pub const FF_ONLY: &str = "Fast-forward only";
+        pub const MERGE: &str = "Merge";
+        pub const REBASE: &str = "Rebase";
+        pub const PULLS_OWN: &str = "Each repository pulls its own current branch.";
+        pub const SET_UPSTREAM: &str = "Set upstream to origin/<branch> where a branch has none";
+        pub const FORCE: &str = "Force with lease";
+        pub const FETCH: &str = "Fetch";
+        pub const PULL: &str = "Pull";
+        pub const PUSH: &str = "Push";
+        /// Such as `Push Backend`.
+        pub fn title(operation: &str, target: &str) -> String {
+            format!("{operation} {target}")
+        }
+    }
+
+    /// The preflight dialog of section 5, step 2.
+    pub mod preflight {
+        use super::super::plural;
+
+        pub const TITLE: &str = "Group operation";
+        pub const CHECKING: &str = "Checking the repos…";
+        pub const CANNOT_BE_UNDONE_IN: &str = "Cannot be undone in";
+        pub const IN_THESE_REPOS: &str = "In these repos:";
+        pub const REPOS: &str = "Repos";
+        pub fn staged_files(count: u32) -> String {
+            super::super::plural(count, "staged file", "staged files")
+        }
+        pub const LEAVE_OUT: &str =
+            "To leave a repo out, change the selection in the tree and start again.";
+        /// The run button while nothing is destructive.
+        pub fn run_on(count: u32) -> String {
+            format!("Run on {}", plural(count, "repo", "repos"))
+        }
+        /// The run button of a destructive operation (GRP-9).
+        pub fn action_in(action: &str, count: u32) -> String {
+            format!("{action} in {}", plural(count, "repo", "repos"))
+        }
+    }
+
+    /// A repo's class in the preflight.
+    pub fn class(class: &Class) -> &'static str {
+        match class {
+            Class::WillRun => "Will run",
+            Class::WillSkip { .. } => "Will skip",
+            Class::Blocked { .. } => "Blocked",
+            Class::NeedsAttention { .. } => "Needs attention",
+        }
+    }
+
+    /// How a multi-selection is named in a dialog's title.
+    pub fn repositories(count: u32) -> String {
+        super::plural(count, "repository", "repositories")
+    }
+
+    /// Why a repo does not run; `None` for a repo that does.
+    pub fn reason(class: &Class) -> Option<&str> {
+        match class {
+            Class::WillRun => None,
+            Class::WillSkip { reason } | Class::Blocked { reason } => Some(reason),
+            Class::NeedsAttention { reason } => Some(reason),
+        }
+    }
 }

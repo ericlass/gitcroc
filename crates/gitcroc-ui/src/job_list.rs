@@ -1,37 +1,68 @@
-//! The job list of UI-21, a port of `ui/src/jobs/JobList.tsx`: every job of
-//! this run across all workspaces, newest first, in a `uniform_list`
-//! (PERF-1). The selected job shows git's raw output as text (SEC-3) and,
-//! while it has not ended, Cancel (GRP-10). Opening it marks every ended
-//! job seen; Escape, Close or a click beside it closes it.
+//! The job list of UI-21, a port of `ui/src/jobs/JobList.tsx` and
+//! `ui/src/jobs/GroupReport.tsx`: every job of this run across all
+//! workspaces, newest first, in a `uniform_list` (PERF-1). The selected job
+//! shows git's raw output as text (SEC-3), or, for a group operation, its
+//! sub-jobs while it runs and its result report when it ends (section 5,
+//! step 4): one line per repo of the target set in target-set order, each
+//! with its outcome (GRP-7) and git's reason, expanding to git's output.
+//! Retry failed (GRP-11) starts a new preflight of the failed repos.
+//! While it has not ended, Cancel (GRP-10) is there. Opening the list marks
+//! every ended job seen; Escape, Close or a click beside it closes it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
+use std::time::Duration;
 
-use gitcroc_core::{CancelResult, JobId, JobState, JobView};
+use gitcroc_core::{CancelResult, JobId, JobState, JobView, Outcome, RepoId, WorkspaceId};
+use gpui_component::Disableable;
 use gpui_component::FocusTrapElement;
 use gpui_component::button::Button;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    AnyElement, App, ClickEvent, Context, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyBinding, KeyBindingContextPredicate, ParentElement, Pixels,
-    Render, Role, ScrollStrategy, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    TestSupportExt, UniformListScrollHandle, Window, actions, div, px, uniform_list,
+    Animation, AnimationExt, AnyElement, App, ClickEvent, Context, ElementId, Entity, EventEmitter,
+    FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding,
+    KeyBindingContextPredicate, ParentElement, Pixels, Render, Role, ScrollStrategy, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, TestSupportExt, Transformation,
+    UniformListScrollHandle, Window, actions, div, percentage, px, svg, uniform_list,
 };
 
 use crate::dialog::{self, Cancel, Closed, Modal};
+use crate::icons;
 use crate::jobs::{self, Jobs};
 use crate::status_bar::outcome_label;
 use crate::strings::jobs as text;
-use crate::theme::{ActiveTokens, AppTheme};
+use crate::theme::{ActiveTokens, AppTheme, tokens::Tokens};
 
 actions!(
     job_list,
-    [SelectNext, SelectPrevious, SelectFirst, SelectLast]
+    [
+        SelectNext,
+        SelectPrevious,
+        SelectFirst,
+        SelectLast,
+        /// The toggle column: the next line's output toggle (UI-22).
+        ReportToggleNext,
+        ReportTogglePrevious,
+        ReportToggleFirst,
+        ReportToggleLast,
+        /// The name column: the next line's repo name (UI-22).
+        ReportNameNext,
+        ReportNamePrevious,
+        ReportNameFirst,
+        ReportNameLast,
+        /// Right from a toggle, Left from a name: the same line's other
+        /// control, so a column is kept while moving.
+        ReportToName,
+        ReportToToggle,
+    ]
 );
 
 /// The key context of the list of jobs.
 const CONTEXT: &str = "GitcrocJobList";
+/// The key contexts of a report's two controls.
+const TOGGLE_CONTEXT: &str = "GitcrocReportToggle";
+const NAME_CONTEXT: &str = "GitcrocReportName";
 
 /// One row's height; `uniform_list` lays out only those on screen.
 pub const ROW_HEIGHT: Pixels = px(24.);
@@ -51,7 +82,43 @@ pub fn bind(cx: &mut App) {
         bind("end", Box::new(SelectLast), cx),
     ];
     cx.bind_keys(bindings.into_iter().flatten());
+    let report = |keys: &str, action: Box<dyn gpui_kit::Action>, context: &str, cx: &mut App| {
+        let context = KeyBindingContextPredicate::parse(context).ok().map(Rc::new);
+        KeyBinding::load(keys, action, context, false, None, cx).ok()
+    };
+    let toggle = [
+        report("down", Box::new(ReportToggleNext), TOGGLE_CONTEXT, cx),
+        report("up", Box::new(ReportTogglePrevious), TOGGLE_CONTEXT, cx),
+        report("home", Box::new(ReportToggleFirst), TOGGLE_CONTEXT, cx),
+        report("end", Box::new(ReportToggleLast), TOGGLE_CONTEXT, cx),
+        report("right", Box::new(ReportToName), TOGGLE_CONTEXT, cx),
+    ];
+    let name = [
+        report("down", Box::new(ReportNameNext), NAME_CONTEXT, cx),
+        report("up", Box::new(ReportNamePrevious), NAME_CONTEXT, cx),
+        report("home", Box::new(ReportNameFirst), NAME_CONTEXT, cx),
+        report("end", Box::new(ReportNameLast), NAME_CONTEXT, cx),
+        report("left", Box::new(ReportToToggle), NAME_CONTEXT, cx),
+    ];
+    cx.bind_keys(toggle.into_iter().flatten());
+    cx.bind_keys(name.into_iter().flatten());
 }
+
+/// What a report line asked the window to do (UI-21).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobListEvent {
+    /// Select the repo in its workspace's tree, from its report line.
+    SelectRepo {
+        workspace: WorkspaceId,
+        repo: RepoId,
+    },
+    /// Retry failed (GRP-11) of the group job: its failed repos only.
+    Retry { workspace: WorkspaceId, job: JobId },
+}
+
+/// The two controls of a report line, the toggle and the repo's name.
+const TOGGLE: usize = 0;
+const NAME: usize = 1;
 
 pub struct JobList {
     jobs: Entity<Jobs>,
@@ -61,26 +128,41 @@ pub struct JobList {
     scroll: UniformListScrollHandle,
     focus: FocusHandle,
     list_focus: FocusHandle,
+    /// The lines a report shows and, for each, its two focus handles.
+    report_handles: Vec<[FocusHandle; 2]>,
+    /// The job and line count the handles are for.
+    report_key: Option<(JobId, usize)>,
+    /// The line the report's focus is on, and its expanded ones.
+    report_line: usize,
+    expanded: HashSet<RepoId>,
     _jobs_changed: Subscription,
 }
 
 impl EventEmitter<Closed> for JobList {}
+impl EventEmitter<JobListEvent> for JobList {}
 
 impl JobList {
-    /// The list of `jobs`, the newest selected; every ended job is seen.
-    pub fn new(jobs: Entity<Jobs>, cx: &mut Context<Self>) -> Self {
+    /// The list of `jobs`, on `initial` or the newest; every ended job is
+    /// seen.
+    pub fn new(jobs: Entity<Jobs>, initial: Option<JobId>, cx: &mut Context<Self>) -> Self {
         jobs.update(cx, |jobs, cx| jobs.see_all(cx));
-        let selected = jobs.read(cx).jobs().next().map(|job| job.job_id);
+        let selected = initial.or_else(|| jobs.read(cx).jobs().next().map(|job| job.job_id));
         let jobs_changed = cx.observe(&jobs, |_, _, cx| cx.notify());
-        Self {
+        let mut this = Self {
             jobs,
             selected,
             cancelled: HashMap::new(),
             scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle(),
             list_focus: cx.focus_handle(),
+            report_handles: Vec::new(),
+            report_key: None,
+            report_line: 0,
+            expanded: HashSet::new(),
             _jobs_changed: jobs_changed,
-        }
+        };
+        this.sync_report(cx);
+        this
     }
 
     fn selected_index(&self, cx: &App) -> Option<usize> {
@@ -95,6 +177,10 @@ impl JobList {
         let id = self.jobs.read(cx).jobs().nth(index).map(|job| job.job_id);
         if let Some(id) = id {
             self.selected = Some(id);
+            self.expanded.clear();
+            self.report_key = None;
+            self.report_line = 0;
+            self.sync_report(cx);
             self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
             cx.notify();
         }
@@ -123,6 +209,145 @@ impl JobList {
     fn select_last(&mut self, _: &SelectLast, _: &mut Window, cx: &mut Context<Self>) {
         let last = self.jobs.read(cx).len().saturating_sub(1);
         self.select(last, cx);
+    }
+
+    /// The job the detail shows.
+    fn job(&self, cx: &App) -> Option<JobView> {
+        self.selected
+            .and_then(|id| self.jobs.read(cx).get(id).cloned())
+    }
+
+    /// The lines a job's report shows: its sub-jobs while it runs, its
+    /// result lines when it ended.
+    fn line_count(job: &JobView) -> usize {
+        if job.state == JobState::Ended {
+            job.report.as_ref().map_or(0, Vec::len)
+        } else {
+            0
+        }
+    }
+
+    /// Builds the report's focus handles for the selected job, when its
+    /// lines changed.
+    fn sync_report(&mut self, cx: &mut Context<Self>) {
+        let job = self.job(cx);
+        let key = job
+            .as_ref()
+            .map(|job| (job.job_id, Self::line_count(job)))
+            .filter(|(_, count)| *count > 0);
+        if key == self.report_key {
+            return;
+        }
+        if let Some((id, _)) = &key
+            && Some(*id) != self.report_key.map(|(id, _)| id)
+        {
+            self.expanded.clear();
+            self.report_line = 0;
+        }
+        self.report_key = key;
+        self.report_handles = (0..key.map_or(0, |(_, count)| count))
+            .map(|_| [cx.focus_handle(), cx.focus_handle()])
+            .collect();
+    }
+
+    /// Gives the report a line's control the focus.
+    fn focus_line(
+        &mut self,
+        index: usize,
+        column: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_report(cx);
+        let Some(handles) = self.report_handles.get(index) else {
+            return;
+        };
+        self.report_line = index;
+        window.focus(&handles[column], cx);
+    }
+
+    fn report_step(
+        &mut self,
+        step: isize,
+        column: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_report(cx);
+        let last = self.report_handles.len().saturating_sub(1);
+        let index = self.report_line.saturating_add_signed(step).min(last);
+        self.focus_line(index, column, window, cx);
+    }
+
+    fn report_first(&mut self, column: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus_line(0, column, window, cx);
+    }
+
+    fn report_last(&mut self, column: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let last = self.report_handles.len().saturating_sub(1);
+        self.focus_line(last, column, window, cx);
+    }
+
+    fn toggle_next(&mut self, _: &ReportToggleNext, window: &mut Window, cx: &mut Context<Self>) {
+        self.report_step(1, TOGGLE, window, cx);
+    }
+
+    fn toggle_previous(
+        &mut self,
+        _: &ReportTogglePrevious,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.report_step(-1, TOGGLE, window, cx);
+    }
+
+    fn toggle_first(&mut self, _: &ReportToggleFirst, window: &mut Window, cx: &mut Context<Self>) {
+        self.report_first(TOGGLE, window, cx);
+    }
+
+    fn toggle_last(&mut self, _: &ReportToggleLast, window: &mut Window, cx: &mut Context<Self>) {
+        self.report_last(TOGGLE, window, cx);
+    }
+
+    fn name_next(&mut self, _: &ReportNameNext, window: &mut Window, cx: &mut Context<Self>) {
+        self.report_step(1, NAME, window, cx);
+    }
+
+    fn name_previous(
+        &mut self,
+        _: &ReportNamePrevious,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.report_step(-1, NAME, window, cx);
+    }
+
+    fn name_first(&mut self, _: &ReportNameFirst, window: &mut Window, cx: &mut Context<Self>) {
+        self.report_first(NAME, window, cx);
+    }
+
+    fn name_last(&mut self, _: &ReportNameLast, window: &mut Window, cx: &mut Context<Self>) {
+        self.report_last(NAME, window, cx);
+    }
+
+    fn report_name_control(
+        &mut self,
+        _: &ReportToName,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let index = self.report_line;
+        self.focus_line(index, NAME, window, cx);
+    }
+
+    fn report_toggle_control(
+        &mut self,
+        _: &ReportToToggle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let index = self.report_line;
+        self.focus_line(index, TOGGLE, window, cx);
     }
 
     fn cancel_job(&mut self, id: JobId, cx: &mut Context<Self>) {
@@ -214,12 +439,9 @@ impl JobList {
             .collect()
     }
 
-    fn detail(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn detail(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let tokens = *cx.tokens();
-        let job = self
-            .selected
-            .and_then(|id| self.jobs.read(cx).get(id).cloned());
-        let Some(job) = job else {
+        let Some(job) = self.job(cx) else {
             return div()
                 .id("job-select")
                 .test_support()
@@ -231,32 +453,13 @@ impl JobList {
         };
         let id = job.job_id;
         let code_font = AppTheme::global(cx).code_font().clone();
-        let output = if job.output.is_empty() {
-            div()
-                .id("job-no-output")
-                .test_support()
-                .role(Role::Label)
-                .aria_label(text::NO_OUTPUT)
-                .text_color(tokens.text_secondary)
-                .child(text::NO_OUTPUT)
-                .into_any_element()
+        let report = job.state == JobState::Ended && job.report.is_some();
+        let running_group = job.state != JobState::Ended && !job.sub_jobs.is_empty();
+        let body = if report || running_group {
+            self.sync_report(cx);
+            self.report(&job, &tokens, cx)
         } else {
-            div()
-                .id("job-output")
-                .test_support()
-                .role(Role::Document)
-                .aria_label(job.output.clone())
-                .max_h(OUTPUT_HEIGHT)
-                .overflow_y_scroll()
-                .p_2()
-                .bg(tokens.bg_2)
-                .border_1()
-                .border_color(tokens.border)
-                .rounded(px(4.))
-                .font_family(code_font)
-                .text_sm()
-                .child(job.output.clone())
-                .into_any_element()
+            output(&job, &tokens, &code_font)
         };
         div()
             .id("job-detail")
@@ -294,16 +497,344 @@ impl JobList {
                     .aria_label(note.clone())
                     .child(note.clone())
             }))
-            .children(job.message.clone().map(|message| {
-                div()
-                    .id("job-message")
-                    .test_support()
-                    .role(Role::Paragraph)
-                    .aria_label(message.clone())
-                    .child(message)
-            }))
-            .child(output)
+            .when(!report && !running_group, |panel| {
+                panel.children(job.message.clone().map(|message| {
+                    div()
+                        .id("job-message")
+                        .test_support()
+                        .role(Role::Paragraph)
+                        .aria_label(message.clone())
+                        .child(message)
+                }))
+            })
+            .child(body)
             .into_any_element()
+    }
+
+    /// A group job's sub-jobs while it runs, or its result report (section
+    /// 5, step 4; UI-21).
+    fn report(&mut self, job: &JobView, tokens: &Tokens, cx: &mut Context<Self>) -> AnyElement {
+        if job.state == JobState::Ended {
+            self.result(job, tokens, cx)
+        } else {
+            self.sub_jobs(job, tokens, cx).into_any_element()
+        }
+    }
+
+    fn sub_jobs(&self, job: &JobView, tokens: &Tokens, cx: &App) -> impl IntoElement {
+        let rows = job
+            .sub_jobs
+            .iter()
+            .enumerate()
+            .map(|(at, sub)| {
+                let state = match &sub.outcome {
+                    Some(outcome) => text::outcome(outcome),
+                    None if sub.state == JobState::Queued => text::WAITING.to_owned(),
+                    None => text::RUNNING.to_owned(),
+                };
+                let mut row = div()
+                    .id(ElementId::Name(format!("sub-job-{at}").into()))
+                    .test_support()
+                    .role(Role::ListItem)
+                    .aria_label(text::repo_state(&sub.repo_name, &state))
+                    .flex()
+                    .flex_row()
+                    .gap_2()
+                    .child(div().child(sub.repo_name.clone()));
+                row = row.child(match (&sub.outcome, sub.state) {
+                    (None, JobState::Queued) => div()
+                        .text_color(tokens.text_secondary)
+                        .child(text::WAITING)
+                        .into_any_element(),
+                    (None, _) => div()
+                        .id(ElementId::Name(format!("sub-job-{at}-spinner").into()))
+                        .test_support()
+                        .role(Role::Image)
+                        .aria_label(text::RUNNING)
+                        .text_color(tokens.text_secondary)
+                        .child(spinner(cx))
+                        .into_any_element(),
+                    (Some(_), _) => div()
+                        .text_color(tokens.text_secondary)
+                        .child(state)
+                        .into_any_element(),
+                });
+                row
+            })
+            .collect::<Vec<_>>();
+        div()
+            .id("group-report")
+            .test_support()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .id("report-counts")
+                    .test_support()
+                    .role(Role::Label)
+                    .aria_label(jobs::progress(job))
+                    .child(jobs::progress(job)),
+            )
+            .child(
+                div()
+                    .id("sub-jobs")
+                    .role(Role::List)
+                    .aria_label(text::REPOS_LABEL)
+                    .flex()
+                    .flex_col()
+                    .children(rows),
+            )
+    }
+
+    fn result(&mut self, job: &JobView, tokens: &Tokens, cx: &mut Context<Self>) -> AnyElement {
+        let report = job.report.clone().unwrap_or_default();
+        let failed = report.iter().any(|line| line.outcome == Outcome::Failed);
+        let counts = outcome_counts(&report);
+        let retry = Button::new("report-retry")
+            .label(text::RETRY_FAILED)
+            .disabled(!failed)
+            .tooltip(if failed {
+                text::RETRY_TITLE
+            } else {
+                text::NO_REPO_FAILED
+            })
+            .on_click(cx.listener({
+                let workspace = job.workspace_id.clone();
+                let job = job.job_id;
+                move |_, _, _, cx| {
+                    cx.emit(JobListEvent::Retry {
+                        workspace: workspace.clone(),
+                        job,
+                    });
+                }
+            }));
+        let lines = report
+            .iter()
+            .enumerate()
+            .map(|(at, line)| {
+                let expanded = self.expanded.contains(&line.repo_id);
+                let outcome = text::outcome(&line.outcome);
+                let reason = line
+                    .message
+                    .clone()
+                    .filter(|_| !matches!(line.outcome, Outcome::Skipped { .. }));
+                let handles = self.report_handles.get(at);
+                let mut row = div()
+                    .id(ElementId::Name(format!("report-line-{at}").into()))
+                    .test_support()
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Button::new(ElementId::Name(format!("report-toggle-{at}").into()))
+                            .label(if expanded { "▾" } else { "▸" })
+                            .accessibility_label(text::output_in(&line.repo_name))
+                            .when_some(handles.map(|handles| &handles[TOGGLE]), |button, handle| {
+                                button.track_focus(handle)
+                            })
+                            .key_context(TOGGLE_CONTEXT)
+                            .on_click(cx.listener({
+                                let repo = line.repo_id.clone();
+                                move |this, _, _, cx| {
+                                    if !this.expanded.insert(repo.clone()) {
+                                        this.expanded.remove(&repo);
+                                    }
+                                    cx.notify();
+                                }
+                            })),
+                    )
+                    .child(
+                        Button::new(ElementId::Name(format!("report-name-{at}").into()))
+                            .label(line.repo_name.clone())
+                            .accessibility_label(line.repo_name.clone())
+                            .tooltip(text::SELECT_IN_TREE)
+                            .when_some(handles.map(|handles| &handles[NAME]), |button, handle| {
+                                button.track_focus(handle)
+                            })
+                            .key_context(NAME_CONTEXT)
+                            .on_click(cx.listener({
+                                let workspace = job.workspace_id.clone();
+                                let repo = line.repo_id.clone();
+                                move |_, _, _, cx| {
+                                    cx.emit(JobListEvent::SelectRepo {
+                                        workspace: workspace.clone(),
+                                        repo: repo.clone(),
+                                    });
+                                }
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id(ElementId::Name(format!("report-outcome-{at}").into()))
+                            .test_support()
+                            .role(Role::Label)
+                            .aria_label(outcome)
+                            .child(outcome_label(tokens, &line.outcome)),
+                    )
+                    .when_some(reason, |row, reason| {
+                        row.child(
+                            div()
+                                .id(ElementId::Name(format!("report-reason-{at}").into()))
+                                .test_support()
+                                .role(Role::Paragraph)
+                                .aria_label(reason.clone())
+                                .text_color(tokens.text_secondary)
+                                .child(reason),
+                        )
+                    });
+                if expanded {
+                    row = row.child(match line.output.is_empty() {
+                        true => div()
+                            .id(ElementId::Name(format!("report-output-{at}").into()))
+                            .test_support()
+                            .role(Role::Label)
+                            .aria_label(text::NO_OUTPUT)
+                            .text_color(tokens.text_secondary)
+                            .child(text::NO_OUTPUT),
+                        false => div()
+                            .id(ElementId::Name(format!("report-output-{at}").into()))
+                            .test_support()
+                            .role(Role::Document)
+                            .aria_label(line.output.clone())
+                            .max_h(OUTPUT_HEIGHT)
+                            .overflow_y_scroll()
+                            .child(line.output.clone()),
+                    });
+                }
+                row.into_any_element()
+            })
+            .collect::<Vec<_>>();
+        div()
+            .id("group-report")
+            .test_support()
+            .on_action(cx.listener(Self::toggle_next))
+            .on_action(cx.listener(Self::toggle_previous))
+            .on_action(cx.listener(Self::toggle_first))
+            .on_action(cx.listener(Self::toggle_last))
+            .on_action(cx.listener(Self::name_next))
+            .on_action(cx.listener(Self::name_previous))
+            .on_action(cx.listener(Self::name_first))
+            .on_action(cx.listener(Self::name_last))
+            .on_action(cx.listener(Self::report_name_control))
+            .on_action(cx.listener(Self::report_toggle_control))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .id("report-header")
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .id("report-counts")
+                            .test_support()
+                            .role(Role::Label)
+                            .aria_label(counts.clone())
+                            .child(counts),
+                    )
+                    .child(retry),
+            )
+            .child(
+                div()
+                    .id("report-lines")
+                    .test_support()
+                    .role(Role::List)
+                    .aria_label(text::RESULT_REPORT)
+                    .flex()
+                    .flex_col()
+                    .children(lines),
+            )
+            .into_any_element()
+    }
+}
+
+/// The spinner a running sub-job shows.
+fn spinner(cx: &App) -> impl IntoElement {
+    let color = cx.tokens().text_secondary;
+    svg()
+        .path(icons::SPINNER)
+        .size(px(12.))
+        .text_color(color)
+        .with_animation(
+            "sub-job-spinner",
+            Animation::new(Duration::from_secs(1)).repeat(),
+            |spinner, delta| spinner.with_transformation(Transformation::rotate(percentage(delta))),
+        )
+}
+
+/// The job's raw output, or the note that there is none.
+fn output(job: &JobView, tokens: &Tokens, code_font: &gpui_kit::SharedString) -> AnyElement {
+    if job.output.is_empty() {
+        div()
+            .id("job-no-output")
+            .test_support()
+            .role(Role::Label)
+            .aria_label(text::NO_OUTPUT)
+            .text_color(tokens.text_secondary)
+            .child(text::NO_OUTPUT)
+            .into_any_element()
+    } else {
+        div()
+            .id("job-output")
+            .test_support()
+            .role(Role::Document)
+            .aria_label(job.output.clone())
+            .max_h(OUTPUT_HEIGHT)
+            .overflow_y_scroll()
+            .p_2()
+            .bg(tokens.bg_2)
+            .border_1()
+            .border_color(tokens.border)
+            .rounded(px(4.))
+            .font_family(code_font.clone())
+            .text_sm()
+            .child(job.output.clone())
+            .into_any_element()
+    }
+}
+
+/// GRP-7's outcomes, in the order the counts name them.
+const OUTCOMES: [u8; 5] = [0, 1, 2, 3, 4];
+
+fn outcome_key(outcome: &Outcome) -> u8 {
+    match outcome {
+        Outcome::Failed => 0,
+        Outcome::Conflict => 1,
+        Outcome::Succeeded => 2,
+        Outcome::NothingToDo => 3,
+        Outcome::Skipped { .. } => 4,
+    }
+}
+
+/// Counts per outcome, such as `2 failed, 3 succeeded` (section 5, step 4).
+pub fn outcome_counts(report: &[gitcroc_core::RepoResult]) -> String {
+    OUTCOMES
+        .into_iter()
+        .filter_map(|key| {
+            let n = report
+                .iter()
+                .filter(|line| outcome_key(&line.outcome) == key)
+                .count();
+            (n > 0).then(|| format!("{n} {}", name(key)))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// An outcome's name in the counts, without a skip's reason.
+fn name(key: u8) -> &'static str {
+    match key {
+        0 => "failed",
+        1 => "conflict",
+        2 => "succeeded",
+        3 => "nothing to do",
+        _ => "skipped",
     }
 }
 
@@ -325,7 +856,7 @@ fn row_label(job: &JobView) -> String {
 }
 
 /// A job's outcome in its colour, or where it is.
-fn state_element(job: &JobView, tokens: &crate::theme::tokens::Tokens) -> AnyElement {
+fn state_element(job: &JobView, tokens: &Tokens) -> AnyElement {
     match &job.outcome {
         Some(outcome) => outcome_label(tokens, outcome).into_any_element(),
         None => div()
@@ -336,9 +867,13 @@ fn state_element(job: &JobView, tokens: &crate::theme::tokens::Tokens) -> AnyEle
 }
 
 impl Modal for JobList {
-    /// The list has the focus.
+    /// A report has the focus on its first line; otherwise the list does.
     fn focus_first(&self, window: &mut Window, cx: &mut App) {
-        window.focus(&self.list_focus, cx);
+        if let Some(handles) = self.report_handles.first() {
+            window.focus(&handles[TOGGLE], cx);
+        } else {
+            window.focus(&self.list_focus, cx);
+        }
     }
 
     fn closes_on_backdrop(&self) -> bool {
@@ -353,7 +888,8 @@ impl Focusable for JobList {
 }
 
 impl Render for JobList {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_report(cx);
         let tokens = *cx.tokens();
         let title = SharedString::from(text::TITLE);
         let count = self.jobs.read(cx).len();
@@ -376,7 +912,7 @@ impl Render for JobList {
                 .size_full()
                 .into_any_element()
         };
-        let detail = self.detail(cx);
+        let detail = self.detail(window, cx);
         dialog::frame("job-list-frame", Role::Dialog, &title, cx)
             .test_support()
             .track_focus(&self.focus)
