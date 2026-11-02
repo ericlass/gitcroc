@@ -176,12 +176,23 @@ impl LogDir for Dirs {
     }
 }
 
-/// File dialogs that answer every request with one path, or cancel.
-struct Answering(Option<PathBuf>);
+/// The answers queued for the next file dialogs, oldest first; `None`
+/// cancels.
+pub type Answers = Arc<std::sync::Mutex<std::collections::VecDeque<Option<PathBuf>>>>;
+
+/// File dialogs that answer with the next queued answer, or else with one
+/// path, or cancel.
+struct Answering {
+    queued: Answers,
+    otherwise: Option<PathBuf>,
+}
 
 impl Answering {
     fn answer(&self) -> DialogFuture {
-        Box::pin(std::future::ready(self.0.clone()))
+        let next = self.queued.lock().unwrap().pop_front();
+        Box::pin(std::future::ready(
+            next.unwrap_or_else(|| self.otherwise.clone()),
+        ))
     }
 }
 
@@ -244,6 +255,7 @@ pub fn settings_with_git(path: &Path, schema: u32) -> String {
 pub struct Fixture {
     pub runtime: Runtime,
     pub services: Services,
+    answers: Answers,
     dir: tempfile::TempDir,
 }
 
@@ -277,6 +289,7 @@ impl Fixture {
             )
             .unwrap();
         }
+        let answers = Answers::default();
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -289,7 +302,10 @@ impl Fixture {
                 logs: &dirs,
                 runtime: runtime.handle().clone(),
                 fonts: DesktopFonts::default(),
-                dialogs: Arc::new(Answering(options.picked)),
+                dialogs: Arc::new(Answering {
+                    queued: answers.clone(),
+                    otherwise: options.picked,
+                }),
                 keychain: Arc::new(MemoryKeychain::default()),
                 ai: Arc::new(ProviderCalls),
                 updates: options.updates.as_ref().map_or_else(
@@ -315,8 +331,17 @@ impl Fixture {
         Self {
             runtime,
             services,
+            answers,
             dir,
         }
+    }
+
+    /// Makes the next file dialog answer `picked`; `None` cancels.
+    pub fn answer(&self, picked: Option<&Path>) {
+        self.answers
+            .lock()
+            .unwrap()
+            .push_back(picked.map(Path::to_owned));
     }
 
     pub fn app(&self) -> &GitcrocApp {

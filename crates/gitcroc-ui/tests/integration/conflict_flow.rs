@@ -429,6 +429,8 @@ fn ops_2_continue_waits_for_all_unmerged_paths(root: &mut TestAppContext) {
     wait_until(&mut cx, |cx| {
         label_of(cx, "conflict-banner-text".into()).is_some_and(|line| line.contains("step 1 of 2"))
     });
+    // The banner follows the summary before the uncommitted row does.
+    wait_for_element(&mut cx, "history-uncommitted".into());
     click(&mut cx, "history-uncommitted".into());
     let editor = wait_for_editor(&mut cx, &window, "a.txt");
     take(&mut cx, &editor, Take::Theirs);

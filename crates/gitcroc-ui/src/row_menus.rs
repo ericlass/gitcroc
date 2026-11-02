@@ -63,6 +63,7 @@ impl TreeAction {
                 | Self::OpenFileManager
                 | Self::OpenTerminal
                 | Self::RemoveRepo
+                | Self::CloneMissing
                 | Self::TagCreate
                 | Self::TagPush
                 | Self::TagDelete
@@ -73,12 +74,31 @@ impl TreeAction {
                 | Self::StashApply
                 | Self::StashPop
                 | Self::StashDrop
+                | Self::AddToGroup
+                | Self::RemoveFromGroup
+                | Self::MoveUp
+                | Self::MoveDown
+                | Self::NewGroup
+                | Self::GroupRename
+                | Self::GroupDelete
         )
     }
+    /// Entries a blocked repo (GRP-8) keeps: they write no repo, as the
+    /// group entries never do (GRP-3).
     fn read_only(self) -> bool {
         matches!(
             self,
-            Self::OpenFileManager | Self::OpenTerminal | Self::RemoveRepo
+            Self::OpenFileManager
+                | Self::OpenTerminal
+                | Self::RemoveRepo
+                | Self::CloneMissing
+                | Self::AddToGroup
+                | Self::RemoveFromGroup
+                | Self::MoveUp
+                | Self::MoveDown
+                | Self::NewGroup
+                | Self::GroupRename
+                | Self::GroupDelete
         )
     }
 }

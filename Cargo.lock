@@ -2409,6 +2409,7 @@ dependencies = [
  "ashpd",
  "chrono",
  "directories",
+ "dunce",
  "futures-lite",
  "gitcroc-app",
  "gitcroc-core",

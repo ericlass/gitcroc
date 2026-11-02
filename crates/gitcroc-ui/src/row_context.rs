@@ -8,6 +8,10 @@ pub enum RowChoice {
     Operation(crate::operation_dialog::OperationMode),
     Repo(TreeAction),
     Copy(String),
+    /// A group dialog or change (M6-21).
+    Group(crate::groups::GroupChoice),
+    /// The entry opens a second menu; each of its items' choices.
+    Submenu(Vec<Option<RowChoice>>),
 }
 #[derive(Clone)]
 pub struct AskRowMenu {

@@ -1321,3 +1321,104 @@ pub mod conflict {
         format!("Resolution of {path}")
     }
 }
+
+/// The tree's add menu and the add report (GRP-1, M6-20).
+pub mod add_repos {
+    pub const ADD_REPOSITORY: &str = "Add repository";
+    pub const ADD_FOLDER: &str = "Add folder…";
+    pub const CLONE: &str = "Clone…";
+    /// Under the empty workspace's text: where its repos come from.
+    pub const EMPTY_HINT: &str = "Add one with Add repository: Add folder… or Clone…";
+    pub const ADD_RESULT: &str = "Add result";
+    pub fn added(repos: &str) -> String {
+        format!("Added: {repos}")
+    }
+    pub fn already_present(repos: &str) -> String {
+        format!("Already present: {repos}")
+    }
+    pub fn refused(path: &str, reason: &str) -> String {
+        format!("Refused {path}: {reason}")
+    }
+    pub const NO_REPOS_FOUND: &str = "No repos found.";
+    pub const CLOSE_REPORT: &str = "Close the add result";
+    pub const CLOSE: &str = "Close";
+}
+
+/// The clone dialog (section 6 "Repos", GRP-1, GRP-2, M6-20).
+pub mod clone {
+    pub const TITLE: &str = "Clone a repository";
+    pub const URL: &str = "URL";
+    pub const INTO_FOLDER: &str = "Into folder";
+    pub const NO_FOLDER: &str = "No folder chosen";
+    pub const CHOOSE: &str = "Choose…";
+    pub const CHOOSE_FOLDER: &str = "Choose the folder to clone into";
+    pub const FOLDER_NAME: &str = "Folder name";
+    pub fn clones_into(path: &str) -> String {
+        format!("Clones into {path}")
+    }
+    pub const ADD_TO_GROUP: &str = "Add to group";
+    pub const NO_GROUP: &str = "None";
+    pub const NEW_GROUP: &str = "New group…";
+    pub const GROUP_NAME: &str = "Group name";
+    pub const CLONE: &str = "Clone";
+    pub const STOPPED: &str = "The app is shutting down.";
+}
+
+/// The missing repos dialog (DATA-2, M6-20).
+pub mod missing_repos {
+    pub const TITLE: &str = "Missing repositories";
+    pub const LOOKING: &str = "Looking for missing repositories…";
+    pub const NONE: &str = "No repository of this workspace is missing.";
+    pub const INTRO: &str =
+        "These repositories are not on this computer. Clone them from their remotes:";
+    pub const NO_REMOTE: &str = "No remote to clone from";
+    pub fn choose_folder(repo: &str) -> String {
+        format!("Choose the folder for {repo}")
+    }
+    pub fn folder_name(repo: &str) -> String {
+        format!("Folder name for {repo}")
+    }
+    pub const CLONING: &str = "Cloning…";
+    pub const CLONED: &str = "Cloned";
+    pub fn failed(why: &str) -> String {
+        format!("Failed: {why}")
+    }
+    pub const CLONE_FAILED: &str = "the clone failed";
+    pub const CLONE_SELECTED: &str = "Clone selected";
+    pub const CLOSE: &str = "Close";
+}
+
+/// What an export or an import reports (DATA-2, M6-20).
+pub mod share {
+    pub const EXPORT_FAILED: &str = "the export failed";
+    pub const IMPORT_FAILED: &str = "the import failed";
+    /// The export's report; `absolute` are the repos no relative path
+    /// reaches.
+    pub fn exported(path: &str, absolute: &[String]) -> String {
+        if absolute.is_empty() {
+            format!("Exported the workspace to {path}.")
+        } else {
+            format!(
+                "Exported the workspace to {path}. No relative path reaches these repos, so they stay absolute: {}.",
+                absolute.join(", ")
+            )
+        }
+    }
+}
+
+/// M6-21: the group dialogs, ported from rc.1's `strings.groups` (D15).
+pub mod groups {
+    pub const NEW_DIALOG: &str = "New group";
+    pub const CREATE: &str = "Create";
+    pub fn rename_dialog(group: &str) -> String {
+        format!("Rename {group}")
+    }
+    pub const RENAME: &str = "Rename";
+    pub fn delete_dialog(group: &str) -> String {
+        format!("Delete the group {group}?")
+    }
+    pub const DELETE: &str = "Delete";
+    pub const DELETE_WHAT: &str =
+        "Its repositories stay in the workspace. Nothing on disk is touched.";
+    pub const STOPPED: &str = "The request did not finish";
+}

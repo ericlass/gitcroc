@@ -61,6 +61,8 @@ proc-macro2 = { workspace = true, features = ["span-locations"] }
 toml.workspace = true
 # Fixture repos for the tree (QA-2).
 repo-gen.workspace = true
+# Folders as the core names them, without Windows' `\\?\` (M6-20).
+dunce.workspace = true
 
 [lints]
 workspace = true

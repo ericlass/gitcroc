@@ -6,6 +6,7 @@
 //! (UI-29). Everything shown comes from the core; this lays it out and
 //! forwards input.
 
+use crate::add_menu::{AddMenu, AddReportView};
 use crate::branch_dialog::{AskBranch, BranchMode};
 use crate::row_context::{AskRowMenu, RowChoice};
 use crate::row_menus::{self, TreeAction as A};
@@ -31,11 +32,15 @@ use gpui_kit::{
     canvas, div, percentage, point, px, svg, uniform_list,
 };
 
+use crate::groups;
 use crate::icons;
+
+mod group_drag;
 use crate::services::Services;
 use crate::strings::{self, tree as text};
 use crate::theme::ActiveTokens;
 use crate::tree::{Row, RowKind, Tree, repo_of};
+pub use group_drag::DraggedRow;
 
 actions!(
     tree,
@@ -119,6 +124,13 @@ pub struct TreePane {
     heard: Option<Vec<SummaryView>>,
     row_bounds: Rc<RefCell<HashMap<usize, Bounds<Pixels>>>>,
     operation_error: Option<SharedString>,
+    /// The add menu and what the last add did (GRP-1).
+    add_menu: Entity<AddMenu>,
+    add_report: Entity<AddReportView>,
+    /// A cloned repo to select once its row is shown.
+    pending_select: Option<RepoId>,
+    /// A row being dragged onto another (UI-7).
+    drag: Option<group_drag::Drag>,
     _filter_events: Subscription,
 }
 
@@ -139,6 +151,12 @@ impl TreePane {
                 this.set_filter(value, cx);
             }
         });
+        let add_report = cx.new(|_| AddReportView::default());
+        let add_menu = {
+            let (services, workspace_id, report) =
+                (services.clone(), workspace_id.clone(), add_report.clone());
+            cx.new(|cx| AddMenu::new(services, workspace_id, report, cx))
+        };
         let mut this = Self {
             services,
             workspace_id,
@@ -150,6 +168,10 @@ impl TreePane {
             heard: None,
             row_bounds: Rc::default(),
             operation_error: None,
+            add_menu,
+            add_report,
+            pending_select: None,
+            drag: None,
             _filter_events: filter_events,
         };
         this.read_tree(cx);
@@ -176,9 +198,42 @@ impl TreePane {
         self.tree.selected_item()
     }
 
+    /// The add menu beside the filter box.
+    pub fn add_menu(&self) -> &Entity<AddMenu> {
+        &self.add_menu
+    }
+
+    /// What the last add did.
+    pub fn add_report(&self) -> &Entity<AddReportView> {
+        &self.add_report
+    }
+
+    /// Selects the row of a cloned repo, once the tree shows it.
+    fn select_pending(&mut self, cx: &mut Context<Self>) {
+        let Some(repo) = self.pending_select.clone() else {
+            return;
+        };
+        let index = self.rows.iter().position(
+            |row| matches!(row.item(), Some(TreeItem::Repo { repo_id, .. }) if *repo_id == repo),
+        );
+        if let Some(index) = index {
+            self.pending_select = None;
+            self.select_at(index, How::Select, cx);
+        }
+    }
+
     /// Follows the app's events about this workspace.
     pub fn on_event(&mut self, event: &AppEvent, cx: &mut Context<Self>) {
+        self.add_menu
+            .update(cx, |add_menu, cx| add_menu.on_event(event, cx));
         match event {
+            // A clone that ended with its repo in the workspace selects it.
+            AppEvent::CloneReport(report) if report.workspace_id == self.workspace_id => {
+                if let Some(repo) = &report.repo {
+                    self.pending_select = Some(repo.id.clone());
+                    self.select_pending(cx);
+                }
+            }
             AppEvent::RepoSummary(view) if view.workspace_id == self.workspace_id => {
                 match &mut self.heard {
                     Some(heard) => heard.push(view.clone()),
@@ -229,6 +284,11 @@ impl TreePane {
                 this.tree.set_roots(roots.map_err(|error| error.message));
                 this.changed(cx);
                 this.refilter(cx);
+                this.select_pending(cx);
+                // Members may have joined or left: the Branches nodes
+                // count again (UI-5).
+                let counts = this.tree.group_loads();
+                this.reload(counts, cx);
             });
         })
         .detach();
@@ -596,11 +656,21 @@ impl TreePane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_at(index, How::Select, cx);
+        // A repo row of a multi-selection keeps it: its group entries act
+        // on every selected repo (UI-6, GRP-5).
+        let keeps = self.tree.is_multi()
+            && self
+                .rows
+                .get(index)
+                .is_some_and(|row| row.is_repo() && self.tree.is_selected(&row.id));
+        if !keeps {
+            self.select_at(index, How::Select, cx);
+        }
         window.focus(&self.focus, cx);
         let Some(item) = self.rows.get(index).and_then(|row| row.item()) else {
             return;
         };
+        let (groups, chosen) = self.group_context(item);
         let repo = repo_of(item).cloned();
         let view = repo.as_ref().and_then(|repo| self.tree.summary(repo));
         let entries = row_menus::tree_menu(
@@ -625,6 +695,11 @@ impl TreePane {
         let items = entries
             .into_iter()
             .map(|entry| {
+                if let Some(group) = groups::group_entry(entry.action, item, &groups, &chosen) {
+                    let disabled = entry.item.disabled || group.disabled;
+                    let shown = entry.item.disabled(disabled).submenu(group.submenu);
+                    return (shown, group.choice);
+                }
                 let mode = match entry.action {
                     A::Create => Some(BranchMode::Create {
                         start: revision
@@ -724,7 +799,7 @@ impl TreePane {
                     .or_else(|| {
                         matches!(
                             entry.action,
-                            A::OpenFileManager | A::OpenTerminal | A::RemoveRepo
+                            A::OpenFileManager | A::OpenTerminal | A::RemoveRepo | A::CloneMissing
                         )
                         .then_some(RowChoice::Repo(entry.action))
                     });
@@ -1120,7 +1195,8 @@ impl TreePane {
             .filter(|_| row.is_repo())
             .and_then(|repo| self.tree.summary(repo))
             .is_none_or(|view| view.stale);
-        base.role(Role::TreeItem)
+        let row_element = base
+            .role(Role::TreeItem)
             .aria_label(label.clone())
             .aria_level(row.depth + 1)
             .aria_selected(selected)
@@ -1157,7 +1233,8 @@ impl TreePane {
                 this.click(index, event, window, cx);
             }))
             .child(chevron)
-            .children(content)
+            .children(content);
+        self.with_drag(row_element, index, &id, label, item, cx)
             .into_any_element()
     }
 
@@ -1176,6 +1253,7 @@ impl TreePane {
 
 impl Render for TreePane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.end_drag_if_over(cx);
         let tokens = *cx.tokens();
         let error = self.tree.error().map(|error| {
             let error = text::cannot_read(error);
@@ -1191,13 +1269,27 @@ impl Render for TreePane {
         });
         let body = if self.tree.is_empty() {
             div()
-                .id("tree-empty")
-                .test_support()
-                .role(Role::Label)
-                .aria_label(text::EMPTY)
                 .p_3()
+                .flex()
+                .flex_col()
+                .gap_1()
                 .text_color(tokens.text_secondary)
-                .child(text::EMPTY)
+                .child(
+                    div()
+                        .id("tree-empty")
+                        .test_support()
+                        .role(Role::Label)
+                        .aria_label(text::EMPTY)
+                        .child(text::EMPTY),
+                )
+                .child(
+                    div()
+                        .id("tree-empty-hint")
+                        .test_support()
+                        .role(Role::Label)
+                        .aria_label(strings::add_repos::EMPTY_HINT)
+                        .child(strings::add_repos::EMPTY_HINT),
+                )
                 .into_any_element()
         } else {
             uniform_list(
@@ -1219,13 +1311,24 @@ impl Render for TreePane {
             .flex_col()
             .text_sm()
             .child(
-                div().flex_shrink_0().p_1().child(
-                    Input::new(&self.filter)
-                        .id("tree-filter")
-                        .aria_label(text::FILTER)
-                        .cleanable(true),
-                ),
+                div()
+                    .flex_shrink_0()
+                    .p_1()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        div().flex_1().min_w_0().child(
+                            Input::new(&self.filter)
+                                .id("tree-filter")
+                                .aria_label(text::FILTER)
+                                .cleanable(true),
+                        ),
+                    )
+                    .child(self.add_menu.clone()),
             )
+            .child(self.add_report.clone())
             .children(error)
             .children(crate::dialog::refusal(&self.operation_error, cx))
             .child(

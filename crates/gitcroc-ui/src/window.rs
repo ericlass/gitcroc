@@ -27,9 +27,11 @@ use gpui_kit::{
 };
 use tokio::sync::broadcast::error::RecvError;
 
+use crate::add_menu::AskClone;
 use crate::askpass::AskpassDialog;
 use crate::branch_dialog::{AskBranch, BranchDialog, BranchMode};
 use crate::changes_pane::{AskDiscard, ChangesPane, ChangesPrefs};
+use crate::clone_dialog::CloneDialog;
 use crate::dialog::{Closed, Modal, NameDialog, Question};
 use crate::discard_dialog::DiscardDialog;
 use crate::git_setup::GitSetup;
@@ -41,10 +43,12 @@ use crate::keys::{
     PreviousRegion, PreviousTab, Zoom,
 };
 use crate::menu::{Menu, MenuEvent};
+use crate::missing_repos::MissingReposDialog;
 use crate::panes::Panes;
 use crate::row_context::{AskRowMenu, RowChoice};
 use crate::row_menus::TreeAction;
 use crate::services::Services;
+use crate::share::ShareNotice;
 use crate::status_bar::{ShowJobs, ShowUpdate, StatusBar};
 use crate::strings;
 use crate::tab_bar::{TabBar, TabBarEvent};
@@ -148,6 +152,8 @@ pub struct GitcrocWindow {
     operation_events: Option<Subscription>,
     /// Why the core refused a tab change, until dismissed.
     refused: Option<SharedString>,
+    /// What the last export or import said, until dismissed (DATA-2).
+    share_notice: Option<ShareNotice>,
     /// The note on workspace files not found at start was dismissed (UI-33).
     missing_dismissed: bool,
     git: Git,
@@ -254,6 +260,7 @@ impl GitcrocWindow {
             aborts: HashMap::new(),
             operation_events: None,
             refused: None,
+            share_notice: None,
             missing_dismissed: false,
             git: Git::default(),
             git_setup: None,
@@ -361,6 +368,18 @@ impl GitcrocWindow {
             Ok(AppEvent::WorkspaceChanged(view)) => {
                 self.workspaces
                     .update(cx, |workspaces, cx| workspaces.set_view(view, cx));
+            }
+            // How an export or import ended (DATA-2).
+            Ok(
+                event @ (AppEvent::WorkspaceExported { .. } | AppEvent::WorkspaceImported { .. }),
+            ) => {
+                if let Some(heard) = crate::share::hear(&event) {
+                    self.share_notice = heard.notice;
+                    if let Some(workspace) = heard.missing {
+                        self.open_missing(workspace, None, window, cx);
+                    }
+                    cx.notify();
+                }
             }
             // Events were dropped: what the window shows is read again.
             Err(RecvError::Lagged(_)) => {
@@ -482,6 +501,11 @@ impl GitcrocWindow {
                 .detach();
                 cx.subscribe_in(&tree, window, |this, _, ask: &AskBranch, window, cx| {
                     this.ask_branch(ask.clone(), window, cx)
+                })
+                .detach();
+                let add_menu = tree.read(cx).add_menu().clone();
+                cx.subscribe_in(&add_menu, window, |this, _, ask: &AskClone, window, cx| {
+                    this.open_clone(ask.clone(), window, cx)
                 })
                 .detach();
                 // Toolbar availability and retained-stash offers follow selection and summaries.
@@ -736,10 +760,12 @@ impl GitcrocWindow {
                 .detach();
             }
             Choice::Import => {
+                self.share_notice = None;
                 let sent = Workspaces::import(&workspaces, cx);
                 self.refuse_with(sent, strings::workspaces::cannot_import, cx);
             }
             Choice::Export(id) => {
+                self.share_notice = None;
                 let sent = Workspaces::export(&workspaces, id, cx);
                 self.refuse_with(sent, strings::workspaces::cannot_export, cx);
             }
@@ -880,6 +906,13 @@ impl GitcrocWindow {
             {
                 this.row_choice(open.request.clone(), choice.clone(), window, cx);
             }
+            // An item of a second menu, such as Add to group's (M6-21).
+            if let MenuEvent::ChosenIn(at, sub) = event
+                && let Some((_, Some(RowChoice::Submenu(choices)))) = open.request.items.get(*at)
+                && let Some(Some(choice)) = choices.get(*sub)
+            {
+                this.row_choice(open.request.clone(), choice.clone(), window, cx);
+            }
         });
         menu.update(cx, |menu, cx| menu.focus_first(window, cx));
         self.row_menu = Some(OpenRowMenu {
@@ -897,6 +930,20 @@ impl GitcrocWindow {
         cx: &mut Context<Self>,
     ) {
         match choice {
+            RowChoice::Group(crate::groups::GroupChoice::Op(op)) => {
+                if let Some(tree) = self.trees.get(&ask.workspace) {
+                    tree.update(cx, |tree, cx| tree.send_group_op(op, cx));
+                }
+            }
+            RowChoice::Group(crate::groups::GroupChoice::Dialog(dialog)) => {
+                use crate::group_dialog::{Made, make};
+                match make(self.services.clone(), ask.workspace, dialog, window, cx) {
+                    Made::Name(dialog) => self.open_dialog(dialog, window, cx),
+                    Made::Question(dialog) => self.open_dialog(dialog, window, cx),
+                }
+            }
+            // The menu opens it.
+            RowChoice::Submenu(_) => {}
             RowChoice::Copy(hash) => {
                 cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(hash))
             }
@@ -919,6 +966,11 @@ impl GitcrocWindow {
             RowChoice::Operation(mode) => {
                 if let Some(repo) = ask.repo {
                     self.ask_operation(ask.workspace, repo, ask.repo_name, mode, window, cx);
+                }
+            }
+            RowChoice::Repo(TreeAction::CloneMissing) => {
+                if let Some(repo) = ask.repo {
+                    self.open_missing(ask.workspace, Some(repo), window, cx);
                 }
             }
             RowChoice::Repo(action) => {
@@ -962,6 +1014,47 @@ impl GitcrocWindow {
                 .detach();
             }
         }
+    }
+
+    /// Opens the clone dialog of `ask`'s workspace, with its groups.
+    fn open_clone(&mut self, ask: AskClone, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let groups = self
+            .workspaces
+            .read(cx)
+            .view(&ask.workspace)
+            .map(|view| view.groups.clone())
+            .unwrap_or_default();
+        let services = self.services.clone();
+        let dialog =
+            cx.new(|cx| CloneDialog::new(services, ask.workspace, groups, ask.parent, window, cx));
+        self.open_dialog(dialog, window, cx);
+    }
+
+    /// Opens the missing repos dialog of `workspace`, with only `focus`
+    /// checked, or every repo with a remote (DATA-2).
+    fn open_missing(
+        &mut self,
+        workspace: WorkspaceId,
+        focus: Option<gitcroc_core::RepoId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let services = self.services.clone();
+        let dialog = cx.new(|cx| MissingReposDialog::new(services, workspace, focus, window, cx));
+        self.open_dialog(dialog, window, cx);
+    }
+
+    /// The dialog over the window, if it is of type `V`.
+    pub fn dialog_of<V: 'static>(&self) -> Option<Entity<V>> {
+        self.dialog
+            .as_ref()
+            .and_then(|open| open.view.clone().downcast::<V>().ok())
     }
 
     /// Shows `dialog` over the window, with the focus in it.
@@ -1486,6 +1579,17 @@ impl GitcrocWindow {
                 refused.clone(),
                 cx.listener(|this, _, _, cx| {
                     this.refused = None;
+                    cx.notify();
+                }),
+                cx,
+            ));
+        }
+        if let Some(notice) = &self.share_notice {
+            notes.push(self.note(
+                "share-notice",
+                notice.text.clone(),
+                cx.listener(|this, _, _, cx| {
+                    this.share_notice = None;
                     cx.notify();
                 }),
                 cx,

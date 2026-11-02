@@ -31,12 +31,17 @@ fn ui_7_tree_row_menus_list_the_valid_operations() {
         group_id: None,
     };
     let entries = tree_menu(&repo, Some("missing"), true);
+    // A missing repo's Clone from remote is no write to it (DATA-2).
+    assert_eq!(entries[0].action, TreeAction::CloneMissing);
     assert!(
         entries
             .iter()
             .filter(|entry| matches!(
                 entry.action,
-                TreeAction::OpenFileManager | TreeAction::OpenTerminal | TreeAction::RemoveRepo
+                TreeAction::OpenFileManager
+                    | TreeAction::OpenTerminal
+                    | TreeAction::RemoveRepo
+                    | TreeAction::CloneMissing
             ))
             .all(|entry| !entry.item.disabled)
     );
@@ -45,9 +50,20 @@ fn ui_7_tree_row_menus_list_the_valid_operations() {
             .iter()
             .filter(|entry| !matches!(
                 entry.action,
-                TreeAction::OpenFileManager | TreeAction::OpenTerminal | TreeAction::RemoveRepo
+                TreeAction::OpenFileManager
+                    | TreeAction::OpenTerminal
+                    | TreeAction::RemoveRepo
+                    | TreeAction::CloneMissing
+                    | TreeAction::AddToGroup
             ))
             .all(|entry| entry.item.disabled)
+    );
+    // The group entries write no repo (GRP-3): a blocked repo keeps them.
+    assert!(
+        entries
+            .iter()
+            .filter(|entry| entry.action == TreeAction::AddToGroup)
+            .all(|entry| !entry.item.disabled)
     );
 }
 
@@ -70,7 +86,15 @@ fn ui_7_tree_menu_entries_match_rc1_row_kinds() {
     };
     let entries = tree_menu(&group, None, false);
     assert_eq!(entries.len(), 14);
-    assert!(entries.iter().all(|entry| entry.item.disabled));
+    // M6-21 enables the membership entries; the group operations wait for
+    // M6-22's preflight.
+    for entry in &entries {
+        let enabled = matches!(
+            entry.action,
+            A::GroupRename | A::GroupDelete | A::NewGroup | A::MoveUp | A::MoveDown
+        );
+        assert_eq!(entry.item.disabled, !enabled, "{:?}", entry.action);
+    }
     let cases = vec![
         (
             TreeItem::RemoteBranch {
@@ -145,6 +169,7 @@ fn ui_7_tree_menu_entries_match_rc1_row_kinds() {
         assert!(
             tree_menu(&row, Some("conflict"), false)
                 .iter()
+                .filter(|entry| entry.action != A::NewGroup)
                 .all(|entry| entry.item.disabled)
         );
     }

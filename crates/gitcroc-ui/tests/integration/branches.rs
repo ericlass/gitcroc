@@ -717,9 +717,14 @@ fn ui_7_tag_menu_creates_a_branch_at_the_tag(cx: &mut TestAppContext) {
 fn ui_7_a_menu_with_only_later_actions_still_closes_from_the_keyboard(cx: &mut TestAppContext) {
     let f = Fixture::start(EVENT_CAPACITY);
     let made = repos(&["api"]);
-    add(&f, &made);
+    let added = add(&f, &made);
+    // A group's branch has only M6-22's entries.
+    let group = crate::history_merged::group(&f, "Both", vec![added[0].1.clone()]);
     let (mut cx, _) = crate::support::main_window(cx, &f);
-    let row = crate::history::tree_row("ungrouped");
+    let node = format!("{}:branches", crate::history_merged::group_node(&group));
+    crate::history::wait_for_element(&mut cx, crate::history::tree_part(&node, "chevron"));
+    click(&mut cx, crate::history::tree_part(&node, "chevron"));
+    let row = crate::history::tree_row(&format!("{node}:ref:main"));
     crate::history::wait_for_element(&mut cx, row.clone());
     cx.update(|window, cx| window.right_click(row, cx));
     cx.run_until_parked();

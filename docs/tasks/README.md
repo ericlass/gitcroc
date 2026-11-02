@@ -201,7 +201,7 @@ The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
 rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
 not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-19 and M6-27 have theirs;
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-21 and M6-27 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
@@ -236,9 +236,9 @@ several pull requests (DEV-4).
 | [M6-19a](M6-19a-conflict-buffer-and-state.md) ([a1](M6-19a1-conflict-buffer-transactions.md), [a2](M6-19a2-conflict-editor-state-and-keys.md)) | Conflict buffer, anchors, take/accept, undo and kept state | M6-02, M6-07, M6-16 |
 | [M6-19b](M6-19b-conflict-presentation.md) ([b1](M6-19b1-conflict-code-colours.md), [b2](M6-19b2-conflict-rows-and-controls.md), [b3](M6-19b3-conflict-cards.md)) | Conflict rows, headers, base/proposal cards and code colours | M6-19a, M6-07, M6-13b |
 | [M6-19c](M6-19c-conflict-flow-and-jobs.md) ([c1](M6-19c1-conflict-banner.md), [c2](M6-19c2-conflict-files-and-resolve.md), [c3](M6-19c3-edited-outside-and-choices.md), [c4](M6-19c4-conflict-lifecycle.md)) | Conflict banner, file switching, choice conflicts, Mark resolved, Abort/Continue | M6-19a, M6-19b, M6-09, M6-14, M6-15b, M6-16, M6-18 |
-| M6-20 | Clone, add folder, missing repos | M6-15b |
-| M6-21 | Groups in the tree, drag between groups, group dialogs | M6-17 |
-| M6-22 | Preflight dialog, result report, group commit | M6-16, M6-21 |
+| [M6-20](M6-20-clone-add-folder-missing-repos.md) | Clone, add folder, missing repos; export and import notices | M6-15b, M6-17 |
+| [M6-21](M6-21-groups-in-the-tree.md) | Group menus and dialogs, drag between groups, Branches node counts | M6-17 |
+| M6-22 | Preflight dialog, result report, group operations and a group branch's double-click, group commit | M6-16, M6-21 |
 | M6-23 † | AI settings, providers, consent, proposals, Resolve all | M6-19c |
 | M6-24 | Command palette and keyboard pass | M6-18 to M6-23 |
 | M6-25 | Accessibility pass, to the bar decided after M6-04 | M6-04, M6-24 |
