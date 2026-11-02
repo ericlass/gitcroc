@@ -577,10 +577,20 @@ async fn plat_3_git_picked_in_a_dialog_is_chosen() {
     };
     started.dialogs.answer(Some(PathBuf::from(&path)));
     started.app.git_pick_path();
+    // `start` may have left the first, unchosen status in the queue when
+    // it saw the state change before its event: wait for the one the pick
+    // reports, not the next status of any kind.
     let status = loop {
-        if let AppEvent::GitStatus(status) = started.events.recv().await.unwrap()
-            && !matches!(status, GitStatus::Checking)
-        {
+        let AppEvent::GitStatus(status) = started.events.recv().await.unwrap() else {
+            continue;
+        };
+        if matches!(
+            &status,
+            GitStatus::Usable {
+                chosen: Some(_),
+                ..
+            }
+        ) {
             break status;
         }
     };
