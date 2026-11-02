@@ -63,6 +63,7 @@ impl TreeAction {
                 | Self::OpenFileManager
                 | Self::OpenTerminal
                 | Self::RemoveRepo
+                | Self::CloneMissing
                 | Self::TagCreate
                 | Self::TagPush
                 | Self::TagDelete
@@ -78,7 +79,7 @@ impl TreeAction {
     fn read_only(self) -> bool {
         matches!(
             self,
-            Self::OpenFileManager | Self::OpenTerminal | Self::RemoveRepo
+            Self::OpenFileManager | Self::OpenTerminal | Self::RemoveRepo | Self::CloneMissing
         )
     }
 }

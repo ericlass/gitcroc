@@ -2,11 +2,13 @@
 //! `gitcroc-app`, with no source of truth and no business logic of their
 //! own (ARCH-6). `gitcroc-next` runs it until M6-30.
 
+pub mod add_menu;
 pub mod askpass;
 pub mod banner;
 pub mod branch_dialog;
 pub mod changes;
 pub mod changes_pane;
+pub mod clone_dialog;
 pub mod commit;
 pub mod commit_box;
 pub mod conflict;
@@ -26,6 +28,7 @@ pub mod jobs;
 pub mod keys;
 pub mod menu;
 pub mod menus;
+pub mod missing_repos;
 pub mod operation_dialog;
 pub mod panes;
 #[cfg(feature = "perf-trace")]
@@ -33,6 +36,7 @@ pub mod perf;
 pub mod row_context;
 pub mod row_menus;
 pub mod services;
+pub mod share;
 pub mod special_diff;
 pub mod status_bar;
 pub mod strings;

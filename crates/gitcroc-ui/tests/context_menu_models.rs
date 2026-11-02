@@ -31,12 +31,17 @@ fn ui_7_tree_row_menus_list_the_valid_operations() {
         group_id: None,
     };
     let entries = tree_menu(&repo, Some("missing"), true);
+    // A missing repo's Clone from remote is no write to it (DATA-2).
+    assert_eq!(entries[0].action, TreeAction::CloneMissing);
     assert!(
         entries
             .iter()
             .filter(|entry| matches!(
                 entry.action,
-                TreeAction::OpenFileManager | TreeAction::OpenTerminal | TreeAction::RemoveRepo
+                TreeAction::OpenFileManager
+                    | TreeAction::OpenTerminal
+                    | TreeAction::RemoveRepo
+                    | TreeAction::CloneMissing
             ))
             .all(|entry| !entry.item.disabled)
     );
@@ -45,7 +50,10 @@ fn ui_7_tree_row_menus_list_the_valid_operations() {
             .iter()
             .filter(|entry| !matches!(
                 entry.action,
-                TreeAction::OpenFileManager | TreeAction::OpenTerminal | TreeAction::RemoveRepo
+                TreeAction::OpenFileManager
+                    | TreeAction::OpenTerminal
+                    | TreeAction::RemoveRepo
+                    | TreeAction::CloneMissing
             ))
             .all(|entry| entry.item.disabled)
     );

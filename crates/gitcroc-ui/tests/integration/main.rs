@@ -12,6 +12,7 @@ mod askpass;
 mod background_tabs;
 mod branches;
 mod changes;
+mod clone;
 mod colors;
 mod commit;
 mod conflict;
