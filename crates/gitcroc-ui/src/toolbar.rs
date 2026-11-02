@@ -1,8 +1,9 @@
 //! rc.1 Toolbar.tsx: defaults on the primary buttons, forms on the arrows.
 //! On a group or a multi-selection Fetch, Pull and Push run through the
-//! preflight (section 5, UI-20); Branch and Merge arrive for groups with
-//! M6-22b, and Stash is single-repo only.
+//! preflight (section 5, UI-20); Branch and Merge open the group name
+//! dialog, and Stash is single-repo only.
 use crate::{
+    group_name_dialog::{AskGroupName, NameKind},
     group_ops::SyncKind,
     operation_dialog::{Operation, OperationMode},
     strings::{group_ops as group_text, operations as text},
@@ -148,17 +149,16 @@ impl GitcrocWindow {
                 (Scope::Repo { write, .. }, 3) => *write,
                 (Scope::Repo { write, branch, .. }, 4) => *write && *branch,
                 (Scope::Repo { write, .. }, 5) => *write,
-                // Fetch, Pull and Push run through the preflight; Branch,
-                // Merge and Stash wait for M6-22b or are single-repo only.
-                (Scope::Group { .. }, hit) => hit < 3,
+                // Everything but Stash runs through the preflight, which
+                // skips or blocks each repo that cannot take it (GRP-8).
+                (Scope::Group { .. }, hit) => hit < 5,
                 _ => false,
             };
             let reason = match &scope {
                 Scope::None => text::SINGLE_REPO.to_owned(),
                 Scope::Group { .. } => match at {
-                    0..=2 => label.to_owned(),
                     5 => text::STASH_ONE_REPO.to_owned(),
-                    _ => text::SELECT_REPO.to_owned(),
+                    _ => label.to_owned(),
                 },
                 Scope::Repo {
                     fetch,
@@ -276,8 +276,30 @@ impl GitcrocWindow {
         match scope {
             Scope::None => {}
             Scope::Group {
-                workspace, target, ..
+                workspace,
+                target,
+                name,
             } => {
+                // Branch and Merge open the group name dialog (UI-20).
+                let named = match at {
+                    3 => Some(NameKind::Create),
+                    4 => Some(NameKind::Merge),
+                    _ => None,
+                };
+                if let Some(kind) = named {
+                    self.open_group_name(
+                        AskGroupName {
+                            workspace,
+                            target,
+                            target_name: name,
+                            kind,
+                            name: String::new(),
+                        },
+                        window,
+                        cx,
+                    );
+                    return;
+                }
                 let kind = match at {
                     0 => SyncKind::Fetch,
                     1 => SyncKind::Pull,

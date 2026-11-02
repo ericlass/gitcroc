@@ -139,6 +139,7 @@ impl App {
             workspaces,
             summaries,
             trees: Arc::new(Trees::new()),
+            group_rows: Arc::default(),
         };
         let git = Arc::new(GitSetup::new());
         let watchers = Arc::new(watchers(&hub, &git, &log, &setup.runtime));

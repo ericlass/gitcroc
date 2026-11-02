@@ -266,6 +266,15 @@ impl GroupOp {
     }
 }
 
+/// `revision` checked as a ref or commit to merge or rebase onto: why git
+/// would read it as an option or it names nothing, or `None` (SEC-4). The
+/// group name dialog asks as the user types; the preflight refuses the same.
+pub fn revision_check(revision: &str) -> Option<String> {
+    check_revision(revision)
+        .err()
+        .map(|error| error.to_string())
+}
+
 /// `revision` can name a ref or commit: git would not read it as an
 /// option.
 fn check_revision(revision: &str) -> Result<(), GroupError> {

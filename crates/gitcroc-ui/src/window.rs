@@ -526,6 +526,16 @@ impl GitcrocWindow {
                     this.ask_branch(ask.clone(), window, cx)
                 })
                 .detach();
+                cx.subscribe_in(
+                    &tree,
+                    window,
+                    |this, _, run: &crate::group_ops::RunGroup, _, cx| {
+                        let run = run.clone();
+                        this.group_ops
+                            .update(cx, |ops, cx| ops.run(run.workspace, run.target, run.op, cx));
+                    },
+                )
+                .detach();
                 let add_menu = tree.read(cx).add_menu().clone();
                 cx.subscribe_in(&add_menu, window, |this, _, ask: &AskClone, window, cx| {
                     this.open_clone(ask.clone(), window, cx)
@@ -972,6 +982,36 @@ impl GitcrocWindow {
                 self.group_ops.update(cx, |ops, cx| {
                     ops.run(workspace, target, kind.default_op(), cx)
                 });
+            }
+            RowChoice::Group(crate::groups::GroupChoice::Checkout { group, name }) => {
+                let workspace = ask.workspace.clone();
+                let (target, op) = crate::group_ops::group_checkout(group, name);
+                self.group_ops
+                    .update(cx, |ops, cx| ops.run(workspace, target, op, cx));
+            }
+            RowChoice::Group(crate::groups::GroupChoice::Name { group, kind, name }) => {
+                let target_name = self
+                    .workspaces
+                    .read(cx)
+                    .view(&ask.workspace)
+                    .and_then(|view| {
+                        view.groups
+                            .iter()
+                            .find(|known| known.id == group)
+                            .map(|known| known.name.clone())
+                    })
+                    .unwrap_or_default();
+                self.open_group_name(
+                    crate::group_name_dialog::AskGroupName {
+                        workspace: ask.workspace.clone(),
+                        target: gitcroc_core::TargetSet::Group { group_id: group },
+                        target_name,
+                        kind,
+                        name,
+                    },
+                    window,
+                    cx,
+                );
             }
             RowChoice::Group(crate::groups::GroupChoice::Dialog(dialog)) => {
                 use crate::group_dialog::{Made, make};
@@ -1472,6 +1512,29 @@ impl GitcrocWindow {
             group_ops.update(cx, |ops, cx| ops.run(workspace, target, op, cx));
         });
         let dialog = cx.new(|cx| GroupSyncDialog::new(kind, target_name, run, cx));
+        self.open_dialog(dialog, window, cx);
+    }
+
+    /// Opens the group name dialog of a group operation on X (section 5).
+    pub(crate) fn open_group_name(
+        &mut self,
+        ask: crate::group_name_dialog::AskGroupName,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let group_ops = self.group_ops.clone();
+        let (workspace, target) = (ask.workspace.clone(), ask.target.clone());
+        let run: RunGroupOp = Box::new(move |op, cx| {
+            let (workspace, target) = (workspace.clone(), target.clone());
+            group_ops.update(cx, |ops, cx| ops.run(workspace, target, op, cx));
+        });
+        let services = self.services.clone();
+        let dialog = cx.new(|cx| {
+            crate::group_name_dialog::GroupNameDialog::new(services, ask, run, window, cx)
+        });
         self.open_dialog(dialog, window, cx);
     }
 

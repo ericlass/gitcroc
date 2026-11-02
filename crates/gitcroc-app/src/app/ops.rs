@@ -173,6 +173,12 @@ impl App {
         gitcroc_core::tag_name_check(name)
     }
 
+    /// `revision` checked as a ref to merge or rebase a group onto (SEC-4):
+    /// why it is not one, or `None`.
+    pub fn revision_check(&self, revision: &str) -> Option<String> {
+        gitcroc_core::revision_check(revision)
+    }
+
     /// Resets the current branch of one repo, or a detached `HEAD`, to a
     /// commit as a job (section 6 "Reset", UI-13). Refused for a repo that
     /// is busy, missing or in conflict state (GRP-8). A hard reset sent

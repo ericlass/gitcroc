@@ -2,8 +2,10 @@
 //! old shell sent, on one broadcast channel, and the [`Hub`] that the core's
 //! sinks send through.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use gitcroc_core::{
     AddReport, AiProposalReady, CloneReport, ExportReport, GitRunner, GitStatus, GroupId,
@@ -116,6 +118,23 @@ pub(crate) struct Hub {
     pub(crate) workspaces: Arc<Workspaces>,
     pub(crate) summaries: Arc<Summaries>,
     pub(crate) trees: Arc<Trees>,
+    /// The order of the group rows worked out, so a stale one is not sent
+    /// after a newer one (GRP-4).
+    pub(crate) group_rows: Arc<GroupRows>,
+}
+
+/// The tickets of the group rows: the next to give, and the last sent per
+/// group.
+#[derive(Default)]
+pub(crate) struct GroupRows {
+    next: AtomicU64,
+    sent: Mutex<HashMap<GroupId, u64>>,
+}
+
+/// Group rows worked out with the ticket taken before they were read.
+struct Ticketed {
+    ticket: u64,
+    rows: Vec<GroupSummary>,
 }
 
 impl Hub {
@@ -147,25 +166,49 @@ impl Hub {
     /// Sends the row of each group `changed` is a member of: its branch and
     /// totals follow its members (GRP-4).
     fn group_summaries(&self, changed: &RepoRef) {
-        let Ok(groups) = self.workspaces.groups(&changed.workspace_id) else {
-            return;
-        };
-        let member: Vec<&GroupId> = groups
-            .iter()
+        if let Some(rows) = self.group_rows(changed) {
+            self.send_group_rows(rows);
+        }
+    }
+
+    /// Works out the rows of the groups `changed` is a member of, from the
+    /// summaries stored now, with a ticket taken before they are read.
+    fn group_rows(&self, changed: &RepoRef) -> Option<Ticketed> {
+        let groups = self.workspaces.groups(&changed.workspace_id).ok()?;
+        let member: Vec<GroupId> = groups
+            .into_iter()
             .filter(|group| group.repos.contains(&changed.repo_id))
-            .map(|group| &group.id)
+            .map(|group| group.id)
             .collect();
         if member.is_empty() {
-            return;
+            return None;
         }
-        let Ok(rows) = group_summaries(&self.workspaces, &self.summaries, &changed.workspace_id)
-        else {
-            return;
-        };
-        for row in rows {
-            if member.contains(&&row.group_id) {
-                self.send(AppEvent::GroupSummary(row));
+        let ticket = self.group_rows.next.fetch_add(1, Ordering::SeqCst);
+        let rows = group_summaries(&self.workspaces, &self.summaries, &changed.workspace_id)
+            .ok()?
+            .into_iter()
+            .filter(|row| member.contains(&row.group_id))
+            .collect();
+        Some(Ticketed { ticket, rows })
+    }
+
+    /// Sends `rows`, except a group's row that a row with a later ticket
+    /// was sent for already. Summaries are read in parallel, so rows can
+    /// get here out of order; one with a later ticket was read after every
+    /// summary stored before this one's, so it is never older.
+    fn send_group_rows(&self, rows: Ticketed) {
+        let mut sent = self
+            .group_rows
+            .sent
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for row in rows.rows {
+            let last = sent.entry(row.group_id.clone()).or_insert(rows.ticket);
+            if *last > rows.ticket {
+                continue;
             }
+            *last = rows.ticket;
+            self.send(AppEvent::GroupSummary(row));
         }
     }
 
@@ -197,5 +240,119 @@ impl Hub {
             self.summary_sink(),
         )
         .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use gitcroc_core::{CacheDir, ConfigDir, GroupBranch, JobId, SummaryCache, add_path};
+
+    use super::*;
+
+    /// A config dir and a cache dir in one temporary folder.
+    struct Dirs(repo_gen::Fixture);
+
+    impl ConfigDir for Dirs {
+        fn config_dir(&self) -> Option<PathBuf> {
+            Some(self.0.path().join("config"))
+        }
+    }
+
+    impl CacheDir for Dirs {
+        fn cache_dir(&self) -> Option<PathBuf> {
+            Some(self.0.path().join("cache"))
+        }
+    }
+
+    fn git() -> GitRunner {
+        GitRunner::new(PathBuf::from("git"))
+    }
+
+    fn last_row(events: &mut broadcast::Receiver<AppEvent>) -> Option<GroupSummary> {
+        let mut last = None;
+        while let Ok(event) = events.try_recv() {
+            if let AppEvent::GroupSummary(row) = event {
+                last = Some(row);
+            }
+        }
+        last
+    }
+
+    /// GRP-4: a group's row worked out before a member's newer summary was
+    /// stored is never sent after the row that has it, so the UI's last
+    /// row is the current one. The two reads are interleaved by hand: the
+    /// first row is worked out, then the newer summary is read and sent in
+    /// full, then the first row is sent.
+    #[test]
+    fn grp_4_a_stale_group_row_is_never_sent_after_a_newer_one() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let made = repo_gen::Fixture::new().unwrap();
+        for name in ["api", "web"] {
+            made.repo(name)
+                .unwrap()
+                .commit_file("README.md", "hello\n", "Initial")
+                .unwrap();
+        }
+        let dirs = Dirs(repo_gen::Fixture::new().unwrap());
+        let workspaces = Arc::new(Workspaces::load(&dirs));
+        let summaries = Arc::new(Summaries::load(SummaryCache::open(&dirs), &workspaces));
+        let id = workspaces.views()[0].id.clone();
+        let report = runtime
+            .block_on(add_path(
+                workspaces.clone(),
+                id.clone(),
+                made.path().to_owned(),
+                git(),
+                JobId(1),
+                |_| {},
+            ))
+            .unwrap();
+        let repos: Vec<RepoId> = report.added.into_iter().map(|repo| repo.id).collect();
+        let group = workspaces.create_group(&id, "Backend", &repos).unwrap();
+        let (events, mut heard) = broadcast::channel(EVENT_CAPACITY);
+        let hub = Hub {
+            events,
+            workspaces,
+            summaries,
+            trees: Arc::new(Trees::new()),
+            group_rows: Arc::default(),
+        };
+        runtime.block_on(hub.refresh(id.clone(), repos.clone(), git()));
+        assert_eq!(
+            last_row(&mut heard).map(|row| row.branch),
+            Some(GroupBranch::Branch {
+                name: "main".into()
+            })
+        );
+
+        // The first row is worked out while both members are on main.
+        let api = RepoRef {
+            workspace_id: id.clone(),
+            repo_id: repos[0].clone(),
+        };
+        let stale = hub.group_rows(&api);
+        // Meanwhile web switches, and its summary is read and sent in full.
+        made.repo("web")
+            .unwrap()
+            .git(["switch", "--quiet", "-c", "topic"])
+            .unwrap();
+        runtime.block_on(hub.refresh(id.clone(), vec![repos[1].clone()], git()));
+        let mixed = GroupBranch::Mixed { count: 2 };
+        assert_eq!(
+            last_row(&mut heard).map(|row| row.branch),
+            Some(mixed.clone())
+        );
+
+        // The first row is sent last; it must not take the newer one's place.
+        if let Some(stale) = stale {
+            hub.send_group_rows(stale);
+        }
+        let last = last_row(&mut heard);
+        assert!(
+            last.as_ref().is_none_or(|row| row.branch == mixed),
+            "{last:?} for {group:?}"
+        );
     }
 }

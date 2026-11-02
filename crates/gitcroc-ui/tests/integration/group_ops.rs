@@ -22,7 +22,7 @@ use crate::support::{Fixture, main_window};
 
 /// How a repo's remote is set up.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Remote {
+pub(crate) enum Remote {
     /// A bare origin with `main` pushed and tracked.
     Ok,
     /// A bare origin with `main` pushed, but no upstream set.
@@ -45,15 +45,15 @@ enum Diverge {
     Overwrite,
 }
 
-struct Setup {
-    fixture: Fixture,
-    made: repo_gen::Fixture,
+pub(crate) struct Setup {
+    pub(crate) fixture: Fixture,
+    pub(crate) made: repo_gen::Fixture,
     remotes: tempfile::TempDir,
     added: Vec<(String, RepoId)>,
 }
 
 impl Setup {
-    fn new(specs: &[(&'static str, Remote)]) -> Self {
+    pub(crate) fn new(specs: &[(&'static str, Remote)]) -> Self {
         let names: Vec<&str> = specs.iter().map(|(name, _)| *name).collect();
         let made = repos(&names);
         let remotes = tempfile::tempdir().unwrap();
@@ -95,15 +95,15 @@ impl Setup {
         }
     }
 
-    fn add(&mut self) {
+    pub(crate) fn add(&mut self) {
         self.added = add(&self.fixture, &self.made);
     }
 
-    fn id(&self, name: &str) -> RepoId {
+    pub(crate) fn id(&self, name: &str) -> RepoId {
         id_of(&self.added, name)
     }
 
-    fn origin(&self, name: &str) -> repo_gen::Repo {
+    pub(crate) fn origin(&self, name: &str) -> repo_gen::Repo {
         origin_of(&self.remotes, name)
     }
 
@@ -160,7 +160,7 @@ impl Setup {
             .unwrap();
     }
 
-    fn group(&self, name: &str, members: &[&str]) -> GroupId {
+    pub(crate) fn group(&self, name: &str, members: &[&str]) -> GroupId {
         crate::history_merged::group(
             &self.fixture,
             name,
@@ -168,11 +168,11 @@ impl Setup {
         )
     }
 
-    fn group_node(&self, group: &GroupId) -> String {
+    pub(crate) fn group_node(&self, group: &GroupId) -> String {
         crate::history_merged::group_node(group)
     }
 
-    fn jobs(&self) -> usize {
+    pub(crate) fn jobs(&self) -> usize {
         self.fixture.app().jobs_get().len()
     }
 }
@@ -189,7 +189,7 @@ fn origin_of(remotes: &tempfile::TempDir, name: &str) -> repo_gen::Repo {
 }
 
 /// Opens the main window and selects `group`'s row.
-fn open(
+pub(crate) fn open(
     cx: &mut TestAppContext,
     setup: &Setup,
     group: &GroupId,
@@ -210,7 +210,7 @@ fn prior_jobs(setup: &Setup) -> usize {
 }
 
 #[track_caller]
-fn wait_group_end(
+pub(crate) fn wait_group_end(
     cx: &mut VisualTestContext,
     events: &mut broadcast::Receiver<AppEvent>,
 ) -> JobView {
@@ -229,7 +229,7 @@ fn wait_group_end(
 }
 
 #[track_caller]
-fn wait_preflight(
+pub(crate) fn wait_preflight(
     cx: &mut VisualTestContext,
     events: &mut broadcast::Receiver<AppEvent>,
 ) -> gitcroc_core::PreflightReady {
@@ -245,24 +245,24 @@ fn wait_preflight(
     panic!("no preflight finished");
 }
 
-fn shown(cx: &mut VisualTestContext, id: &str) -> bool {
+pub(crate) fn shown(cx: &mut VisualTestContext, id: &str) -> bool {
     label_of(cx, ElementId::Name(id.to_owned().into())).is_some()
 }
 
-fn focused(cx: &mut VisualTestContext, id: &str) -> bool {
+pub(crate) fn focused(cx: &mut VisualTestContext, id: &str) -> bool {
     cx.update(|window, cx| {
         window.render_frame(cx);
         window.find(ElementId::Name(id.to_owned().into())).focused() == Some(true)
     })
 }
 
-fn preflight_rows(cx: &mut VisualTestContext) -> Vec<String> {
+pub(crate) fn preflight_rows(cx: &mut VisualTestContext) -> Vec<String> {
     labels_in(cx, "preflight-repos".into(), Role::ListItem)
 }
 
 /// Waits until the preflight's result is in its dialog, not just the
 /// checking line.
-fn wait_preflight_ready(cx: &mut VisualTestContext) {
+pub(crate) fn wait_preflight_ready(cx: &mut VisualTestContext) {
     wait_until(cx, |cx| !preflight_rows(cx).is_empty());
 }
 
@@ -300,7 +300,7 @@ fn silent_host(setup: &Setup) -> String {
     url
 }
 
-fn head(repo: &repo_gen::Repo) -> String {
+pub(crate) fn head(repo: &repo_gen::Repo) -> String {
     repo.git(["rev-parse", "HEAD"]).unwrap().trim().to_owned()
 }
 
@@ -308,7 +308,7 @@ fn file(repo: &repo_gen::Repo, path: &str) -> String {
     std::fs::read_to_string(repo.path().join(path)).unwrap()
 }
 
-fn ref_exists(repo: &repo_gen::Repo, reference: &str) -> bool {
+pub(crate) fn ref_exists(repo: &repo_gen::Repo, reference: &str) -> bool {
     repo.git(["rev-parse", "--verify", "--quiet", reference])
         .is_ok()
 }

@@ -905,7 +905,6 @@ pub mod tree_menu {
     pub const APPLY: &str = "Apply";
     pub const POP: &str = "Pop";
     pub const DROP: &str = "Drop…";
-    pub const NOT_AVAILABLE: &str = "Not available yet";
     pub const ONE_REPO: &str = "Select commits from one repository";
 }
 
@@ -1489,6 +1488,61 @@ pub mod group_ops {
         pub fn action_in(action: &str, count: u32) -> String {
             format!("{action} in {}", plural(count, "repo", "repos"))
         }
+    }
+
+    /// M6-22b: the group operations on a name X typed or picked once
+    /// (section 5), from rc.1's `strings.groupOps`.
+    pub mod names {
+        /// The dialog's title, with what it runs on.
+        pub fn checkout_title(target: &str) -> String {
+            format!("Check out a branch in {target}")
+        }
+        pub fn create_title(target: &str) -> String {
+            format!("New branch in {target}")
+        }
+        pub fn delete_title(target: &str) -> String {
+            format!("Delete a branch in {target}")
+        }
+        pub fn merge_title(target: &str) -> String {
+            format!("Merge into the current branch in {target}")
+        }
+        pub fn rebase_title(target: &str) -> String {
+            format!("Rebase the current branch in {target}")
+        }
+        pub fn tag_title(target: &str) -> String {
+            format!("New tag in {target}")
+        }
+        pub const CHECK_OUT: &str = "Check out";
+        pub const CREATE: &str = "Create";
+        pub const DELETE: &str = "Delete";
+        pub const MERGE: &str = "Merge";
+        pub const REBASE: &str = "Rebase";
+        pub const TAG: &str = "Tag";
+        pub const REF: &str = "Branch, tag or commit";
+        pub const BRANCH: &str = "Branch";
+        pub const KNOWN: &str = "The group's branches";
+        pub const OPERATION: &str = "Operation";
+        pub const MERGE_IT: &str = "Merge it into the current branch";
+        pub const REBASE_ONTO: &str = "Rebase the current branch onto it";
+        pub const WHERE_MISSING: &str = "Where the branch does not exist";
+        pub const MISSING_SKIP: &str = "Skip the repository";
+        pub const MISSING_DEFAULT: &str = "Switch to its default branch";
+        pub const MISSING_CREATE: &str = "Create the branch from HEAD";
+        pub const CREATE_SKIPS: &str = "A repository where the branch exists already, or the start point does not, is skipped.";
+        pub const FORCE: &str = "Force: delete it even if it is not merged";
+        pub const ON_REMOTE: &str = "Also delete it on the remote of its upstream, else on origin";
+        pub const FAST_FORWARD: &str = "Fast-forward";
+        pub const FF_CONFIG: &str = "As git config says";
+        pub const FF_ONLY: &str = "Fast-forward only";
+        pub const NO_FF: &str = "Always create a merge commit";
+        pub const TAG_KIND: &str = "Kind";
+        pub const ANNOTATED: &str = "Annotated, with a message";
+        pub const LIGHTWEIGHT: &str = "Lightweight";
+        pub const MESSAGE: &str = "Message";
+        pub const PUSH_TAG: &str = "Push the tag after creating it";
+        pub const TAG_SKIPS: &str = "Each repository is tagged at its own HEAD; one where the tag exists already is skipped.";
+        pub const PREDICTS_CONFLICTS: &str = "The preflight predicts conflicts; a repository where git stops in conflicts is resolved on its own.";
+        pub const CANNOT_READ_BRANCHES: &str = "Cannot read the group's branches";
     }
 
     /// A repo's class in the preflight.

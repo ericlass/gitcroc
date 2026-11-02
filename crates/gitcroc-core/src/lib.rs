@@ -84,7 +84,7 @@ pub use gitcroc_git::{
 };
 pub use group::{
     Class, GroupBranch, GroupError, GroupOp, GroupOperation, GroupOps, GroupSummary, MissingBranch,
-    PreflightId, PreflightReady, RepoClass, RunFuture, group_summaries,
+    PreflightId, PreflightReady, RepoClass, RunFuture, group_summaries, revision_check,
 };
 pub use history::{
     COMMIT_GRAPH_THRESHOLD, CommitGraphError, CommitGraphWrite, Histories, HistoryPageError,

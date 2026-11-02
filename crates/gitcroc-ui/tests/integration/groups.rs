@@ -8,7 +8,6 @@
 use gitcroc_app::app::EVENT_CAPACITY;
 use gitcroc_core::{GroupId, RepoId, TargetSet};
 use gitcroc_ui::groups::groups_of;
-use gitcroc_ui::strings;
 use gitcroc_ui::window::GitcrocWindow;
 use gpui_kit::test::{TestEventExt, TestWindowExt};
 use gpui_kit::{
@@ -468,18 +467,13 @@ fn ui_7_group_and_repo_context_menus_offer_the_group_operations(cx: &mut TestApp
         "Move down",
     ];
 
-    // M6-22a enables Fetch, Pull and Push; the branch and tag operations
-    // wait for M6-22b. Move up and Move down are enabled but at the ends of
-    // the shorter group.
+    // Every group operation is enabled; Move up and Move down are enabled
+    // but at the ends of the shorter group.
     right_click(&mut cx, &backend);
     assert_eq!(menu_labels(&mut cx), group_entries);
     cx.update(|window, _| {
-        for at in 3..9 {
-            assert_eq!(
-                window.find(menu_item(at)).description(),
-                Some(strings::tree_menu::NOT_AVAILABLE),
-                "{at}"
-            );
+        for at in 0..9 {
+            assert_eq!(window.find(menu_item(at)).description(), None, "{at}");
         }
     });
     // The focus goes only to the entries that can be chosen.

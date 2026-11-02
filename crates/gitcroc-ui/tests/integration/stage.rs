@@ -707,10 +707,19 @@ fn grp_9_discard_asks_and_names_the_files(cx: &mut TestAppContext) {
     wait_for_view(&mut cx, &window);
     let wanted: Vec<&str> = names.iter().map(String::as_str).collect();
     wait_for_lists(&mut cx, &window, &[], &wanted);
-    let first = row_of(&mut cx, &window, List::Unstaged, "f01.txt");
-    click(&mut cx, row(first));
-    let last = row_of(&mut cx, &window, List::Unstaged, "f12.txt");
-    click_with(&mut cx, row(last), Modifiers::shift());
+    // Each write wakes the watcher, and a read that lands after the lists
+    // are full can drop the selection; the user selects again, as this does.
+    let mut last = 0;
+    for _ in 0..5 {
+        let first = row_of(&mut cx, &window, List::Unstaged, "f01.txt");
+        click(&mut cx, row(first));
+        last = row_of(&mut cx, &window, List::Unstaged, "f12.txt");
+        click_with(&mut cx, row(last), Modifiers::shift());
+        if marked(&mut cx, &window) == names {
+            break;
+        }
+    }
+    assert_eq!(marked(&mut cx, &window), names);
     click(&mut cx, row_part(last, "discard"));
     wait_for_element(&mut cx, "discard-dialog".into());
     assert_eq!(
