@@ -6,13 +6,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use gitcroc_app::ai::ProviderCalls;
+use gitcroc_ai::{ApiKey, MockGate, MockProvider, Provider, ProviderSpec};
+use gitcroc_app::ai::{BoxFuture, DetectedCli, ModelsResult, ProviderCalls, SelfTest};
 use gitcroc_app::app::{App as GitcrocApp, AppEvent, AppSetup};
 use gitcroc_app::platform::{DesktopFonts, DialogFuture, Dialogs, FileFilter, MemoryKeychain};
 use gitcroc_app::update::{NoUpdates, UpdateTest};
 use gitcroc_core::{
-    CacheDir, ConfigDir, GitStatus, LogDir, PaneLayout, RepoId, UpdateSource, WORKSPACES_DIR,
-    WorkspaceId,
+    CacheDir, ConfigDir, GitStatus, LogDir, PaneLayout, ProviderEntry, ProviderKind, RepoId,
+    UpdateSource, WORKSPACES_DIR, WorkspaceId,
 };
 use std::rc::Rc;
 
@@ -229,6 +230,8 @@ pub struct Options {
     /// Where updates come from, with the package and whether the app
     /// checks; `None` never finds one, as a debug build never checks (D12).
     pub updates: Option<(Arc<dyn UpdateSource>, UpdateTest)>,
+    /// What the AI providers are: the real ones by default.
+    pub ai: AiBackend,
 }
 
 impl Default for Options {
@@ -241,7 +244,122 @@ impl Default for Options {
             commit_graph_threshold: Duration::MAX,
             fsmonitor_threshold: usize::MAX,
             updates: None,
+            ai: AiBackend::ProviderCalls,
         }
+    }
+}
+
+/// What reaches the AI providers in a test.
+pub enum AiBackend {
+    /// The real providers of `gitcroc-ai`.
+    ProviderCalls,
+    /// A fake that answers from a script, reaching no network and no CLI.
+    Script(AiScript),
+}
+
+/// What the fake AI backend answers.
+#[derive(Clone)]
+pub struct AiScript {
+    /// The CLIs detection finds (AI-2).
+    pub detected: Vec<DetectedCli>,
+    /// Every self-test's result.
+    pub self_test: SelfTest,
+    /// Every model list.
+    pub models: ModelsResult,
+    /// What the mock provider of a proposal job replies, in order.
+    pub replies: Vec<String>,
+    /// Offers the mock kind, as the `e2e` build does.
+    pub mock: bool,
+    /// Holds each proposal request until the test releases it through
+    /// [`Fixture::ai_gates`].
+    pub held: bool,
+    /// Holds each model list and self-test until
+    /// [`Fixture::release_ai_answer`], so a test sees one being asked for.
+    pub hold_answers: bool,
+}
+
+impl Default for AiScript {
+    fn default() -> Self {
+        Self {
+            detected: Vec::new(),
+            self_test: SelfTest::Passed {
+                version: Some("1.0.0".to_owned()),
+            },
+            models: ModelsResult::NotOffered,
+            replies: Vec::new(),
+            mock: false,
+            held: false,
+            hold_answers: false,
+        }
+    }
+}
+
+/// The fake behind [`AiBackend::Script`].
+struct ScriptedAi {
+    script: AiScript,
+    /// The gates of held mock providers, one per proposal job.
+    gates: std::sync::Mutex<Vec<MockGate>>,
+    /// Lets one held model list or self-test answer per permit.
+    answers: tokio::sync::Semaphore,
+}
+
+impl ScriptedAi {
+    async fn answer<T>(&self, result: T) -> T {
+        if self.script.hold_answers
+            && let Ok(permit) = self.answers.acquire().await
+        {
+            permit.forget();
+        }
+        result
+    }
+
+    fn mock(&self) -> Box<dyn Provider> {
+        let provider = MockProvider::texts(self.script.replies.clone());
+        if !self.script.held {
+            return Box::new(provider);
+        }
+        let (provider, gate) = provider.held();
+        self.gates.lock().unwrap().push(gate);
+        Box::new(provider)
+    }
+}
+
+impl gitcroc_app::ai::AiBackend for ScriptedAi {
+    fn detect(&self) -> Vec<DetectedCli> {
+        self.script.detected.clone()
+    }
+
+    fn self_test<'a>(&'a self, _: ProviderKind, _: &'a Path) -> BoxFuture<'a, SelfTest> {
+        Box::pin(self.answer(self.script.self_test.clone()))
+    }
+
+    fn list_models<'a>(
+        &'a self,
+        _: &'a ProviderEntry,
+        _: Option<ApiKey>,
+    ) -> BoxFuture<'a, ModelsResult> {
+        Box::pin(self.answer(self.script.models.clone()))
+    }
+
+    fn provider(&self, _: ProviderSpec) -> Result<Box<dyn Provider>, String> {
+        Ok(self.mock())
+    }
+
+    fn kinds(&self) -> Vec<ProviderKind> {
+        let mut kinds = vec![
+            ProviderKind::Anthropic,
+            ProviderKind::Openai,
+            ProviderKind::ClaudeCode,
+            ProviderKind::Codex,
+        ];
+        if self.script.mock {
+            kinds.push(ProviderKind::Mock);
+        }
+        kinds
+    }
+
+    fn mock(&self) -> Result<Box<dyn Provider>, String> {
+        Ok(ScriptedAi::mock(self))
     }
 }
 
@@ -256,6 +374,8 @@ pub struct Fixture {
     pub runtime: Runtime,
     pub services: Services,
     answers: Answers,
+    keychain: Arc<MemoryKeychain>,
+    ai: Option<Arc<ScriptedAi>>,
     dir: tempfile::TempDir,
 }
 
@@ -290,6 +410,19 @@ impl Fixture {
             .unwrap();
         }
         let answers = Answers::default();
+        let keychain = Arc::new(MemoryKeychain::default());
+        let scripted = match options.ai {
+            AiBackend::ProviderCalls => None,
+            AiBackend::Script(script) => Some(Arc::new(ScriptedAi {
+                script,
+                gates: Default::default(),
+                answers: tokio::sync::Semaphore::new(0),
+            })),
+        };
+        let ai: Arc<dyn gitcroc_app::ai::AiBackend> = match &scripted {
+            Some(scripted) => scripted.clone(),
+            None => Arc::new(ProviderCalls),
+        };
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -306,8 +439,8 @@ impl Fixture {
                     queued: answers.clone(),
                     otherwise: options.picked,
                 }),
-                keychain: Arc::new(MemoryKeychain::default()),
-                ai: Arc::new(ProviderCalls),
+                keychain: keychain.clone(),
+                ai,
                 updates: options.updates.as_ref().map_or_else(
                     || Arc::new(NoUpdates) as Arc<dyn UpdateSource>,
                     |(source, _)| source.clone(),
@@ -332,8 +465,40 @@ impl Fixture {
             runtime,
             services,
             answers,
+            keychain,
+            ai: scripted,
             dir,
         }
+    }
+
+    /// Every secret in the keychain (SEC-1).
+    pub fn keychain_secrets(&self) -> Vec<String> {
+        use gitcroc_app::platform::Keychain;
+        let app = self.app().clone();
+        let view = self
+            .runtime
+            .block_on(async move { app.ai_providers_get().await })
+            .unwrap();
+        view.providers
+            .iter()
+            .filter_map(|provider| {
+                let account = gitcroc_app::platform::keychain_account(&provider.id.0);
+                self.keychain.read(&account).unwrap()
+            })
+            .collect()
+    }
+
+    /// The gates of the held mock providers, one per proposal job so far.
+    #[allow(dead_code, reason = "for the Resolve with AI tests of M6-23b")]
+    pub fn ai_gates(&self) -> Vec<MockGate> {
+        let ai = self.ai.as_ref().expect("no scripted AI backend");
+        ai.gates.lock().unwrap().clone()
+    }
+
+    /// Lets one held model list or self-test answer.
+    pub fn release_ai_answer(&self) {
+        let ai = self.ai.as_ref().expect("no scripted AI backend");
+        ai.answers.add_permits(1);
     }
 
     /// Makes the next file dialog answer `picked`; `None` cancels.

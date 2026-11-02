@@ -142,6 +142,8 @@ pub struct GitcrocWindow {
     pending_report: Option<gitcroc_core::JobId>,
     /// The updater's view (PLAT-4).
     updates: Entity<Updates>,
+    /// The AI settings, which every tab reads (AI-16).
+    ai: Entity<crate::ai::Ai>,
     status_bar: Entity<StatusBar>,
     /// Git's prompts waiting for the user, oldest first; the first is on
     /// screen (D10).
@@ -191,6 +193,7 @@ impl GitcrocWindow {
         let group_ops = cx.new(|cx| GroupOps::new(services.clone(), cx));
         let tab_bar = cx.new(|cx| TabBar::new(workspaces.clone(), jobs.clone(), cx));
         let updates = cx.new(|cx| Updates::new(services.clone(), cx));
+        let ai = cx.new(|cx| crate::ai::Ai::new(services.clone(), cx));
         let status_bar = cx.new(|cx| StatusBar::new(jobs.clone(), updates.clone(), cx));
         let title_bar = cx.new(|_| TitleBar::new(controls.clone(), platform, system_title_bar));
         let mut events = services.app().subscribe();
@@ -263,6 +266,7 @@ impl GitcrocWindow {
             pending_repo_select: None,
             pending_report: None,
             updates,
+            ai,
             status_bar,
             prompts: VecDeque::new(),
             askpass: None,
@@ -346,6 +350,11 @@ impl GitcrocWindow {
         self.updates.update(cx, |updates, cx| match &event {
             Ok(event) => updates.on_event(event, cx),
             Err(RecvError::Lagged(_)) => updates.read_again(cx),
+            Err(RecvError::Closed) => {}
+        });
+        self.ai.update(cx, |ai, cx| match &event {
+            Ok(event) => ai.on_event(event, cx),
+            Err(RecvError::Lagged(_)) => ai.read_again(cx),
             Err(RecvError::Closed) => {}
         });
         match event {
@@ -587,8 +596,9 @@ impl GitcrocWindow {
                 && let Some(history) = self.histories.get(&active).cloned()
             {
                 let services = self.services.clone();
-                let changes =
-                    cx.new(|cx| ChangesPane::new(services, active.clone(), history, window, cx));
+                let ai = self.ai.clone();
+                let changes = cx
+                    .new(|cx| ChangesPane::new(services, active.clone(), history, ai, window, cx));
                 // It ends with the pane, which the window outlives.
                 cx.subscribe_in(
                     &changes,
@@ -1144,6 +1154,32 @@ impl GitcrocWindow {
         }
         let services = self.services.clone();
         let dialog = cx.new(|cx| MissingReposDialog::new(services, workspace, focus, window, cx));
+        self.open_dialog(dialog, window, cx);
+    }
+
+    /// The AI settings, as every tab reads them (AI-16).
+    pub fn ai(&self) -> &Entity<crate::ai::Ai> {
+        &self.ai
+    }
+
+    /// Opens the Settings dialog at `at`, or shows that tab of the one
+    /// already open and focuses it.
+    pub fn open_settings(
+        &mut self,
+        at: crate::settings_dialog::SettingsTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::settings_dialog::SettingsDialog;
+        if let Some(open) = self.dialog_of::<SettingsDialog>() {
+            open.update(cx, |dialog, cx| dialog.show(at, window, cx));
+            return;
+        }
+        if self.dialog.is_some() {
+            return;
+        }
+        let (services, ai) = (self.services.clone(), self.ai.clone());
+        let dialog = cx.new(|cx| SettingsDialog::new(&services, ai, at, window, cx));
         self.open_dialog(dialog, window, cx);
     }
 
