@@ -554,7 +554,8 @@ fn ui_20_branch_and_merge_open_the_group_dialogs(cx: &mut TestAppContext) {
 /// preflight that runs on them.
 #[gpui::test]
 fn sec_3_branch_names_render_as_text(cx: &mut TestAppContext) {
-    let name = "<i>&amp;";
+    // Markup that Windows can keep in a loose ref's file name: no < or >.
+    let name = "&lt;i&gt;&amp;";
     let (setup, group) = mixed(Remote::None);
     repo(&setup.made, "api").branch(name).unwrap();
     let (mut cx, _window) = open(cx, &setup, &group);
