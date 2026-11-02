@@ -707,7 +707,7 @@ fn grp_10_cancel_reports_skipped_cancelled(cx: &mut TestAppContext) {
     let mut setup = Setup::new(&[("api", Remote::Ok), ("web", Remote::Ok)]);
     setup.add();
     let group = setup.group("Backend", &["api", "web"]);
-    let (mut cx, _window) = open(cx, &setup, &group);
+    let (mut cx, window) = open(cx, &setup, &group);
     // A method that sets both remotes after the setup help their upstream.
     {
         let host = silent_host(&setup);
@@ -718,24 +718,16 @@ fn grp_10_cancel_reports_skipped_cancelled(cx: &mut TestAppContext) {
 
     let mut events = setup.fixture.app().subscribe();
     click(&mut cx, "toolbar-0".into());
-    // Wait until the job runs, then cancel it in the job list (UI-21).
-    let mut running = None;
-    for _ in 0..3000 {
-        cx.run_until_parked();
-        if let Some(job) = setup
-            .fixture
-            .app()
-            .jobs_get()
-            .into_iter()
-            .find(|job| job.label.starts_with("Fetch · Backend"))
-            && job.state == JobState::Running
-        {
-            running = Some(job);
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(running.is_some(), "the fetch never ran");
+    // Wait until the window has the job running, for the status bar and the
+    // list, and the checking dialog is gone, then cancel in the list (UI-21).
+    wait_until(&mut cx, |cx| {
+        cx.update(|_, cx| {
+            window.read(cx).jobs().read(cx).jobs().any(|job| {
+                job.label.starts_with("Fetch · Backend") && job.state == JobState::Running
+            })
+        })
+    });
+    wait_until(&mut cx, |cx| !shown(cx, "preflight"));
     open_job_list(&mut cx);
     click(&mut cx, "job-cancel".into());
     let job = wait_group_end(&mut cx, &mut events);
