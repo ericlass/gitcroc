@@ -156,9 +156,6 @@ fn ui_5_double_click_on_a_group_branch_starts_a_group_checkout(cx: &mut TestAppC
     let (setup, group) = mixed(Remote::None);
     let (mut cx, _window) = open(cx, &setup, &group);
     let row = branch_row(&mut cx, &setup, &group, "topic");
-    // The rows the first reads sent can arrive out of order; a refresh
-    // sends them again from the read summaries.
-    setup.fixture.refresh(&setup.fixture.active());
     wait_until(&mut cx, |cx| {
         label_of(cx, tree_part(&setup.group_node(&group), "branch")).as_deref() == Some("mixed (2)")
     });

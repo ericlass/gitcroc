@@ -122,6 +122,12 @@ pub struct TreePane {
     scroll: UniformListScrollHandle,
     /// Summaries heard while the first read runs, applied after it.
     heard: Option<Vec<SummaryView>>,
+    /// Tree reads still running, and the group rows heard since the first
+    /// of them started: a read replaces the rows, and one heard meanwhile
+    /// may be newer than what the read saw, so they are applied again
+    /// after it (GRP-4).
+    tree_reads: usize,
+    heard_groups: Vec<GroupSummary>,
     row_bounds: Rc<RefCell<HashMap<usize, Bounds<Pixels>>>>,
     operation_error: Option<SharedString>,
     /// The add menu and what the last add did (GRP-1).
@@ -167,6 +173,8 @@ impl TreePane {
             filter,
             scroll: UniformListScrollHandle::new(),
             heard: None,
+            tree_reads: 0,
+            heard_groups: Vec::new(),
             row_bounds: Rc::default(),
             operation_error: None,
             add_menu,
@@ -178,6 +186,11 @@ impl TreePane {
         this.read_tree(cx);
         this.read_summaries(cx);
         this
+    }
+
+    /// Whether a tree read is still running, for the tests.
+    pub fn reading_tree(&self) -> bool {
+        self.tree_reads > 0
     }
 
     pub fn tree(&self) -> &Tree {
@@ -243,6 +256,9 @@ impl TreePane {
                 self.changed(cx);
             }
             AppEvent::GroupSummary(summary) if summary.workspace_id == self.workspace_id => {
+                if self.tree_reads > 0 {
+                    self.heard_groups.push(summary.clone());
+                }
                 self.tree.set_group(summary.clone());
                 self.changed(cx);
             }
@@ -277,12 +293,23 @@ impl TreePane {
         let call = self
             .services
             .with_app(|app| async move { app.tree_get(&id) });
+        self.tree_reads += 1;
         cx.spawn(async move |this, cx| {
-            let Some(roots) = call.await else {
-                return;
-            };
+            let roots = call.await;
             let _ = this.update(cx, |this, cx| {
+                this.tree_reads = this.tree_reads.saturating_sub(1);
+                let heard = if this.tree_reads == 0 {
+                    std::mem::take(&mut this.heard_groups)
+                } else {
+                    this.heard_groups.clone()
+                };
+                let Some(roots) = roots else {
+                    return;
+                };
                 this.tree.set_roots(roots.map_err(|error| error.message));
+                for row in heard {
+                    this.tree.set_group(row);
+                }
                 this.changed(cx);
                 this.refilter(cx);
                 this.select_pending(cx);
