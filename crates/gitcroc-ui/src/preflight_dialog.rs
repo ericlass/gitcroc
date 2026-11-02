@@ -44,11 +44,24 @@ fn runs(repo: &RepoClass) -> bool {
 }
 
 /// Such as `api: Will skip: no remote`.
+/// What a row says after its class: the reason, and for a commit how many
+/// files the repo commits (GRP-15).
+fn row_detail(repo: &RepoClass) -> String {
+    match (&repo.class, repo.staged_files) {
+        (Class::WillRun, Some(files)) => text::preflight::staged_files(files),
+        (class, Some(files)) => {
+            let reason = text::reason(class).unwrap_or_default();
+            format!("{reason}; {}", text::preflight::staged_files(files))
+        }
+        (class, None) => text::reason(class).unwrap_or_default().to_owned(),
+    }
+}
+
 fn row_label(repo: &RepoClass) -> String {
     let class = text::class(&repo.class);
-    match text::reason(&repo.class) {
-        Some(reason) => format!("{}: {class}: {reason}", repo.repo_name),
-        None => format!("{}: {class}", repo.repo_name),
+    match row_detail(repo) {
+        detail if detail.is_empty() => format!("{}: {class}", repo.repo_name),
+        detail => format!("{}: {class}: {detail}", repo.repo_name),
     }
 }
 
@@ -312,14 +325,7 @@ impl Render for PreflightDialog {
                     .iter()
                     .enumerate()
                     .map(|(at, repo)| {
-                        let detail = match (&repo.class, repo.staged_files) {
-                            (Class::WillRun, Some(files)) => text::preflight::staged_files(files),
-                            (class, Some(files)) => {
-                                let reason = text::reason(class).unwrap_or_default();
-                                format!("{reason}; {}", text::preflight::staged_files(files))
-                            }
-                            (class, None) => text::reason(class).unwrap_or_default().to_owned(),
-                        };
+                        let detail = row_detail(repo);
                         div()
                             .id(gpui_kit::ElementId::Name(
                                 format!("preflight-repo-{at}").into(),

@@ -13,7 +13,7 @@ use gitcroc_app::app::AppError;
 use gitcroc_core::{
     GroupOp, JobId, PreflightId, PreflightReady, Prune, PullStrategy, TargetSet, WorkspaceId,
 };
-use gpui_kit::{Context, SharedString};
+use gpui_kit::{App, Context, SharedString};
 
 use crate::services::{Call, Services};
 use crate::strings::group_ops::sync;
@@ -92,10 +92,16 @@ pub struct PendingPreflight {
     pub error: Option<SharedString>,
 }
 
+/// Told the job's id when the operation it was given with starts, as the
+/// group commit box is, to follow its job (UI-34).
+pub type Started = Box<dyn FnOnce(JobId, &mut App)>;
+
 /// The group operation flow of the window.
 pub struct GroupOps {
     services: Services,
     pending: Option<PendingPreflight>,
+    /// Told when the pending operation's job starts.
+    started: Option<Started>,
     /// Results that arrived before their request's answer, by preflight.
     early: HashMap<PreflightId, PreflightReady>,
     /// Counts requests, so an answer to one the user left is dropped.
@@ -107,6 +113,7 @@ impl GroupOps {
         Self {
             services,
             pending: None,
+            started: None,
             early: HashMap::new(),
             request: 0,
         }
@@ -131,6 +138,20 @@ impl GroupOps {
             app.group_preflight(asked_workspace, target, op).await
         });
         self.begin(workspace, asked, cx);
+    }
+
+    /// Runs `op` as [`Self::run`] does, and tells `started` its job's id
+    /// when it starts; never when the user cancels.
+    pub fn run_then(
+        &mut self,
+        workspace: WorkspaceId,
+        target: TargetSet,
+        op: GroupOp,
+        started: Started,
+        cx: &mut Context<Self>,
+    ) {
+        self.run(workspace, target, op, cx);
+        self.started = Some(started);
     }
 
     /// Retry failed (GRP-11) of ended group job `job`; the core takes its
@@ -159,6 +180,7 @@ impl GroupOps {
     /// when its result arrives after this.
     pub fn cancel(&mut self, cx: &mut Context<Self>) {
         let id = self.pending.take().and_then(|pending| pending.preflight_id);
+        self.started = None;
         self.request += 1;
         self.early.clear();
         if let Some(id) = id {
@@ -198,6 +220,7 @@ impl GroupOps {
         self.request += 1;
         let mine = self.request;
         self.early.clear();
+        self.started = None;
         self.pending = Some(PendingPreflight {
             workspace_id: workspace,
             preflight_id: None,
@@ -274,7 +297,12 @@ impl GroupOps {
                     return;
                 }
                 match answer {
-                    Some(Ok(_)) => this.pending = None,
+                    Some(Ok(job)) => {
+                        this.pending = None;
+                        if let Some(started) = this.started.take() {
+                            started(job, cx);
+                        }
+                    }
                     Some(Err(error)) => {
                         if let Some(pending) = this.pending.as_mut() {
                             pending.starting = false;

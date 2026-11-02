@@ -508,6 +508,28 @@ pub struct Committable {
     pub in_conflict: bool,
 }
 
+/// What the commit box of a group or several repos works with (UI-34).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupCommittable {
+    pub target: TargetSet,
+    /// Repos that can be changed with something staged.
+    pub staged_repos: usize,
+    /// Those and the ones with changed tracked files, which "Stage all
+    /// tracked changes first" commits too.
+    pub tracked_repos: usize,
+}
+
+impl GroupCommittable {
+    /// How many repos Commit commits, as its label says.
+    pub fn repos(&self, stage_all: bool) -> usize {
+        if stage_all {
+            self.tracked_repos
+        } else {
+            self.staged_repos
+        }
+    }
+}
+
 /// The fsmonitor offer of a repo, while it is to be shown (PERF-7).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offer {
@@ -1024,6 +1046,28 @@ impl Changes {
             }),
             _ => None,
         }
+    }
+
+    /// What the commit box of a merged view works with (UI-34).
+    pub fn group_committable(&self) -> Option<GroupCommittable> {
+        let Some(Selection::MergedUncommitted { target }) = &self.selection else {
+            return None;
+        };
+        let ChangesContent::Merged { repos, .. } = &self.view.as_ref()?.content else {
+            return None;
+        };
+        let open = repos.iter().filter(|repo| repo.blocked.is_none());
+        let staged = |repo: &&gitcroc_core::RepoChanges| !repo.staged.is_empty();
+        let tracked = |repo: &&gitcroc_core::RepoChanges| {
+            repo.unstaged
+                .iter()
+                .any(|file| file.status != gitcroc_core::FileStatus::Untracked)
+        };
+        Some(GroupCommittable {
+            target: target.clone(),
+            staged_repos: open.clone().filter(staged).count(),
+            tracked_repos: open.filter(|repo| staged(repo) || tracked(repo)).count(),
+        })
     }
 
     /// The fsmonitor offer of the repo shown, unless it was answered

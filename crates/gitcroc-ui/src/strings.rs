@@ -719,6 +719,17 @@ pub mod changes {
     pub const COMMIT_RUNNING: &str = "A commit of this repository is running";
     pub const IN_CONFLICT: &str = "The repository is in conflict state; Continue makes the commit";
     pub const COMMIT_FAILED: &str = "The commit failed. The job list shows what git said.";
+    /// The commit box of a group or several repos (UI-34).
+    pub fn commit_repos(count: usize) -> String {
+        let count = u32::try_from(count).unwrap_or(u32::MAX);
+        format!("Commit {}", plural(count, "repo", "repos"))
+    }
+    pub const GROUP_COMMIT_OPTIONS: &str = "Group commit options";
+    pub const STAGE_ALL_FIRST: &str = "Stage all tracked changes first";
+    pub const PUSH_AFTER: &str = "Push after commit";
+    pub const GROUP_COMMIT_RUNNING: &str = "A commit of these repositories is running";
+    pub const GROUP_COMMIT_FAILED: &str =
+        "Not every repository committed. The job's report says why.";
     /// The offer to speed up status (PERF-7), naming the keys it turns on.
     pub const FSMONITOR_OFFER: &str = "Status settings offer";
     pub fn fsmonitor_why(keys: &[String]) -> String {

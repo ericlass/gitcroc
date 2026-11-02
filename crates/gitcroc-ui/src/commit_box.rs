@@ -5,14 +5,18 @@
 //! repo of the workspace while the app runs, so it survives switching repos
 //! and tabs (UI-29); [`Drafts`] keeps it. The core composes the message and
 //! refuses what cannot be committed (ARCH-6); this forwards input and shows
-//! the answer.
+//! the answer. For a group or several repos (UI-34) the box keeps one
+//! message per target set, has the group Commit's options above Commit,
+//! names how many repos it commits and has no Amend; Commit asks the
+//! window to run the group Commit through the preflight (GRP-15).
 
 use std::rc::Rc;
 
 use gitcroc_app::app::AppEvent;
-use gitcroc_core::{CommitMessage, CommitRequest, WorkspaceId};
+use gitcroc_core::{CommitMessage, CommitRequest, GroupOp, JobId, WorkspaceId};
 use gpui_component::Disableable;
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -22,8 +26,9 @@ use gpui_kit::{
     relative,
 };
 
-use crate::changes::Committable;
-use crate::commit::{Drafts, Press};
+use crate::changes::{Committable, GroupCommittable};
+use crate::commit::{DraftKey, Drafts, GroupDrafts, GroupOptions, Press};
+use crate::group_ops::RunGroup;
 use crate::services::Services;
 use crate::strings::changes as text;
 use crate::theme::ActiveTokens;
@@ -70,6 +75,9 @@ pub struct CommitBox {
     /// The repo whose changes are shown, while they can be committed.
     target: Option<Committable>,
     drafts: Drafts,
+    /// The group or several repos whose changes are shown (UI-34).
+    group: Option<GroupCommittable>,
+    group_drafts: GroupDrafts,
     subject: Entity<InputState>,
     body: Entity<TextareaState>,
     /// The fields are to show the draft of the shown repo again, as after
@@ -79,6 +87,7 @@ pub struct CommitBox {
 }
 
 impl EventEmitter<ReadAgain> for CommitBox {}
+impl EventEmitter<RunGroup> for CommitBox {}
 
 impl CommitBox {
     pub fn new(
@@ -110,6 +119,8 @@ impl CommitBox {
             workspace_id,
             target: None,
             drafts: Drafts::default(),
+            group: None,
+            group_drafts: GroupDrafts::default(),
             subject,
             body,
             sync: false,
@@ -117,31 +128,77 @@ impl CommitBox {
         }
     }
 
-    /// The repo whose changes are shown, or none; the fields show its
-    /// draft.
-    pub fn set_target(&mut self, target: Option<Committable>, cx: &mut Context<Self>) {
+    /// The repo, or the group or several repos, whose changes are shown,
+    /// or none; the fields show its draft.
+    pub fn set_target(
+        &mut self,
+        target: Option<Committable>,
+        group: Option<GroupCommittable>,
+        cx: &mut Context<Self>,
+    ) {
         let repo_changed = self.target.as_ref().map(|target| &target.repo)
             != target.as_ref().map(|target| &target.repo);
-        if repo_changed {
+        let key = |group: &Option<GroupCommittable>| {
+            group.as_ref().map(|group| DraftKey::of(&group.target))
+        };
+        if repo_changed || key(&self.group) != key(&group) {
             self.sync = true;
         }
-        if self.target != target {
+        if self.target != target || self.group != group {
             self.target = target;
+            self.group = group;
             cx.notify();
         }
+    }
+
+    /// The key of the group or several repos shown.
+    fn group_key(&self) -> Option<DraftKey> {
+        Some(DraftKey::of(&self.group.as_ref()?.target))
+    }
+
+    /// The options of the group commit shown.
+    pub fn group_options(&self) -> Option<GroupOptions> {
+        Some(self.group_drafts.options(&self.group_key()?))
+    }
+
+    fn set_group_options(
+        &mut self,
+        change: impl FnOnce(&mut GroupOptions),
+        cx: &mut Context<Self>,
+    ) {
+        let Some(key) = self.group_key() else {
+            return;
+        };
+        let mut options = self.group_drafts.options(&key);
+        change(&mut options);
+        self.group_drafts.set_options(&key, options);
+        cx.notify();
+    }
+
+    /// How many repos Commit commits, for a group or several repos.
+    pub fn group_repos(&self) -> Option<usize> {
+        let group = self.group.as_ref()?;
+        Some(group.repos(self.group_options()?.stage_all))
     }
 
     pub fn target(&self) -> Option<&Committable> {
         self.target.as_ref()
     }
 
-    /// The unsent message of the repo shown.
+    /// The unsent message of the repo, or the target set, shown.
     pub fn draft(&self) -> Option<CommitMessage> {
+        if let Some(key) = self.group_key() {
+            return Some(self.group_drafts.draft(&key));
+        }
         Some(self.drafts.draft(&self.target.as_ref()?.repo))
     }
 
-    /// Why the last commit of the repo shown was refused or failed.
+    /// Why the last commit of the repo shown was refused or failed, or
+    /// that a repo of the target set shown did not commit.
     pub fn error(&self) -> Option<&str> {
+        if let Some(key) = self.group_key() {
+            return self.group_drafts.error(&key);
+        }
         self.drafts.error(&self.target.as_ref()?.repo)
     }
 
@@ -149,22 +206,39 @@ impl CommitBox {
     pub fn on_event(&mut self, event: &AppEvent, cx: &mut Context<Self>) {
         if let AppEvent::JobEnded(job) = event
             && job.workspace_id == self.workspace_id
-            && self.drafts.job_ended(job)
         {
-            self.sync = true;
-            cx.notify();
+            let single = self.drafts.job_ended(job);
+            if self.group_drafts.job_ended(job) || single {
+                self.sync = true;
+                cx.notify();
+            }
         }
+    }
+
+    /// The group commit the box sent started as `job`.
+    pub fn group_started(&mut self, job: JobId, cx: &mut Context<Self>) {
+        if self.group_drafts.started(job) {
+            self.sync = true;
+        }
+        cx.notify();
     }
 
     /// The user typed in a field: the shown repo's draft is what the fields
     /// hold.
     fn edited(&mut self, cx: &mut Context<Self>) {
-        let Some(target) = &self.target else {
-            return;
-        };
         let message = CommitMessage {
             subject: self.subject.read(cx).value().to_string(),
             body: self.body.read(cx).value().to_string(),
+        };
+        if let Some(key) = self.group_key() {
+            if self.group_drafts.draft(&key) != message {
+                self.group_drafts.edit(&key, message);
+                cx.notify();
+            }
+            return;
+        }
+        let Some(target) = &self.target else {
+            return;
         };
         if self.drafts.draft(&target.repo) != message {
             self.drafts.edit(&target.repo.clone(), message);
@@ -174,6 +248,17 @@ impl CommitBox {
 
     /// Why Commit is disabled: what is missing first.
     pub fn commit_why(&self) -> Option<&'static str> {
+        if let Some(key) = self.group_key() {
+            return if self.group_drafts.busy(&key) {
+                Some(text::GROUP_COMMIT_RUNNING)
+            } else if self.group_repos() == Some(0) {
+                Some(text::NOTHING_STAGED)
+            } else if self.group_drafts.draft(&key).subject.trim().is_empty() {
+                Some(text::NO_SUBJECT)
+            } else {
+                None
+            };
+        }
         let target = self.target.as_ref()?;
         if target.in_conflict {
             Some(text::IN_CONFLICT)
@@ -204,6 +289,12 @@ impl CommitBox {
 
     /// Commit (`amend` false) or Amend, as its button does when enabled.
     pub fn press(&mut self, amend: bool, cx: &mut Context<Self>) {
+        if self.group.is_some() {
+            if !amend {
+                self.press_group(cx);
+            }
+            return;
+        }
         let why = if amend {
             self.amend_why()
         } else {
@@ -260,6 +351,31 @@ impl CommitBox {
         .detach();
     }
 
+    /// Commit of a group or several repos: the window runs the group
+    /// Commit through the preflight, which always asks first (GRP-15).
+    fn press_group(&mut self, cx: &mut Context<Self>) {
+        let (Some(group), Some(key)) = (self.group.clone(), self.group_key()) else {
+            return;
+        };
+        if self.commit_why().is_some() {
+            return;
+        }
+        let options = self.group_drafts.options(&key);
+        let Some(message) = self.group_drafts.press(&key) else {
+            return;
+        };
+        cx.notify();
+        cx.emit(RunGroup {
+            workspace: self.workspace_id.clone(),
+            target: group.target,
+            op: GroupOp::Commit {
+                message,
+                stage_all: options.stage_all,
+                push: options.push,
+            },
+        });
+    }
+
     fn commit_now(&mut self, _: &CommitNow, _: &mut Window, cx: &mut Context<Self>) {
         self.press(false, cx);
     }
@@ -294,13 +410,56 @@ impl Render for CommitBox {
             .flex_col()
             .gap_1()
             .p_2();
-        let Some(target) = self.target.clone() else {
-            return root;
+        let group = self.group_key();
+        let busy = match (&group, &self.target) {
+            (Some(key), _) => self.group_drafts.busy(key),
+            (None, Some(target)) => self.drafts.busy(&target.repo),
+            (None, None) => return root,
         };
         let commit_why = self.commit_why();
         let amend_why = self.amend_why();
-        let busy = self.drafts.busy(&target.repo);
-        let error = self.drafts.error(&target.repo).map(|error| {
+        let options = self.group_options().map(|options| {
+            div()
+                .id("commit-options")
+                .test_support()
+                .role(Role::Group)
+                .aria_label(text::GROUP_COMMIT_OPTIONS)
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .gap_3()
+                .child(
+                    Checkbox::new("commit-stage-all")
+                        .label(text::STAGE_ALL_FIRST)
+                        .checked(options.stage_all)
+                        .on_click(cx.listener(|this, value: &bool, _, cx| {
+                            let value = *value;
+                            this.set_group_options(|options| options.stage_all = value, cx);
+                        })),
+                )
+                .child(
+                    Checkbox::new("commit-push")
+                        .label(text::PUSH_AFTER)
+                        .checked(options.push)
+                        .on_click(cx.listener(|this, value: &bool, _, cx| {
+                            let value = *value;
+                            this.set_group_options(|options| options.push = value, cx);
+                        })),
+                )
+        });
+        let label: SharedString = match (busy, self.group_repos()) {
+            (true, _) => text::COMMITTING.into(),
+            (false, Some(repos)) => text::commit_repos(repos).into(),
+            (false, None) => text::COMMIT.into(),
+        };
+        let amend = group.is_none().then(|| {
+            Button::new("commit-amend")
+                .label(text::AMEND)
+                .tooltip(amend_why.unwrap_or(text::AMEND_TITLE))
+                .disabled(amend_why.is_some())
+                .on_click(cx.listener(|this, _, _, cx| this.press(true, cx)))
+        });
+        let error = self.error().map(|error| {
             let error = SharedString::from(error.to_owned());
             div()
                 .id("commit-error")
@@ -319,47 +478,42 @@ impl Render for CommitBox {
                 .text_color(tokens.text_secondary)
                 .child(why)
         });
-        root.child(
-            Input::new(&self.subject)
-                .id("commit-subject")
-                .aria_label(text::SUBJECT),
-        )
-        // The body takes the height the splitter above the box gives it.
-        .child(
-            div()
-                .id("commit-body")
-                .test_support()
-                .flex_1()
-                .min_h(px(BODY_MIN_HEIGHT))
-                .child(
-                    Textarea::new(&self.body)
-                        .h(relative(1.))
-                        .aria_label(text::BODY),
-                ),
-        )
-        .children(error)
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(div().flex_1().min_w_0().children(why))
-                .child(
-                    Button::new("commit-amend")
-                        .label(text::AMEND)
-                        .tooltip(amend_why.unwrap_or(text::AMEND_TITLE))
-                        .disabled(amend_why.is_some())
-                        .on_click(cx.listener(|this, _, _, cx| this.press(true, cx))),
-                )
-                .child(
-                    Button::new("commit-commit")
-                        .primary()
-                        .label(if busy { text::COMMITTING } else { text::COMMIT })
-                        .when_some(commit_why, |button, why| button.tooltip(why))
-                        .disabled(commit_why.is_some())
-                        .on_click(cx.listener(|this, _, _, cx| this.press(false, cx))),
-                ),
-        )
+        root.children(options)
+            .child(
+                Input::new(&self.subject)
+                    .id("commit-subject")
+                    .aria_label(text::SUBJECT),
+            )
+            // The body takes the height the splitter above the box gives it.
+            .child(
+                div()
+                    .id("commit-body")
+                    .test_support()
+                    .flex_1()
+                    .min_h(px(BODY_MIN_HEIGHT))
+                    .child(
+                        Textarea::new(&self.body)
+                            .h(relative(1.))
+                            .aria_label(text::BODY),
+                    ),
+            )
+            .children(error)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(div().flex_1().min_w_0().children(why))
+                    .children(amend)
+                    .child(
+                        Button::new("commit-commit")
+                            .primary()
+                            .label(label)
+                            .when_some(commit_why, |button, why| button.tooltip(why))
+                            .disabled(commit_why.is_some())
+                            .on_click(cx.listener(|this, _, _, cx| this.press(false, cx))),
+                    ),
+            )
     }
 }

@@ -546,22 +546,42 @@ fn grp_4_a_group_row_heard_during_a_tree_read_is_kept(cx: &mut TestAppContext) {
         dirty: 0,
         conflicts: 0,
     };
-    cx.update(|_, cx| {
-        let tree = window.read(cx).tree(cx).unwrap();
-        tree.update(cx, |tree, cx| {
-            use gitcroc_app::app::AppEvent;
-            tree.on_event(&AppEvent::WorkspaceChanged(view), cx);
-            tree.on_event(&AppEvent::GroupSummary(newer), cx);
+    // The app may still send rows of its own, as the watcher's reads after
+    // the repos were added; a row it sends meanwhile is newer still and
+    // rightly wins. Such a try does not count, and the test tries again.
+    let mut events = fixture.app().subscribe();
+    for _ in 0..5 {
+        cx.run_until_parked();
+        while events.try_recv().is_ok() {}
+        let (view, newer) = (view.clone(), newer.clone());
+        cx.update(|_, cx| {
+            let tree = window.read(cx).tree(cx).unwrap();
+            tree.update(cx, |tree, cx| {
+                use gitcroc_app::app::AppEvent;
+                tree.on_event(&AppEvent::WorkspaceChanged(view), cx);
+                tree.on_event(&AppEvent::GroupSummary(newer), cx);
+            });
         });
-    });
-    // The read's answer comes after the row; the row stays.
-    wait(&mut cx, |cx| {
-        cx.update(|_, cx| !window.read(cx).tree(cx).unwrap().read(cx).reading_tree())
-    });
-    assert_eq!(
-        label_of(&mut cx, part(&node, "branch")).as_deref(),
-        Some("mixed (2)")
-    );
+        // The read's answer comes after the row; the row stays.
+        wait(&mut cx, |cx| {
+            cx.update(|_, cx| !window.read(cx).tree(cx).unwrap().read(cx).reading_tree())
+        });
+        let shown = label_of(&mut cx, part(&node, "branch"));
+        cx.run_until_parked();
+        let mut real = false;
+        while let Ok(event) = events.try_recv() {
+            if let gitcroc_app::app::AppEvent::GroupSummary(row) = event
+                && row.group_id == backend
+            {
+                real = true;
+            }
+        }
+        if !real {
+            assert_eq!(shown.as_deref(), Some("mixed (2)"));
+            return;
+        }
+    }
+    panic!("the app sent a group row of its own during every try");
 }
 
 #[gpui::test]

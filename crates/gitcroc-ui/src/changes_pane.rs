@@ -414,8 +414,10 @@ impl ChangesPane {
             diff.show(target, cx);
         });
         let committable = self.changes.committable();
-        self.commit_box
-            .update(cx, |commit_box, cx| commit_box.set_target(committable, cx));
+        let group = self.changes.group_committable();
+        self.commit_box.update(cx, |commit_box, cx| {
+            commit_box.set_target(committable, group, cx)
+        });
         self.sync_conflict(cx);
     }
 
@@ -1805,7 +1807,9 @@ impl Render for ChangesPane {
                 .text_color(tokens.warning)
                 .child(notice)
         });
-        let commit_box = self.changes.committable().is_some().then(|| {
+        let committable =
+            self.changes.committable().is_some() || self.changes.group_committable().is_some();
+        let commit_box = committable.then(|| {
             div()
                 .flex_shrink_0()
                 .h(px(self.commit_shown()))
