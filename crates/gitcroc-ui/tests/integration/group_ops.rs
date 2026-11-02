@@ -520,8 +520,8 @@ fn grp_9_cancel_drops_the_preflight_before_and_after_the_result(cx: &mut TestApp
     let app = setup.fixture.app().clone();
 
     // Cancel before the core answered: its answer is dropped, so the
-    // preflight cannot start.
-    let mut events = app.subscribe();
+    // preflight cannot start. It may be dropped before it finishes, and
+    // then sends no result at all.
     cx.update(|window, cx| {
         window.render_frame(cx);
         window.click("toolbar-0", cx);
@@ -530,23 +530,27 @@ fn grp_9_cancel_drops_the_preflight_before_and_after_the_result(cx: &mut TestApp
         let ops = window.read(cx).group_ops().clone();
         ops.update(cx, |ops, cx| ops.cancel(cx));
     });
-    let ready = wait_preflight(&mut cx, &mut events);
-    if let Ok(job) = setup
-        .fixture
-        .runtime
-        .block_on(app.group_start(ready.preflight_id, false))
-    {
-        // A preflight that still starts is the failure; stop its job.
-        app.job_cancel(job);
-        panic!("the cancelled preflight still started");
-    }
     cx.run_until_parked();
 
     // Cancel once the result is in the dialog.
     let mut events = app.subscribe();
     click(&mut cx, "toolbar-0".into());
     wait_for_element(&mut cx, "preflight".into());
-    let ready = wait_preflight(&mut cx, &mut events);
+    let mut second = None;
+    wait_until(&mut cx, |cx| {
+        second = cx.update(|_, cx| {
+            let ops = window.read(cx).group_ops().read(cx);
+            ops.pending().and_then(|pending| pending.preflight_id)
+        });
+        second.is_some()
+    });
+    let second = second.unwrap();
+    let ready = loop {
+        let ready = wait_preflight(&mut cx, &mut events);
+        if ready.preflight_id == second {
+            break ready;
+        }
+    };
     assert!(ready.needs_confirmation);
     click(&mut cx, "preflight-cancel".into());
     wait_until(&mut cx, |cx| !shown(cx, "preflight"));
@@ -557,6 +561,21 @@ fn grp_9_cancel_drops_the_preflight_before_and_after_the_result(cx: &mut TestApp
             .block_on(app.group_start(ready.preflight_id, true))
             .is_err()
     );
+
+    // The first one, whose id came just before, is gone too; until the
+    // core has it dropped it may only be unfinished, never started.
+    let first = gitcroc_core::PreflightId(second.0 - 1);
+    let gone = gitcroc_core::GroupError::UnknownPreflight.to_string();
+    wait_until(&mut cx, |_| {
+        match setup.fixture.runtime.block_on(app.group_start(first, true)) {
+            Ok(job) => {
+                // A preflight that still starts is the failure; stop its job.
+                app.job_cancel(job);
+                panic!("the cancelled preflight still started");
+            }
+            Err(error) => error.message == gone,
+        }
+    });
     assert_eq!(prior_jobs(&setup), before);
 }
 
