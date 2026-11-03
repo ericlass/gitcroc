@@ -201,7 +201,7 @@ The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
 rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
 not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-24 and M6-27 have theirs;
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-25 and M6-27 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
@@ -246,7 +246,9 @@ several pull requests (DEV-4).
 | [M6-23c](M6-23c-resolve-all-with-ai.md) | Resolve all with AI from the banner: progress per file, cancel | M6-23b |
 | [M6-24a](M6-24a-command-palette.md) | Command palette: opening, the list, every operation run from its own place | M6-18 to M6-23c |
 | [M6-24b](M6-24b-keyboard-pass.md) | Keyboard pass: the rest of the keymap, every operation reachable without a mouse | M6-24a |
-| M6-25 | Accessibility pass, to the bar decided after M6-04 | M6-04, M6-24b |
+| [M6-25a](M6-25a-accessibility-tree.md) | Accessibility tree test on Linux: names, roles, states, dialogs, the live status | M6-04, M6-24b |
+| [M6-25b](M6-25b-focus-motion-text-size.md) | Focus ring and selection borders, dialog focus, reduced motion, labels at 32 px | M6-24b |
+| [M6-25c](M6-25c-commit-message-text.md) | The commit message field's text and caret for screen readers; NVDA and VoiceOver scripts | M6-25a |
 | M6-26 | Settings dialog, all four tabs | M6-07, M6-23 |
 | [M6-27](M6-27-updater-without-tauri.md) | Updater without Tauri, proven by tests on every platform | M6-05 |
 | M6-28 | Packaging and release workflow without Tauri; install tests; on the runners, the GPUI build updates itself and rc.1 updates to it | M6-03, M6-27 |
@@ -326,7 +328,7 @@ notes are what later tasks need from them.
   - **Tree rows on Linux:** AccessKit's Linux adapter has no expanded state or level for them.
   - **gpui-component widgets:** its tree, dialogs, title bar buttons and toasts lack names or roles.
   - **Not available:** an axe equivalent, and a forced-colours signal.
-- **Open decision before M6-25:** the README proposes a bar of nine tested musts. Five points are lower than M5-10's, and they need a spec decision (DEV-2).
+- **Decided before M6-25:** Eric accepted the README's bar of nine tested musts, with the five lower points settled as in the decisions table below (2026-11-03).
 
 ## Choices made in these tasks that the spec does not cover
 
@@ -351,6 +353,7 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | The Tauri app during M6 | Not kept: 1.0.0-rc.1 is its last release. M6-05 deletes the shell, its workflows and the IPC layer; no app runs on `main` until M6-06, and none is released until M6-28 (Eric, 2026-10-27) | M6-05 |
 | `ui/` during M6 | Stays in the tree as the reference the tasks port from, out of `just check` and CI, runnable with its fake core; M6-30 deletes it (Eric, 2026-10-27) | M6-05, M6-06, M6-30 |
 | Settings dialog before M6-26 | M6-23a builds the dialog with only its AI tab; M6-26 adds Appearance, Git and Updates to it | M6-23a, M6-26 |
+| Accessibility bar in M6 | M6-04's nine tested musts. Lower than M5-10: no axe-like rule set, only role, name and state rules, on Linux under Xvfb and AT-SPI; no Windows high-contrast detection (LATER), but the selected row and the focus always have a border, in every theme; the focus ring's contrast is tested and its presence on each stop checked by hand; on Linux a tree row's expanded state and level are in its description until AccessKit maps them. Labels at 32 px stay tested, through layout bounds (Eric, 2026-11-03) | M6-25a to M6-25c, M6-29, M6-31 |
 | Updater proof | Tests on every platform in M6-27; on the runners in M6-28, with the GPUI packages: GPUI A to B, and rc.1 to the GPUI build | M6-27, M6-28 |
 | `gitcroc-next` and user files | Reads and writes the same config, cache and workspace files as an installed rc.1; running both at once is not supported | M6-06 |
 | Config directory name | `gitcroc` under the platform config, cache and log dirs | M0-07 |
