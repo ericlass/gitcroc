@@ -593,11 +593,11 @@ impl Render for GroupNameDialog {
                     cx,
                 ));
                 if self.annotated {
-                    body = body.child(
-                        div()
-                            .child(text::MESSAGE)
-                            .child(Textarea::new(&self.message).aria_label(text::MESSAGE)),
-                    );
+                    body = body.child(div().child(text::MESSAGE).child(
+                        crate::text_area::tab_moves_on(
+                            Textarea::new(&self.message).aria_label(text::MESSAGE),
+                        ),
+                    ));
                 }
                 body = body
                     .child(hint("group-name-hint", text::TAG_SKIPS))

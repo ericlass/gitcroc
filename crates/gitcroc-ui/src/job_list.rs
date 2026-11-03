@@ -22,8 +22,8 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     Animation, AnimationExt, AnyElement, App, ClickEvent, Context, ElementId, Entity, EventEmitter,
     FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding,
-    KeyBindingContextPredicate, ParentElement, Pixels, Render, Role, ScrollStrategy, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, TestSupportExt, Transformation,
+    KeyBindingContextPredicate, ParentElement, Pixels, Render, Role, ScrollHandle, ScrollStrategy,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, TestSupportExt, Transformation,
     UniformListScrollHandle, Window, actions, div, percentage, px, svg, uniform_list,
 };
 
@@ -55,6 +55,14 @@ actions!(
         /// control, so a column is kept while moving.
         ReportToName,
         ReportToToggle,
+        /// A job's output, once Tab gives it the focus: the keys scroll it
+        /// (UI-21, UI-22).
+        OutputDown,
+        OutputUp,
+        OutputPageDown,
+        OutputPageUp,
+        OutputTop,
+        OutputBottom,
     ]
 );
 
@@ -63,6 +71,10 @@ const CONTEXT: &str = "GitcrocJobList";
 /// The key contexts of a report's two controls.
 const TOGGLE_CONTEXT: &str = "GitcrocReportToggle";
 const NAME_CONTEXT: &str = "GitcrocReportName";
+/// The key context of a job's output.
+const OUTPUT_CONTEXT: &str = "GitcrocJobOutput";
+/// How far an arrow key scrolls the output.
+const OUTPUT_STEP: Pixels = px(18.);
 
 /// One row's height; `uniform_list` lays out only those on screen.
 pub const ROW_HEIGHT: Pixels = px(24.);
@@ -100,8 +112,17 @@ pub fn bind(cx: &mut App) {
         report("end", Box::new(ReportNameLast), NAME_CONTEXT, cx),
         report("left", Box::new(ReportToToggle), NAME_CONTEXT, cx),
     ];
+    let output = [
+        report("down", Box::new(OutputDown), OUTPUT_CONTEXT, cx),
+        report("up", Box::new(OutputUp), OUTPUT_CONTEXT, cx),
+        report("pagedown", Box::new(OutputPageDown), OUTPUT_CONTEXT, cx),
+        report("pageup", Box::new(OutputPageUp), OUTPUT_CONTEXT, cx),
+        report("home", Box::new(OutputTop), OUTPUT_CONTEXT, cx),
+        report("end", Box::new(OutputBottom), OUTPUT_CONTEXT, cx),
+    ];
     cx.bind_keys(toggle.into_iter().flatten());
     cx.bind_keys(name.into_iter().flatten());
+    cx.bind_keys(output.into_iter().flatten());
 }
 
 /// What a report line asked the window to do (UI-21).
@@ -128,6 +149,9 @@ pub struct JobList {
     scroll: UniformListScrollHandle,
     focus: FocusHandle,
     list_focus: FocusHandle,
+    /// The shown job's output, a stop in the Tab order, and its scroll.
+    output_focus: FocusHandle,
+    output_scroll: ScrollHandle,
     /// The lines a report shows and, for each, its two focus handles.
     report_handles: Vec<[FocusHandle; 2]>,
     /// The job and line count the handles are for.
@@ -155,6 +179,8 @@ impl JobList {
             scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle(),
             list_focus: cx.focus_handle(),
+            output_focus: cx.focus_handle().tab_stop(true),
+            output_scroll: ScrollHandle::new(),
             report_handles: Vec::new(),
             report_key: None,
             report_line: 0,
@@ -439,6 +465,88 @@ impl JobList {
             .collect()
     }
 
+    /// Job `job`'s output, which Tab reaches and the keys scroll.
+    fn output(
+        &self,
+        job: &JobView,
+        tokens: &Tokens,
+        code_font: &SharedString,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if job.output.is_empty() {
+            return div()
+                .id("job-no-output")
+                .test_support()
+                .role(Role::Label)
+                .aria_label(text::NO_OUTPUT)
+                .text_color(tokens.text_secondary)
+                .child(text::NO_OUTPUT)
+                .into_any_element();
+        }
+        let tokens = *tokens;
+        div()
+            .id("job-output")
+            .test_support()
+            .track_focus(&self.output_focus)
+            .track_scroll(&self.output_scroll)
+            .key_context(OUTPUT_CONTEXT)
+            .on_action(cx.listener(|this, _: &OutputDown, _, cx| {
+                this.scroll_output(|at, _, _| at + OUTPUT_STEP, cx)
+            }))
+            .on_action(cx.listener(|this, _: &OutputUp, _, cx| {
+                this.scroll_output(|at, _, _| at - OUTPUT_STEP, cx)
+            }))
+            .on_action(cx.listener(|this, _: &OutputPageDown, _, cx| {
+                this.scroll_output(|at, page, _| at + page, cx)
+            }))
+            .on_action(cx.listener(|this, _: &OutputPageUp, _, cx| {
+                this.scroll_output(|at, page, _| at - page, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &OutputTop, _, cx| this.scroll_output(|_, _, _| px(0.), cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &OutputBottom, _, cx| {
+                    this.scroll_output(|_, _, end| end, cx)
+                }),
+            )
+            .role(Role::Document)
+            .aria_label(job.output.clone())
+            .max_h(OUTPUT_HEIGHT)
+            .overflow_y_scroll()
+            .p_2()
+            .bg(tokens.bg_2)
+            .border_1()
+            .border_color(tokens.border)
+            .rounded(px(4.))
+            .focus(move |style| style.border_color(tokens.focus_ring))
+            .font_family(code_font.clone())
+            .text_sm()
+            .child(job.output.clone())
+            .into_any_element()
+    }
+
+    /// How far down the output is scrolled.
+    pub fn output_offset(&self) -> Pixels {
+        -self.output_scroll.offset().y
+    }
+
+    /// Scrolls the output to where `to` puts it, from how far down it is,
+    /// a page and the end; it stays between the top and the end.
+    fn scroll_output(
+        &mut self,
+        to: impl FnOnce(Pixels, Pixels, Pixels) -> Pixels,
+        cx: &mut Context<Self>,
+    ) {
+        let end = self.output_scroll.max_offset().y;
+        let page = (self.output_scroll.bounds().size.height - OUTPUT_STEP).max(OUTPUT_STEP);
+        let at = -self.output_scroll.offset().y;
+        let next = to(at, page, end).clamp(px(0.), end);
+        let x = self.output_scroll.offset().x;
+        self.output_scroll.set_offset(gpui_kit::point(x, -next));
+        cx.notify();
+    }
+
     fn detail(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let tokens = *cx.tokens();
         let Some(job) = self.job(cx) else {
@@ -471,10 +579,10 @@ impl JobList {
                     &tokens,
                     cx,
                 ))
-                .child(output(&job, &tokens, &code_font))
+                .child(self.output(&job, &tokens, &code_font, cx))
                 .into_any_element()
         } else {
-            output(&job, &tokens, &code_font)
+            self.output(&job, &tokens, &code_font, cx)
         };
         div()
             .id("job-detail")
@@ -792,36 +900,6 @@ pub(crate) fn spinner(cx: &App) -> impl IntoElement {
 }
 
 /// The job's raw output, or the note that there is none.
-fn output(job: &JobView, tokens: &Tokens, code_font: &gpui_kit::SharedString) -> AnyElement {
-    if job.output.is_empty() {
-        div()
-            .id("job-no-output")
-            .test_support()
-            .role(Role::Label)
-            .aria_label(text::NO_OUTPUT)
-            .text_color(tokens.text_secondary)
-            .child(text::NO_OUTPUT)
-            .into_any_element()
-    } else {
-        div()
-            .id("job-output")
-            .test_support()
-            .role(Role::Document)
-            .aria_label(job.output.clone())
-            .max_h(OUTPUT_HEIGHT)
-            .overflow_y_scroll()
-            .p_2()
-            .bg(tokens.bg_2)
-            .border_1()
-            .border_color(tokens.border)
-            .rounded(px(4.))
-            .font_family(code_font.clone())
-            .text_sm()
-            .child(job.output.clone())
-            .into_any_element()
-    }
-}
-
 /// GRP-7's outcomes, in the order the counts name them.
 const OUTCOMES: [u8; 5] = [0, 1, 2, 3, 4];
 

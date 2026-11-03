@@ -43,8 +43,8 @@ use crate::history_pane::HistoryPane;
 use crate::job_list::JobList;
 use crate::jobs::Jobs;
 use crate::keys::{
-    self, Minimize, MoveTabLeft, MoveTabRight, NextHunk, NextRegion, NextTab, PreviousHunk,
-    PreviousRegion, PreviousTab, TogglePalette, Zoom,
+    self, Minimize, MoveTabLeft, MoveTabRight, NextHunk, NextRegion, NextTab, OpenSettings,
+    PreviousHunk, PreviousRegion, PreviousTab, TogglePalette, Zoom,
 };
 use crate::menu::{Menu, MenuEvent};
 use crate::missing_repos::MissingReposDialog;
@@ -231,6 +231,19 @@ impl GitcrocWindow {
         let os = info.os.clone();
         let subscriptions = vec![
             appearance,
+            // The keys work only while something has the focus (UI-22): when
+            // the focused control goes, such as Stage all once nothing is
+            // left to stage, or a tab's panes once another tab is shown, its
+            // nearest region still drawn takes it, else the shown tree.
+            cx.on_focus_lost(window, |this, window, cx| {
+                match window.focus_lost_restore_target(cx) {
+                    Some(target) => window.focus(&target, cx),
+                    None if this.dialog.is_none() && this.askpass.is_none() => {
+                        this.focus_main(window, cx)
+                    }
+                    None => {}
+                }
+            }),
             cx.observe_in(&workspaces, window, |this, _, window, cx| {
                 this.show_tabs(window, cx)
             }),
@@ -1749,6 +1762,14 @@ impl GitcrocWindow {
         self.toggle_palette(window, cx);
     }
 
+    /// Ctrl/Cmd+, opens Settings, as its toolbar button does; it waits while
+    /// a dialog is open.
+    fn on_open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dialog.is_none() && self.askpass.is_none() {
+            self.open_settings(crate::settings_dialog::SettingsTab::Ai, window, cx);
+        }
+    }
+
     fn next_tab(&mut self, _: &NextTab, window: &mut Window, cx: &mut Context<Self>) {
         if self.tabs_reachable(cx) {
             self.tab_bar.update(cx, |tab_bar, cx| {
@@ -2159,6 +2180,7 @@ impl Render for GitcrocWindow {
             .id("gitcroc-window")
             .key_context(keys::WINDOW_CONTEXT)
             .on_action(cx.listener(Self::on_toggle_palette))
+            .on_action(cx.listener(Self::on_open_settings))
             .on_action(cx.listener(Self::next_region))
             .on_action(cx.listener(Self::previous_region))
             .on_action(cx.listener(Self::minimize))

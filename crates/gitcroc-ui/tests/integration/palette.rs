@@ -67,19 +67,47 @@ pub(crate) fn open_palette(cx: &mut VisualTestContext, window: &Entity<GitcrocWi
 }
 
 /// Types `text` into the palette and waits until its answer's first row
-/// is `first`.
+/// is `first`. An answer is read from the workspace as the core has it, and
+/// a job's refresh may land just after: if the row is not first within a
+/// few seconds, the last letter is typed again for a fresh answer, as a
+/// person would.
+#[track_caller]
 pub(crate) fn search(
     cx: &mut VisualTestContext,
     window: &Entity<GitcrocWindow>,
     text: &str,
     first: &str,
 ) {
-    cx.update(|window, cx| window.input(text, cx));
-    wait_until(cx, |cx| {
+    let leads = |cx: &mut VisualTestContext| {
         result(cx, window)
             .and_then(|result| result.items.first().map(|item| text_of(item) == first))
             .unwrap_or(false)
-    });
+    };
+    cx.update(|window, cx| window.input(text, cx));
+    let last: String = text.chars().last().map(String::from).unwrap_or_default();
+    for _ in 0..4 {
+        for _ in 0..300 {
+            crate::support::settle(cx, |_, _| true);
+            if leads(cx) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        press(cx, "backspace");
+        cx.update(|window, cx| window.input(&last, cx));
+    }
+    let shown: Vec<String> = result(cx, window)
+        .map(|result| {
+            result
+                .items
+                .iter()
+                .take(5)
+                .map(|item| text_of(item).to_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    let sent = palette_of(cx, window).map(|palette| cx.update(|_, cx| palette.read(cx).sent()));
+    panic!("{first:?} never led the answer to {text:?}: it shows {shown:?}, {sent:?} sent");
 }
 
 fn row(at: usize) -> ElementId {

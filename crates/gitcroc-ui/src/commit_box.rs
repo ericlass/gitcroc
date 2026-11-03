@@ -492,9 +492,12 @@ impl Render for CommitBox {
                     .flex_1()
                     .min_h(px(BODY_MIN_HEIGHT))
                     .child(
-                        Textarea::new(&self.body)
-                            .h(relative(1.))
-                            .aria_label(text::BODY),
+                        crate::text_area::tab_moves_on(
+                            Textarea::new(&self.body)
+                                .h(relative(1.))
+                                .aria_label(text::BODY),
+                        )
+                        .size_full(),
                     ),
             )
             .children(error)

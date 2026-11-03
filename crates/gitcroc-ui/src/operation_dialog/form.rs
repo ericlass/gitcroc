@@ -286,7 +286,9 @@ impl Render for OperationDialog {
                                 .id("op-message")
                                 .test_support()
                                 .child(text::MESSAGE)
-                                .child(Textarea::new(&self.message).aria_label(text::MESSAGE)),
+                                .child(crate::text_area::tab_moves_on(
+                                    Textarea::new(&self.message).aria_label(text::MESSAGE),
+                                )),
                         )
                         .child(self.flag("op-untracked", text::UNTRACKED, false, cx));
                 }
@@ -298,7 +300,9 @@ impl Render for OperationDialog {
                                 .id("op-message")
                                 .test_support()
                                 .child(text::MESSAGE)
-                                .child(Textarea::new(&self.message).aria_label(text::MESSAGE)),
+                                .child(crate::text_area::tab_moves_on(
+                                    Textarea::new(&self.message).aria_label(text::MESSAGE),
+                                )),
                         );
                     }
                     body = body.child(self.flag("op-push", text::PUSH_TAG, true, cx));

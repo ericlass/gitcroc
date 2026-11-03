@@ -55,6 +55,7 @@ pub mod keys {
     pub const PALETTE: &str = "Open or close the command palette";
     pub const NEXT_REGION: &str = "Move the focus to the next region";
     pub const PREVIOUS_REGION: &str = "Move the focus to the previous region";
+    pub const SETTINGS: &str = "Open Settings";
     pub const NEXT_TAB: &str = "Next tab";
     pub const PREVIOUS_TAB: &str = "Previous tab";
     pub const MOVE_TAB_RIGHT: &str = "Move the tab to the right";
