@@ -301,6 +301,23 @@ impl Driver<'_> {
         self.cx.update(|_, cx| window.read(cx).tabs(cx).open.len())
     }
 
+    /// Ends the cherry-pick an already applied commit left in progress, and
+    /// waits until the tree no longer shows the repo blocked by it, so its
+    /// menus enable again.
+    fn abort_cherry_pick(&mut self, r: &repo_gen::Repo, repo: &RepoId) {
+        let _ = r.git(["cherry-pick", "--abort"]);
+        self.f.refresh(&self.f.active());
+        let window = self.window.clone();
+        wait_until(&mut self.cx, |cx| {
+            cx.update(|_, cx| {
+                let tree = window.read(cx).tree(cx).unwrap();
+                let tree = tree.read(cx).tree();
+                tree.summary(repo).is_some()
+                    && gitcroc_ui::row_context::blocked(tree.summary(repo)).is_none()
+            })
+        });
+    }
+
     /// The commits the history has marked together.
     fn marked(&mut self) -> usize {
         let window = self.window.clone();
@@ -374,7 +391,8 @@ fn ui_22_every_operation_reachable_without_a_mouse(root: &mut TestAppContext) {
         api.commit_file("second.txt", "second\n", "Second").unwrap();
         api.commit_file("third.txt", "third\n", "Third").unwrap();
         setup.add();
-        let node = repo_node(&setup.id("api"));
+        let api_id = setup.id("api");
+        let node = repo_node(&api_id);
         let web = repo_node(&setup.id("web"));
         let f = &setup.fixture;
         let mut d = driver(f, root);
@@ -489,7 +507,7 @@ fn ui_22_every_operation_reachable_without_a_mouse(root: &mut TestAppContext) {
             |d| d.menu("Cherry-pick 2 commits"),
             Did::Runs,
         );
-        let _ = api.git(["cherry-pick", "--abort"]);
+        d.abort_cherry_pick(&api, &api_id);
         d.history_to("history-row-0");
         d.key(&secondary("down"));
         d.key(&secondary("down"));
@@ -502,10 +520,10 @@ fn ui_22_every_operation_reachable_without_a_mouse(root: &mut TestAppContext) {
             |d| d.menu("Cherry-pick 2 commits"),
             Did::Runs,
         );
-        let _ = api.git(["cherry-pick", "--abort"]);
+        d.abort_cherry_pick(&api, &api_id);
         d.history_to("history-row-1");
         d.reach(Op::CherryPick, |d| d.menu("Cherry-pick"), Did::Runs);
-        let _ = api.git(["cherry-pick", "--abort"]);
+        d.abort_cherry_pick(&api, &api_id);
         d.history_to("history-row-0");
         d.reach(Op::Revert, |d| d.menu("Revert"), Did::Runs);
         d.history_to("history-row-1");
