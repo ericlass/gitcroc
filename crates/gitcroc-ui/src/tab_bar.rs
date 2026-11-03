@@ -24,6 +24,7 @@ use gpui_kit::{
     Window, actions, canvas, div, point, px,
 };
 
+use crate::ai::Ai;
 use crate::jobs::{Jobs, Marks};
 use crate::menu::{Menu, MenuEvent, MenuItem};
 use crate::strings::{tabs as text, workspaces as workspace_text};
@@ -118,6 +119,8 @@ pub struct TabBar {
     workspaces: Entity<Workspaces>,
     /// Each tab's job marks come from the window's jobs.
     jobs: Entity<Jobs>,
+    /// AI features, which show AI for this workspace (AI-16).
+    ai: Entity<Ai>,
     tab_focus: HashMap<WorkspaceId, FocusHandle>,
     plus_focus: FocusHandle,
     /// Where each tab and "+" were drawn, for the menus below them.
@@ -131,12 +134,18 @@ pub struct TabBar {
 impl EventEmitter<TabBarEvent> for TabBar {}
 
 impl TabBar {
-    pub fn new(workspaces: Entity<Workspaces>, jobs: Entity<Jobs>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        workspaces: Entity<Workspaces>,
+        jobs: Entity<Jobs>,
+        ai: Entity<Ai>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let observed = cx.observe(&workspaces, |_, _, cx| cx.notify());
         let jobs_changed = cx.observe(&jobs, |_, _, cx| cx.notify());
         Self {
             workspaces,
             jobs,
+            ai,
             tab_focus: HashMap::new(),
             plus_focus: cx.focus_handle(),
             tab_bounds: Rc::default(),
@@ -341,23 +350,30 @@ impl TabBar {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(name) = self
+        let Some((name, ai)) = self
             .workspaces
             .read(cx)
             .view(&id)
-            .map(|view| SharedString::from(view.name.clone()))
+            .map(|view| (SharedString::from(view.name.clone()), view.ai))
         else {
             return;
         };
         let opener = self.tab_focus(&id, cx);
-        let items = vec![
+        let mut items = vec![
             (
                 MenuItem::new(text::RENAME),
                 Choice::Rename(id.clone(), name),
             ),
             (MenuItem::new(text::EXPORT), Choice::Export(id.clone())),
-            (MenuItem::new(text::CLOSE_TAB), Choice::Close(id)),
         ];
+        // Hidden while AI features are off (AI-16).
+        if self.ai.read(cx).enabled() {
+            items.push((
+                MenuItem::new(text::AI).checked(ai),
+                Choice::WorkspaceAi(id.clone(), !ai),
+            ));
+        }
+        items.push((MenuItem::new(text::CLOSE_TAB), Choice::Close(id)));
         self.open_menu(
             text::ACTIONS,
             items,
@@ -440,6 +456,10 @@ impl TabBar {
         };
         match open.choices.get(at).cloned() {
             Some(Choice::Close(id)) => self.close(id, window, cx),
+            Some(Choice::WorkspaceAi(id, enabled)) => {
+                let sent = Workspaces::set_ai(&self.workspaces, id, enabled, cx);
+                self.send(sent, None, window, cx);
+            }
             Some(Choice::Open(id, name)) => {
                 let sent = Workspaces::open(&self.workspaces, id.clone(), cx);
                 let sent = cx.spawn(async move |_, _| {

@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use gitcroc_ai::{ApiKey, MockGate, MockProvider, Provider, ProviderSpec};
+use gitcroc_ai::{
+    ApiKey, MockGate, MockProvider, Provider, ProviderFuture, ProviderReply, ProviderRequest,
+    ProviderSpec,
+};
 use gitcroc_app::ai::{BoxFuture, DetectedCli, ModelsResult, ProviderCalls, SelfTest};
 use gitcroc_app::app::{App as GitcrocApp, AppEvent, AppSetup};
 use gitcroc_app::platform::{DesktopFonts, DialogFuture, Dialogs, FileFilter, MemoryKeychain};
@@ -266,8 +269,9 @@ pub struct AiScript {
     pub self_test: SelfTest,
     /// Every model list.
     pub models: ModelsResult,
-    /// What the mock provider of a proposal job replies, in order.
-    pub replies: Vec<String>,
+    /// What the mock provider of a proposal job replies, in order; each
+    /// job's provider starts from the first.
+    pub replies: Vec<ProviderReply>,
     /// Offers the mock kind, as the `e2e` build does.
     pub mock: bool,
     /// Holds each proposal request until the test releases it through
@@ -299,6 +303,8 @@ struct ScriptedAi {
     script: AiScript,
     /// The gates of held mock providers, one per proposal job.
     gates: std::sync::Mutex<Vec<MockGate>>,
+    /// Every mock provider made, one per proposal job, for its requests.
+    mocks: std::sync::Mutex<Vec<Arc<MockProvider>>>,
     /// Lets one held model list or self-test answer per permit.
     answers: tokio::sync::Semaphore,
 }
@@ -314,13 +320,24 @@ impl ScriptedAi {
     }
 
     fn mock(&self) -> Box<dyn Provider> {
-        let provider = MockProvider::texts(self.script.replies.clone());
-        if !self.script.held {
-            return Box::new(provider);
+        let mut provider = MockProvider::new(self.script.replies.iter().cloned().map(Ok));
+        if self.script.held {
+            let (held, gate) = provider.held();
+            self.gates.lock().unwrap().push(gate);
+            provider = held;
         }
-        let (provider, gate) = provider.held();
-        self.gates.lock().unwrap().push(gate);
-        Box::new(provider)
+        let provider = Arc::new(provider);
+        self.mocks.lock().unwrap().push(provider.clone());
+        Box::new(Shared(provider))
+    }
+}
+
+/// A mock the fake keeps too, so a test can read its requests.
+struct Shared(Arc<MockProvider>);
+
+impl Provider for Shared {
+    fn complete<'a>(&'a self, request: &'a ProviderRequest) -> ProviderFuture<'a> {
+        self.0.complete(request)
     }
 }
 
@@ -416,6 +433,7 @@ impl Fixture {
             AiBackend::Script(script) => Some(Arc::new(ScriptedAi {
                 script,
                 gates: Default::default(),
+                mocks: Default::default(),
                 answers: tokio::sync::Semaphore::new(0),
             })),
         };
@@ -489,10 +507,16 @@ impl Fixture {
     }
 
     /// The gates of the held mock providers, one per proposal job so far.
-    #[allow(dead_code, reason = "for the Resolve with AI tests of M6-23b")]
     pub fn ai_gates(&self) -> Vec<MockGate> {
         let ai = self.ai.as_ref().expect("no scripted AI backend");
         ai.gates.lock().unwrap().clone()
+    }
+
+    /// Every request the mock providers got, in order.
+    pub fn ai_requests(&self) -> Vec<ProviderRequest> {
+        let ai = self.ai.as_ref().expect("no scripted AI backend");
+        let mocks = ai.mocks.lock().unwrap();
+        mocks.iter().flat_map(|mock| mock.requests()).collect()
     }
 
     /// Lets one held model list or self-test answer.

@@ -50,6 +50,32 @@ impl ConflictEditor {
         }
         cx.notify();
     }
+    /// The supplied proposal's hunks.
+    pub fn proposed_hunks(&self) -> &[ProposedHunk] {
+        &self.proposal
+    }
+    /// The hunks still as the conflict left them, counted from 1, as
+    /// Resolve with AI sends them (AI-5).
+    pub fn untouched_hunks(&self, cx: &App) -> Vec<u32> {
+        self.ranges(cx)
+            .into_iter()
+            .filter(|(_, _, untouched)| *untouched)
+            .filter_map(|(at, _, _)| u32::try_from(at + 1).ok())
+            .collect()
+    }
+    /// How many untouched hunks Accept all high-confidence would take.
+    pub fn high_confidence(&self, cx: &App) -> usize {
+        self.ranges(cx)
+            .into_iter()
+            .filter(|(at, _, untouched)| {
+                *untouched
+                    && self.proposed(*at).is_some_and(|proposed| {
+                        proposed.status == ProposalStatus::Resolved
+                            && proposed.confidence == ProposalConfidence::High
+                    })
+            })
+            .count()
+    }
     /// Hunk `hunk`'s proposal while shown: proposed hunks count from 1.
     fn proposed(&self, hunk: usize) -> Option<&ProposedHunk> {
         let rejected = self.reviews.get(&hunk).is_some_and(|r| r.rejected);

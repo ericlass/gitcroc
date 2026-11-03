@@ -8,6 +8,7 @@
 // GPUI's test macro names the crate `gpui`.
 extern crate gpui_kit as gpui;
 
+mod ai_resolve;
 mod ai_settings;
 mod askpass;
 mod background_tabs;

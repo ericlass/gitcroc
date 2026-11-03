@@ -111,6 +111,8 @@ pub mod tabs {
     pub const ACTIONS: &str = "Tab actions";
     pub const RENAME: &str = "Rename…";
     pub const EXPORT: &str = "Export workspace…";
+    /// The checked item that turns AI on or off for the tab (AI-6).
+    pub const AI: &str = "AI for this workspace";
     pub const CLOSE_TAB: &str = "Close";
     /// The badge of a tab with jobs (UI-32).
     pub fn jobs_title(count: u32) -> String {
@@ -751,7 +753,7 @@ pub mod changes {
 
     /// `count` with its thousands apart, as rc.1's `toLocaleString`
     /// showed them in English: "20,001".
-    fn grouped(count: u32) -> String {
+    pub(super) fn grouped(count: u32) -> String {
         let digits = count.to_string();
         let mut out = String::with_capacity(digits.len() + digits.len() / 3);
         for (at, digit) in digits.chars().enumerate() {
@@ -816,6 +818,9 @@ pub mod workspaces {
         "Its workspace file is deleted. The repositories on disk are not touched.";
     pub fn cannot_export(error: &str) -> String {
         format!("Cannot export the workspace: {error}")
+    }
+    pub fn cannot_set_ai(error: &str) -> String {
+        format!("Cannot change AI for this workspace: {error}")
     }
     pub fn cannot_import(error: &str) -> String {
         format!("Cannot import a workspace: {error}")
@@ -1347,6 +1352,53 @@ pub mod conflict {
     pub fn resolution(path: &str) -> String {
         format!("Resolution of {path}")
     }
+
+    // Resolve with AI in the editor's header (AI-3, AI-4, AI-9, AI-14).
+    pub const RESOLVE_WITH_AI: &str = "Resolve with AI";
+    pub const RESOLVE_WITH_AI_TITLE: &str =
+        "Ask the AI provider to propose a resolution of the conflicts left";
+    /// While the job runs, with the default provider's name.
+    pub fn cancel_ai(provider: &str) -> String {
+        format!("Cancel ({provider})")
+    }
+    /// How resolving with AI names a default provider without a name.
+    pub const THE_PROVIDER: &str = "the AI provider";
+    pub const AI_OFF_HERE: &str = "AI is off for this workspace.";
+    pub fn not_sent_to_ai(reason: &str) -> String {
+        format!("Not sent to AI: {reason}")
+    }
+    pub fn ai_failed(reason: &str) -> String {
+        format!("AI failed: {reason}")
+    }
+    pub const TRY_AGAIN: &str = "Try again";
+    pub const ACCEPT_ALL_HIGH: &str = "Accept all high-confidence";
+    pub const ACCEPT_ALL_HIGH_TITLE: &str =
+        "Accept every untouched hunk of this file proposed with high confidence";
+    pub const TOKEN_USAGE: &str = "Token usage";
+    pub fn tokens(input: u32, output: u32) -> String {
+        format!(
+            "{} input tokens, {} output tokens",
+            super::changes::grouped(input),
+            super::changes::grouped(output)
+        )
+    }
+    pub fn request(number: usize, tokens: &str) -> String {
+        format!("Request {number}: {tokens}")
+    }
+    /// Why Resolve with AI was refused (AI-3).
+    pub mod refused {
+        pub const AI_OFF: &str = "AI features are off.";
+        pub const NO_PROVIDER: &str = "No AI provider is the default.";
+        pub fn provider_unusable(reason: &str) -> String {
+            format!("The AI provider cannot be used: {reason}")
+        }
+        pub const CONSENT_NEEDED: &str = "Not sent: the provider was not allowed.";
+    }
+    /// A failed job's reason when it gave none.
+    pub const JOB_FAILED: &str = "the job failed";
+    pub fn cannot_read_proposal(error: &str) -> String {
+        format!("Cannot read the proposal: {error}")
+    }
 }
 
 /// The tree's add menu and the add report (GRP-1, M6-20).
@@ -1708,4 +1760,48 @@ pub mod ai {
     pub const FETCH_MODELS: &str = "Fetch models";
     pub const TEST: &str = "Test";
     pub const SAVE: &str = "Save";
+
+    /// The consent dialog (AI-6), in the core's words: where it sends, and
+    /// what.
+    pub mod consent {
+        use gitcroc_core::{ConsentRequest, ConsentTarget};
+
+        pub fn title(target: &str) -> String {
+            format!("Send to {target}?")
+        }
+        pub fn sends_to_host(provider: &str) -> String {
+            format!("The AI provider {provider} sends to the host ")
+        }
+        pub fn runs_program(provider: &str) -> String {
+            format!("The AI provider {provider} runs the program ")
+        }
+        pub const PASSES_IT: &str = " and passes it";
+        pub const WHAT_IS_SENT: &str = "this for each file it resolves, and nothing else:";
+        pub const ASKED_AGAIN: &str =
+            "You are asked again if the provider's host or program changes.";
+        pub const ALLOW: &str = "Allow";
+        pub const SENT: &str = "What is sent";
+        /// One item of what is sent, as the list shows it.
+        pub fn item(item: &str) -> String {
+            format!("• {item}")
+        }
+        /// The sentence before the host or program, and the one after it.
+        pub fn around(request: &ConsentRequest) -> (String, String) {
+            match request.to {
+                ConsentTarget::Host { .. } => (
+                    sends_to_host(&request.provider_name),
+                    format!(" {WHAT_IS_SENT}"),
+                ),
+                ConsentTarget::Program { .. } => (
+                    runs_program(&request.provider_name),
+                    format!("{PASSES_IT} {WHAT_IS_SENT}"),
+                ),
+            }
+        }
+        /// The whole sentence, as screen readers hear it.
+        pub fn text(request: &ConsentRequest) -> String {
+            let (before, after) = around(request);
+            format!("{before}{}{after}", request.to.value())
+        }
+    }
 }

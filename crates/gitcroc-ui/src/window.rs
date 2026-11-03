@@ -30,7 +30,7 @@ use tokio::sync::broadcast::error::RecvError;
 use crate::add_menu::AskClone;
 use crate::askpass::AskpassDialog;
 use crate::branch_dialog::{AskBranch, BranchDialog, BranchMode};
-use crate::changes_pane::{AskDiscard, ChangesPane, ChangesPrefs};
+use crate::changes_pane::{AskAi, AskDiscard, ChangesPane, ChangesPrefs};
 use crate::clone_dialog::CloneDialog;
 use crate::dialog::{Closed, Modal, NameDialog, Question};
 use crate::discard_dialog::DiscardDialog;
@@ -191,9 +191,9 @@ impl GitcrocWindow {
         let workspaces = cx.new(|_| Workspaces::new(services.clone()));
         let jobs = cx.new(|cx| Jobs::new(services.clone(), cx));
         let group_ops = cx.new(|cx| GroupOps::new(services.clone(), cx));
-        let tab_bar = cx.new(|cx| TabBar::new(workspaces.clone(), jobs.clone(), cx));
-        let updates = cx.new(|cx| Updates::new(services.clone(), cx));
         let ai = cx.new(|cx| crate::ai::Ai::new(services.clone(), cx));
+        let tab_bar = cx.new(|cx| TabBar::new(workspaces.clone(), jobs.clone(), ai.clone(), cx));
+        let updates = cx.new(|cx| Updates::new(services.clone(), cx));
         let status_bar = cx.new(|cx| StatusBar::new(jobs.clone(), updates.clone(), cx));
         let title_bar = cx.new(|_| TitleBar::new(controls.clone(), platform, system_title_bar));
         let mut events = services.app().subscribe();
@@ -596,9 +596,22 @@ impl GitcrocWindow {
                 && let Some(history) = self.histories.get(&active).cloned()
             {
                 let services = self.services.clone();
-                let ai = self.ai.clone();
-                let changes = cx
-                    .new(|cx| ChangesPane::new(services, active.clone(), history, ai, window, cx));
+                let (ai, workspaces) = (self.ai.clone(), self.workspaces.clone());
+                let changes = cx.new(|cx| {
+                    ChangesPane::new(
+                        services,
+                        active.clone(),
+                        history,
+                        ai,
+                        workspaces,
+                        window,
+                        cx,
+                    )
+                });
+                cx.subscribe_in(&changes, window, |this, pane, ask: &AskAi, window, cx| {
+                    this.ask_ai(pane, ask.clone(), window, cx);
+                })
+                .detach();
                 // It ends with the pane, which the window outlives.
                 cx.subscribe_in(
                     &changes,
@@ -838,6 +851,10 @@ impl GitcrocWindow {
                 self.share_notice = None;
                 let sent = Workspaces::export(&workspaces, id, cx);
                 self.refuse_with(sent, strings::workspaces::cannot_export, cx);
+            }
+            Choice::WorkspaceAi(id, enabled) => {
+                let sent = Workspaces::set_ai(&workspaces, id, enabled, cx);
+                self.refuse_with(sent, strings::workspaces::cannot_set_ai, cx);
             }
             Choice::Close(id) => self.close_tab(id, window, cx),
         }
@@ -1181,6 +1198,36 @@ impl GitcrocWindow {
         let (services, ai) = (self.services.clone(), self.ai.clone());
         let dialog = cx.new(|cx| SettingsDialog::new(&services, ai, at, window, cx));
         self.open_dialog(dialog, window, cx);
+    }
+
+    /// What Resolve with AI asks for (AI-3, AI-6): Settings at its AI tab,
+    /// or the consent dialog, after which the file is asked for again. The
+    /// consent dialog never opens while AI features are off (AI-16).
+    fn ask_ai(
+        &mut self,
+        pane: &Entity<ChangesPane>,
+        ask: AskAi,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match ask {
+            AskAi::Settings => {
+                self.open_settings(crate::settings_dialog::SettingsTab::Ai, window, cx);
+            }
+            AskAi::Consent { request, key } => {
+                if self.dialog.is_some() || !self.ai.read(cx).enabled() {
+                    return;
+                }
+                let pane = pane.downgrade();
+                let allowed: crate::consent_dialog::Allowed = Box::new(move |_, cx| {
+                    let _ = pane.update(cx, |pane, cx| pane.resolve_with_ai(&key, cx));
+                });
+                let ai = self.ai.clone();
+                let dialog = cx
+                    .new(|cx| crate::consent_dialog::ConsentDialog::new(request, ai, allowed, cx));
+                self.open_dialog(dialog, window, cx);
+            }
+        }
     }
 
     /// The dialog over the window, if it is of type `V`.

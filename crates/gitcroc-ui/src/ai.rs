@@ -85,6 +85,20 @@ impl Ai {
         self.view.as_ref().is_none_or(|view| view.enabled)
     }
 
+    /// The default provider's name, as Cancel shows it while its job runs.
+    pub fn default_name(&self) -> String {
+        self.view
+            .as_ref()
+            .and_then(|view| {
+                let id = view.default.as_ref()?;
+                view.providers.iter().find(|provider| &provider.id == id)
+            })
+            .map_or_else(
+                || crate::strings::conflict::THE_PROVIDER.to_owned(),
+                |provider| provider.name.clone(),
+            )
+    }
+
     /// The model list of `request`, once it arrived.
     pub fn models(&self, request: AiRequestId) -> Option<&ModelsResult> {
         self.models.get(&request)
@@ -141,6 +155,20 @@ impl Ai {
     pub fn set_default(&self, id: ProviderId, cx: &mut App) -> Task<Result<(), SharedString>> {
         self.send(
             move |app| async move { app.ai_provider_set_default(id).await },
+            cx,
+        )
+    }
+
+    /// Keeps the consent to `target`, the host or program the consent
+    /// dialog showed (AI-6).
+    pub fn consent(
+        &self,
+        id: ProviderId,
+        target: String,
+        cx: &mut App,
+    ) -> Task<Result<(), SharedString>> {
+        self.send(
+            move |app| async move { app.ai_provider_consent(id, target).await },
             cx,
         )
     }

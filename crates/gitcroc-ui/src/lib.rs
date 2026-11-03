@@ -14,6 +14,7 @@ pub mod clone_dialog;
 pub mod commit;
 pub mod commit_box;
 pub mod conflict;
+pub mod consent_dialog;
 pub mod dialog;
 pub mod dialogs;
 pub mod diff;

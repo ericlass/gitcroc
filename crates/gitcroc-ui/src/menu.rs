@@ -18,7 +18,7 @@ use gpui_kit::{
     Anchor, App, Bounds, Context, Div, ElementId, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyBinding, KeyBindingContextPredicate, MouseButton,
     MouseDownEvent, ParentElement, Pixels, Point, Render, Role, SharedString,
-    StatefulInteractiveElement, Styled, TestSupportExt, Window, actions, anchored, canvas,
+    StatefulInteractiveElement, Styled, TestSupportExt, Toggled, Window, actions, anchored, canvas,
     deferred, div, px, svg,
 };
 
@@ -85,6 +85,9 @@ pub struct MenuItem {
     /// The items of the second menu it opens; empty for an item that is
     /// chosen itself.
     pub submenu: Vec<MenuItem>,
+    /// A checked item's state, such as AI for this workspace; `None` for
+    /// an item that is only chosen.
+    pub checked: Option<bool>,
 }
 
 impl MenuItem {
@@ -96,7 +99,14 @@ impl MenuItem {
             separated: false,
             disabled: false,
             submenu: Vec::new(),
+            checked: None,
         }
+    }
+
+    /// An item that is on or off, with a check mark while on.
+    pub fn checked(mut self, checked: bool) -> Self {
+        self.checked = Some(checked);
+        self
     }
 
     pub fn label(mut self, label: impl Into<SharedString>) -> Self {
@@ -458,8 +468,19 @@ fn item_row(
         .id(id)
         .test_support()
         .track_focus(focus)
-        .role(Role::MenuItem)
+        .role(if item.checked.is_some() {
+            Role::MenuItemCheckBox
+        } else {
+            Role::MenuItem
+        })
         .aria_label(item.name())
+        .when_some(item.checked, |row, checked| {
+            row.aria_toggled(if checked {
+                Toggled::True
+            } else {
+                Toggled::False
+            })
+        })
         .when(opens, |row| row.aria_expanded(open))
         .flex()
         .flex_row()
@@ -481,6 +502,14 @@ fn item_row(
         })
         .when(open, |row| row.bg(tokens.bg_3))
         .child(item.text.clone())
+        .when(item.checked == Some(true), |row| {
+            row.child(
+                svg()
+                    .path(crate::icons::CHECK)
+                    .size(px(12.))
+                    .text_color(tokens.text_secondary),
+            )
+        })
         .when(opens, |row| {
             row.child(
                 svg()
