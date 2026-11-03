@@ -78,6 +78,10 @@ pub enum TabBarEvent {
     Chose(Choice),
     /// The core refused a tab change; this says why.
     Refused(SharedString),
+    /// The core made tab `0` the shown one, after a change from the tab
+    /// bar. The window gives that tab the focus unless a dialog has opened
+    /// since, such as the palette (UI-22).
+    Shown(WorkspaceId),
 }
 
 /// A tab being dragged.
@@ -200,8 +204,14 @@ impl TabBar {
             .map(|(id, _)| id.clone())
     }
 
-    /// Sends a tab change; a refusal shows below the title bar, and the
-    /// focus then goes to tab `focus`, if given.
+    /// Gives the focus to tab `id`.
+    pub fn focus_tab(&mut self, id: &WorkspaceId, window: &mut Window, cx: &mut App) {
+        let focus = self.tab_focus(id, cx);
+        window.focus(&focus, cx);
+    }
+
+    /// Sends a tab change; a refusal shows below the title bar. Once it is
+    /// made, the window is asked to give tab `focus` the focus, if given.
     fn send(
         &mut self,
         sent: Task<Result<(), SharedString>>,
@@ -211,11 +221,10 @@ impl TabBar {
     ) {
         cx.spawn_in(window, async move |this, cx| {
             let result = sent.await;
-            let _ = this.update_in(cx, |this, window, cx| match result {
+            let _ = this.update(cx, |_, cx| match result {
                 Ok(()) => {
                     if let Some(id) = focus {
-                        let handle = this.tab_focus(&id, cx);
-                        window.focus(&handle, cx);
+                        cx.emit(TabBarEvent::Shown(id));
                     }
                 }
                 Err(error) => cx.emit(TabBarEvent::Refused(error)),
