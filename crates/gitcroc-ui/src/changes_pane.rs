@@ -39,6 +39,7 @@ use gpui_kit::{
 mod conflict_ai;
 mod conflict_all;
 mod conflicts;
+mod palette;
 
 pub use conflict_ai::AskAi;
 pub use conflicts::{ConflictFiles, KeptFile, Start};

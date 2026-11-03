@@ -873,6 +873,63 @@ impl HistoryPane {
         .detach();
     }
 
+    /// What the banner's Abort, Continue and Resolve all with AI do now,
+    /// for the palette (UI-22); `None` while no banner is shown.
+    pub fn banner_command(
+        &self,
+        op: gitcroc_core::PaletteOp,
+        cx: &App,
+    ) -> Option<crate::palette::Command> {
+        use crate::palette::Command;
+        use gitcroc_core::{IntegrateOp, PaletteOp};
+        let repo = self.banner_repo()?;
+        let tree = self.tree.read(cx).tree();
+        let view = tree.summary(&repo)?;
+        let operation = view.summary.as_ref()?.state.operation?;
+        let name = tree
+            .repo_names()
+            .get(&repo)
+            .cloned()
+            .unwrap_or_else(|| repo.0.clone());
+        let workspace = self.workspace_id.clone();
+        // As the window runs the banner's buttons.
+        let integrate = move |op: IntegrateOp| {
+            Command::run(move |this, window, cx| {
+                let mode = crate::operation_dialog::OperationMode::Run(
+                    crate::operation_dialog::Operation::Integrate(op),
+                );
+                this.ask_operation(workspace, repo, name, mode, window, cx);
+            })
+        };
+        Some(match op {
+            PaletteOp::Abort if view.busy => Command::cannot(strings::integrate::BUSY),
+            PaletteOp::Abort => integrate(IntegrateOp::Abort),
+            PaletteOp::Continue => match crate::banner::continue_why(operation, view) {
+                Some(why) => Command::cannot(why),
+                None => integrate(IntegrateOp::Continue),
+            },
+            PaletteOp::ResolveAllWithAi => {
+                let runs = self.resolve_all.read(cx);
+                if !runs.enabled(cx) {
+                    return None;
+                }
+                let repo = self.banner_repo()?;
+                if !runs.workspace_on(cx) {
+                    Command::cannot(strings::integrate::AI_OFF_TITLE)
+                } else if runs
+                    .run(&repo)
+                    .is_some_and(crate::resolve_all::RepoRun::busy)
+                {
+                    Command::cannot(strings::palette::CANNOT_APPLY)
+                } else {
+                    let runs = self.resolve_all.clone();
+                    Command::run(move |_, _, cx| runs.update(cx, |runs, cx| runs.ask(&repo, cx)))
+                }
+            }
+            _ => return None,
+        })
+    }
+
     /// The conflict banner of the repo shown (OPS-2, UI-10).
     fn banner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let repo = self.banner_repo()?;
@@ -1346,6 +1403,28 @@ impl HistoryPane {
             self.select(index, window, cx);
         }
         window.focus(&self.focus, cx);
+        if let Some(request) = self.commit_menu_request(&repo, &hash, at, cx) {
+            cx.emit(request);
+        }
+    }
+
+    /// The selected commit's menu, for the palette (UI-22): the marked
+    /// commits, as the menu opened on it acts on them.
+    pub fn selected_commit_menu(&self, cx: &App) -> Option<AskRowMenu> {
+        let id = self.history.list_id_at(self.selected_index()?)?;
+        let (repo, hash) = self.history.commit_of(&id)?;
+        self.commit_menu_request(&repo, &hash, Point::default(), cx)
+    }
+
+    /// The menu of commit `hash` of `repo`, over the marked commits.
+    fn commit_menu_request(
+        &self,
+        repo: &RepoId,
+        hash: &str,
+        at: Point<Pixels>,
+        cx: &App,
+    ) -> Option<AskRowMenu> {
+        let (repo, hash) = (repo.clone(), hash.to_owned());
         let count = self.marked.len();
         let same_repo = self
             .marked
@@ -1412,7 +1491,7 @@ impl HistoryPane {
             })
             .collect();
         let repo_name = tree.repo_names().get(&repo).cloned().unwrap_or_default();
-        cx.emit(AskRowMenu {
+        Some(AskRowMenu {
             label: strings::commit_menu::MENU,
             workspace: self.workspace_id.clone(),
             repo: Some(repo),
@@ -1420,7 +1499,7 @@ impl HistoryPane {
             items,
             at,
             focus: self.focus.clone(),
-        });
+        })
     }
 
     fn header(&mut self, tokens: &Tokens, window: &Window, cx: &mut Context<Self>) -> AnyElement {

@@ -107,6 +107,14 @@ impl AddMenu {
         cx.notify();
     }
 
+    /// What Clone… asks the window for (UI-22).
+    pub fn clone_ask(&self) -> AskClone {
+        AskClone {
+            workspace: self.workspace_id.clone(),
+            parent: self.parent.clone(),
+        }
+    }
+
     fn on_menu(&mut self, event: MenuEvent, window: &mut Window, cx: &mut Context<Self>) {
         if self.menu.take().is_none() {
             return;
@@ -131,7 +139,7 @@ impl AddMenu {
 
     /// Asks the core for the folder dialog and the add job; the next
     /// report replaces this one, and a cancel shows none.
-    fn add_folder(&mut self, cx: &mut Context<Self>) {
+    pub fn add_folder(&mut self, cx: &mut Context<Self>) {
         self.report.update(cx, |view, cx| view.clear(cx));
         let workspace = self.workspace_id.clone();
         let call = self

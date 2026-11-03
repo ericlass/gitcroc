@@ -43,6 +43,24 @@ pub struct AskIntegrate {
     pub op: IntegrateOp,
 }
 
+/// Why Continue is disabled for `operation` in `view`'s repo; a stash
+/// apply has none to continue.
+pub fn continue_why(operation: Operation, view: &SummaryView) -> Option<&'static str> {
+    let unmerged = view
+        .summary
+        .as_ref()
+        .map_or(0, |summary| summary.state.unmerged_paths);
+    if operation == Operation::StashApply {
+        Some(text::STASH_APPLY_ENDS)
+    } else if view.busy {
+        Some(text::BUSY)
+    } else if unmerged > 0 {
+        Some(text::RESOLVE_FIRST)
+    } else {
+        None
+    }
+}
+
 /// What the banner read of each repo, per workspace (ARCH-9).
 #[derive(Default)]
 pub struct Banner {
@@ -119,16 +137,7 @@ impl Banner {
         } else {
             text::resolve_and_stage(unmerged).into()
         };
-        // Continue's reason when disabled; a stash apply has none to give.
-        let continue_why = if operation == Operation::StashApply {
-            Some(text::STASH_APPLY_ENDS)
-        } else if view.busy {
-            Some(text::BUSY)
-        } else if unmerged > 0 {
-            Some(text::RESOLVE_FIRST)
-        } else {
-            None
-        };
+        let continue_why = continue_why(operation, view);
         let abort_title = if operation == Operation::StashApply {
             text::ABORT_STASH_APPLY.to_owned()
         } else {

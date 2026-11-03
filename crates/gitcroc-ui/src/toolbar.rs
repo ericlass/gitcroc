@@ -5,7 +5,8 @@
 use crate::{
     group_name_dialog::{AskGroupName, NameKind},
     group_ops::SyncKind,
-    operation_dialog::{Operation, OperationMode},
+    operation_dialog::{Operation, OperationDialog, OperationMode},
+    palette::Command,
     strings::{group_ops as group_text, operations as text},
     window::GitcrocWindow,
 };
@@ -36,9 +37,170 @@ enum Scope {
     },
 }
 
+/// The toolbar's operation buttons, in order: the label, what a click
+/// does on one repo, what the arrow beside it opens, and whether it needs
+/// a branch checked out.
+fn toolbar_buttons() -> [(&'static str, OperationMode, Option<OperationMode>, bool); 6] {
+    [
+        (
+            text::FETCH,
+            OperationMode::Run(Operation::Sync(SyncOp::Fetch {
+                prune: Prune::Config,
+            })),
+            Some(OperationMode::Fetch),
+            false,
+        ),
+        (
+            text::PULL,
+            OperationMode::Run(Operation::Sync(SyncOp::Pull {
+                strategy: PullStrategy::Config,
+            })),
+            Some(OperationMode::Pull),
+            true,
+        ),
+        (
+            text::PUSH,
+            OperationMode::Run(Operation::Sync(SyncOp::Push {
+                set_upstream: true,
+                remote: None,
+                force_with_lease: false,
+            })),
+            Some(OperationMode::Push),
+            true,
+        ),
+        (text::BRANCH, OperationMode::Merge, None, false),
+        (text::MERGE, OperationMode::Merge, None, true),
+        (text::STASH, OperationMode::StashPush, None, false),
+    ]
+}
+
+/// The buttons the palette runs (UI-22), by their place in [`toolbar_buttons`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolbarButton {
+    Fetch = 0,
+    Pull = 1,
+    Push = 2,
+    Branch = 3,
+    Merge = 4,
+    Stash = 5,
+}
+
+/// Whether button `at` is enabled on `scope`, and its tooltip: its label,
+/// or why it is disabled.
+fn button_state(scope: &Scope, at: usize, label: &str, needs_branch: bool) -> (bool, String) {
+    let enabled = match (scope, at) {
+        (Scope::Repo { fetch, .. }, 0) => *fetch,
+        (Scope::Repo { write, branch, .. }, 1 | 2) => *write && (!needs_branch || *branch),
+        (Scope::Repo { write, .. }, 3) => *write,
+        (Scope::Repo { write, branch, .. }, 4) => *write && *branch,
+        (Scope::Repo { write, .. }, 5) => *write,
+        // Everything but Stash runs through the preflight, which
+        // skips or blocks each repo that cannot take it (GRP-8).
+        (Scope::Group { .. }, hit) => hit < 5,
+        _ => false,
+    };
+    let reason = match scope {
+        Scope::None => text::SINGLE_REPO.to_owned(),
+        Scope::Group { .. } => match at {
+            5 => text::STASH_ONE_REPO.to_owned(),
+            _ => label.to_owned(),
+        },
+        Scope::Repo {
+            fetch,
+            branch,
+            blocked,
+            ..
+        } => {
+            if at == 0 && *fetch {
+                label.to_owned()
+            } else if let Some(reason) = blocked {
+                (*reason).to_owned()
+            } else if needs_branch && !branch {
+                text::DETACHED.to_owned()
+            } else {
+                label.to_owned()
+            }
+        }
+    };
+    (enabled, reason)
+}
+
 impl GitcrocWindow {
+    /// What toolbar button `button`, or with `options` the arrow beside
+    /// it, does now, as a click on it (UI-22); `None` while nothing is
+    /// selected for it to act on.
+    pub(crate) fn toolbar_command(
+        &self,
+        button: ToolbarButton,
+        options: bool,
+        cx: &gpui_kit::App,
+    ) -> Option<Command> {
+        let scope = self.toolbar_scope(cx);
+        if matches!(scope, Scope::None) {
+            return None;
+        }
+        let at = button as usize;
+        let (label, mode, options_mode, needs_branch) = toolbar_buttons().into_iter().nth(at)?;
+        let (enabled, reason) = button_state(&scope, at, label, needs_branch);
+        if !enabled {
+            return Some(Command::cannot(reason));
+        }
+        Some(match (options, options_mode) {
+            (true, Some(options_mode)) => Command::run(move |this, window, cx| {
+                this.toolbar_options(scope, at, options_mode, window, cx)
+            }),
+            (true, None) => return None,
+            (false, _) => {
+                Command::run(move |this, window, cx| this.toolbar_run(scope, at, mode, window, cx))
+            }
+        })
+    }
+
+    /// Rebase onto a ref, by the rules of Merge: the merge dialog with
+    /// rebase chosen for one repo, or the group rebase dialog (GRP-13).
+    pub(crate) fn rebase_command(&self, cx: &gpui_kit::App) -> Option<Command> {
+        let scope = self.toolbar_scope(cx);
+        if matches!(scope, Scope::None) {
+            return None;
+        }
+        let at = ToolbarButton::Merge as usize;
+        let (enabled, reason) = button_state(&scope, at, text::MERGE, true);
+        if !enabled {
+            return Some(Command::cannot(reason));
+        }
+        Some(Command::run(move |this, window, cx| match scope {
+            Scope::None => {}
+            Scope::Group {
+                workspace,
+                target,
+                name,
+            } => this.open_group_name(
+                AskGroupName {
+                    workspace,
+                    target,
+                    target_name: name,
+                    kind: NameKind::Rebase,
+                    name: String::new(),
+                },
+                window,
+                cx,
+            ),
+            Scope::Repo {
+                workspace,
+                repo,
+                name,
+                ..
+            } => {
+                this.ask_operation(workspace, repo, name, OperationMode::Merge, window, cx);
+                if let Some(dialog) = this.dialog_of::<OperationDialog>() {
+                    dialog.update(cx, |dialog, cx| dialog.choose_rebase(cx));
+                }
+            }
+        }))
+    }
+
     /// What the toolbar acts on for the active tab.
-    fn toolbar_scope(&self, cx: &Context<Self>) -> Scope {
+    fn toolbar_scope(&self, cx: &gpui_kit::App) -> Scope {
         let Some(workspace) = self
             .workspaces
             .read(cx)
@@ -109,74 +271,9 @@ impl GitcrocWindow {
     pub(crate) fn operation_toolbar(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let scope = self.toolbar_scope(cx);
         let mut buttons = Vec::new();
-        for (at, (label, mode, options, needs_branch)) in [
-            (
-                text::FETCH,
-                OperationMode::Run(Operation::Sync(SyncOp::Fetch {
-                    prune: Prune::Config,
-                })),
-                Some(OperationMode::Fetch),
-                false,
-            ),
-            (
-                text::PULL,
-                OperationMode::Run(Operation::Sync(SyncOp::Pull {
-                    strategy: PullStrategy::Config,
-                })),
-                Some(OperationMode::Pull),
-                true,
-            ),
-            (
-                text::PUSH,
-                OperationMode::Run(Operation::Sync(SyncOp::Push {
-                    set_upstream: true,
-                    remote: None,
-                    force_with_lease: false,
-                })),
-                Some(OperationMode::Push),
-                true,
-            ),
-            (text::BRANCH, OperationMode::Merge, None, false),
-            (text::MERGE, OperationMode::Merge, None, true),
-            (text::STASH, OperationMode::StashPush, None, false),
-        ]
-        .into_iter()
-        .enumerate()
+        for (at, (label, mode, options, needs_branch)) in toolbar_buttons().into_iter().enumerate()
         {
-            let enabled = match (&scope, at) {
-                (Scope::Repo { fetch, .. }, 0) => *fetch,
-                (Scope::Repo { write, branch, .. }, 1 | 2) => *write && (!needs_branch || *branch),
-                (Scope::Repo { write, .. }, 3) => *write,
-                (Scope::Repo { write, branch, .. }, 4) => *write && *branch,
-                (Scope::Repo { write, .. }, 5) => *write,
-                // Everything but Stash runs through the preflight, which
-                // skips or blocks each repo that cannot take it (GRP-8).
-                (Scope::Group { .. }, hit) => hit < 5,
-                _ => false,
-            };
-            let reason = match &scope {
-                Scope::None => text::SINGLE_REPO.to_owned(),
-                Scope::Group { .. } => match at {
-                    5 => text::STASH_ONE_REPO.to_owned(),
-                    _ => label.to_owned(),
-                },
-                Scope::Repo {
-                    fetch,
-                    branch,
-                    blocked,
-                    ..
-                } => {
-                    if at == 0 && *fetch {
-                        label.to_owned()
-                    } else if let Some(reason) = blocked {
-                        (*reason).to_owned()
-                    } else if needs_branch && !branch {
-                        text::DETACHED.to_owned()
-                    } else {
-                        label.to_owned()
-                    }
-                }
-            };
+            let (enabled, reason) = button_state(&scope, at, label, needs_branch);
             let scope_for_click = self.scope_clone(&scope);
             let button = Button::new(gpui_kit::ElementId::Name(format!("toolbar-{at}").into()))
                 .label(label)
@@ -217,8 +314,8 @@ impl GitcrocWindow {
         buttons.push(
             Button::new("toolbar-palette")
                 .label(text::PALETTE)
-                .disabled(true)
-                .tooltip(text::LATER)
+                .tooltip(text::PALETTE)
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_palette(window, cx)))
                 .into_any_element(),
         );
         buttons.push(

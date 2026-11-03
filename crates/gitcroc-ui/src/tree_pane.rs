@@ -9,7 +9,8 @@
 use crate::add_menu::{AddMenu, AddReportView};
 use crate::branch_dialog::{AskBranch, BranchMode};
 use crate::row_context::{AskRowMenu, RowChoice};
-use crate::row_menus::{self, TreeAction as A};
+use crate::row_menus::{self, TreeAction, TreeAction as A};
+use crate::tree::{Reveal, Revealed};
 use gitcroc_core::{BranchOp, RemoteBranchRef, StartPoint};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -135,6 +136,8 @@ pub struct TreePane {
     add_report: Entity<AddReportView>,
     /// A cloned repo to select once its row is shown.
     pending_select: Option<RepoId>,
+    /// What the palette selects once its refs are loaded (UI-22).
+    pending_reveal: Option<Reveal>,
     /// A row being dragged onto another (UI-7).
     drag: Option<group_drag::Drag>,
     _filter_events: Subscription,
@@ -180,6 +183,7 @@ impl TreePane {
             add_menu,
             add_report,
             pending_select: None,
+            pending_reveal: None,
             drag: None,
             _filter_events: filter_events,
         };
@@ -374,6 +378,7 @@ impl TreePane {
                 };
                 this.tree.finish_load(item, nodes);
                 this.changed(cx);
+                this.reveal_pending(cx);
             });
         })
     }
@@ -716,9 +721,19 @@ impl TreePane {
             self.select_at(index, How::Select, cx);
         }
         window.focus(&self.focus, cx);
-        let Some(item) = self.rows.get(index).and_then(|row| row.item()) else {
-            return;
-        };
+        if let Some((request, _)) = self.menu_request(index, at) {
+            cx.emit(request);
+        }
+    }
+
+    /// Row `index`'s menu as `row_menu` opens it at `at`, with each entry's
+    /// action; `None` when the row has none.
+    fn menu_request(
+        &self,
+        index: usize,
+        at: Point<Pixels>,
+    ) -> Option<(AskRowMenu, Vec<TreeAction>)> {
+        let item = self.rows.get(index).and_then(|row| row.item())?;
         let (groups, chosen) = self.group_context(item);
         let repo = repo_of(item).cloned();
         let view = repo.as_ref().and_then(|repo| self.tree.summary(repo));
@@ -741,6 +756,7 @@ impl TreePane {
             }),
             _ => None,
         };
+        let actions = entries.iter().map(|entry| entry.action).collect();
         let items = entries
             .into_iter()
             .map(|entry| {
@@ -856,21 +872,74 @@ impl TreePane {
             })
             .collect::<Vec<_>>();
         if items.is_empty() {
-            return;
+            return None;
         }
         let repo_name = repo
             .as_ref()
             .and_then(|repo| self.tree.repo_names().get(repo).cloned())
             .unwrap_or_default();
-        cx.emit(AskRowMenu {
-            label: strings::branches::TREE_ACTIONS,
-            workspace: self.workspace_id.clone(),
-            repo,
-            repo_name,
-            items,
-            at,
-            focus: self.focus.clone(),
-        });
+        Some((
+            AskRowMenu {
+                label: strings::branches::TREE_ACTIONS,
+                workspace: self.workspace_id.clone(),
+                repo,
+                repo_name,
+                items,
+                at,
+                focus: self.focus.clone(),
+            },
+            actions,
+        ))
+    }
+
+    /// The selected row's menu, for the palette (UI-22).
+    pub fn selected_menu(&self) -> Option<(AskRowMenu, Vec<TreeAction>)> {
+        self.menu_request(self.selected_index()?, Point::default())
+    }
+
+    /// The menu of Ungrouped, whose New group the palette runs when the
+    /// selected row's menu has none.
+    pub fn ungrouped_menu(&self) -> Option<(AskRowMenu, Vec<TreeAction>)> {
+        let index = self
+            .rows
+            .iter()
+            .position(|row| matches!(row.item(), Some(TreeItem::Ungrouped)))?;
+        self.menu_request(index, Point::default())
+    }
+
+    /// Selects `place` as a click does, once the tree shows it: the filter
+    /// is cleared, the nodes above it expand and a branch's refs load
+    /// first (UI-22).
+    pub fn reveal(&mut self, place: Reveal, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.tree.filter().is_empty() {
+            self.filter
+                .update(cx, |filter, cx| filter.set_value("", window, cx));
+            self.set_filter(String::new(), cx);
+        }
+        self.pending_reveal = Some(place);
+        self.reveal_pending(cx);
+    }
+
+    fn reveal_pending(&mut self, cx: &mut Context<Self>) {
+        let Some(place) = self.pending_reveal.clone() else {
+            return;
+        };
+        match self.tree.reveal(&place) {
+            Revealed::Found(id) => {
+                self.pending_reveal = None;
+                self.changed(cx);
+                if let Some(index) = self.rows.iter().position(|row| row.id == id) {
+                    self.select_at(index, How::Select, cx);
+                }
+            }
+            Revealed::Load(item) => {
+                if !self.tree.is_loading(&item) {
+                    self.load(item, cx).detach();
+                }
+                self.changed(cx);
+            }
+            Revealed::Missing => self.pending_reveal = None,
+        }
     }
 
     fn click_chevron(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {

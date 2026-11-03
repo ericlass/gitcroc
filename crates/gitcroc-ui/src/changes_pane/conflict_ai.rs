@@ -18,7 +18,7 @@ use gitcroc_core::{
 use gpui_component::button::Button;
 use gpui_component::{Disableable, Sizable};
 use gpui_kit::{
-    AnyElement, App, Context, Div, InteractiveElement, IntoElement, ParentElement, Role,
+    AnyElement, App, Context, Div, Entity, InteractiveElement, IntoElement, ParentElement, Role,
     SharedString, StatefulInteractiveElement, Styled, TestSupportExt, div,
 };
 
@@ -450,6 +450,62 @@ impl ChangesPane {
     /// it cannot be pressed, AI failed with Try again, Accept all
     /// high-confidence and the token usage (AI-3, AI-4, AI-9, AI-11,
     /// AI-14). Nothing while AI features are off (AI-16).
+    /// Why the file cannot go to AI: AI is off for the workspace, or the
+    /// file is not eligible (AI-4, AI-6).
+    fn ai_blocked(&self, ai: &FileAi, cx: &App) -> Option<String> {
+        if !self.workspace_ai(cx) {
+            Some(text::AI_OFF_HERE.to_owned())
+        } else {
+            match &ai.eligibility {
+                Some((AiEligibility::Ineligible { message, .. }, _)) => {
+                    Some(text::not_sent_to_ai(message))
+                }
+                _ => None,
+            }
+        }
+    }
+
+    /// Resolve with AI and Accept all high-confidence, as the editor's
+    /// buttons, for the palette (UI-22); none while AI features are off
+    /// (AI-16).
+    pub(super) fn ai_command(
+        &self,
+        pane: &Entity<Self>,
+        key: &EditorKey,
+        editor: &Entity<crate::conflict::ConflictEditor>,
+        op: gitcroc_core::PaletteOp,
+        cx: &App,
+    ) -> Option<crate::palette::Command> {
+        use crate::palette::Command;
+        if !self.ai.read(cx).enabled() {
+            return None;
+        }
+        let ai = &self.conflicts.get(key)?.ai;
+        if op == gitcroc_core::PaletteOp::AcceptHighConfidence {
+            if ai.proposal.is_none() || editor.read(cx).high_confidence(cx) == 0 {
+                return Some(Command::cannot(crate::strings::palette::CANNOT_APPLY));
+            }
+            let editor = editor.clone();
+            return Some(Command::run(move |_, window, cx| {
+                editor.update(cx, |editor, cx| {
+                    editor.accept_all_high(window, cx);
+                })
+            }));
+        }
+        let blocked = self.ai_blocked(ai, cx);
+        let untouched = !editor.read(cx).untouched_hunks(cx).is_empty();
+        if let Some(why) = blocked {
+            return Some(Command::cannot(why));
+        }
+        if ai.job.is_some() || ai.starting || !untouched {
+            return Some(Command::cannot(crate::strings::palette::CANNOT_APPLY));
+        }
+        let (pane, key) = (pane.clone(), key.clone());
+        Some(Command::run(move |_, _, cx| {
+            pane.update(cx, |pane, cx| pane.resolve_with_ai(&key, cx))
+        }))
+    }
+
     pub(super) fn ai_header(&self, key: &EditorKey, cx: &mut Context<Self>) -> Option<Div> {
         if !self.ai.read(cx).enabled() {
             return None;
@@ -465,16 +521,7 @@ impl ChangesPane {
                 editor.high_confidence(cx),
             )
         };
-        let blocked = if !self.workspace_ai(cx) {
-            Some(text::AI_OFF_HERE.to_owned())
-        } else {
-            match &ai.eligibility {
-                Some((AiEligibility::Ineligible { message, .. }, _)) => {
-                    Some(text::not_sent_to_ai(message))
-                }
-                _ => None,
-            }
-        };
+        let blocked = self.ai_blocked(ai, cx);
         let can_resolve = blocked.is_none() && !ai.starting && untouched;
         let note = |id: &'static str, role: Role, said: String| {
             let said: SharedString = said.into();

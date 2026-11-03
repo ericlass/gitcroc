@@ -50,6 +50,31 @@ pub fn load_key(item: &TreeItem) -> Option<String> {
     }
 }
 
+/// A row the palette selects (UI-22): a repo or a group, or a local or
+/// remote branch, which its repo's Local or Remotes node shows once loaded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reveal {
+    Repo(RepoId),
+    Group(GroupId),
+    Branch {
+        repo: RepoId,
+        /// As the tree names it: `feature/x`, or `origin/feature/x`.
+        name: String,
+        remote: bool,
+    },
+}
+
+/// How far [`Tree::reveal`] got.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Revealed {
+    /// The row's id; the nodes above it are expanded.
+    Found(String),
+    /// The branch's ref node is to be loaded first; it is expanded.
+    Load(TreeItem),
+    /// Not in the tree, or its refs cannot be read.
+    Missing,
+}
+
 /// One row on screen.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
@@ -286,6 +311,100 @@ impl Tree {
     /// The unfiltered skeleton; empty until the first read.
     pub fn roots(&self) -> &[TreeNode] {
         self.roots.as_deref().unwrap_or_default()
+    }
+
+    /// Expands the nodes above `place` in the unfiltered tree, and says
+    /// its row, or what to load first (UI-22). The first place a repo
+    /// appears in is the one shown, as in rc.1.
+    pub fn reveal(&mut self, place: &Reveal) -> Revealed {
+        let found = match place {
+            Reveal::Group(group) => self.path_to(
+                self.roots(),
+                &|item| matches!(item, TreeItem::Group { group_id, .. } if group_id == group),
+            ),
+            Reveal::Repo(repo) | Reveal::Branch { repo, .. } => self.path_to(
+                self.roots(),
+                &|item| matches!(item, TreeItem::Repo { repo_id, .. } if repo_id == repo),
+            ),
+        };
+        let Some(path) = found else {
+            return Revealed::Missing;
+        };
+        let mut ids: Vec<String> = path.iter().map(|node| node.id.clone()).collect();
+        let mut load = None;
+        if let (Reveal::Branch { name, remote, .. }, Some(repo)) = (place, path.last()) {
+            let refs = self.children_of(repo).and_then(|nodes| {
+                nodes.iter().find(|node| match node.item {
+                    TreeItem::Remotes { .. } => *remote,
+                    TreeItem::Local { .. } => !*remote,
+                    _ => false,
+                })
+            });
+            let Some(refs) = refs else {
+                return Revealed::Missing;
+            };
+            ids.push(refs.id.clone());
+            match self.children_of(refs) {
+                Some(nodes) => {
+                    let below = self.path_to(nodes, &|item| match item {
+                        TreeItem::Branch { name: shown, .. } => !*remote && shown == name,
+                        TreeItem::RemoteBranch { name: shown, .. } => *remote && shown == name,
+                        _ => false,
+                    });
+                    let Some(below) = below else {
+                        return Revealed::Missing;
+                    };
+                    ids.extend(below.iter().map(|node| node.id.clone()));
+                }
+                None => {
+                    let key = load_key(&refs.item);
+                    if key.is_some_and(|key| self.load_errors.contains_key(&key)) {
+                        return Revealed::Missing;
+                    }
+                    load = Some(refs.item.clone());
+                }
+            }
+        }
+        if let Some(item) = load {
+            for id in ids {
+                self.expanded.insert(id, true);
+            }
+            return Revealed::Load(item);
+        }
+        let Some(row) = ids.pop() else {
+            return Revealed::Missing;
+        };
+        for id in ids {
+            self.expanded.insert(id, true);
+        }
+        Revealed::Found(row)
+    }
+
+    /// The nodes from `nodes` down to the first one, depth first, that
+    /// `hit` holds for, loaded children included.
+    fn path_to<'a>(
+        &'a self,
+        nodes: &'a [TreeNode],
+        hit: &dyn Fn(&TreeItem) -> bool,
+    ) -> Option<Vec<&'a TreeNode>> {
+        for node in nodes {
+            if hit(&node.item) {
+                return Some(vec![node]);
+            }
+            let below = self
+                .children_of(node)
+                .and_then(|inner| self.path_to(inner, hit));
+            if let Some(mut below) = below {
+                below.insert(0, node);
+                return Some(below);
+            }
+        }
+        None
+    }
+
+    /// Whether `item`'s children are being loaded.
+    pub fn is_loading(&self, item: &TreeItem) -> bool {
+        load_key(item).is_some_and(|key| self.loading.contains(&key))
     }
 
     /// Repo rows are multi-selected (UI-6).

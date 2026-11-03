@@ -35,6 +35,8 @@ mod history_merged;
 mod history_search;
 mod jobs;
 mod operations;
+mod palette;
+mod palette_ops;
 mod panes;
 mod perf;
 mod stage;
