@@ -230,6 +230,26 @@ impl TabBar {
         self.send(sent, Some(id), window, cx);
     }
 
+    /// Whether a tab is `step` places beside the active one.
+    pub fn has_beside_active(&self, step: isize, cx: &App) -> bool {
+        let Some(active) = self.workspaces.read(cx).tabs().active.clone() else {
+            return false;
+        };
+        let order = self.order(cx);
+        order
+            .iter()
+            .position(|open| *open == active)
+            .and_then(|at| at.checked_add_signed(step))
+            .is_some_and(|at| at < order.len())
+    }
+
+    /// Whether tab `id` has the focus.
+    pub fn tab_focused(&self, id: &WorkspaceId, window: &Window) -> bool {
+        self.tab_focus
+            .get(id)
+            .is_some_and(|focus| focus.is_focused(window))
+    }
+
     /// Activates the tab `step` places from the active one, if there is one.
     pub fn activate_beside_active(
         &mut self,

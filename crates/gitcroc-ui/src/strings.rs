@@ -52,6 +52,7 @@ pub mod menus {
 /// The app-wide shortcuts of `keys.rs` (UI-22): what each does, and how its
 /// keys are written.
 pub mod keys {
+    pub const PALETTE: &str = "Open or close the command palette";
     pub const NEXT_REGION: &str = "Move the focus to the next region";
     pub const PREVIOUS_REGION: &str = "Move the focus to the previous region";
     pub const NEXT_TAB: &str = "Next tab";
@@ -78,6 +79,57 @@ pub mod keys {
     pub fn join(parts: &[&str]) -> String {
         parts.join("+")
     }
+}
+
+/// The command palette (UI-22).
+pub mod palette {
+    use super::plural;
+
+    pub const LABEL: &str = "Command palette";
+    pub const SEARCH: &str = "Type a command, repository, group or branch";
+    pub const RESULTS: &str = "Matches";
+    /// What each kind of row is, shown before its text.
+    pub const OPERATION: &str = "Command";
+    pub const REPO: &str = "Repository";
+    pub const GROUP: &str = "Group";
+    pub const BRANCH: &str = "Branch";
+    pub const REMOTE_BRANCH: &str = "Remote branch";
+    /// A branch's repo, after its name.
+    pub fn in_repo(repo: &str) -> String {
+        format!("in {repo}")
+    }
+    pub fn members(count: u32) -> String {
+        plural(count, "repository", "repositories")
+    }
+    pub fn more(shown: usize, total: u32) -> String {
+        format!("{shown} of {total}, keep typing")
+    }
+    pub const NOTHING: &str = "Nothing matches";
+    pub fn cannot_read(error: &str) -> String {
+        format!("Cannot search: {error}")
+    }
+    /// Why an operation cannot apply, when its control gives no reason of
+    /// its own.
+    pub const CANNOT_APPLY: &str = "Cannot apply to the selection now";
+    /// What to select for an operation, by what it acts on.
+    pub const SELECT_TARGET_SET: &str = "Select a repository or a group in the tree";
+    pub const SELECT_BRANCH: &str = "Select a branch in the tree";
+    pub const SELECT_TAG: &str = "Select a tag in the tree";
+    pub const SELECT_STASH: &str = "Select a stash in the tree";
+    pub const SELECT_REMOTE: &str = "Select a remote in the tree";
+    pub const SELECT_COMMIT: &str = "Select a commit in the history";
+    pub const SELECT_FILE: &str = "Select a file in the changes pane";
+    pub const SELECT_CONFLICT: &str = "Select a repository in conflict";
+    pub const SELECT_APP: &str = "Open a workspace";
+    pub const ONE_REPO: &str = "Works on one repository at a time";
+    pub const NOTHING_STAGED: &str = "Stage changes first";
+    pub const NO_SUBJECT: &str = "Write the commit message first";
+    pub const NO_HUNK: &str = "Put the cursor in a conflict hunk";
+    pub const NOT_CHOICE: &str = "Only for a file that cannot be merged line by line";
+    pub const LAST_TAB: &str = "There is no tab after this one";
+    pub const FIRST_TAB: &str = "There is no tab before this one";
+    /// Check for updates before the Updates tab of Settings (M6-26).
+    pub const NO_UPDATE: &str = "No newer version is on offer";
 }
 
 /// Words many places share.
@@ -1036,7 +1088,6 @@ pub mod operations {
     pub const STASH_ONE_REPO: &str = "Stash works on one repository at a time.";
     pub const SELECT_REPO: &str = "Select a repo.";
     pub const DETACHED: &str = "This operation requires a branch; HEAD is detached.";
-    pub const LATER: &str = "Not available yet";
     pub const KEEP: &str = "Keep it";
     pub const DROP: &str = "Drop stash…";
     pub fn parent(number: usize, parent: &str) -> String {

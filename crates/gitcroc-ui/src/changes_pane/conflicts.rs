@@ -408,6 +408,73 @@ impl ChangesPane {
         window.defer(cx, move |window, cx| window.focus(&target, cx));
     }
 
+    /// What the conflict editor's Mark resolved, hunk keys and AI buttons
+    /// do now, for the palette (UI-22); `None` while no editor is shown.
+    pub(super) fn editor_command(
+        &self,
+        pane: &Entity<Self>,
+        op: gitcroc_core::PaletteOp,
+        cx: &App,
+    ) -> Option<crate::palette::Command> {
+        use crate::conflict::Take;
+        use crate::palette::Command;
+        use gitcroc_core::PaletteOp;
+        let key = self.selected_conflict()?;
+        let file = self.conflicts.get(&key)?;
+        let editor = file.editor.clone()?;
+        let side = match op {
+            PaletteOp::MarkResolved => {
+                if file.sending {
+                    return Some(Command::cannot(crate::strings::palette::CANNOT_APPLY));
+                }
+                let pane = pane.clone();
+                return Some(Command::run(move |_, window, cx| {
+                    pane.update(cx, |pane, cx| pane.mark_resolved(false, window, cx))
+                }));
+            }
+            PaletteOp::ResolveWithAi | PaletteOp::AcceptHighConfidence => {
+                return self.ai_command(pane, &key, &editor, op, cx);
+            }
+            PaletteOp::TakeOurs => Take::Ours,
+            PaletteOp::TakeTheirs => Take::Theirs,
+            PaletteOp::TakeBoth => Take::Both,
+            _ => return None,
+        };
+        if editor.read(cx).hunk_at_cursor(cx).is_none() {
+            return Some(Command::cannot(crate::strings::palette::NO_HUNK));
+        }
+        Some(Command::run(move |_, window, cx| {
+            editor.update(cx, |editor, cx| editor.take_at_cursor(side, window, cx))
+        }))
+    }
+
+    /// Keep ours or Keep theirs: the choice's button, for a file that has
+    /// the choice (OPS-6).
+    pub(super) fn choice_command(
+        &self,
+        pane: &Entity<Self>,
+        op: gitcroc_core::PaletteOp,
+    ) -> Option<crate::palette::Command> {
+        use crate::palette::Command;
+        let key = self.selected_conflict()?;
+        let file = self.conflicts.get(&key)?;
+        if !matches!(file.conflict.content, ConflictContent::Choice { .. }) {
+            return Some(Command::cannot(crate::strings::palette::NOT_CHOICE));
+        }
+        if file.sending {
+            return Some(Command::cannot(crate::strings::palette::CANNOT_APPLY));
+        }
+        let side = if op == gitcroc_core::PaletteOp::KeepOurs {
+            ConflictChoice::Ours
+        } else {
+            ConflictChoice::Theirs
+        };
+        let pane = pane.clone();
+        Some(Command::run(move |_, window, cx| {
+            pane.update(cx, |pane, cx| pane.choose(&key, side, window, cx))
+        }))
+    }
+
     fn on_mark_resolved(&mut self, _: &MarkResolved, window: &mut Window, cx: &mut Context<Self>) {
         self.mark_resolved(false, window, cx);
     }

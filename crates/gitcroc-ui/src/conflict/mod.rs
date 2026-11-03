@@ -417,14 +417,20 @@ impl ConflictEditor {
         }
     }
     /// The live hunk the caret is in.
-    fn hunk_at_cursor(&self, cx: &App) -> Option<usize> {
+    pub(crate) fn hunk_at_cursor(&self, cx: &App) -> Option<usize> {
         let cursor = self.editor.read(cx).cursor();
         self.ranges(cx)
             .into_iter()
             .find(|(_, r, _)| r.contains(&cursor))
             .map(|(id, _, _)| id)
     }
-    fn take_at_cursor(&mut self, side: Take, window: &mut Window, cx: &mut Context<Self>) {
+    /// Takes `side` of the hunk the caret is in, as its key does.
+    pub(crate) fn take_at_cursor(
+        &mut self,
+        side: Take,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let cursor = self.editor.read(cx).cursor();
         if let Some((id, _, _)) = self
             .ranges(cx)

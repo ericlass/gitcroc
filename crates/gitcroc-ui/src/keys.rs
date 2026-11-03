@@ -14,6 +14,8 @@ use crate::strings;
 actions!(
     gitcroc,
     [
+        /// Opens the command palette, or closes it (UI-22).
+        TogglePalette,
         /// Moves the focus to the next region of the window (UI-22).
         NextRegion,
         /// Moves the focus to the previous region.
@@ -127,6 +129,7 @@ impl Keys {
 /// An app-wide shortcut.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shortcut {
+    Palette,
     NextRegion,
     PreviousRegion,
     NextTab,
@@ -141,6 +144,7 @@ impl Shortcut {
     /// What it does, as the documentation and the palette say it.
     pub fn label(self) -> &'static str {
         match self {
+            Self::Palette => strings::keys::PALETTE,
             Self::NextRegion => strings::keys::NEXT_REGION,
             Self::PreviousRegion => strings::keys::PREVIOUS_REGION,
             Self::NextTab => strings::keys::NEXT_TAB,
@@ -155,6 +159,7 @@ impl Shortcut {
     /// The action it dispatches.
     pub fn action(self) -> Box<dyn Action> {
         match self {
+            Self::Palette => Box::new(TogglePalette),
             Self::NextRegion => Box::new(NextRegion),
             Self::PreviousRegion => Box::new(PreviousRegion),
             Self::NextTab => Box::new(NextTab),
@@ -167,8 +172,23 @@ impl Shortcut {
     }
 }
 
+/// The shortcut of a palette operation, shown in its row (UI-22).
+pub fn palette_shortcut(op: gitcroc_core::PaletteOp) -> Option<Keys> {
+    use gitcroc_core::PaletteOp;
+    let shortcut = match op {
+        PaletteOp::NextTab => Shortcut::NextTab,
+        PaletteOp::PreviousTab => Shortcut::PreviousTab,
+        _ => return None,
+    };
+    KEYMAP
+        .iter()
+        .find(|(known, _)| *known == shortcut)
+        .map(|(_, keys)| *keys)
+}
+
 /// The app-wide shortcuts and their keys.
-pub const KEYMAP: [(Shortcut, Keys); 8] = [
+pub const KEYMAP: [(Shortcut, Keys); 9] = [
+    (Shortcut::Palette, Keys::plain("k").secondary()),
     (Shortcut::NextRegion, Keys::plain("f6")),
     (Shortcut::PreviousRegion, Keys::plain("f6").shift()),
     (Shortcut::NextTab, Keys::plain("pagedown").secondary()),

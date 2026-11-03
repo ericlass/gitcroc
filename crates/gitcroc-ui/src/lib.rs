@@ -38,6 +38,7 @@ pub mod menu;
 pub mod menus;
 pub mod missing_repos;
 pub mod operation_dialog;
+pub mod palette;
 pub mod panes;
 #[cfg(feature = "perf-trace")]
 pub mod perf;
@@ -85,6 +86,7 @@ pub fn init(cx: &mut App) {
     conflict::bind(cx);
     menu::bind(cx);
     dialog::bind(cx);
+    palette::bind(cx);
     tab_bar::bind(cx);
     settings_dialog::bind(cx);
     status_bar::bind(cx);

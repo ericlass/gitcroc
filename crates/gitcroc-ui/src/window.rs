@@ -15,6 +15,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
+mod palette_commands;
+
 use crate::operation_dialog::{OperationDialog, OperationMode};
 use gitcroc_app::app::AppEvent;
 use gitcroc_app::askpass::AskpassPrompt;
@@ -42,7 +44,7 @@ use crate::job_list::JobList;
 use crate::jobs::Jobs;
 use crate::keys::{
     self, Minimize, MoveTabLeft, MoveTabRight, NextHunk, NextRegion, NextTab, PreviousHunk,
-    PreviousRegion, PreviousTab, Zoom,
+    PreviousRegion, PreviousTab, TogglePalette, Zoom,
 };
 use crate::menu::{Menu, MenuEvent};
 use crate::missing_repos::MissingReposDialog;
@@ -155,6 +157,8 @@ pub struct GitcrocWindow {
     /// Shown while no tab is open (UI-27).
     start: Option<Entity<WorkspaceStart>>,
     dialog: Option<OpenDialog>,
+    /// What the open command palette chose (UI-22).
+    palette_events: Option<Subscription>,
     row_menu: Option<OpenRowMenu>,
     retained_stashes: crate::retained_stash::RetainedStashes,
     /// Abort jobs of conflict banners, whose success ends their repo's
@@ -275,6 +279,7 @@ impl GitcrocWindow {
             tab_bar,
             start: None,
             dialog: None,
+            palette_events: None,
             row_menu: None,
             retained_stashes: Default::default(),
             aborts: HashMap::new(),
@@ -513,6 +518,12 @@ impl GitcrocWindow {
             title_bar.set_title(title, cx);
             title_bar.set_tab_bar(tab_bar, cx);
         });
+        // Whether the shown tab is being closed, and its tab had the focus.
+        let refocus = self
+            .shown
+            .clone()
+            .filter(|left| usable && !tabs.open.iter().any(|view| &view.id == left))
+            .map(|left| self.tab_bar.read(cx).tab_focused(&left, window));
         // A closed tab's panes go; the active tab's are made when first
         // shown.
         self.trees
@@ -697,6 +708,20 @@ impl GitcrocWindow {
                 self.resume(shown, cx);
             }
             self.shown = shown.clone();
+        }
+        // The shown tab was closed and took the focus with it; the keys
+        // work only while something has it. The tab shown now gets it: in
+        // the tab bar when the closed tab had it there, else its tree.
+        if let Some(on_tab_bar) = refocus
+            && self.dialog.is_none()
+            && self.askpass.is_none()
+        {
+            if on_tab_bar {
+                self.tab_bar
+                    .update(cx, |tab_bar, cx| tab_bar.focus(window, cx));
+            } else {
+                self.focus_main(window, cx);
+            }
         }
         // A report line's repo is selected once its tab is shown.
         if let Some((workspace, repo)) = self.pending_repo_select.clone()
@@ -1689,6 +1714,41 @@ impl GitcrocWindow {
             && !self.tab_bar.read(cx).menu_open()
     }
 
+    /// Opens the command palette on the shown workspace, or closes it; it
+    /// does not open over another dialog (UI-22).
+    pub(crate) fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::palette::{Chosen, Palette};
+        if let Some(open) = self.dialog_of::<Palette>() {
+            open.update(cx, |_, cx| cx.emit(Closed));
+            return;
+        }
+        if self.dialog.is_some() || self.askpass.is_some() || !self.git.usable() {
+            return;
+        }
+        let Some(workspace) = self.shown.clone() else {
+            return;
+        };
+        self.row_menu = None;
+        let (services, this) = (self.services.clone(), cx.entity().downgrade());
+        let palette = cx.new(|cx| Palette::new(services, workspace, this, window, cx));
+        self.palette_events =
+            Some(
+                cx.subscribe_in(&palette, window, |this, _, chosen: &Chosen, window, cx| {
+                    this.palette_chosen(chosen.0.clone(), window, cx);
+                }),
+            );
+        self.open_dialog(palette, window, cx);
+    }
+
+    fn on_toggle_palette(
+        &mut self,
+        _: &TogglePalette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_palette(window, cx);
+    }
+
     fn next_tab(&mut self, _: &NextTab, window: &mut Window, cx: &mut Context<Self>) {
         if self.tabs_reachable(cx) {
             self.tab_bar.update(cx, |tab_bar, cx| {
@@ -2098,6 +2158,7 @@ impl Render for GitcrocWindow {
         let content = div()
             .id("gitcroc-window")
             .key_context(keys::WINDOW_CONTEXT)
+            .on_action(cx.listener(Self::on_toggle_palette))
             .on_action(cx.listener(Self::next_region))
             .on_action(cx.listener(Self::previous_region))
             .on_action(cx.listener(Self::minimize))

@@ -91,6 +91,15 @@ pub struct OperationDialog {
 impl EventEmitter<Closed> for OperationDialog {}
 impl EventEmitter<Started> for OperationDialog {}
 impl OperationDialog {
+    /// Ticks Rebase in the merge dialog, as the palette's Rebase opens it
+    /// (UI-22).
+    pub fn choose_rebase(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.mode, OperationMode::Merge) {
+            self.flag = true;
+            cx.notify();
+        }
+    }
+
     pub fn new(
         services: Services,
         workspace: WorkspaceId,
