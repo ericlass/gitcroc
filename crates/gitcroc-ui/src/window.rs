@@ -563,8 +563,26 @@ impl GitcrocWindow {
                     .iter()
                     .find(|view| view.id == active)
                     .and_then(|view| view.layout.columns.clone());
+                let resolve_all = cx.new(|cx| {
+                    crate::resolve_all::ResolveAll::new(
+                        services.clone(),
+                        active.clone(),
+                        self.ai.clone(),
+                        self.workspaces.clone(),
+                        self.jobs.clone(),
+                        cx,
+                    )
+                });
                 let history = cx.new(|cx| {
-                    HistoryPane::new(services, active.clone(), tree, saved_columns, window, cx)
+                    HistoryPane::new(
+                        services,
+                        active.clone(),
+                        tree,
+                        saved_columns,
+                        resolve_all,
+                        window,
+                        cx,
+                    )
                 });
                 cx.subscribe_in(&history, window, |this, _, ask: &AskRowMenu, window, cx| {
                     this.open_row_menu(ask.clone(), window, cx)
@@ -1222,12 +1240,34 @@ impl GitcrocWindow {
                 let allowed: crate::consent_dialog::Allowed = Box::new(move |_, cx| {
                     let _ = pane.update(cx, |pane, cx| pane.resolve_with_ai(&key, cx));
                 });
-                let ai = self.ai.clone();
-                let dialog = cx
-                    .new(|cx| crate::consent_dialog::ConsentDialog::new(request, ai, allowed, cx));
-                self.open_dialog(dialog, window, cx);
+                self.open_consent(request, allowed, window, cx);
+            }
+            AskAi::ConsentAll { request, repo } => {
+                if self.dialog.is_some() || !self.ai.read(cx).enabled() {
+                    return;
+                }
+                let pane = pane.downgrade();
+                let allowed: crate::consent_dialog::Allowed = Box::new(move |_, cx| {
+                    let _ = pane.update(cx, |pane, cx| pane.resolve_all_with_ai(&repo, true, cx));
+                });
+                self.open_consent(request, allowed, window, cx);
             }
         }
+    }
+
+    /// The consent dialog for `request`, which goes on with `allowed`
+    /// after Allow (AI-6).
+    fn open_consent(
+        &mut self,
+        request: gitcroc_core::ConsentRequest,
+        allowed: crate::consent_dialog::Allowed,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ai = self.ai.clone();
+        let dialog =
+            cx.new(|cx| crate::consent_dialog::ConsentDialog::new(request, ai, allowed, cx));
+        self.open_dialog(dialog, window, cx);
     }
 
     /// The dialog over the window, if it is of type `V`.

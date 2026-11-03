@@ -1,12 +1,15 @@
 //! The conflict banner of OPS-2 above a single repo's history (UI-10), a
-//! port of rc.1's `ConflictBanner.tsx` without its AI parts (M6-23). It
+//! port of rc.1's `ConflictBanner.tsx`. It
 //! names the operation the repo's fresh summary shows, so a conflict
 //! started in a terminal looks like one started in the app (OPS-1), with
 //! what the core reads of it: what is applied onto what, and a rebase's or
 //! mailbox's step. Abort and Continue ask the window, which sends them
 //! through M6-18's operation dialog, where the core's confirmation of a
-//! stash-apply Abort and its refusals appear (GRP-9). Names are text only
-//! (SEC-3).
+//! stash-apply Abort and its refusals appear (GRP-9). With AI features on
+//! (AI-16) it has Resolve all with AI (AI-3), Cancel while the run goes,
+//! and under it the files of the repo's last run and where each is
+//! (AI-13), from the workspace's [`ResolveAll`]; a file's name opens it in
+//! the conflict editor. Names, paths and reasons are text only (SEC-3).
 use std::collections::HashMap;
 
 use gitcroc_core::{ConflictDetails, IntegrateOp, Operation, RepoId, SummaryView, WorkspaceId};
@@ -14,13 +17,22 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{Disableable, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Role, SharedString,
-    StatefulInteractiveElement, Styled, TestSupportExt, div,
+    AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, Role,
+    SharedString, StatefulInteractiveElement, Styled, TestSupportExt, div,
 };
 
 use crate::history_pane::HistoryPane;
-use crate::strings::integrate as text;
+use crate::resolve_all::{ListIds, OpenFile, ResolveAll};
+use crate::strings::{conflict as conflict_text, integrate as text};
 use crate::theme::ActiveTokens;
+
+/// The banner's list of a run's files.
+const FILE_IDS: ListIds = ListIds {
+    list: "conflict-ai-files",
+    row: "conflict-ai-file",
+    file: "conflict-ai-file-name",
+    state: "conflict-ai-file-state",
+};
 
 /// Abort or Continue was pressed: the window sends `op` for `repo`.
 #[derive(Debug, Clone)]
@@ -84,6 +96,7 @@ impl Banner {
         repo: &RepoId,
         repo_name: &str,
         view: &SummaryView,
+        resolve_all: &Entity<ResolveAll>,
         cx: &mut Context<HistoryPane>,
     ) -> Option<AnyElement> {
         let state = view.summary.as_ref()?.state;
@@ -138,6 +151,7 @@ impl Banner {
             op,
         };
         let (abort, proceed) = (ask(IntegrateOp::Abort), ask(IntegrateOp::Continue));
+        let ai = AiPart::of(repo, resolve_all, cx);
         Some(
             div()
                 .id("conflict-banner")
@@ -146,10 +160,8 @@ impl Banner {
                 .aria_label(text::CONFLICT_STATE)
                 .flex_shrink_0()
                 .flex()
-                .flex_row()
-                .flex_wrap()
-                .items_center()
-                .gap_2()
+                .flex_col()
+                .gap_1()
                 .px_2()
                 .py_1()
                 .bg(tokens.warning_bg)
@@ -157,47 +169,197 @@ impl Banner {
                 .border_color(tokens.border)
                 .child(
                     div()
-                        .flex_1()
-                        .min_w_0()
                         .flex()
-                        .flex_col()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_center()
+                        .gap_2()
                         .child(
                             div()
-                                .id("conflict-banner-text")
-                                .test_support()
-                                .role(Role::Heading)
-                                .aria_level(2)
-                                .aria_label(line.clone())
-                                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                                .child(line),
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .id("conflict-banner-text")
+                                        .test_support()
+                                        .role(Role::Heading)
+                                        .aria_level(2)
+                                        .aria_label(line.clone())
+                                        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                        .child(line),
+                                )
+                                .child(
+                                    div()
+                                        .id("conflict-banner-unmerged")
+                                        .test_support()
+                                        .role(Role::Label)
+                                        .aria_label(count.clone())
+                                        .child(count),
+                                )
+                                .children(error)
+                                .children(ai.as_ref().and_then(|ai| ai.notes(cx))),
+                        )
+                        .children(ai.as_ref().map(AiPart::button))
+                        .child(
+                            Button::new("conflict-banner-abort")
+                                .small()
+                                .label(text::ABORT)
+                                .tooltip(abort_title)
+                                .disabled(view.busy)
+                                .on_click(cx.listener(move |_, _, _, cx| cx.emit(abort.clone()))),
                         )
                         .child(
+                            Button::new("conflict-banner-continue")
+                                .small()
+                                .primary()
+                                .label(text::CONTINUE)
+                                .when_some(continue_why, |button, why| button.tooltip(why))
+                                .disabled(continue_why.is_some())
+                                .on_click(cx.listener(move |_, _, _, cx| cx.emit(proceed.clone()))),
+                        ),
+                )
+                .children(ai.and_then(|ai| ai.progress(cx)))
+                .into_any_element(),
+        )
+    }
+}
+
+/// The banner's AI part for one repo, while AI features are on (AI-16).
+struct AiPart {
+    repo: RepoId,
+    runs: Entity<ResolveAll>,
+    /// AI for this workspace (AI-6).
+    workspace_on: bool,
+    busy: bool,
+    refusal: Option<SharedString>,
+}
+
+impl AiPart {
+    fn of(repo: &RepoId, runs: &Entity<ResolveAll>, cx: &Context<HistoryPane>) -> Option<Self> {
+        let read = runs.read(cx);
+        if !read.enabled(cx) {
+            return None;
+        }
+        let run = read.run(repo);
+        Some(Self {
+            repo: repo.clone(),
+            runs: runs.clone(),
+            workspace_on: read.workspace_on(cx),
+            busy: run.is_some_and(crate::resolve_all::RepoRun::busy),
+            refusal: run
+                .and_then(|run| run.refusal())
+                .map(|refusal| refusal.to_owned().into()),
+        })
+    }
+
+    /// Why Resolve all cannot be pressed, or why it was refused.
+    fn notes(&self, cx: &Context<HistoryPane>) -> Option<gpui_kit::Div> {
+        let tokens = *cx.tokens();
+        if !self.workspace_on {
+            return Some(
+                div().child(
+                    div()
+                        .id("conflict-banner-ai-reason")
+                        .test_support()
+                        .role(Role::Status)
+                        .aria_label(conflict_text::AI_OFF_HERE)
+                        .text_sm()
+                        .text_color(tokens.text_secondary)
+                        .child(conflict_text::AI_OFF_HERE),
+                ),
+            );
+        }
+        self.refusal.clone().map(|refusal| {
+            div().child(
+                div()
+                    .id("conflict-banner-ai-refusal")
+                    .test_support()
+                    .role(Role::Alert)
+                    .aria_label(refusal.clone())
+                    .text_sm()
+                    .text_color(tokens.danger)
+                    .child(refusal),
+            )
+        })
+    }
+
+    /// Resolve all with AI, or Cancel while the run goes (AI-3, AI-13).
+    fn button(&self) -> AnyElement {
+        let (runs, repo) = (self.runs.clone(), self.repo.clone());
+        if self.busy {
+            return Button::new("conflict-banner-cancel-ai")
+                .small()
+                .label(text::CANCEL_ALL)
+                .tooltip(text::CANCEL_ALL_TITLE)
+                .on_click(move |_, _, cx| runs.update(cx, |runs, cx| runs.cancel(&repo, cx)))
+                .into_any_element();
+        }
+        Button::new("conflict-banner-resolve-ai")
+            .small()
+            .label(text::RESOLVE_ALL)
+            .tooltip(if self.workspace_on {
+                text::RESOLVE_ALL_TITLE
+            } else {
+                text::AI_OFF_TITLE
+            })
+            .disabled(!self.workspace_on)
+            .on_click(move |_, _, cx| runs.update(cx, |runs, cx| runs.ask(&repo, cx)))
+            .into_any_element()
+    }
+
+    /// The files of the repo's last run and where each is (AI-13).
+    fn progress(&self, cx: &mut Context<HistoryPane>) -> Option<AnyElement> {
+        let tokens = *cx.tokens();
+        let job = self.runs.read(cx).run(&self.repo)?.view()?.clone();
+        let (runs, repo) = (self.runs.clone(), self.repo.clone());
+        let open: OpenFile = std::rc::Rc::new(move |path, _, cx| {
+            runs.update(cx, |runs, cx| runs.open(&repo, path, cx));
+        });
+        let label: SharedString = job.label.clone().into();
+        let state: SharedString = crate::jobs::state(&job).into();
+        Some(
+            div()
+                .id("conflict-ai-run")
+                .test_support()
+                .role(Role::Region)
+                .aria_label(text::RESOLVE_ALL)
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap_2()
+                        .child(
                             div()
-                                .id("conflict-banner-unmerged")
+                                .id("conflict-ai-run-label")
                                 .test_support()
                                 .role(Role::Label)
-                                .aria_label(count.clone())
-                                .child(count),
+                                .aria_label(label.clone())
+                                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                .child(label),
                         )
-                        .children(error),
+                        .child(
+                            div()
+                                .id("conflict-ai-run-state")
+                                .test_support()
+                                .role(Role::Status)
+                                .aria_label(state.clone())
+                                .text_color(tokens.text_secondary)
+                                .child(state),
+                        ),
                 )
-                .child(
-                    Button::new("conflict-banner-abort")
-                        .small()
-                        .label(text::ABORT)
-                        .tooltip(abort_title)
-                        .disabled(view.busy)
-                        .on_click(cx.listener(move |_, _, _, cx| cx.emit(abort.clone()))),
-                )
-                .child(
-                    Button::new("conflict-banner-continue")
-                        .small()
-                        .primary()
-                        .label(text::CONTINUE)
-                        .when_some(continue_why, |button, why| button.tooltip(why))
-                        .disabled(continue_why.is_some())
-                        .on_click(cx.listener(move |_, _, _, cx| cx.emit(proceed.clone()))),
-                )
+                .child(crate::resolve_all::file_list(
+                    FILE_IDS,
+                    &job,
+                    Some(open),
+                    &tokens,
+                    cx,
+                ))
                 .into_any_element(),
         )
     }

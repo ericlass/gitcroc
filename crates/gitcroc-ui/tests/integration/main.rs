@@ -9,6 +9,7 @@
 extern crate gpui_kit as gpui;
 
 mod ai_resolve;
+mod ai_resolve_all;
 mod ai_settings;
 mod askpass;
 mod background_tabs;

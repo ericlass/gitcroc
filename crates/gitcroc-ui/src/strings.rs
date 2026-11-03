@@ -1078,6 +1078,13 @@ pub mod integrate {
     pub const STASH_APPLY_ENDS: &str = "A stash apply ends when its last path is marked resolved";
     pub const RESOLVE_FIRST: &str = "Resolve and stage every unmerged path first";
     pub const BUSY: &str = "A job is running on this repo";
+    // Resolve all with AI (AI-3, AI-6, AI-13).
+    pub const RESOLVE_ALL: &str = "Resolve all with AI";
+    pub const RESOLVE_ALL_TITLE: &str = "Ask AI to propose resolutions for every file";
+    pub const AI_OFF_TITLE: &str = "AI is off for this workspace";
+    pub const CANCEL_ALL: &str = "Cancel";
+    pub const CANCEL_ALL_TITLE: &str =
+        "Stop Resolve all with AI; the proposals that finished are kept";
 
     pub fn name(operation: Operation) -> &'static str {
         match operation {
@@ -1398,6 +1405,40 @@ pub mod conflict {
     pub const JOB_FAILED: &str = "the job failed";
     pub fn cannot_read_proposal(error: &str) -> String {
         format!("Cannot read the proposal: {error}")
+    }
+
+    // A Resolve all with AI file and where it is (AI-13).
+    pub const FILES: &str = "Files";
+    pub const WAITING: &str = "Waiting";
+    pub const RUNNING: &str = "Running";
+    pub const DONE: &str = "Done";
+    /// A done file's hunks by confidence, those with none left out.
+    pub fn done_with(high: u32, medium: u32, low: u32, unresolved: u32) -> String {
+        let counts = [
+            (high, "high"),
+            (medium, "medium"),
+            (low, "low"),
+            (unresolved, "unresolved"),
+        ];
+        let parts: Vec<String> = counts
+            .iter()
+            .filter(|(count, _)| *count > 0)
+            .map(|(count, name)| format!("{count} {name}"))
+            .collect();
+        if parts.is_empty() {
+            DONE.to_owned()
+        } else {
+            format!("Done: {}", parts.join(", "))
+        }
+    }
+    pub fn not_sent(reason: &str) -> String {
+        format!("Not sent: {reason}")
+    }
+    pub const ALL_EDITED: &str = "Not sent: every conflict is already edited";
+    pub const CANCELLED: &str = "Cancelled";
+    /// A file of the list, as screen readers name it.
+    pub fn file_state(path: &str, state: &str) -> String {
+        format!("{path}: {state}")
     }
 }
 

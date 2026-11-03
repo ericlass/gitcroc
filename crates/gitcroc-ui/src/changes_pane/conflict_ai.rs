@@ -38,6 +38,12 @@ pub enum AskAi {
         request: ConsentRequest,
         key: EditorKey,
     },
+    /// The consent dialog for `request`; after Allow Resolve all with AI
+    /// for `repo` is sent again (AI-13).
+    ConsentAll {
+        request: ConsentRequest,
+        repo: gitcroc_core::RepoId,
+    },
 }
 
 /// One unmerged file's AI state, kept with its editor (AI-3, AI-11).
@@ -75,7 +81,7 @@ impl FileAi {
 }
 
 /// A refusal the button shows beside it, in words.
-fn refusal_text(refused: &AiRefused) -> String {
+pub(super) fn refusal_text(refused: &AiRefused) -> String {
     match refused {
         AiRefused::AiOff => text::refused::AI_OFF.to_owned(),
         AiRefused::AiDisabled => text::AI_OFF_HERE.to_owned(),
