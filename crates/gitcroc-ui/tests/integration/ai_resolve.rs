@@ -28,15 +28,15 @@ use crate::history::{
 use crate::stage::{disabled, focused, row_of, show_uncommitted};
 use crate::support::{AiBackend, AiScript, Fixture, Options, main_window};
 
-fn el(id: &str) -> ElementId {
+pub(crate) fn el(id: &str) -> ElementId {
     ElementId::Name(id.to_owned().into())
 }
 
-fn named(id: &str, at: usize) -> ElementId {
+pub(crate) fn named(id: &str, at: usize) -> ElementId {
     ElementId::NamedInteger(id.to_owned().into(), at as u64)
 }
 
-fn start(script: AiScript) -> Fixture {
+pub(crate) fn start(script: AiScript) -> Fixture {
     Fixture::start_with(Options {
         ai: AiBackend::Script(AiScript {
             mock: true,
@@ -46,7 +46,7 @@ fn start(script: AiScript) -> Fixture {
     })
 }
 
-fn reply(text: &str, usage: Option<(u32, u32)>) -> ProviderReply {
+pub(crate) fn reply(text: &str, usage: Option<(u32, u32)>) -> ProviderReply {
     ProviderReply {
         text: text.to_owned(),
         usage: usage.map(|(input_tokens, output_tokens)| Usage {
@@ -57,7 +57,7 @@ fn reply(text: &str, usage: Option<(u32, u32)>) -> ProviderReply {
 }
 
 /// A valid reply resolving hunks `ids` with `resolutions`, high confidence.
-fn resolving(hunks: &[(u32, &str)]) -> ProviderReply {
+pub(crate) fn resolving(hunks: &[(u32, &str)]) -> ProviderReply {
     let hunks: Vec<String> = hunks
         .iter()
         .map(|(id, resolution)| {
@@ -120,7 +120,7 @@ fn save_default(f: &Fixture, draft: ProviderDraft, key: Option<&str>) -> Provide
 }
 
 /// The mock provider, the default, consented to when `consent` is set.
-fn mock_provider(f: &Fixture, name: &str, consent: bool) -> ProviderId {
+pub(crate) fn mock_provider(f: &Fixture, name: &str, consent: bool) -> ProviderId {
     let id = save_default(f, draft(name, ProviderKind::Mock), None);
     if consent {
         let app = f.app().clone();
@@ -132,7 +132,7 @@ fn mock_provider(f: &Fixture, name: &str, consent: bool) -> ProviderId {
     id
 }
 
-fn set_options(f: &Fixture, change: impl FnOnce(&mut AiOptions)) {
+pub(crate) fn set_options(f: &Fixture, change: impl FnOnce(&mut AiOptions)) {
     let view = ai_view(f);
     let mut options = AiOptions {
         enabled: view.enabled,
@@ -146,7 +146,7 @@ fn set_options(f: &Fixture, change: impl FnOnce(&mut AiOptions)) {
         .unwrap();
 }
 
-fn workspace_ai(f: &Fixture, id: &WorkspaceId) -> bool {
+pub(crate) fn workspace_ai(f: &Fixture, id: &WorkspaceId) -> bool {
     f.app()
         .workspace_get()
         .open
@@ -156,7 +156,7 @@ fn workspace_ai(f: &Fixture, id: &WorkspaceId) -> bool {
         .ai
 }
 
-fn shown(cx: &mut VisualTestContext, id: impl Into<ElementId>) -> bool {
+pub(crate) fn shown(cx: &mut VisualTestContext, id: impl Into<ElementId>) -> bool {
     let id = id.into();
     cx.update(|window, cx| {
         window.render_frame(cx);
@@ -164,7 +164,7 @@ fn shown(cx: &mut VisualTestContext, id: impl Into<ElementId>) -> bool {
     })
 }
 
-fn gone(cx: &mut VisualTestContext, id: &str) {
+pub(crate) fn gone(cx: &mut VisualTestContext, id: &str) {
     let id = el(id);
     wait_until(cx, |cx| !shown(cx, id.clone()));
 }
@@ -175,15 +175,15 @@ fn numbered_labels(cx: &mut VisualTestContext, id: &str) -> Vec<String> {
 }
 
 /// A repo `api` with `paths` in a merge conflict, its changes shown.
-struct Open {
-    f: Fixture,
-    _made: repo_gen::Fixture,
-    r: repo_gen::Repo,
-    cx: VisualTestContext,
-    window: Entity<GitcrocWindow>,
+pub(crate) struct Open {
+    pub(crate) f: Fixture,
+    pub(crate) _made: repo_gen::Fixture,
+    pub(crate) r: repo_gen::Repo,
+    pub(crate) cx: VisualTestContext,
+    pub(crate) window: Entity<GitcrocWindow>,
 }
 
-fn open_with(
+pub(crate) fn open_with(
     root: &mut TestAppContext,
     f: Fixture,
     conflict: impl FnOnce(&repo_gen::Repo),
@@ -203,7 +203,7 @@ fn open_with(
     }
 }
 
-fn open(root: &mut TestAppContext, f: Fixture, paths: &[&str]) -> Open {
+pub(crate) fn open(root: &mut TestAppContext, f: Fixture, paths: &[&str]) -> Open {
     open_with(root, f, |r| merge_conflict(r, paths))
 }
 
@@ -219,7 +219,7 @@ fn two_hunks(side: &str) -> String {
         .collect()
 }
 
-fn two_hunk_conflict(r: &repo_gen::Repo) {
+pub(crate) fn two_hunk_conflict(r: &repo_gen::Repo) {
     r.write("a.txt", two_hunks("base")).unwrap();
     r.commit_all("Base").unwrap();
     r.branch("topic").unwrap();
@@ -240,18 +240,18 @@ fn resolve(cx: &mut VisualTestContext) {
     click(cx, el("conflict-resolve-ai"));
 }
 
-fn row_click(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>, path: &str) {
+pub(crate) fn row_click(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>, path: &str) {
     let row = row_of(cx, window, gitcroc_ui::changes::List::Unmerged, path);
     click(cx, crate::changes::row(row));
 }
 
 /// The proposed hunks the editor holds.
-fn proposed(cx: &mut VisualTestContext, editor: &Entity<ConflictEditor>) -> usize {
+pub(crate) fn proposed(cx: &mut VisualTestContext, editor: &Entity<ConflictEditor>) -> usize {
     cx.update(|_, cx| editor.read(cx).proposed_hunks().len())
 }
 
 /// Waits for the end of the next job.
-fn ended(
+pub(crate) fn ended(
     f: &Fixture,
     cx: &mut VisualTestContext,
     act: impl FnOnce(&mut VisualTestContext),
@@ -263,7 +263,7 @@ fn ended(
 
 /// Opens tab `id`'s menu and returns whether "AI for this workspace" is
 /// in it, and checked.
-fn tab_menu_ai(cx: &mut VisualTestContext, id: &WorkspaceId) -> Option<bool> {
+pub(crate) fn tab_menu_ai(cx: &mut VisualTestContext, id: &WorkspaceId) -> Option<bool> {
     right_click(cx, tab(id));
     wait_for_element(cx, "menu".into());
     cx.update(|window, cx| {

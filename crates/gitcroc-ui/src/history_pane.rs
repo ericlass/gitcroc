@@ -234,7 +234,11 @@ pub struct HistoryPane {
     save_again: bool,
     /// What the conflict banner read of each repo (OPS-2).
     banner: crate::banner::Banner,
+    /// The workspace's Resolve all with AI runs, which the banner shows
+    /// (AI-13).
+    resolve_all: Entity<crate::resolve_all::ResolveAll>,
     _tree_watch: Subscription,
+    _resolve_all_watch: Subscription,
     _search_events: Subscription,
 }
 
@@ -248,9 +252,11 @@ impl HistoryPane {
         workspace_id: WorkspaceId,
         tree: Entity<TreePane>,
         saved_columns: Option<ColumnLayout>,
+        resolve_all: Entity<crate::resolve_all::ResolveAll>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let resolve_all_watch = cx.observe(&resolve_all, |_, _, cx| cx.notify());
         let tree_watch = cx.observe(&tree, |this, _, cx| {
             if !this.history.released() {
                 this.follow_tree(cx);
@@ -296,7 +302,9 @@ impl HistoryPane {
             saving: false,
             save_again: false,
             banner: crate::banner::Banner::default(),
+            resolve_all,
             _tree_watch: tree_watch,
+            _resolve_all_watch: resolve_all_watch,
             _search_events: search_events,
         };
         this.follow_tree(cx);
@@ -334,6 +342,26 @@ impl HistoryPane {
             self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
         }
         cx.notify();
+    }
+
+    /// The workspace's Resolve all with AI runs (AI-13).
+    pub fn resolve_all(&self) -> &Entity<crate::resolve_all::ResolveAll> {
+        &self.resolve_all
+    }
+
+    /// Selects the uncommitted row of `repo`'s history, as Resolve all with
+    /// AI does to read its unmerged list (AI-3); `false` when the shown
+    /// history is not that repo's alone or has no such row.
+    pub fn select_uncommitted(&mut self, repo: &RepoId, cx: &mut Context<Self>) -> bool {
+        if self.banner_repo().as_ref() != Some(repo) || !self.history.shows_uncommitted() {
+            return false;
+        }
+        self.marked.clear();
+        self.history
+            .select(Some(crate::history::UNCOMMITTED_ID.to_owned()));
+        self.scroll.scroll_to_item(0, ScrollStrategy::Nearest);
+        cx.notify();
+        true
     }
 
     /// Saves the columns with the workspace's pane layout (UI-36). The
@@ -859,7 +887,9 @@ impl HistoryPane {
             (view, name)
         };
         let workspace = self.workspace_id.clone();
-        self.banner.render(&workspace, &repo, &name, &view, cx)
+        let resolve_all = self.resolve_all.clone();
+        self.banner
+            .render(&workspace, &repo, &name, &view, &resolve_all, cx)
     }
 
     /// The changed paths of the repo shown (UI-10), or the dirty repos of a

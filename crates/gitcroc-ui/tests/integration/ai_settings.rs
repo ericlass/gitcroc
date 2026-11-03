@@ -525,7 +525,8 @@ fn ai_4_ai_7_exclude_list_and_debug_logging_are_saved(cx: &mut TestAppContext) {
         let view = ai_view(&f);
         view.debug_log && view.exclude == ["*.secret", ".env*"]
     });
-    assert_eq!(checked(&mut cx, "ai-debug-log"), Some(true));
+    // The saved view reaches the window after the core keeps it.
+    wait_until(&mut cx, |cx| checked(cx, "ai-debug-log") == Some(true));
 }
 
 /// A second workspace, "Java", with no repos; `mine` stays active.

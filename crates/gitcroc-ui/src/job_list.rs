@@ -458,6 +458,21 @@ impl JobList {
         let body = if report || running_group {
             self.sync_report(cx);
             self.report(&job, &tokens, cx)
+        } else if !job.ai_files.is_empty() {
+            // Resolve all with AI: each file and where it is (AI-13).
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(crate::resolve_all::file_list(
+                    AI_FILE_IDS,
+                    &job,
+                    None,
+                    &tokens,
+                    cx,
+                ))
+                .child(output(&job, &tokens, &code_font))
+                .into_any_element()
         } else {
             output(&job, &tokens, &code_font)
         };
@@ -754,8 +769,16 @@ impl JobList {
     }
 }
 
+/// The list of a Resolve all with AI job's files.
+const AI_FILE_IDS: crate::resolve_all::ListIds = crate::resolve_all::ListIds {
+    list: "job-ai-files",
+    row: "job-ai-file",
+    file: "job-ai-file-name",
+    state: "job-ai-file-state",
+};
+
 /// The spinner a running sub-job shows.
-fn spinner(cx: &App) -> impl IntoElement {
+pub(crate) fn spinner(cx: &App) -> impl IntoElement {
     let color = cx.tokens().text_secondary;
     svg()
         .path(icons::SPINNER)

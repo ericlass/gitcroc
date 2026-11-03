@@ -37,6 +37,7 @@ use gpui_kit::{
 };
 
 mod conflict_ai;
+mod conflict_all;
 mod conflicts;
 
 pub use conflict_ai::AskAi;
@@ -190,6 +191,11 @@ pub struct ChangesPane {
     scroll_back: Option<Point<Pixels>>,
     /// The unmerged files' kept conflict state (OPS-9, UI-29).
     conflicts: ConflictFiles,
+    /// The workspace's Resolve all with AI runs, which the banner shows
+    /// (AI-13).
+    resolve_all: Entity<crate::resolve_all::ResolveAll>,
+    /// What the banner asked, waiting for the repo's lists to be read.
+    waiting_lists: Option<crate::resolve_all::ResolveAllAsk>,
     mark_focus: FocusHandle,
     anyway_focus: FocusHandle,
     /// The first and second buttons of the edited-outside question or of
@@ -199,6 +205,7 @@ pub struct ChangesPane {
     _history_watch: Subscription,
     _ai_watch: Subscription,
     _workspaces_watch: Subscription,
+    _resolve_all_asks: Subscription,
     _prefs_watch: Subscription,
     _hunk_actions: Subscription,
     _commit_reads: Subscription,
@@ -214,9 +221,16 @@ impl ChangesPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        // The banner above the history shows these runs; this pane sends
+        // them (AI-13).
+        let resolve_all = history.read(cx).resolve_all().clone();
         // AI features off reaches the tab at once (AI-16).
         let ai_watch = cx.observe(&ai, |this, _, cx| this.ai_changed(cx));
         let workspaces_watch = cx.observe(&workspaces, |_, _, cx| cx.notify());
+        let resolve_all_asks = cx.subscribe(
+            &resolve_all,
+            |this, _, ask: &crate::resolve_all::ResolveAllAsk, cx| this.resolve_all_ask(ask, cx),
+        );
         let history_watch = cx.observe(&history, |this, _, cx| {
             if !this.changes.released() {
                 this.follow_history(cx);
@@ -259,6 +273,8 @@ impl ChangesPane {
             request: 0,
             scroll_back: None,
             conflicts: ConflictFiles::default(),
+            resolve_all,
+            waiting_lists: None,
             mark_focus: cx.focus_handle(),
             anyway_focus: cx.focus_handle(),
             first_focus: cx.focus_handle(),
@@ -266,6 +282,7 @@ impl ChangesPane {
             _history_watch: history_watch,
             _ai_watch: ai_watch,
             _workspaces_watch: workspaces_watch,
+            _resolve_all_asks: resolve_all_asks,
             _prefs_watch: prefs_watch,
             _hunk_actions: hunk_actions,
             _commit_reads: commit_reads,
@@ -539,6 +556,7 @@ impl ChangesPane {
                     None => this.changes.set_loading(false),
                 }
                 this.sync_diff(cx);
+                this.lists_read(cx);
                 cx.notify();
             });
         })
