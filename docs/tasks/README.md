@@ -201,7 +201,7 @@ The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
 rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
 not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-23 and M6-27 have theirs;
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-24 and M6-27 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
@@ -244,8 +244,9 @@ several pull requests (DEV-4).
 | [M6-23a](M6-23a-ai-settings.md) | Settings dialog with its AI tab: AI features, providers, models, self-test, exclude list | M6-06, M6-15a |
 | [M6-23b](M6-23b-resolve-with-ai.md) | Resolve with AI per file, consent dialog, workspace AI switch, live proposals | M6-23a, M6-19c |
 | [M6-23c](M6-23c-resolve-all-with-ai.md) | Resolve all with AI from the banner: progress per file, cancel | M6-23b |
-| M6-24 | Command palette and keyboard pass | M6-18 to M6-23 |
-| M6-25 | Accessibility pass, to the bar decided after M6-04 | M6-04, M6-24 |
+| [M6-24a](M6-24a-command-palette.md) | Command palette: opening, the list, every operation run from its own place | M6-18 to M6-23c |
+| [M6-24b](M6-24b-keyboard-pass.md) | Keyboard pass: the rest of the keymap, every operation reachable without a mouse | M6-24a |
+| M6-25 | Accessibility pass, to the bar decided after M6-04 | M6-04, M6-24b |
 | M6-26 | Settings dialog, all four tabs | M6-07, M6-23 |
 | [M6-27](M6-27-updater-without-tauri.md) | Updater without Tauri, proven by tests on every platform | M6-05 |
 | M6-28 | Packaging and release workflow without Tauri; install tests; on the runners, the GPUI build updates itself and rc.1 updates to it | M6-03, M6-27 |
