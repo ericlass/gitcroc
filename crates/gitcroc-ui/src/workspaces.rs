@@ -137,6 +137,28 @@ impl Workspaces {
         })
     }
 
+    /// AI for this workspace (AI-6); the view it answers with is shown at
+    /// once, before its event.
+    pub fn set_ai(
+        this: &Entity<Self>,
+        id: WorkspaceId,
+        enabled: bool,
+        cx: &mut App,
+    ) -> Task<Result<(), SharedString>> {
+        let call = this
+            .read(cx)
+            .services
+            .with_app(move |app| async move { app.workspace_set_ai(id, enabled).await });
+        let this = this.downgrade();
+        cx.spawn(async move |cx| match call.await {
+            Some(Ok(view)) => {
+                let _ = this.update(cx, |this, cx| this.set_view(view, cx));
+                Ok(())
+            }
+            result => refusal(result),
+        })
+    }
+
     pub fn activate(
         this: &Entity<Self>,
         id: WorkspaceId,

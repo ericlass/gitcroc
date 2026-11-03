@@ -30,6 +30,8 @@ pub enum Choice {
     /// Asks for a tab's new name.
     Rename(WorkspaceId, SharedString),
     Export(WorkspaceId),
+    /// Turns AI on or off for the tab's workspace (AI-6).
+    WorkspaceAi(WorkspaceId, bool),
     Close(WorkspaceId),
 }
 

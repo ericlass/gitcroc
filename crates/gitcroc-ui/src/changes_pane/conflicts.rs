@@ -25,6 +25,7 @@ use gpui_kit::{
 };
 
 use super::ChangesPane;
+use super::conflict_ai::FileAi;
 use crate::changes::List;
 use crate::conflict::{Buffer, ConflictEditor, EditorKey, MarkResolved};
 use crate::history::Selection;
@@ -59,6 +60,8 @@ pub struct KeptFile {
     sending: bool,
     job: Option<JobId>,
     error: Option<String>,
+    /// Resolve with AI's state for the file (AI-3, AI-11).
+    pub(super) ai: FileAi,
     _watch: Option<Subscription>,
 }
 
@@ -76,6 +79,7 @@ impl KeptFile {
             sending: false,
             job: None,
             error: None,
+            ai: FileAi::opened(),
             _watch: None,
         }
     }
@@ -84,13 +88,13 @@ impl KeptFile {
 /// The kept conflict files of one workspace's changes pane (ARCH-9).
 #[derive(Default)]
 pub struct ConflictFiles {
-    files: HashMap<EditorKey, KeptFile>,
+    pub(super) files: HashMap<EditorKey, KeptFile>,
     /// The file being read, and its request; older answers are dropped.
     reading: Option<(EditorKey, u64)>,
     request: u64,
     read_error: Option<(EditorKey, String)>,
     /// Jobs that ended, newest last, with what went wrong.
-    ended: VecDeque<(JobId, Option<Outcome>, Option<String>)>,
+    pub(super) ended: VecDeque<(JobId, Option<Outcome>, Option<String>)>,
     /// Which view takes the focus once it can (UI-22).
     refocus: Refocus,
 }
@@ -135,12 +139,12 @@ impl ConflictFiles {
         }
     }
 
-    fn forget(&mut self, key: &EditorKey) {
+    pub(super) fn forget(&mut self, key: &EditorKey) {
         self.files.remove(key);
     }
 }
 
-fn stopped() -> String {
+pub(super) fn stopped() -> String {
     crate::strings::operations::STOPPED.to_owned()
 }
 
@@ -165,7 +169,7 @@ impl ChangesPane {
     }
 
     /// The handle and id that name `key`'s file in the view shown now.
-    fn conflict_target(&self, key: &EditorKey) -> Option<(u32, u32)> {
+    pub(super) fn conflict_target(&self, key: &EditorKey) -> Option<(u32, u32)> {
         let view = self.changes.view()?;
         let files = match &view.content {
             ChangesContent::Uncommitted { unmerged, .. } => match self.changes.selection()? {
@@ -619,6 +623,7 @@ impl ChangesPane {
                 file.error = failure(job.outcome.clone(), job.message.as_deref());
             }
         }
+        self.ai_job_ended(job);
     }
 
     /// Drops the kept files of the view's repos that its fresh lists no
@@ -669,6 +674,7 @@ impl ChangesPane {
         };
         self.install_editor(&key, window, cx);
         self.take_refocus(&key, window, cx);
+        self.sync_ai(&key, cx);
         let alert = |id: &'static str, message: String| {
             let message: SharedString = message.into();
             div()
@@ -722,6 +728,7 @@ impl ChangesPane {
             .flex_shrink_0()
             .flex()
             .flex_row()
+            .flex_wrap()
             .items_center()
             .gap_2()
             .px_2()
@@ -738,7 +745,8 @@ impl ChangesPane {
                     .on_click(
                         cx.listener(|this, _, window, cx| this.mark_resolved(false, window, cx)),
                     ),
-            );
+            )
+            .children(self.ai_header(&key, cx));
         let markers = markers.map(|line| {
             div()
                 .flex_shrink_0()

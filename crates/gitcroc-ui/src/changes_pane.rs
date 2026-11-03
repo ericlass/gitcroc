@@ -36,8 +36,10 @@ use gpui_kit::{
     UniformListScrollHandle, Window, actions, canvas, div, point, px, svg, uniform_list,
 };
 
+mod conflict_ai;
 mod conflicts;
 
+pub use conflict_ai::AskAi;
 pub use conflicts::{ConflictFiles, KeptFile, Start};
 
 use crate::changes::{Changes, Click, Entry, FileKey, FileRow, List, Read, move_action};
@@ -161,6 +163,8 @@ pub struct ChangesPane {
     /// The window's AI settings: AI features hides every AI element
     /// (AI-16).
     ai: Entity<crate::ai::Ai>,
+    /// The open workspaces, for AI for this workspace (AI-6).
+    workspaces: Entity<crate::workspaces::Workspaces>,
     workspace_id: WorkspaceId,
     changes: Changes,
     history: Entity<HistoryPane>,
@@ -194,6 +198,7 @@ pub struct ChangesPane {
     second_focus: FocusHandle,
     _history_watch: Subscription,
     _ai_watch: Subscription,
+    _workspaces_watch: Subscription,
     _prefs_watch: Subscription,
     _hunk_actions: Subscription,
     _commit_reads: Subscription,
@@ -205,11 +210,13 @@ impl ChangesPane {
         workspace_id: WorkspaceId,
         history: Entity<HistoryPane>,
         ai: Entity<crate::ai::Ai>,
+        workspaces: Entity<crate::workspaces::Workspaces>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         // AI features off reaches the tab at once (AI-16).
-        let ai_watch = cx.observe(&ai, |_, _, cx| cx.notify());
+        let ai_watch = cx.observe(&ai, |this, _, cx| this.ai_changed(cx));
+        let workspaces_watch = cx.observe(&workspaces, |_, _, cx| cx.notify());
         let history_watch = cx.observe(&history, |this, _, cx| {
             if !this.changes.released() {
                 this.follow_history(cx);
@@ -236,6 +243,7 @@ impl ChangesPane {
         let mut this = Self {
             services,
             ai,
+            workspaces,
             workspace_id,
             changes,
             history,
@@ -257,6 +265,7 @@ impl ChangesPane {
             second_focus: cx.focus_handle(),
             _history_watch: history_watch,
             _ai_watch: ai_watch,
+            _workspaces_watch: workspaces_watch,
             _prefs_watch: prefs_watch,
             _hunk_actions: hunk_actions,
             _commit_reads: commit_reads,
@@ -441,6 +450,7 @@ impl ChangesPane {
         self.commit_box
             .update(cx, |commit_box, cx| commit_box.on_event(event, cx));
         self.conflict_event(event, cx);
+        self.ai_event(event, cx);
         if let AppEvent::RepoSummary(view) = event
             && view.workspace_id == self.workspace_id
             && !view.refreshing
@@ -1729,6 +1739,8 @@ impl ChangesPane {
 impl EventEmitter<ToggleDock> for ChangesPane {}
 
 impl EventEmitter<AskDiscard> for ChangesPane {}
+
+impl EventEmitter<AskAi> for ChangesPane {}
 
 impl Focusable for ChangesPane {
     fn focus_handle(&self, _: &App) -> FocusHandle {
