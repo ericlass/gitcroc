@@ -37,7 +37,7 @@ While a dialog is open, only the palette's shortcut works; the others wait until
 
 ## Everywhere
 
-- **Tab** and **Shift+Tab** move between controls; **Enter** or **Space** presses a button.
+- **Tab** and **Shift+Tab** move between controls; **Enter** or **Space** presses a button. They also move on from a message box and from the conflict editor, which do not take Tab to indent.
 - **Shift+F10** or the **context menu key** opens the menu of the selected row in the tree, the history or the tab bar. In a menu, **Up**, **Down**, **Home** and **End** move, **Enter** chooses, **Escape** closes.
 - **Escape** closes a dialog. Tab stays inside the dialog while it is open.
 - The borders between the panes can be focused with Tab; the **arrow keys** then resize the panes.
@@ -70,9 +70,11 @@ While a dialog is open, only the palette's shortcut works; the others wait until
 | --- | --- |
 | Up, Down, Page Up, Page Down, Home, End | Select another commit |
 | Shift with any of those | Extend the commits selected for a cherry-pick |
-| Ctrl with any of those (Cmd on macOS) | Move without changing the selection |
+| Ctrl with Up, Down, Home or End (Cmd on macOS) | Move without changing the selection |
 | Ctrl+Space (Cmd+Space on macOS) | Add the commit to the selection, or take it out |
 | Shift+F10, context menu key | Open the commit menu |
+
+The commit the keys are on is outlined while the history has the focus; Ctrl+Page Up and Ctrl+Page Down still switch tabs there.
 
 The column headers above the list are one stop in the Tab order:
 
@@ -118,4 +120,4 @@ On macOS, Alt is the Option key.
 
 ## Job list and result report
 
-Click the status bar, or use the palette's **Show jobs**, to open the job list. Up, Down, Home and End move between jobs, and between the lines of a result report. Escape closes the list.
+Click the status bar, press Enter on it after F6, or use the palette's **Show jobs**, to open the job list. Up, Down, Home and End move between jobs, and between the lines of a result report; Left and Right go between a line's output toggle and its repository's name. Tab reaches the job's output, where Up, Down, Page Up, Page Down, Home and End scroll it. Escape closes the list.

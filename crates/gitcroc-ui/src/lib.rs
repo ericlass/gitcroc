@@ -2,6 +2,10 @@
 //! `gitcroc-app`, with no source of truth and no business logic of their
 //! own (ARCH-6). `gitcroc-next` runs it until M6-30.
 
+// GPUI's test macro names the crate `gpui`.
+#[cfg(test)]
+extern crate gpui_kit as gpui;
+
 pub mod add_menu;
 pub mod ai;
 pub mod ai_section;
@@ -54,6 +58,7 @@ pub mod special_diff;
 pub mod status_bar;
 pub mod strings;
 pub mod tab_bar;
+pub mod text_area;
 pub mod theme;
 pub mod title_bar;
 pub mod tree;
@@ -94,6 +99,7 @@ pub fn init(cx: &mut App) {
     tree_pane::bind(cx);
     history_pane::bind(cx);
     changes_pane::bind(cx);
+    text_area::bind(cx);
     commit_box::bind(cx);
     panes::bind(cx);
     menus::init(cx);

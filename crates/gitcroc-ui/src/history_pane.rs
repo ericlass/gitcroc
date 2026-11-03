@@ -55,6 +55,20 @@ actions!(
         PagePrevious,
         SelectFirst,
         SelectLast,
+        /// Shift with a list key: marks the commits from the anchor (UI-13).
+        ExtendNext,
+        ExtendPrevious,
+        ExtendPageNext,
+        ExtendPagePrevious,
+        ExtendFirst,
+        ExtendLast,
+        /// Ctrl/Cmd with a list key: moves and keeps the marked commits.
+        CursorNext,
+        CursorPrevious,
+        CursorFirst,
+        CursorLast,
+        /// Ctrl/Cmd+Space: marks the selected commit, or takes it out.
+        ToggleMarked,
         HeaderLeft,
         HeaderRight,
         HeaderFirst,
@@ -64,6 +78,28 @@ actions!(
         EdgeRight,
     ]
 );
+
+/// How a key or a click moves in the list.
+#[derive(Debug, Clone, Copy)]
+enum How {
+    /// Selects the row and marks its commit alone.
+    Select,
+    /// Marks the commits from the anchor to the row.
+    Extend,
+    /// Moves to the row and keeps the marked commits.
+    Cursor,
+}
+
+/// Where a list key goes from the selected row.
+#[derive(Debug, Clone, Copy)]
+enum Motion {
+    Next,
+    Previous,
+    PageNext,
+    PagePrevious,
+    First,
+    Last,
+}
 
 /// The key context of the history list.
 const CONTEXT: &str = "GitcrocHistory";
@@ -98,6 +134,19 @@ pub fn bind(cx: &mut App) {
         bind("pageup", Box::new(PagePrevious), cx),
         bind("home", Box::new(SelectFirst), cx),
         bind("end", Box::new(SelectLast), cx),
+        bind("shift-down", Box::new(ExtendNext), cx),
+        bind("shift-up", Box::new(ExtendPrevious), cx),
+        bind("shift-pagedown", Box::new(ExtendPageNext), cx),
+        bind("shift-pageup", Box::new(ExtendPagePrevious), cx),
+        bind("shift-home", Box::new(ExtendFirst), cx),
+        bind("shift-end", Box::new(ExtendLast), cx),
+        // Not with Page Up and Page Down: Ctrl/Cmd with those switches tabs
+        // wherever the focus is.
+        bind("secondary-down", Box::new(CursorNext), cx),
+        bind("secondary-up", Box::new(CursorPrevious), cx),
+        bind("secondary-home", Box::new(CursorFirst), cx),
+        bind("secondary-end", Box::new(CursorLast), cx),
+        bind("secondary-space", Box::new(ToggleMarked), cx),
     ];
     cx.bind_keys(bindings.into_iter().flatten());
 
@@ -1250,20 +1299,92 @@ impl HistoryPane {
         cx.notify();
     }
 
-    fn move_to(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// Moves to loaded list row `index`, as `how` says.
+    fn move_to(&mut self, index: usize, how: How, window: &mut Window, cx: &mut Context<Self>) {
         let count = self.history.list_len();
         if count == 0 {
             return;
         }
-        self.select(index.min(count - 1), window, cx);
+        let index = index.min(count - 1);
+        match how {
+            How::Select => self.select(index, window, cx),
+            How::Extend => self.extend_to(index, window, cx),
+            How::Cursor => self.move_cursor(index, window, cx),
+        }
     }
 
-    fn step(&mut self, step: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let target = match self.selected_index() {
+    /// Moves the selected row to `index` and keeps the marked commits, as
+    /// Ctrl/Cmd with an arrow key does (UI-13).
+    fn move_cursor(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(row_id) = self.history.list_id_at(index) else {
+            return;
+        };
+        window.focus(&self.focus, cx);
+        self.history.select(Some(row_id));
+        self.scroll.scroll_to_item(index, ScrollStrategy::Nearest);
+        cx.notify();
+    }
+
+    /// Marks the commits from the anchor to `index`, as Shift does.
+    fn extend_to(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let anchor = self
+            .selection_anchor
+            .or_else(|| self.selected_index())
+            .unwrap_or(index);
+        let marked = (anchor.min(index)..=anchor.max(index))
+            .filter_map(|at| self.history.list_id_at(at))
+            .filter(|id| self.history.commit_of(id).is_some())
+            .collect();
+        self.move_cursor(index, window, cx);
+        self.marked = marked;
+        self.selection_anchor = Some(anchor);
+    }
+
+    /// Marks the commit of row `index`, or takes it out, as Ctrl/Cmd+Space
+    /// and Ctrl/Cmd+click do.
+    fn toggle_marked(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.history.list_id_at(index) else {
+            return;
+        };
+        if self.history.commit_of(&id).is_none() {
+            return;
+        }
+        if !self.marked.remove(&id) {
+            self.marked.insert(id);
+        }
+        self.move_cursor(index, window, cx);
+        self.selection_anchor = Some(index);
+    }
+
+    /// The row `motion` goes to from the selected one.
+    fn target(&self, motion: Motion) -> Option<usize> {
+        let count = self.history.list_len();
+        if count == 0 {
+            return None;
+        }
+        let page = self.page() as isize;
+        let step = |step: isize| match self.selected_index() {
             Some(index) => index.saturating_add_signed(step),
             None => 0,
         };
-        self.move_to(target, window, cx);
+        Some(match motion {
+            Motion::Next => step(1),
+            Motion::Previous => step(-1),
+            Motion::PageNext => step(page),
+            Motion::PagePrevious => step(-page),
+            Motion::First => 0,
+            Motion::Last => count - 1,
+        })
+    }
+
+    /// A key of the list: `motion`, as `how` says.
+    fn key_move(&mut self, motion: Motion, how: How, window: &mut Window, cx: &mut Context<Self>) {
+        if self.header_has_focus(window) {
+            return;
+        }
+        if let Some(index) = self.target(motion) {
+            self.move_to(index, how, window, cx);
+        }
     }
 
     /// The rows a page key moves, one less than fit on screen.
@@ -1279,43 +1400,34 @@ impl HistoryPane {
     }
 
     fn select_next(&mut self, _: &SelectNext, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.header_has_focus(window) {
-            self.step(1, window, cx);
-        }
+        self.key_move(Motion::Next, How::Select, window, cx);
     }
 
     fn select_previous(&mut self, _: &SelectPrevious, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.header_has_focus(window) {
-            self.step(-1, window, cx);
-        }
+        self.key_move(Motion::Previous, How::Select, window, cx);
     }
 
     fn page_next(&mut self, _: &PageNext, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.header_has_focus(window) {
-            let step = self.page() as isize;
-            self.step(step, window, cx);
-        }
+        self.key_move(Motion::PageNext, How::Select, window, cx);
     }
 
     fn page_previous(&mut self, _: &PagePrevious, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.header_has_focus(window) {
-            let step = self.page() as isize;
-            self.step(-step, window, cx);
-        }
+        self.key_move(Motion::PagePrevious, How::Select, window, cx);
     }
 
     fn select_first(&mut self, _: &SelectFirst, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.header_has_focus(window) {
-            self.move_to(0, window, cx);
-        }
+        self.key_move(Motion::First, How::Select, window, cx);
     }
 
     fn select_last(&mut self, _: &SelectLast, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.header_has_focus(window) {
-            let count = self.history.list_len();
-            if count > 0 {
-                self.move_to(count - 1, window, cx);
-            }
+        self.key_move(Motion::Last, How::Select, window, cx);
+    }
+
+    fn toggle_selected(&mut self, _: &ToggleMarked, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.header_has_focus(window)
+            && let Some(index) = self.selected_index()
+        {
+            self.toggle_marked(index, window, cx);
         }
     }
 
@@ -1340,32 +1452,14 @@ impl HistoryPane {
             self.select(index, window, cx);
             return;
         }
-        let mut marked = self.marked.clone();
-        let anchor = self.selection_anchor;
         let modifiers = event.modifiers();
         if modifiers.shift {
-            marked.clear();
-            for at in anchor.unwrap_or(index).min(index)..=anchor.unwrap_or(index).max(index) {
-                if let Some(id) = self.history.list_id_at(at)
-                    && self.history.commit_of(&id).is_some()
-                {
-                    marked.insert(id);
-                }
-            }
+            self.extend_to(index, window, cx);
         } else if modifiers.secondary(cx) {
-            if !marked.remove(&id) {
-                marked.insert(id.clone());
-            }
+            self.toggle_marked(index, window, cx);
         } else {
-            marked.clear();
-            marked.insert(id);
+            self.select(index, window, cx);
         }
-        self.select(index, window, cx);
-        self.marked = marked;
-        if modifiers.shift {
-            self.selection_anchor = anchor;
-        }
-        cx.notify();
     }
     fn keyboard_commit_menu(
         &mut self,
@@ -1810,6 +1904,8 @@ impl HistoryPane {
         let id = format!("history-row-{commit}");
         let row_id = self.history.row_id(row);
         let selected = self.marked.contains(&row_id);
+        // The row the keys move from, marked or not (UI-13).
+        let cursor = self.history.selected() == Some(row_id.as_str());
         let focused = self.focus.is_focused(window);
         let mut line = div()
             .relative()
@@ -1818,7 +1914,11 @@ impl HistoryPane {
             .role(Role::ListBoxOption)
             .aria_label(row.subject.clone())
             .aria_selected(selected)
-            .when(selected && focused, |row| row.aria_active_descendant())
+            .when(cursor && focused, |row| {
+                row.aria_active_descendant()
+                    .border_1()
+                    .border_color(tokens.focus_ring)
+            })
             .h(ROW_HEIGHT)
             .w_full()
             .flex()
@@ -2416,6 +2516,37 @@ impl Render for HistoryPane {
             .on_action(cx.listener(Self::page_previous))
             .on_action(cx.listener(Self::select_first))
             .on_action(cx.listener(Self::select_last))
+            .on_action(cx.listener(|this, _: &ExtendNext, window, cx| {
+                this.key_move(Motion::Next, How::Extend, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ExtendPrevious, window, cx| {
+                this.key_move(Motion::Previous, How::Extend, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ExtendPageNext, window, cx| {
+                this.key_move(Motion::PageNext, How::Extend, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ExtendPagePrevious, window, cx| {
+                this.key_move(Motion::PagePrevious, How::Extend, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ExtendFirst, window, cx| {
+                this.key_move(Motion::First, How::Extend, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ExtendLast, window, cx| {
+                this.key_move(Motion::Last, How::Extend, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &CursorNext, window, cx| {
+                this.key_move(Motion::Next, How::Cursor, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &CursorPrevious, window, cx| {
+                this.key_move(Motion::Previous, How::Cursor, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &CursorFirst, window, cx| {
+                this.key_move(Motion::First, How::Cursor, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &CursorLast, window, cx| {
+                this.key_move(Motion::Last, How::Cursor, window, cx)
+            }))
+            .on_action(cx.listener(Self::toggle_selected))
             .size_full()
             .flex()
             .flex_col()

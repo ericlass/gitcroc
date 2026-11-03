@@ -1,9 +1,12 @@
 //! The keyboard shortcuts (UI-22): GPUI actions, and the one table their
 //! bindings come from, the palette's shortcut column (M6-24) and the user
 //! documentation, which `keys::tests` checks. "Secondary" is Cmd on macOS
-//! and Ctrl elsewhere. The table holds the shortcuts `gitcroc-ui` handles;
-//! each task that ports one from `ui/src/keys.ts` adds its row. Keys that
-//! belong to one place stay with it, in that view's own key context.
+//! and Ctrl elsewhere. None shadows a key of gpui-component's text input or
+//! code editor, which `keys::tests` checks against their keymaps. Keys that
+//! belong to one place stay with it, in that view's own key context:
+//! Shift+F10 and the context menu key for menus, the arrow keys in lists
+//! and menus, Ctrl/Cmd+Enter in the commit box, the conflict editor's Alt
+//! keys.
 
 use std::rc::Rc;
 
@@ -20,6 +23,8 @@ actions!(
         NextRegion,
         /// Moves the focus to the previous region.
         PreviousRegion,
+        /// Opens the Settings dialog (UI-22).
+        OpenSettings,
         /// Shows the app's name and version (the macOS App menu).
         About,
         /// Quits the app (the macOS App menu).
@@ -132,6 +137,7 @@ pub enum Shortcut {
     Palette,
     NextRegion,
     PreviousRegion,
+    Settings,
     NextTab,
     PreviousTab,
     MoveTabRight,
@@ -147,6 +153,7 @@ impl Shortcut {
             Self::Palette => strings::keys::PALETTE,
             Self::NextRegion => strings::keys::NEXT_REGION,
             Self::PreviousRegion => strings::keys::PREVIOUS_REGION,
+            Self::Settings => strings::keys::SETTINGS,
             Self::NextTab => strings::keys::NEXT_TAB,
             Self::PreviousTab => strings::keys::PREVIOUS_TAB,
             Self::MoveTabRight => strings::keys::MOVE_TAB_RIGHT,
@@ -162,6 +169,7 @@ impl Shortcut {
             Self::Palette => Box::new(TogglePalette),
             Self::NextRegion => Box::new(NextRegion),
             Self::PreviousRegion => Box::new(PreviousRegion),
+            Self::Settings => Box::new(OpenSettings),
             Self::NextTab => Box::new(NextTab),
             Self::PreviousTab => Box::new(PreviousTab),
             Self::MoveTabRight => Box::new(MoveTabRight),
@@ -176,6 +184,7 @@ impl Shortcut {
 pub fn palette_shortcut(op: gitcroc_core::PaletteOp) -> Option<Keys> {
     use gitcroc_core::PaletteOp;
     let shortcut = match op {
+        PaletteOp::Settings => Shortcut::Settings,
         PaletteOp::NextTab => Shortcut::NextTab,
         PaletteOp::PreviousTab => Shortcut::PreviousTab,
         _ => return None,
@@ -186,11 +195,13 @@ pub fn palette_shortcut(op: gitcroc_core::PaletteOp) -> Option<Keys> {
         .map(|(_, keys)| *keys)
 }
 
-/// The app-wide shortcuts and their keys.
-pub const KEYMAP: [(Shortcut, Keys); 9] = [
+/// The app-wide shortcuts and their keys, in the order `keyboard.md`
+/// lists them.
+pub const KEYMAP: [(Shortcut, Keys); 10] = [
     (Shortcut::Palette, Keys::plain("k").secondary()),
     (Shortcut::NextRegion, Keys::plain("f6")),
     (Shortcut::PreviousRegion, Keys::plain("f6").shift()),
+    (Shortcut::Settings, Keys::plain(",").secondary()),
     (Shortcut::NextTab, Keys::plain("pagedown").secondary()),
     (Shortcut::PreviousTab, Keys::plain("pageup").secondary()),
     (
@@ -253,22 +264,84 @@ mod tests {
             .collect()
     }
 
-    /// M5-18: the keyboard page of the user documentation lists every
-    /// shortcut of [`KEYMAP`], as a table row with what it does and its keys
-    /// on Windows and Linux and on macOS, written as the app writes them.
-    /// Until M6-30 it checks the shortcuts `gitcroc-ui` has.
+    /// The rows of the table under heading `heading` of `markdown`, less its
+    /// header and rule.
+    fn section_rows(markdown: &str, heading: &str) -> Vec<Vec<String>> {
+        let section = markdown
+            .split("\n## ")
+            .find(|section| section.starts_with(heading))
+            .unwrap_or_else(|| panic!("no section {heading:?}"));
+        table_rows(section).into_iter().skip(2).collect()
+    }
+
+    /// M5-18: the keyboard page of the user documentation lists the
+    /// shortcuts of [`KEYMAP`] and no other, in its order, each with what it
+    /// does and its keys on Windows and Linux and on macOS, written as the
+    /// app writes them.
     #[test]
-    fn ui_22_keyboard_md_lists_every_shortcut_with_its_keys() {
+    fn ui_22_keyboard_md_and_the_keymap_list_the_same_shortcuts() {
         let page = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/user/keyboard.md");
         let text = std::fs::read_to_string(page).unwrap();
-        let rows = table_rows(&text);
-        for (shortcut, keys) in KEYMAP {
-            let label = shortcut.label();
-            let row = rows
-                .iter()
-                .find(|cells| cells[0] == label)
-                .unwrap_or_else(|| panic!("no row for {label:?}"));
-            assert_eq!(row[1..3], [keys.label(false), keys.label(true)], "{label}");
+        let documented = section_rows(&text, "App-wide shortcuts");
+        let bound: Vec<Vec<String>> = KEYMAP
+            .iter()
+            .map(|(shortcut, keys)| {
+                vec![
+                    shortcut.label().to_owned(),
+                    keys.label(false),
+                    keys.label(true),
+                ]
+            })
+            .collect();
+        assert_eq!(documented, bound);
+    }
+
+    #[test]
+    fn ui_22_no_two_shortcuts_share_keys() {
+        for (at, (shortcut, keys)) in KEYMAP.iter().enumerate() {
+            for (other, other_keys) in &KEYMAP[at + 1..] {
+                assert_ne!(keys, other_keys, "{shortcut:?} and {other:?}");
+            }
+        }
+    }
+
+    /// The key contexts of gpui-component's text input and code editor: its
+    /// keymaps are `input/base/state.rs` ("Input") and the code editor's
+    /// search bar, `input/search.rs` ("SearchPanel").
+    const EDITOR_CONTEXTS: [&str; 2] = ["Input", "SearchPanel"];
+
+    /// A focused field or editor takes the keys its keymaps bind before the
+    /// window sees them: no app-wide shortcut may be one of them, or the
+    /// shortcut would stop working there.
+    #[gpui::test]
+    fn ui_22_no_shortcut_shadows_an_editor_key(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(crate::init);
+        let keymap = cx.update(|cx| cx.key_bindings());
+        let keymap = keymap.borrow();
+        let editor: Vec<_> = keymap
+            .bindings()
+            .filter(|binding| {
+                binding.predicate().is_some_and(|predicate| {
+                    let predicate = predicate.to_string();
+                    EDITOR_CONTEXTS.iter().any(|context| {
+                        predicate
+                            .split(|c: char| !c.is_alphanumeric())
+                            .any(|word| word == *context)
+                    })
+                })
+            })
+            .collect();
+        assert!(!editor.is_empty(), "the editors' keymaps are not bound");
+        for (shortcut, _) in KEYMAP {
+            let action = shortcut.action();
+            for ours in keymap.bindings_for_action(action.as_ref()) {
+                let shadowed: Vec<String> = editor
+                    .iter()
+                    .filter(|theirs| theirs.match_keystrokes(ours.keystrokes()).is_some())
+                    .map(|theirs| format!("{} in {:?}", theirs.action().name(), theirs.predicate()))
+                    .collect();
+                assert!(shadowed.is_empty(), "{shortcut:?} is {shadowed:?}");
+            }
         }
     }
 

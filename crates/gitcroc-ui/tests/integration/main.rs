@@ -34,6 +34,7 @@ mod history;
 mod history_merged;
 mod history_search;
 mod jobs;
+mod keyboard;
 mod operations;
 mod palette;
 mod palette_ops;

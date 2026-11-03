@@ -32,7 +32,7 @@ impl Terminal for Term {
 }
 
 /// What choosing an operation is to do, as its control does.
-enum Did {
+pub(crate) enum Did {
     /// The dialog with this id opens.
     Dialog(&'static str),
     /// A job starts, or the dialog that runs it asks to confirm first.
@@ -41,14 +41,14 @@ enum Did {
     Check(Box<dyn Fn(&mut VisualTestContext) -> bool>),
 }
 
-struct Driver<'a> {
-    f: &'a Fixture,
-    cx: VisualTestContext,
-    window: Entity<GitcrocWindow>,
-    done: BTreeSet<String>,
+pub(crate) struct Driver<'a> {
+    pub(crate) f: &'a Fixture,
+    pub(crate) cx: VisualTestContext,
+    pub(crate) window: Entity<GitcrocWindow>,
+    pub(crate) done: BTreeSet<String>,
 }
 
-fn label(op: PaletteOp) -> &'static str {
+pub(crate) fn label(op: PaletteOp) -> &'static str {
     palette_catalog()
         .iter()
         .find(|entry| entry.op == op)
@@ -60,7 +60,7 @@ fn reason(cx: &mut VisualTestContext) -> Option<String> {
     label_of(cx, ElementId::Name("palette-row-0-reason".into()))
 }
 
-fn shown(cx: &mut VisualTestContext, id: &str) -> bool {
+pub(crate) fn shown(cx: &mut VisualTestContext, id: &str) -> bool {
     let id: ElementId = id.to_owned().into();
     cx.update(|window, cx| {
         window.render_frame(cx);
@@ -73,12 +73,12 @@ fn press(cx: &mut VisualTestContext, keys: &str) {
 }
 
 impl Driver<'_> {
-    fn jobs(&self) -> usize {
+    pub(crate) fn jobs(&self) -> usize {
         self.f.app().jobs_get().len()
     }
 
     /// Waits until every job ended, so the next step starts from them.
-    fn settled(&mut self) {
+    pub(crate) fn settled(&mut self) {
         let f = self.f;
         wait_until(&mut self.cx, |_| {
             f.app()
@@ -89,7 +89,7 @@ impl Driver<'_> {
     }
 
     /// Closes the dialogs over the window.
-    fn close_dialogs(&mut self) {
+    pub(crate) fn close_dialogs(&mut self) {
         for _ in 0..5 {
             if !shown(&mut self.cx, "dialog-layer") {
                 return;
@@ -144,14 +144,20 @@ impl Driver<'_> {
         assert_eq!(reason(cx), None, "{name} cannot apply");
         press(cx, "enter");
         assert!(!shown(cx, "palette"), "{name} left the palette open");
+        self.expect(name, jobs, did);
+    }
+
+    /// Checks that operation `name` did what `did` says, `jobs` being how
+    /// many jobs there were before.
+    pub(crate) fn expect(&mut self, name: &str, jobs: usize, did: Did) {
         let f = self.f;
         match did {
             Did::Dialog(id) => {
-                wait_for_element(cx, id.to_owned().into());
+                wait_for_element(&mut self.cx, id.to_owned().into());
                 self.close_dialogs();
             }
             Did::Runs => {
-                wait_until(cx, |cx| {
+                wait_until(&mut self.cx, |cx| {
                     f.app().jobs_get().len() > jobs
                         || shown(cx, "op-confirm-actions")
                         || shown(cx, "branch-confirm")
@@ -159,7 +165,7 @@ impl Driver<'_> {
                 self.close_dialogs();
                 self.settled();
             }
-            Did::Check(check) => wait_until(cx, |cx| check(cx)),
+            Did::Check(check) => wait_until(&mut self.cx, |cx| check(cx)),
         }
         self.done.insert(name.to_owned());
     }

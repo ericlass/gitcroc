@@ -443,9 +443,12 @@ impl Render for AiSection {
             .child(
                 div().flex().flex_col().gap_1().child(text::EXCLUDE).child(
                     div().id("ai-exclude").test_support().h(px(96.)).child(
-                        Textarea::new(&self.exclude)
-                            .h(gpui_kit::relative(1.))
-                            .aria_label(text::EXCLUDE),
+                        crate::text_area::tab_moves_on(
+                            Textarea::new(&self.exclude)
+                                .h(gpui_kit::relative(1.))
+                                .aria_label(text::EXCLUDE),
+                        )
+                        .size_full(),
                     ),
                 ),
             )

@@ -606,7 +606,7 @@ impl TreePane {
         }
         if let Some(index) = self.selected_index() {
             let row = self.rows[index].clone();
-            self.toggle_row(&row, cx);
+            self.open_row(&row, cx);
         }
     }
 
@@ -645,43 +645,49 @@ impl TreePane {
             && how == How::Select
             && let Some(row) = self.rows.get(index).cloned()
         {
-            if let Some(gitcroc_core::TreeItem::Branch {
-                repo_id,
-                name,
-                current,
-                ..
-            }) = row.item()
-            {
-                if !current && crate::row_context::blocked(self.tree.summary(repo_id)).is_none() {
-                    cx.emit(AskBranch {
-                        workspace: self.workspace_id.clone(),
-                        repo: repo_id.clone(),
-                        repo_name: self
-                            .tree
-                            .repo_names()
-                            .get(repo_id)
-                            .cloned()
-                            .unwrap_or_default(),
-                        mode: BranchMode::Run {
-                            op: BranchOp::Checkout { name: name.clone() },
-                        },
-                        immediate: true,
-                    });
-                }
-            } else if let Some(gitcroc_core::TreeItem::GroupBranch { group_id, name, .. }) =
-                row.item()
-            {
-                // UI-5: a group checkout of that name on every member,
-                // through the preflight; never in one repo only.
-                let (target, op) = crate::group_ops::group_checkout(group_id.clone(), name.clone());
-                cx.emit(crate::group_ops::RunGroup {
+            self.open_row(&row, cx);
+        }
+    }
+
+    /// What a double-click or Enter does on `row` (UI-5): checks out a
+    /// local branch, or a group's branch name on the whole group; opens or
+    /// closes any other row.
+    fn open_row(&mut self, row: &Row, cx: &mut Context<Self>) {
+        if let Some(gitcroc_core::TreeItem::Branch {
+            repo_id,
+            name,
+            current,
+            ..
+        }) = row.item()
+        {
+            if !current && crate::row_context::blocked(self.tree.summary(repo_id)).is_none() {
+                cx.emit(AskBranch {
                     workspace: self.workspace_id.clone(),
-                    target,
-                    op,
+                    repo: repo_id.clone(),
+                    repo_name: self
+                        .tree
+                        .repo_names()
+                        .get(repo_id)
+                        .cloned()
+                        .unwrap_or_default(),
+                    mode: BranchMode::Run {
+                        op: BranchOp::Checkout { name: name.clone() },
+                    },
+                    immediate: true,
                 });
-            } else {
-                self.toggle_row(&row, cx);
             }
+        } else if let Some(gitcroc_core::TreeItem::GroupBranch { group_id, name, .. }) = row.item()
+        {
+            // UI-5: a group checkout of that name on every member,
+            // through the preflight; never in one repo only.
+            let (target, op) = crate::group_ops::group_checkout(group_id.clone(), name.clone());
+            cx.emit(crate::group_ops::RunGroup {
+                workspace: self.workspace_id.clone(),
+                target,
+                op,
+            });
+        } else {
+            self.toggle_row(row, cx);
         }
     }
 

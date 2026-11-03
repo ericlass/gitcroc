@@ -46,6 +46,10 @@ actions!(
         MarkResolved
     ]
 );
+
+/// The editor's key context.
+pub const CONTEXT: &str = "GitcrocConflict";
+
 pub fn bind(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("alt-down", NextConflict, Some("GitcrocConflict > Input")),
@@ -510,8 +514,10 @@ impl Render for ConflictEditor {
         let scroll = self.editor.read(cx).scroll_offset();
         let viewport = self.measured.get().map(|m| m.viewport);
         div()
-            .key_context("GitcrocConflict")
+            .key_context(CONTEXT)
             .tab_group()
+            .on_action(crate::text_area::focus_next)
+            .on_action(crate::text_area::focus_previous)
             .relative()
             .size_full()
             .overflow_hidden()
