@@ -17,7 +17,7 @@ use gpui_kit::{
 
 use crate::ai::Ai;
 use crate::dialog::{self, Cancel, Closed, Modal};
-use crate::strings::{ai::consent as text, common};
+use crate::strings::{self, ai::consent as text, common};
 use crate::theme::{ActiveTokens, AppTheme};
 
 /// What Allow goes on with once the consent is kept.
@@ -133,6 +133,7 @@ impl Render for ConsentDialog {
                 .child(text::item(&item))
         });
         dialog::frame("consent-frame", Role::AlertDialog, &title, cx)
+            .aria_description(strings::a11y::describe(&[&said, text::ASKED_AGAIN]))
             .test_support()
             .track_focus(&self.focus)
             .key_context(dialog::CONTEXT)

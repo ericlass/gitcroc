@@ -204,12 +204,15 @@ impl Render for PreflightDialog {
             .map_or_else(|| text::preflight::TITLE, |ready| ready.label.as_str())
             .into();
         let mut body = div().id("preflight-body").flex().flex_col().gap_2();
+        // What a screen reader reads as the dialog opens (M6-25a).
+        let mut said = SharedString::default();
         match &ready {
             None => {
                 if pending
                     .as_ref()
                     .is_some_and(|pending| pending.error.is_none())
                 {
+                    said = text::preflight::CHECKING.into();
                     body = body.child(
                         div()
                             .id("preflight-progress")
@@ -249,6 +252,7 @@ impl Render for PreflightDialog {
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
+                said = counts.clone().into();
                 body = body.child(
                     div()
                         .id("preflight-counts")
@@ -411,6 +415,7 @@ impl Render for PreflightDialog {
             &title,
             cx,
         )
+        .aria_description(said)
         .test_support()
         .track_focus(&self.focus)
         .key_context(dialog::CONTEXT)

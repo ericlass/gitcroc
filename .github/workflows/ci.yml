@@ -62,8 +62,9 @@ jobs:
 
       # GPUI's build needs these on Linux (M6-03): xkbcommon and xcb for X11
       # and Wayland input, fontconfig and freetype for font-kit. Xvfb and
-      # Mesa's lavapipe are for the first-frame step; no Wayland, where
-      # headless Weston has no seat and GPUI panics.
+      # Mesa's lavapipe are for the first-frame step, at-spi2-core and dbus
+      # for the accessibility tree; no Wayland, where headless Weston has no
+      # seat and GPUI panics.
       - name: Install GPUI's Linux packages
         if: runner.os == 'Linux'
         run: |
@@ -71,7 +72,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev \
             libfontconfig-dev libfreetype-dev \
-            xvfb mesa-vulkan-drivers
+            xvfb mesa-vulkan-drivers at-spi2-core dbus
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
@@ -92,6 +93,14 @@ jobs:
           else
             target/debug/gitcroc-next --exit-after-first-frame
           fi
+
+      # The accessibility tree of a real window, view by view (M6-25a), in
+      # its own Xvfb server, D-Bus session and AT-SPI bus. The test build
+      # has already built it.
+      - name: Accessibility tree
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: just a11y
 
       # D11, SEC-1: a unique test service, never gitcroc's credentials.
       # Linux hosted runners have no Secret Service; that check stays local.

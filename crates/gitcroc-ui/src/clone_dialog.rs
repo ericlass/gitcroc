@@ -18,6 +18,7 @@ use gitcroc_core::{CloneGroup, CloneRequest, GroupView, WorkspaceId};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{Disableable, FocusTrapElement, Selectable};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     App, AppContext, ClickEvent, Context, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, ParentElement, Render, Role, SharedString,
@@ -378,21 +379,21 @@ impl Render for CloneDialog {
             |parent| parent.display().to_string().into(),
         );
         // For display only: the core joins the request's parent and name.
-        let target = self
-            .parent
-            .as_ref()
-            .filter(|_| !name.is_empty())
-            .map(|parent| {
-                let shown: SharedString =
-                    text::clones_into(&format!("{}{MAIN_SEPARATOR}{name}", parent.display()))
-                        .into();
-                div()
-                    .id("clone-target")
-                    .test_support()
-                    .role(Role::Paragraph)
-                    .aria_label(shown.clone())
-                    .child(shown)
-            });
+        let shown: Option<SharedString> =
+            self.parent
+                .as_ref()
+                .filter(|_| !name.is_empty())
+                .map(|parent| {
+                    text::clones_into(&format!("{}{MAIN_SEPARATOR}{name}", parent.display())).into()
+                });
+        let target = shown.clone().map(|shown| {
+            div()
+                .id("clone-target")
+                .test_support()
+                .role(Role::Paragraph)
+                .aria_label(shown.clone())
+                .child(shown)
+        });
         let mut groups = div()
             .id("clone-groups")
             .flex()
@@ -430,6 +431,7 @@ impl Render for CloneDialog {
             .then(|| Self::field(text::GROUP_NAME, &self.group_name, "clone-group-name"));
         let ready = self.request(cx).is_some();
         dialog::frame("clone-frame", Role::Dialog, &title, cx)
+            .when_some(shown, |frame, shown| frame.aria_description(shown))
             .test_support()
             .track_focus(&self.focus)
             .key_context(dialog::CONTEXT)

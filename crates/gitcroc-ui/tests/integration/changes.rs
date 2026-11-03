@@ -87,9 +87,15 @@ fn shown_hash(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>) -> Opt
     })
 }
 
-/// The file rows on screen, by name.
+/// The file rows on screen, by name, from the top: list box options when
+/// the list is flat, tree items as a tree.
 fn files(cx: &mut VisualTestContext) -> Vec<String> {
-    labels_in(cx, "changes-files".into(), Role::TreeItem)
+    let flat = labels_in(cx, "changes-files".into(), Role::ListBoxOption);
+    if flat.is_empty() {
+        labels_in(cx, "changes-files".into(), Role::TreeItem)
+    } else {
+        flat
+    }
 }
 
 /// The section and repo headings on screen.

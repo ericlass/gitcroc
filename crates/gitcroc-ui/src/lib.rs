@@ -9,6 +9,7 @@ extern crate gpui_kit as gpui;
 pub mod add_menu;
 pub mod ai;
 pub mod ai_section;
+pub mod announcer;
 pub mod askpass;
 pub mod banner;
 pub mod branch_dialog;

@@ -141,6 +141,7 @@ impl Render for AskpassDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let prompt: SharedString = self.prompt.text.clone().into();
         let frame = dialog::frame("askpass-frame", Role::Dialog, &self.title, cx)
+            .aria_description(prompt.clone())
             .test_support()
             .track_focus(&self.focus)
             .key_context(dialog::CONTEXT)

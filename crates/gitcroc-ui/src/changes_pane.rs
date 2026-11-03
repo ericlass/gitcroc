@@ -962,6 +962,21 @@ fn row_id(index: usize, part: &str) -> ElementId {
     }
 }
 
+/// The 0-based place of file row `index` among the files listed with it,
+/// between the section or repo rows around them, and their count.
+fn file_position(rows: &[FileRow], index: usize) -> (usize, usize) {
+    let is_file = |row: &FileRow| matches!(row, FileRow::File { .. });
+    let first = rows[..index]
+        .iter()
+        .rposition(|row| !is_file(row))
+        .map_or(0, |at| at + 1);
+    let end = rows[index..]
+        .iter()
+        .position(|row| !is_file(row))
+        .map_or(rows.len(), |at| index + at);
+    (index - first, end - first)
+}
+
 /// A file list row, before its role and content.
 fn row_base(
     index: usize,
@@ -1084,6 +1099,7 @@ impl ChangesPane {
                 .aria_label(name.clone())
                 .aria_level(depth + 1)
                 .aria_expanded(!collapsed)
+                .aria_description(strings::a11y::tree_row(Some(!collapsed), depth + 1))
                 .pl(indent(*depth))
                 .cursor(CursorStyle::PointingHand)
                 .hover(|row| row.bg(tokens.bg_3))
@@ -1130,10 +1146,23 @@ impl ChangesPane {
         let marked = !selected && self.changes.marked().len() > 1 && self.changes.is_marked(file);
         let focused = self.focus.is_focused(window);
         let name = SharedString::from(name.to_owned());
+        let flat = self.changes.mode() == FileListMode::Flat;
+        // Flat, each list is a list box whose rows say their place; as a
+        // tree, a row says its level (M6-25a).
+        let place = if flat {
+            let (at, of) = file_position(self.changes.rows(), index);
+            strings::a11y::position(at, of)
+        } else {
+            strings::a11y::tree_row(None, depth + 1)
+        };
         let mut row = row_base(index)
-            .role(Role::TreeItem)
+            .role(if flat {
+                Role::ListBoxOption
+            } else {
+                Role::TreeItem
+            })
             .aria_label(name.clone())
-            .aria_level(depth + 1)
+            .when(!flat, |row| row.aria_level(depth + 1))
             .aria_selected(selected || marked)
             .when(selected && focused, |row| row.aria_active_descendant())
             // Room for a folder's chevron, so names line up in a tree.
@@ -1150,11 +1179,11 @@ impl ChangesPane {
                 this.click_file(index, event, window, cx);
             }));
         let Some(entry) = self.changes.entry_of(file) else {
-            return row.child(name).into_any_element();
+            return row.aria_description(place).child(name).into_any_element();
         };
         let (letter, status_name, color) = status(entry, &tokens);
         row = row
-            .aria_description(status_name)
+            .aria_description(strings::a11y::describe(&[status_name, &place]))
             .child(
                 part(row_id(index, "status"), Role::Image, status_name)
                     .w(px(12.))
@@ -1867,7 +1896,11 @@ impl Render for ChangesPane {
         let list = div()
             .id("changes-files")
             .test_support()
-            .role(Role::Tree)
+            .role(if self.changes.mode() == FileListMode::Flat {
+                Role::ListBox
+            } else {
+                Role::Tree
+            })
             .aria_label(text::CHANGED_FILES)
             .flex_1()
             .min_h_0()

@@ -27,7 +27,7 @@ use gpui_kit::{
 use crate::dialog::{self, Cancel, Closed, Modal};
 use crate::keys;
 use crate::services::Services;
-use crate::strings::palette as text;
+use crate::strings::{self, palette as text};
 use crate::theme::ActiveTokens;
 use crate::window::GitcrocWindow;
 
@@ -410,7 +410,11 @@ impl Palette {
             .aria_label(name.clone())
             .aria_selected(highlighted)
             .when(highlighted, |row| row.aria_active_descendant())
-            .when_some(reason.clone(), |row, reason| row.aria_description(reason))
+            // Why it cannot run, then its place in the results (M6-25a).
+            .aria_description(strings::a11y::describe(&[
+                reason.as_deref().unwrap_or_default(),
+                &strings::a11y::position(index, self.items().len()),
+            ]))
             .when_some(shortcut.clone(), |row, keys| row.aria_keyshortcuts(keys))
             .h(ROW_HEIGHT)
             .px_2()
