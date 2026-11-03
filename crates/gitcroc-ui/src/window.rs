@@ -256,6 +256,11 @@ impl GitcrocWindow {
                     this.refused = Some(error.clone());
                     cx.notify();
                 }
+                TabBarEvent::Shown(id) if this.dialog.is_none() && this.askpass.is_none() => {
+                    this.tab_bar
+                        .update(cx, |tab_bar, cx| tab_bar.focus_tab(id, window, cx));
+                }
+                TabBarEvent::Shown(_) => {}
             }),
             cx.subscribe_in(&status_bar, window, |this, _, _: &ShowJobs, window, cx| {
                 this.open_job_list(None, window, cx);

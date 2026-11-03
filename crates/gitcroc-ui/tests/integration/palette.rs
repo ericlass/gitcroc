@@ -626,3 +626,35 @@ fn ui_22_fetch_on_a_group_goes_through_its_preflight_and_a_hard_reset_asks_first
     click(&mut cx, "dialog-submit".into());
     wait_until(&mut cx, |_| api.head().unwrap() == first);
 }
+
+#[gpui::test]
+fn ui_22_a_tab_change_the_core_confirms_late_leaves_the_focus_in_the_palette(
+    root: &mut TestAppContext,
+) {
+    let Opened {
+        f,
+        made: _made,
+        mut cx,
+        window,
+    } = opened(root, &["api"]);
+    let first = f.active();
+    let app = f.app().clone();
+    f.runtime
+        .block_on(app.workspace_create("Second".to_owned()))
+        .unwrap();
+    let tabs = |cx: &mut VisualTestContext| cx.update(|_, cx| window.read(cx).tabs(cx));
+    wait_until(&mut cx, |cx| tabs(cx).open.len() == 2);
+    assert_ne!(tabs(&mut cx).active, Some(first.clone()));
+    // A click on the first tab, and the palette's key before the core has
+    // answered the change.
+    cx.update(|window, cx| {
+        window.click_at(crate::history::tab(&first), point(px(4.), px(4.)), cx);
+        window.dispatch_action(Box::new(gitcroc_ui::keys::TogglePalette), cx);
+    });
+    wait_until(&mut cx, |cx| {
+        f.active() == first && tabs(cx).active.as_ref() == Some(&first)
+    });
+    crate::support::settle(&mut cx, |_, _| true);
+    assert!(shown(&mut cx, "palette"));
+    assert!(focused(&mut cx, "palette-input"));
+}
