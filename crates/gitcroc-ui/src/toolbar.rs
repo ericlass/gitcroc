@@ -214,18 +214,22 @@ impl GitcrocWindow {
                 );
             }
         }
-        for (id, label) in [
-            ("toolbar-palette", text::PALETTE),
-            ("toolbar-settings", text::SETTINGS),
-        ] {
-            buttons.push(
-                Button::new(id)
-                    .label(label)
-                    .disabled(true)
-                    .tooltip(text::LATER)
-                    .into_any_element(),
-            );
-        }
+        buttons.push(
+            Button::new("toolbar-palette")
+                .label(text::PALETTE)
+                .disabled(true)
+                .tooltip(text::LATER)
+                .into_any_element(),
+        );
+        buttons.push(
+            Button::new("toolbar-settings")
+                .label(text::SETTINGS)
+                .tooltip(text::SETTINGS)
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_settings(crate::settings_dialog::SettingsTab::Ai, window, cx);
+                }))
+                .into_any_element(),
+        );
         buttons
     }
 

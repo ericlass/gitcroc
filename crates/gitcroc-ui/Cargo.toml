@@ -53,6 +53,8 @@ perf-trace = ["gpui-kit/test-support"]
 gitcroc-ui = { path = ".", features = ["perf-trace"] }
 gpui-kit = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
+# The fake AI backend's scripted provider (M6-23a).
+gitcroc-ai = { workspace = true, features = ["mock"] }
 tokio = { workspace = true, features = ["time"] }
 syn.workspace = true
 # The scan's line numbers.

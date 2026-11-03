@@ -3,6 +3,8 @@
 //! own (ARCH-6). `gitcroc-next` runs it until M6-30.
 
 pub mod add_menu;
+pub mod ai;
+pub mod ai_section;
 pub mod askpass;
 pub mod banner;
 pub mod branch_dialog;
@@ -39,9 +41,11 @@ pub mod panes;
 #[cfg(feature = "perf-trace")]
 pub mod perf;
 pub mod preflight_dialog;
+pub mod provider_form;
 pub mod row_context;
 pub mod row_menus;
 pub mod services;
+pub mod settings_dialog;
 pub mod share;
 pub mod special_diff;
 pub mod status_bar;
@@ -80,6 +84,7 @@ pub fn init(cx: &mut App) {
     menu::bind(cx);
     dialog::bind(cx);
     tab_bar::bind(cx);
+    settings_dialog::bind(cx);
     status_bar::bind(cx);
     job_list::bind(cx);
     tree_pane::bind(cx);

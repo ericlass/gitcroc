@@ -2411,6 +2411,7 @@ dependencies = [
  "directories",
  "dunce",
  "futures-lite",
+ "gitcroc-ai",
  "gitcroc-app",
  "gitcroc-core",
  "gitcroc-ui",

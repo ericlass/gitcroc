@@ -84,6 +84,7 @@ pub mod keys {
 pub mod common {
     pub const CANCEL: &str = "Cancel";
     pub const DISMISS: &str = "Dismiss";
+    pub const CLOSE: &str = "Close";
 }
 
 /// The window's own messages.
@@ -1579,4 +1580,132 @@ pub mod group_ops {
             Class::NeedsAttention { reason } => Some(reason),
         }
     }
+}
+
+/// The Settings dialog's frame (M6-23a); M6-26 adds its other tabs.
+pub mod settings {
+    pub const TITLE: &str = "Settings";
+    /// The tab strip, as screen readers name it.
+    pub const TABS: &str = "Settings sections";
+    pub const TAB_AI: &str = "AI";
+    /// Which gitcroc is running.
+    pub fn about(name: &str, version: &str, os: &str, arch: &str) -> String {
+        format!("{name} version {version} on {os} ({arch})")
+    }
+}
+
+/// The AI tab of Settings and its provider form (section 7, AI-1, AI-2,
+/// AI-4, AI-7, AI-16).
+pub mod ai {
+    use gitcroc_core::ProviderKind;
+
+    pub const LEGEND: &str = "AI";
+    pub const FEATURES: &str = "AI features";
+    pub const OFF: &str = "AI features are off: no AI request is sent and the AI buttons are hidden. \
+                           Providers, keys and consent are kept for when you turn them on.";
+    pub fn no_keychain(reason: &str) -> String {
+        format!("The keychain cannot be used, so keys cannot be stored: {reason}")
+    }
+    pub const PROVIDERS: &str = "Providers";
+    pub const NO_PROVIDER: &str = "No AI provider yet.";
+    pub const PROVIDERS_LABEL: &str = "AI providers";
+    /// A provider in the list: its name, whether it is the default, its
+    /// kind, its model and a CLI's self-test.
+    pub fn provider_line(
+        name: &str,
+        is_default: bool,
+        kind: ProviderKind,
+        model: Option<&str>,
+        check: Option<&str>,
+    ) -> String {
+        let mut line = name.to_owned();
+        if is_default {
+            line.push_str(" (default)");
+        }
+        for part in [Some(kind_label(kind)), model, check].into_iter().flatten() {
+            line.push_str(" · ");
+            line.push_str(part);
+        }
+        line
+    }
+    pub const IS_DEFAULT: &str = "(default)";
+    pub fn edit_label(provider: &str) -> String {
+        format!("Edit {provider}")
+    }
+    pub const EDIT: &str = "Edit…";
+    pub fn set_default_label(provider: &str) -> String {
+        format!("Set {provider} as default")
+    }
+    pub const SET_DEFAULT: &str = "Set as default";
+    pub fn remove_label(provider: &str) -> String {
+        format!("Remove {provider}")
+    }
+    pub const REMOVE: &str = "Remove…";
+    pub fn remove_with_key(provider: &str) -> String {
+        format!("Remove {provider} and its key?")
+    }
+    pub const REMOVE_CONFIRM: &str = "Remove";
+    /// The offer of a CLI the core found (AI-2).
+    pub fn found(kind: &str, path: &str) -> String {
+        format!("Found {kind} at {path}.")
+    }
+    pub const ADD_IT: &str = "Add it…";
+    pub const ADD_PROVIDER: &str = "Add provider…";
+    pub const EXCLUDE: &str = "Never send files matching (one pattern per line)";
+    pub const DEBUG_LOG: &str = "AI debug logging";
+    pub const DEBUG_LOG_NOTE: &str = "While on, every prompt and reply is written to the log, \
+                                      which then holds repo content. Keys are never written.";
+    /// The kinds of provider (section 7 "Providers").
+    pub fn kind_label(kind: ProviderKind) -> &'static str {
+        match kind {
+            ProviderKind::Anthropic => "Anthropic",
+            ProviderKind::Openai => "OpenAI-compatible",
+            ProviderKind::ClaudeCode => "Claude Code",
+            ProviderKind::Codex => "Codex",
+            ProviderKind::Mock => "Mock",
+        }
+    }
+    pub const TESTING: &str = "Testing…";
+    pub const WORKS: &str = "Works";
+    pub fn works_with(version: &str) -> String {
+        format!("Works: {version}")
+    }
+    pub fn lacks(version: &str, flags: &str) -> String {
+        format!("{version} lacks {flags}")
+    }
+    pub fn failed(reason: &str) -> String {
+        format!("Failed: {reason}")
+    }
+    pub const MODEL: &str = "Model";
+    pub const MODEL_OPTIONAL: &str = "Model (optional)";
+    pub const NEW_PROVIDER: &str = "New AI provider";
+    pub fn provider(name: &str) -> String {
+        format!("AI provider {name}")
+    }
+    pub const KIND: &str = "Kind";
+    pub const NAME: &str = "Name";
+    pub const BASE_URL: &str = "Base URL";
+    pub const BASE_URL_PLACEHOLDER: &str = "https://host/v1";
+    pub const API_KEY: &str = "API key";
+    pub const API_KEY_OPTIONAL: &str = "API key (optional)";
+    pub const KEY_STORED: &str = "Key stored";
+    pub const REPLACE_KEY: &str = "Replace key…";
+    pub const REMOVE_KEY: &str = "Remove key";
+    pub const KEY_REMOVED_ON_SAVE: &str = "The stored key is removed when you save.";
+    pub const PROGRAMS_FOUND: &str = "Programs found";
+    pub const PROGRAM: &str = "Program";
+    pub const PICK_MODEL: &str = "Pick a model";
+    pub const FETCHING_MODELS: &str = "Fetching models…";
+    pub const NO_MODEL_LIST: &str = "The provider offers no list of models; type the model's name.";
+    pub fn cannot_fetch_models(reason: &str) -> String {
+        format!("Cannot fetch the models: {reason}")
+    }
+    pub const CONTEXT_BUDGET: &str = "Context budget in tokens";
+    pub const CONTEXT_BUDGET_PLACEHOLDER: &str = "100000";
+    pub fn test_result(result: &str) -> String {
+        format!("Test: {result}")
+    }
+    pub const FETCH_MODELS: &str = "Fetch models";
+    pub const TEST: &str = "Test";
+    pub const SAVE: &str = "Save";
 }

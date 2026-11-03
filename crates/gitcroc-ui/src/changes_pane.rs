@@ -158,6 +158,9 @@ pub struct AskDiscard {
 /// The changes of one workspace.
 pub struct ChangesPane {
     services: Services,
+    /// The window's AI settings: AI features hides every AI element
+    /// (AI-16).
+    ai: Entity<crate::ai::Ai>,
     workspace_id: WorkspaceId,
     changes: Changes,
     history: Entity<HistoryPane>,
@@ -190,6 +193,7 @@ pub struct ChangesPane {
     first_focus: FocusHandle,
     second_focus: FocusHandle,
     _history_watch: Subscription,
+    _ai_watch: Subscription,
     _prefs_watch: Subscription,
     _hunk_actions: Subscription,
     _commit_reads: Subscription,
@@ -200,9 +204,12 @@ impl ChangesPane {
         services: Services,
         workspace_id: WorkspaceId,
         history: Entity<HistoryPane>,
+        ai: Entity<crate::ai::Ai>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        // AI features off reaches the tab at once (AI-16).
+        let ai_watch = cx.observe(&ai, |_, _, cx| cx.notify());
         let history_watch = cx.observe(&history, |this, _, cx| {
             if !this.changes.released() {
                 this.follow_history(cx);
@@ -228,6 +235,7 @@ impl ChangesPane {
         });
         let mut this = Self {
             services,
+            ai,
             workspace_id,
             changes,
             history,
@@ -248,12 +256,18 @@ impl ChangesPane {
             first_focus: cx.focus_handle(),
             second_focus: cx.focus_handle(),
             _history_watch: history_watch,
+            _ai_watch: ai_watch,
             _prefs_watch: prefs_watch,
             _hunk_actions: hunk_actions,
             _commit_reads: commit_reads,
         };
         this.follow_history(cx);
         this
+    }
+
+    /// AI features (AI-16), as the window last heard it.
+    pub fn ai_enabled(&self, cx: &App) -> bool {
+        self.ai.read(cx).enabled()
     }
 
     pub fn changes(&self) -> &Changes {
