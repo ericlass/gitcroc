@@ -4,7 +4,9 @@
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::history::{click, label_of, repo, tree_part, tree_row, wait_for_element, wait_until};
+use crate::history::{
+    click, label_of, labels_in, repo, tree_part, tree_row, wait_for_element, wait_until,
+};
 use crate::palette::{open_palette, search};
 use crate::support::{Fixture, main_window, settle};
 use gitcroc_app::platform::{FileManager, Launch, Terminal};
@@ -12,7 +14,7 @@ use gitcroc_core::{JobState, PaletteOp, RepoId, palette_catalog};
 use gitcroc_ui::changes::List;
 use gitcroc_ui::window::GitcrocWindow;
 use gpui_kit::test::TestWindowExt;
-use gpui_kit::{ElementId, Entity, TestAppContext, VisualTestContext};
+use gpui_kit::{ElementId, Entity, Role, TestAppContext, VisualTestContext};
 
 static FILES: AtomicUsize = AtomicUsize::new(0);
 static TERMS: AtomicUsize = AtomicUsize::new(0);
@@ -157,11 +159,27 @@ impl Driver<'_> {
                 self.close_dialogs();
             }
             Did::Runs => {
-                wait_until(&mut self.cx, |cx| {
+                let ran = |cx: &mut VisualTestContext| {
                     f.app().jobs_get().len() > jobs
                         || shown(cx, "op-confirm-actions")
                         || shown(cx, "branch-confirm")
-                });
+                };
+                for _ in 0..1000 {
+                    settle(&mut self.cx, |_, _| true);
+                    if ran(&mut self.cx) {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                if !ran(&mut self.cx) {
+                    let dialog = labels_in(&mut self.cx, "dialog-layer".into(), Role::Dialog);
+                    let buttons = labels_in(&mut self.cx, "dialog-layer".into(), Role::Button);
+                    panic!(
+                        "{name} started no job and asked nothing: {jobs} jobs before, {} now; \
+                         dialogs {dialog:?} with buttons {buttons:?}",
+                        f.app().jobs_get().len()
+                    );
+                }
                 self.close_dialogs();
                 self.settled();
             }
