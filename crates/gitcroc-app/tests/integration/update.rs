@@ -5,7 +5,7 @@
 use std::ffi::OsStr;
 
 use gitcroc_app::platform::package::{
-    BundleKind, bundle_kind, linux_package, macos_package, windows_package,
+    BundleKind, bundle_kind, bundle_kind_named, linux_package, macos_package, windows_package,
 };
 use gitcroc_core::Package;
 
@@ -21,7 +21,6 @@ fn plat_4_installer_app_and_appimage_install() {
         Package::WindowsInstaller
     );
     assert_eq!(macos_package(Some(BundleKind::App)), Package::MacApp);
-    assert_eq!(macos_package(Some(BundleKind::Dmg)), Package::MacApp);
     for package in [
         Package::AppImage,
         Package::WindowsInstaller,
@@ -70,8 +69,30 @@ fn plat_4_an_unknown_build_only_notifies() {
         Package::Unknown
     );
     assert!(!Package::Unknown.installs());
-    // No package marks its binary until M6-28.
+    // A plain `cargo build`, like this test's, is unmarked (M6-28).
     assert_eq!(bundle_kind(), None);
+}
+
+/// PLAT-4 (M6-28): the packaging step marks each package's binary with
+/// `GITCROC_BUNDLE` at build time. The mapping is a function of the value,
+/// so every platform's kinds are tested on every platform.
+#[test]
+fn plat_4_bundle_kind_comes_from_the_build() {
+    for (value, kind) in [
+        ("deb", BundleKind::Deb),
+        ("rpm", BundleKind::Rpm),
+        ("appimage", BundleKind::AppImage),
+        ("nsis", BundleKind::Nsis),
+        ("app", BundleKind::App),
+    ] {
+        assert_eq!(bundle_kind_named(Some(value)), Some(kind), "{value}");
+    }
+    for value in [
+        "", "dmg", "Deb", "DEB", " deb", "deb\n", "zip", "portable", "unknown",
+    ] {
+        assert_eq!(bundle_kind_named(Some(value)), None, "{value:?}");
+    }
+    assert_eq!(bundle_kind_named(None), None);
 }
 
 /// D12: debug and test builds never check for updates, and neither does the

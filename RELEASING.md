@@ -1,6 +1,6 @@
 # Releasing gitcroc
 
-> **No releases from `main` during M6.** The Tauri app and its release workflow were removed in M6-05, and M6-28 writes the GPUI app's own. Until then this file describes how 1.0.0-rc.1 was released. A fix for rc.1 would be released this way from a branch off the `v1.0.0-rc.1` tag, whose workflows are still there.
+> **No releases from `main` during M6.** The Tauri app and its release workflow were removed in M6-05, and M6-28 writes the GPUI app's own. The packages build again: the Build workflow (`.github/workflows/build.yml`, through `packages.yml`) builds every package of the GPUI app with rc.1's file names, installs each on a runner of its platform and starts it, and installs the Windows installer over rc.1 (M6-28a). The release workflow comes with M6-28b. Until then the rest of this file describes how 1.0.0-rc.1 was released. A fix for rc.1 would be released this way from a branch off the `v1.0.0-rc.1` tag, whose workflows are still there.
 
 A release is a pushed tag. The Release workflow (`.github/workflows/release.yml`) builds every package, signs the update packages and prepares a **draft** release. Nothing is published until you publish the draft.
 

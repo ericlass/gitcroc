@@ -1,0 +1,32 @@
+# M6-28: the packages of section 11 (D6) and their install tests, from every
+# push to main. The steps are in packages.yml, which the release workflow
+# shares (M6-28b). These builds sign nothing (SEC-7). The install jobs are
+# additional proof, not QA-1 required checks.
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  # Pull requests that change how the packages are built prove they still
+  # build, install and start.
+  pull_request:
+    paths:
+      - .github/workflows/build.yml
+      - .github/workflows/packages.yml
+      - .github/scripts/**
+      - crates/gitcroc-ui/Cargo.toml
+      - crates/gitcroc-ui/packaging/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    uses: ./.github/workflows/packages.yml
+    with:
+      update-archives: true

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Categories=Development;
+Comment=Git client for multi-repo projects
+Exec=gitcroc
+Icon=gitcroc
+Name=gitcroc
+Terminal=false
+Type=Application

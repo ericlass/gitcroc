@@ -591,7 +591,11 @@ fn d12_settings_turns_the_automatic_check_off_and_checks_now(root: &mut TestAppC
 
     click(&mut cx, "settings-update-check".into());
     wait_until(&mut cx, |_| f.saved().contains("update_check = false"));
-    assert_eq!(checked(&mut cx, "settings-update-check"), Some(false));
+    // The file is written on the app's runtime; the checkbox follows when
+    // the settings event reaches the UI, which may come later.
+    wait_until(&mut cx, |cx| {
+        checked(cx, "settings-update-check") == Some(false)
+    });
 
     wait_until(&mut cx, |cx| !disabled(cx, "settings-check-now"));
     click(&mut cx, "settings-check-now".into());
