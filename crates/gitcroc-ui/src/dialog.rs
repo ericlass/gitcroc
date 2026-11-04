@@ -58,7 +58,8 @@ pub trait Modal: Render + EventEmitter<Closed> {
 pub type Send<T> = Box<dyn Fn(T, &mut App) -> Task<Result<(), SharedString>>>;
 
 /// What every dialog shares: a modal surface named by its title. The
-/// caller adds its test support, then its focus and its key context
+/// caller adds its text as its description, as screen readers read it on
+/// opening (M6-25a), then its test support, its focus and its key context
 /// ([`CONTEXT`]), which closes it on Escape.
 pub(crate) fn frame(id: &'static str, role: Role, title: &SharedString, cx: &App) -> Stateful<Div> {
     let tokens = cx.tokens();
@@ -66,6 +67,9 @@ pub(crate) fn frame(id: &'static str, role: Role, title: &SharedString, cx: &App
         .id(id)
         .role(role)
         .aria_label(title.clone())
+        // GPUI has no `aria_modal`; synthetic children are the one place
+        // that can set it on the node (M6-04 finding 3).
+        .a11y_synthetic_children(|builder| builder.parent_node().set_modal())
         .occlude()
         .flex()
         .flex_col()
@@ -342,7 +346,9 @@ impl Render for Question {
                 .aria_label(text.clone())
                 .child(text.clone())
         });
+        let said: Vec<&str> = self.text.iter().map(SharedString::as_ref).collect();
         frame("question-frame", Role::AlertDialog, &self.title, cx)
+            .aria_description(said.join(" "))
             .test_support()
             .track_focus(&self.focus)
             .key_context(CONTEXT)

@@ -1,6 +1,6 @@
 # Fails if a requirement of the current milestone has no test (QA-3).
 # Everything CI requires (QA-1, QA-5); must pass before a task is done.
-check: check-rust
+check: check-rust a11y-where-possible
 
 # What CI's check-rust job runs: all of `just check`, with the requirement
 # coverage.
@@ -16,6 +16,20 @@ check-rust:
     just coverage M4
     just coverage M5
     just coverage spec
+
+# The accessibility tree of the real window, view by view (M6-25a): Linux
+# only, in its own Xvfb server, D-Bus session and AT-SPI bus, so the
+# desktop's own screen reader and settings are untouched. Needs xvfb-run,
+# dbus-run-session and at-spi2-core. Each view's tree is written to
+# target/tmp/a11y_tree.
+a11y:
+    cargo test -p gitcroc-ui --test a11y_tree --no-run
+    crates/gitcroc-ui/tests/a11y_tree/session.sh cargo test -p gitcroc-ui --test a11y_tree
+
+# `just a11y` where it can run: on Linux with xvfb-run. CI runs it as a
+# step of its own.
+a11y-where-possible:
+    {{ if os() == "linux" { "if command -v xvfb-run >/dev/null; then just a11y; else echo 'a11y: skipped; it needs xvfb-run'; fi" } else { "echo 'a11y: skipped; it runs on Linux only'" } }}
 
 # The GPUI app, `gitcroc-next` (M6-06), which M6-30 makes `gitcroc`. It
 # reads and writes the same settings, workspaces and cache as an installed

@@ -152,6 +152,7 @@ impl Render for WorkspaceStart {
             .test_support()
             .track_focus(&self.focus)
             .role(Role::Main)
+            .aria_label(text::MENU)
             .size_full()
             .flex()
             .flex_col()

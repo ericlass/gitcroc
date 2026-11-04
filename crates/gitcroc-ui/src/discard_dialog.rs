@@ -135,6 +135,7 @@ impl Render for DiscardDialog {
                 .child(label)
         });
         dialog::frame("discard-frame", Role::AlertDialog, &self.title, cx)
+            .aria_description(self.lost.clone())
             .test_support()
             .track_focus(&self.focus)
             .key_context(dialog::CONTEXT)

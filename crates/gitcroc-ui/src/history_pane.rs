@@ -1795,6 +1795,17 @@ impl HistoryPane {
 
     /// List row `index`: the uncommitted row, a commit or a placeholder.
     /// Commit rows are named by their place among the commits.
+    /// Where row `index` is in the list, for screen readers: of the rows
+    /// read so far while more pages are to come.
+    fn place(&self, index: usize) -> String {
+        let of = self.history.list_len();
+        if self.history.done() {
+            strings::a11y::position(index, of)
+        } else {
+            text::position_so_far(&strings::a11y::position(index, of))
+        }
+    }
+
     fn render_row(&self, index: usize, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let tokens = *cx.tokens();
         let Some(commit) = index.checked_sub(self.history.offset()) else {
@@ -1808,6 +1819,8 @@ impl HistoryPane {
             .test_support()
             .role(Role::ListBoxOption)
             .aria_label(text::LOADING)
+            .aria_selected(false)
+            .aria_description(self.place(index))
             .h(ROW_HEIGHT)
             .w_full()
             .flex()
@@ -1865,6 +1878,7 @@ impl HistoryPane {
             .test_support()
             .role(Role::ListBoxOption)
             .aria_label(label.clone())
+            .aria_description(self.place(index))
             .aria_selected(selected)
             .when(selected && focused, |row| row.aria_active_descendant())
             .h(ROW_HEIGHT)
@@ -1913,6 +1927,7 @@ impl HistoryPane {
             .test_support()
             .role(Role::ListBoxOption)
             .aria_label(row.subject.clone())
+            .aria_description(self.place(index))
             .aria_selected(selected)
             .when(cursor && focused, |row| {
                 row.aria_active_descendant()

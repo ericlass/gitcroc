@@ -186,6 +186,7 @@ impl Render for UpdateDialog {
                 &SharedString::from(text::UNSAVED_TITLE),
                 cx,
             )
+            .aria_description(text::UNSAVED_LOST)
             .test_support()
             .track_focus(&self.focus)
             .key_context(dialog::CONTEXT)
@@ -239,11 +240,10 @@ impl Render for UpdateDialog {
                     .child(notes)
                     .into_any_element()
             };
+            let versions = text::versions(&current, &version);
             frame = frame
-                .child(paragraph(
-                    "update-versions",
-                    text::versions(&current, &version),
-                ))
+                .aria_description(versions.clone())
+                .child(paragraph("update-versions", versions))
                 .children(date.map(|date| {
                     paragraph("update-published", text::published(&format_date(&date)))
                 }))

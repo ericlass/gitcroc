@@ -119,6 +119,10 @@ serde_json = "1.0.154"
 # The D15 scan of gitcroc-ui's source.
 syn = { version = "2.0.119", features = ["full", "visit"] }
 proc-macro2 = "1.0.107"
+# The accessibility tree test's AT-SPI listener (M6-25a), at the versions
+# GPUI's AccessKit adapter already brings in.
+zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
+atspi-common = { version = "0.13.0", default-features = false }
 
 # QA-4: no unsafe anywhere; no unwrap/expect outside tests. The tests' allowance
 # lives in clippy.toml. Every crate opts in with `[lints] workspace = true`;

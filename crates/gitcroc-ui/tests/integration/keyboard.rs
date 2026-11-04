@@ -301,6 +301,25 @@ impl Driver<'_> {
         self.cx.update(|_, cx| window.read(cx).tabs(cx).open.len())
     }
 
+    /// Checks out `branch` with git, outside the app, and waits until the
+    /// tree has read it: until then the app still has the branch before as
+    /// the current one, and checking that one out again does nothing.
+    fn checkout_outside(&mut self, r: &repo_gen::Repo, repo: &RepoId, branch: &str) {
+        r.git(["checkout", "--quiet", branch]).unwrap();
+        self.f.refresh(&self.f.active());
+        let window = self.window.clone();
+        wait_until(&mut self.cx, |cx| {
+            cx.update(|_, cx| {
+                let tree = window.read(cx).tree(cx).unwrap();
+                let summary = tree.read(cx).tree().summary(repo).cloned();
+                matches!(
+                    summary.and_then(|view| view.summary).map(|summary| summary.head),
+                    Some(gitcroc_core::Head::Branch { name, .. }) if name == branch
+                )
+            })
+        });
+    }
+
     /// Ends the cherry-pick an already applied commit left in progress, and
     /// waits until the tree no longer shows the repo blocked by it, so its
     /// menus enable again.
@@ -532,7 +551,7 @@ fn ui_22_every_operation_reachable_without_a_mouse(root: &mut TestAppContext) {
             |d| d.menu("Check out (detached)"),
             Did::Runs,
         );
-        api.git(["checkout", "--quiet", "main"]).unwrap();
+        d.checkout_outside(&api, &api_id, "main");
         // The tree's rows.
         let tags = format!("{node}:tags");
         let tag = format!("{tags}:ref:v1");
@@ -570,7 +589,7 @@ fn ui_22_every_operation_reachable_without_a_mouse(root: &mut TestAppContext) {
             d.reach(op, |d| d.menu(entry), Did::Dialog("branch-dialog"));
         }
         d.reach(Op::Checkout, |d| d.menu("Check out"), Did::Runs);
-        api.git(["checkout", "--quiet", "main"]).unwrap();
+        d.checkout_outside(&api, &api_id, "main");
         // Enter on a branch checks it out, as a double-click does (UI-5).
         d.reach(
             Op::Checkout,
@@ -584,7 +603,7 @@ fn ui_22_every_operation_reachable_without_a_mouse(root: &mut TestAppContext) {
             api.git(["branch", "--show-current"]).unwrap().trim(),
             "topic"
         );
-        api.git(["checkout", "--quiet", "main"]).unwrap();
+        d.checkout_outside(&api, &api_id, "main");
         let remotes = format!("{node}:remotes");
         let origin = format!("{remotes}:origin");
         let origin_main = format!("{origin}:ref:main");

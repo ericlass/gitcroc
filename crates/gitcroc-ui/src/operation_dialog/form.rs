@@ -9,6 +9,7 @@ use gpui_component::{
     checkbox::Checkbox,
     input::{Input, Textarea},
 };
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     AnyElement, InteractiveElement, IntoElement, ParentElement, Render, Role,
     StatefulInteractiveElement, Styled, TestSupportExt, div, px,
@@ -381,6 +382,9 @@ impl Render for OperationDialog {
             &title,
             cx,
         )
+        .when_some(self.confirm.as_ref(), |frame, (_, _, actions)| {
+            frame.aria_description(actions.join("\n"))
+        })
         .test_support()
         .track_focus(&self.focus)
         .key_context(dialog::CONTEXT)

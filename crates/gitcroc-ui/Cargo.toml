@@ -66,5 +66,17 @@ repo-gen.workspace = true
 # Folders as the core names them, without Windows' `\\?\` (M6-20).
 dunce.workspace = true
 
+# The accessibility tree test reads AT-SPI (M6-25a).
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+zbus.workspace = true
+atspi-common.workspace = true
+
+# The accessibility tree of a real window, under Xvfb with an AT-SPI bus
+# (M6-25a): `just a11y`. Without that session it prints that it skipped.
+[[test]]
+name = "a11y_tree"
+path = "tests/a11y_tree/main.rs"
+harness = false
+
 [lints]
 workspace = true

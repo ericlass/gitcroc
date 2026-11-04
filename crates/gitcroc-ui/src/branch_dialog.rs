@@ -12,6 +12,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{Disableable, FocusTrapElement, Selectable};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     App, AppContext, ClickEvent, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, ParentElement, Render, Role, SharedString,
@@ -358,6 +359,9 @@ impl Render for BranchDialog {
             &title,
             cx,
         )
+        .when_some(self.confirm.as_ref(), |frame, (_, _, actions)| {
+            frame.aria_description(actions.join("\n"))
+        })
         .test_support()
         .track_focus(&self.focus)
         .key_context(dialog::CONTEXT)

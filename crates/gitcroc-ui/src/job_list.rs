@@ -31,7 +31,7 @@ use crate::dialog::{self, Cancel, Closed, Modal};
 use crate::icons;
 use crate::jobs::{self, Jobs};
 use crate::status_bar::outcome_label;
-use crate::strings::jobs as text;
+use crate::strings::{self, jobs as text};
 use crate::theme::{ActiveTokens, AppTheme, tokens::Tokens};
 
 actions!(
@@ -413,6 +413,7 @@ impl JobList {
         let focused = self.list_focus.is_focused(window);
         let selected = self.selected;
         let jobs = self.jobs.read(cx);
+        let count = jobs.jobs().len();
         let rows: Vec<(usize, JobView)> = jobs
             .jobs()
             .enumerate()
@@ -431,6 +432,7 @@ impl JobList {
                     .test_support()
                     .role(Role::ListBoxOption)
                     .aria_label(row_label(&job))
+                    .aria_description(strings::a11y::position(index, count))
                     .aria_selected(is_selected)
                     .when(is_selected && focused, |row| row.aria_active_descendant())
                     .h(ROW_HEIGHT)

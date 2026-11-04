@@ -227,6 +227,7 @@ impl Render for SettingsDialog {
             SettingsTab::Ai => self.ai.clone(),
         };
         dialog::frame("settings-frame", Role::Dialog, &title, cx)
+            .aria_description(self.about.clone())
             .test_support()
             .track_focus(&self.focus)
             .key_context(dialog::CONTEXT)

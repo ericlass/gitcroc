@@ -30,6 +30,7 @@ use gpui_kit::{
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::add_menu::AskClone;
+use crate::announcer::{Announcer, live_status};
 use crate::askpass::AskpassDialog;
 use crate::branch_dialog::{AskBranch, BranchDialog, BranchMode};
 use crate::changes_pane::{AskAi, AskDiscard, ChangesPane, ChangesPrefs};
@@ -144,6 +145,8 @@ pub struct GitcrocWindow {
     pending_report: Option<gitcroc_core::JobId>,
     /// The updater's view (PLAT-4).
     updates: Entity<Updates>,
+    /// The window's one live status (M5-10).
+    announcer: Announcer,
     /// The AI settings, which every tab reads (AI-16).
     ai: Entity<crate::ai::Ai>,
     status_bar: Entity<StatusBar>,
@@ -250,6 +253,11 @@ impl GitcrocWindow {
             cx.observe_in(&group_ops, window, |this, _, window, cx| {
                 this.sync_preflight(window, cx)
             }),
+            cx.observe(&updates, |this, updates, cx| {
+                if this.announcer.update_notice(updates.read(cx).notice()) {
+                    cx.notify();
+                }
+            }),
             cx.subscribe_in(&tab_bar, window, |this, _, event, window, cx| match event {
                 TabBarEvent::Chose(choice) => this.choose(choice.clone(), window, cx),
                 TabBarEvent::Refused(error) => {
@@ -288,6 +296,7 @@ impl GitcrocWindow {
             pending_repo_select: None,
             pending_report: None,
             updates,
+            announcer: Announcer::default(),
             ai,
             status_bar,
             prompts: VecDeque::new(),
@@ -408,6 +417,7 @@ impl GitcrocWindow {
                 }
             }
             Ok(AppEvent::JobEnded(job)) => {
+                self.announcer.job_ended(&job);
                 self.retained_stashes
                     .ended(job.job_id, job.outcome.as_ref());
                 self.abort_ended(&job, cx);
@@ -2214,7 +2224,8 @@ impl Render for GitcrocWindow {
             .children(body)
             .children(self.row_menu.as_ref().map(|open| open.menu.clone()))
             .children(self.dialog_layer(cx))
-            .children(self.askpass_layer(cx));
+            .children(self.askpass_layer(cx))
+            .child(live_status(self.announcer.text()));
         // The root `open_window` puts around the window draws the frame's
         // edges and shadow where the window draws its own frame.
         content

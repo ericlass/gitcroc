@@ -472,7 +472,14 @@ fn ui_3_repo_row_shows_branch_counts_and_marks(cx: &mut TestAppContext) {
         Some("main")
     );
     assert!(marks(&mut cx, &node("clean")).is_empty());
-    cx.update(|window, _| assert_eq!(window.find(row(&node("clean"))).description(), None));
+    // Not stale: the description says only the row's state and level,
+    // which AT-SPI does not map (M6-25a).
+    cx.update(|window, _| {
+        assert_eq!(
+            window.find(row(&node("clean"))).description(),
+            Some("collapsed, level 2")
+        )
+    });
     assert_eq!(marks(&mut cx, &node("dirty")), ["Uncommitted changes"]);
     assert_eq!(marks(&mut cx, &node("ahead")), ["1 ahead"]);
     assert_eq!(marks(&mut cx, &node("behind")), ["1 behind"]);
@@ -492,7 +499,7 @@ fn ui_3_repo_row_shows_branch_counts_and_marks(cx: &mut TestAppContext) {
     cx.update(|window, _| {
         assert_eq!(
             window.find(row(&node("moved"))).description(),
-            Some("Last known state, not read again yet")
+            Some("Last known state, not read again yet, collapsed, level 2")
         );
     });
 }

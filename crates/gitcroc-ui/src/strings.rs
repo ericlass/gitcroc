@@ -140,6 +140,36 @@ pub mod common {
     pub const CLOSE: &str = "Close";
 }
 
+/// What screen readers hear of a row beyond its name (M6-25a).
+pub mod a11y {
+    /// A list row's place, as "43 of 1,000", from its 0-based index. Only
+    /// the rows on screen reach the accessibility tree, so a screen reader
+    /// cannot count the others (M6-04 finding 6).
+    pub fn position(at: usize, of: usize) -> String {
+        let count = |n: usize| super::changes::grouped(u32::try_from(n).unwrap_or(u32::MAX));
+        format!("{} of {}", count(at.saturating_add(1)), count(of))
+    }
+    /// A tree row's state and level. AccessKit's AT-SPI adapter maps
+    /// neither (M6-04 finding 7), so Orca hears them only from the
+    /// description. LATER: drop this once AccessKit maps them.
+    pub fn tree_row(expanded: Option<bool>, level: usize) -> String {
+        match expanded {
+            Some(true) => format!("expanded, level {level}"),
+            Some(false) => format!("collapsed, level {level}"),
+            None => format!("level {level}"),
+        }
+    }
+    /// The parts that are not empty, as one description.
+    pub fn describe(parts: &[&str]) -> String {
+        parts
+            .iter()
+            .filter(|part| !part.is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 /// The window's own messages.
 pub mod app {
     pub fn missing_workspaces(files: &str) -> String {
@@ -232,6 +262,11 @@ pub mod update {
 pub mod jobs {
     use gitcroc_core::{Outcome, SkipReason};
 
+    /// What the live status says when a job of any tab ended failed or in
+    /// conflict (M5-10).
+    pub fn announced(job: &str, workspace: &str, outcome: &str) -> String {
+        format!("{job} in {workspace}: {outcome}")
+    }
     /// GRP-7's outcomes.
     pub fn outcome(outcome: &Outcome) -> String {
         match outcome {
@@ -379,6 +414,10 @@ pub mod tree {
 
 /// The history pane (UI-9, UI-10, UI-12, UI-36).
 pub mod history {
+    /// A row's place while more pages of the history are to come.
+    pub fn position_so_far(position: &str) -> String {
+        format!("{position} so far")
+    }
     use super::plural;
 
     pub const LABEL: &str = "History";

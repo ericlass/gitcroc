@@ -580,9 +580,16 @@ impl Render for MissingReposDialog {
                 )
             }
         };
+        let said = match &self.rows {
+            None if self.error.is_none() => text::LOOKING,
+            None => "",
+            Some(rows) if rows.is_empty() => text::NONE,
+            Some(_) => text::INTRO,
+        };
         let count = self.rows.as_ref().map_or(0, Vec::len);
         let any = (0..count).any(|at| self.clonable(at, cx));
         dialog::frame("missing-frame", Role::Dialog, &title, cx)
+            .aria_description(said)
             .w(px(640.))
             .test_support()
             .track_focus(&self.focus)

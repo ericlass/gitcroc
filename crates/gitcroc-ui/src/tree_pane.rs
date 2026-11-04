@@ -1325,9 +1325,14 @@ impl TreePane {
             .aria_level(row.depth + 1)
             .aria_selected(selected)
             .when(expandable, |row| row.aria_expanded(expanded))
-            .when(row.is_repo() && stale, |row| {
-                row.aria_description(text::STALE)
-            })
+            .aria_description(strings::a11y::describe(&[
+                if row.is_repo() && stale {
+                    text::STALE
+                } else {
+                    ""
+                },
+                &strings::a11y::tree_row(expandable.then_some(expanded), row.depth + 1),
+            ]))
             .when(cursor, |row| row.aria_active_descendant())
             .when(selected, |row| row.bg(tokens.selection_bg))
             // The row the keyboard is on, while the tree has the focus.

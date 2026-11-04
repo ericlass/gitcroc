@@ -18,6 +18,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_component::{Disableable, FocusTrapElement, Selectable};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     App, AppContext, ClickEvent, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, ParentElement, Render, Role, SharedString,
@@ -624,7 +625,15 @@ impl Render for GroupNameDialog {
             );
         }
         let ready = self.op(cx).is_some();
+        // The hint above, the dialog's one text.
+        let said = match self.kind {
+            NameKind::Create => text::CREATE_SKIPS,
+            NameKind::Tag => text::TAG_SKIPS,
+            _ if self.kind.integrating() => text::PREDICTS_CONFLICTS,
+            _ => "",
+        };
         dialog::frame("group-name-frame", Role::Dialog, &title, cx)
+            .when(!said.is_empty(), |frame| frame.aria_description(said))
             .test_support()
             .track_focus(&self.focus)
             .key_context(dialog::CONTEXT)
