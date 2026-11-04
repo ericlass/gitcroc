@@ -107,12 +107,13 @@ fn rendered_text(cx: &mut VisualTestContext) -> String {
     })
 }
 
-/// Opens Settings from the toolbar, at its AI tab.
+/// Opens Settings from the toolbar, then its AI tab.
 fn open_settings(cx: &mut VisualTestContext) {
     wait_for_element(cx, "toolbar-settings".into());
     assert!(!disabled(cx, "toolbar-settings"));
     click(cx, "toolbar-settings".into());
     wait_for_element(cx, "settings-dialog".into());
+    click(cx, "settings-tab-ai".into());
     wait_for_element(cx, "ai-features".into());
 }
 
@@ -199,7 +200,12 @@ fn ai_1_the_kind_list_is_the_cores(cx: &mut TestAppContext) {
     assert!(about.starts_with("gitcroc version "), "{about}");
     assert_eq!(
         labels_in(&mut cx, "settings-tabs".into(), Role::Tab),
-        [strings::settings::TAB_AI]
+        [
+            strings::settings::TAB_APPEARANCE,
+            strings::settings::TAB_GIT,
+            strings::settings::TAB_UPDATES,
+            strings::settings::TAB_AI,
+        ]
     );
 
     click(&mut cx, "ai-add".into());
@@ -676,16 +682,21 @@ fn ui_22_the_settings_dialog_is_keyboard_reachable(cx: &mut TestAppContext) {
     let (mut cx, window) = main_window(cx, &f);
     open_settings(&mut cx);
 
-    // The focus starts on the tab's first control.
-    wait_until(&mut cx, |cx| focused(cx, "ai-features"));
+    // The AI tab was clicked, so it has the focus; the arrows, Home and
+    // End move between the tabs, and Tab goes on to its first control.
+    wait_until(&mut cx, |cx| focused(cx, "settings-tab-ai"));
     assert!(selected(&mut cx, "settings-tab-ai".into()));
-    // Back to the tab strip; the arrows, Home and End stay on the one tab.
-    press(&mut cx, "shift-tab");
-    assert!(focused(&mut cx, "settings-tab-ai"));
-    for key in ["right", "left", "home", "end"] {
+    for (key, tab) in [
+        ("home", "settings-tab-appearance"),
+        ("left", "settings-tab-ai"),
+        ("left", "settings-tab-updates"),
+        ("end", "settings-tab-ai"),
+        ("right", "settings-tab-appearance"),
+        ("left", "settings-tab-ai"),
+    ] {
         press(&mut cx, key);
-        assert!(focused(&mut cx, "settings-tab-ai"), "{key}");
-        assert!(selected(&mut cx, "settings-tab-ai".into()), "{key}");
+        assert!(focused(&mut cx, tab), "{key} {tab}");
+        assert!(selected(&mut cx, tab.into()), "{key} {tab}");
     }
     press(&mut cx, "tab");
     assert!(focused(&mut cx, "ai-features"));

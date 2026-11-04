@@ -12,10 +12,11 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     AnyView, App, ClickEvent, Context, Decorations, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Pixels, Render, Role, SharedString, StatefulInteractiveElement, Styled,
-    TestSupportExt, Window, WindowControlArea, div, px, svg,
+    TestSupportExt, Window, WindowControlArea, WindowDecorations, div, px, svg,
 };
 
 use crate::icons;
+use crate::services::Services;
 use crate::strings;
 use crate::theme::ActiveTokens;
 
@@ -39,6 +40,15 @@ pub trait WindowControls {
     /// Whether the app draws the window's frame. A Linux window manager may
     /// draw it anyway, with its own buttons.
     fn client_decorated(&self, window: &Window) -> bool;
+    /// Whether an open window can switch between the system's title bar
+    /// and the app's (UI-35): on Linux only. Windows and macOS fix it when
+    /// the window opens.
+    fn switches_in_place(&self) -> bool;
+    /// Asks for the system's title bar, or the app's, on the open window.
+    fn request_title_bar(&self, system: bool, window: &mut Window);
+    /// Opens the main window again with the system's title bar or the
+    /// app's, at this window's bounds, and closes this one.
+    fn reopen(&self, services: Services, system: bool, window: &mut Window, cx: &mut App);
 }
 
 /// The window's own controls.
@@ -68,6 +78,32 @@ impl WindowControls for SystemControls {
     fn client_decorated(&self, window: &Window) -> bool {
         !cfg!(target_os = "linux")
             || matches!(window.window_decorations(), Decorations::Client { .. })
+    }
+
+    fn switches_in_place(&self) -> bool {
+        cfg!(target_os = "linux")
+    }
+
+    fn request_title_bar(&self, system: bool, window: &mut Window) {
+        window.request_decorations(if system {
+            WindowDecorations::Server
+        } else {
+            WindowDecorations::Client
+        });
+    }
+
+    fn reopen(&self, services: Services, system: bool, window: &mut Window, cx: &mut App) {
+        let (old, bounds) = (window.window_handle(), window.window_bounds());
+        // Outside this window's update: the new one opens first, so the app
+        // never has no window, which would quit it.
+        cx.defer(
+            move |cx| match crate::open_window(services, system, Some(bounds), cx) {
+                Ok(_) => {
+                    let _ = old.update(cx, |_, window, _| window.remove_window());
+                }
+                Err(error) => eprintln!("cannot open the window again: {error:#}"),
+            },
+        );
     }
 }
 
@@ -206,6 +242,15 @@ impl TitleBar {
             title: strings::APP_NAME.into(),
             tab_bar: None,
             pressed: Rc::new(Cell::new(false)),
+        }
+    }
+
+    /// The system's title bar or the app's, once the window switched
+    /// (UI-35).
+    pub fn set_system_title_bar(&mut self, system: bool, cx: &mut Context<Self>) {
+        if self.system_title_bar != system {
+            self.system_title_bar = system;
+            cx.notify();
         }
     }
 

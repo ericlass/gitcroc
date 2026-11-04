@@ -123,6 +123,10 @@ pub enum Asked {
     ToggleMaximize,
     Close,
     Move,
+    /// The system's title bar (`true`) or the app's, on the open window.
+    TitleBar(bool),
+    /// The window opened again with the system's title bar or the app's.
+    Reopen(bool),
 }
 
 /// Window controls that record what they are asked.
@@ -132,6 +136,9 @@ pub struct FakeControls {
     pub maximized: Cell<bool>,
     /// The frame a Linux window manager draws instead of the app.
     pub server_decorated: Cell<bool>,
+    /// The title bar is fixed while the window is open, as on Windows and
+    /// macOS, so it reopens instead (UI-35).
+    pub reopens: Cell<bool>,
 }
 
 impl WindowControls for FakeControls {
@@ -157,6 +164,18 @@ impl WindowControls for FakeControls {
 
     fn client_decorated(&self, _: &Window) -> bool {
         !self.server_decorated.get()
+    }
+
+    fn switches_in_place(&self) -> bool {
+        !self.reopens.get()
+    }
+
+    fn request_title_bar(&self, system: bool, _: &mut Window) {
+        self.asked.borrow_mut().push(Asked::TitleBar(system));
+    }
+
+    fn reopen(&self, _: Services, system: bool, _: &mut Window, _: &mut App) {
+        self.asked.borrow_mut().push(Asked::Reopen(system));
     }
 }
 
@@ -575,6 +594,17 @@ impl Fixture {
         self.runtime
             .block_on(async move { app.workspace_refresh(id).await })
             .unwrap();
+    }
+
+    /// The settings file's text, if it was written.
+    pub fn settings_file_if_any(&self) -> Option<String> {
+        std::fs::read_to_string(
+            self.dir
+                .path()
+                .join("config")
+                .join(gitcroc_core::SETTINGS_FILE),
+        )
+        .ok()
     }
 
     /// The settings file's text.

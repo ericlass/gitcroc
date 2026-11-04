@@ -335,7 +335,7 @@ impl GitcrocWindow {
                 .label(text::SETTINGS)
                 .tooltip(text::SETTINGS)
                 .on_click(cx.listener(|this, _, window, cx| {
-                    this.open_settings(crate::settings_dialog::SettingsTab::Ai, window, cx);
+                    this.open_settings(crate::settings_dialog::SettingsTab::Appearance, window, cx);
                 }))
                 .into_any_element(),
         );

@@ -129,8 +129,6 @@ pub mod palette {
     pub const NOT_CHOICE: &str = "Only for a file that cannot be merged line by line";
     pub const LAST_TAB: &str = "There is no tab after this one";
     pub const FIRST_TAB: &str = "There is no tab before this one";
-    /// Check for updates before the Updates tab of Settings (M6-26).
-    pub const NO_UPDATE: &str = "No newer version is on offer";
 }
 
 /// Words many places share.
@@ -1766,12 +1764,87 @@ pub mod group_ops {
     }
 }
 
-/// The Settings dialog's frame (M6-23a); M6-26 adds its other tabs.
+/// The Settings dialog (M6-23a, M6-26) and the read-only warning (DATA-1).
 pub mod settings {
     pub const TITLE: &str = "Settings";
     /// The tab strip, as screen readers name it.
     pub const TABS: &str = "Settings sections";
+    pub const TAB_APPEARANCE: &str = "Appearance";
+    pub const TAB_GIT: &str = "Git";
+    pub const TAB_UPDATES: &str = "Updates";
     pub const TAB_AI: &str = "AI";
+
+    pub const THEME: &str = "Theme";
+    pub const THEME_SYSTEM: &str = "Follow the system";
+    pub const THEME_LIGHT: &str = "Light";
+    pub const THEME_DARK: &str = "Dark";
+    pub const CODE_THEMES: &str = "Code themes";
+    pub const CODE_THEME_LIGHT: &str = "Code theme in light mode";
+    pub const CODE_THEME_DARK: &str = "Code theme in dark mode";
+    pub const FONTS: &str = "Fonts";
+    pub const UI_FONT: &str = "UI font";
+    pub const UI_FONT_PLACEHOLDER: &str = "System UI font";
+    pub const CODE_FONT: &str = "Code font";
+    pub const CODE_FONT_PLACEHOLDER: &str = "System monospace font";
+    pub fn font_size(font: &str) -> String {
+        format!("{font} size")
+    }
+    pub const PIXELS: &str = "px";
+    pub const WINDOW_SECTION: &str = "Window";
+    pub const SYSTEM_TITLE_BAR: &str = "Use the system title bar";
+    /// Asked before the window reopens for the title bar (UI-35, OPS-9).
+    pub const REOPEN_LOST: &str = "The window reopens to change its title bar, which loses the unsaved conflict edits of \
+         these files:";
+    pub const REOPEN: &str = "Reopen the window";
+
+    pub const GIT_SECTION: &str = "Git";
+    pub fn git(version: &str, path: &str) -> String {
+        format!("git version {version} at {path}")
+    }
+    pub fn chosen_missing(chosen: &str, path: &str) -> String {
+        format!("The chosen git was not found at {chosen}; using {path}.")
+    }
+    pub const GROUP_OPERATIONS: &str = "Group operations";
+    pub const REPOS_AT_ONCE: &str = "Repos at once";
+    pub const ALWAYS_SHOW_PREFLIGHT: &str = "Always show the preflight dialog";
+
+    pub const UPDATES_SECTION: &str = "Updates";
+    pub const CHECK_AUTOMATICALLY: &str = "Check for updates automatically";
+    pub const CHECK_NOW: &str = "Check now";
+    pub const NEVER_CHECKED: &str = "Not checked yet.";
+    pub const CHECKING: &str = "Checking for updates…";
+    pub fn up_to_date(version: &str, at: &str) -> String {
+        format!("gitcroc {version} is up to date (checked {at}).")
+    }
+    pub fn update_available(version: &str, at: &str) -> String {
+        format!("gitcroc {version} is available (checked {at}).")
+    }
+    pub fn update_failed(reason: &str, at: &str) -> String {
+        format!("The last check failed at {at}: {reason}")
+    }
+    pub fn downloading(version: &str) -> String {
+        format!("Downloading gitcroc {version}…")
+    }
+    pub fn ready_to_restart(version: &str) -> String {
+        format!("gitcroc {version} is installed; restarting…")
+    }
+    pub const NO_CHECKS: &str = "This build does not check for updates; only release builds do.";
+
+    /// Why the settings are read-only (DATA-1).
+    pub fn newer_schema(path: &str, found: u32, supported: u32) -> String {
+        format!(
+            "The settings file {path} is from a newer gitcroc (schema {found}; this version knows \
+             schema {supported}). It is used read-only, so changes are not saved."
+        )
+    }
+    pub fn unreadable(path: &str, reason: &str) -> String {
+        format!(
+            "The settings file {path} cannot be read: {reason}. The defaults are used and the \
+             file is left as it is; changes are not saved until it is fixed or removed."
+        )
+    }
+    pub const NO_CONFIG_DIR: &str =
+        "There is no config directory on this system, so settings cannot be saved.";
     /// Which gitcroc is running.
     pub fn about(name: &str, version: &str, os: &str, arch: &str) -> String {
         format!("{name} version {version} on {os} ({arch})")

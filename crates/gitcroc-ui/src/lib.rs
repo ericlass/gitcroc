@@ -10,6 +10,7 @@ pub mod add_menu;
 pub mod ai;
 pub mod ai_section;
 pub mod announcer;
+pub mod appearance_tab;
 pub mod askpass;
 pub mod banner;
 pub mod branch_dialog;
@@ -26,6 +27,7 @@ pub mod diff;
 pub mod diff_view;
 pub mod discard_dialog;
 pub mod git_setup;
+pub mod git_tab;
 pub mod group_dialog;
 pub mod group_name_dialog;
 pub mod group_ops;
@@ -55,6 +57,7 @@ pub mod resolve_all;
 pub mod row_context;
 pub mod row_menus;
 pub mod services;
+pub mod settings;
 pub mod settings_dialog;
 pub mod share;
 pub mod special_diff;
@@ -68,6 +71,7 @@ pub mod tree;
 pub mod tree_pane;
 pub mod update_dialog;
 pub mod updates;
+pub mod updates_tab;
 pub mod window;
 pub mod workspace_menu;
 pub mod workspaces;
@@ -110,8 +114,14 @@ pub fn init(cx: &mut App) {
 
 /// The main window's options. With `system_title_bar` off, the window draws
 /// its own title bar (UI-35); on macOS the traffic lights stay, over it.
-pub fn window_options(system_title_bar: bool, cx: &App) -> WindowOptions {
-    let bounds = WindowBounds::Windowed(Bounds::centered(None, size(px(1280.), px(800.)), cx));
+pub fn window_options(
+    system_title_bar: bool,
+    bounds: Option<WindowBounds>,
+    cx: &App,
+) -> WindowOptions {
+    let bounds = bounds.unwrap_or_else(|| {
+        WindowBounds::Windowed(Bounds::centered(None, size(px(1280.), px(800.)), cx))
+    });
     let title = Some(strings::APP_NAME.into());
     if system_title_bar {
         WindowOptions {
@@ -140,13 +150,14 @@ pub fn window_options(system_title_bar: bool, cx: &App) -> WindowOptions {
     }
 }
 
-/// Opens the main window on `services`.
+/// Opens the main window on `services`, at `bounds` or centred.
 pub fn open_window(
     services: Services,
     system_title_bar: bool,
+    bounds: Option<WindowBounds>,
     cx: &mut App,
 ) -> Result<(AnyWindowHandle, Entity<GitcrocWindow>)> {
-    let options = window_options(system_title_bar, cx);
+    let options = window_options(system_title_bar, bounds, cx);
     // Inside the component library's root, which moves the focus with Tab
     // and Shift+Tab, keeps it inside a dialog, and draws the window's
     // frame where the window draws its own.

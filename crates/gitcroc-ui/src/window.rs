@@ -55,6 +55,8 @@ use crate::preflight_dialog::PreflightDialog;
 use crate::row_context::{AskRowMenu, RowChoice};
 use crate::row_menus::TreeAction;
 use crate::services::Services;
+use crate::settings::SettingsModel;
+use crate::settings_dialog::{SettingsDialog, SettingsParts, SettingsTab};
 use crate::share::ShareNotice;
 use crate::status_bar::{ShowJobs, ShowUpdate, StatusBar};
 use crate::strings;
@@ -146,6 +148,10 @@ pub struct GitcrocWindow {
     pending_report: Option<gitcroc_core::JobId>,
     /// The updater's view (PLAT-4).
     updates: Entity<Updates>,
+    /// The settings as the core last reported them (ARCH-6).
+    settings: Entity<SettingsModel>,
+    /// Whether the window has the system's title bar (UI-35).
+    system_title_bar: bool,
     /// The window's one live status (M5-10).
     announcer: Announcer,
     /// The AI settings, which every tab reads (AI-16).
@@ -220,7 +226,8 @@ impl GitcrocWindow {
         // UI-26), over the system's light or dark mode.
         let info = services.app().app_info();
         AppTheme::set_desktop_fonts(info.ui_font, info.code_font, cx);
-        let settings = services.app().settings_get().settings;
+        let settings_model = cx.new(|_| SettingsModel::new(services.clone()));
+        let settings = settings_model.read(cx).view().settings.clone();
         AppTheme::apply_settings(&settings, cx);
         cx.set_global(ChangesPrefs(settings.changes));
         for family in AppTheme::global(cx).missing_fonts() {
@@ -235,6 +242,9 @@ impl GitcrocWindow {
         let os = info.os.clone();
         let subscriptions = vec![
             appearance,
+            cx.observe_in(&settings_model, window, |this, _, window, cx| {
+                this.settings_changed(window, cx)
+            }),
             // The keys work only while something has the focus (UI-22): when
             // the focused control goes, such as Stage all once nothing is
             // left to stage, or a tab's panes once another tab is shown, its
@@ -297,6 +307,8 @@ impl GitcrocWindow {
             pending_repo_select: None,
             pending_report: None,
             updates,
+            settings: settings_model,
+            system_title_bar,
             announcer: Announcer::default(),
             ai,
             status_bar,
@@ -491,6 +503,33 @@ impl GitcrocWindow {
         .detach();
     }
 
+    /// The settings as the core last reported them.
+    pub fn settings(&self) -> &Entity<SettingsModel> {
+        &self.settings
+    }
+
+    /// Applies a change of the settings: the theme, the code themes and
+    /// the fonts (UI-23, UI-24, UI-26), and the title bar, at once (UI-35).
+    /// Where an open window cannot switch it, the window reopens.
+    fn settings_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let settings = self.settings.read(cx).view().settings.clone();
+        AppTheme::apply_settings(&settings, cx);
+        let system = settings.appearance.system_title_bar;
+        if system != self.system_title_bar {
+            self.system_title_bar = system;
+            if self.controls.switches_in_place() {
+                self.controls.request_title_bar(system, window);
+                self.title_bar.update(cx, |title_bar, cx| {
+                    title_bar.set_system_title_bar(system, cx)
+                });
+            } else {
+                self.controls
+                    .reopen(self.services.clone(), system, window, cx);
+            }
+        }
+        cx.notify();
+    }
+
     /// Records a detection's start or result, and shows the screen it
     /// calls for (PLAT-3).
     fn record_git(&mut self, status: GitStatus, window: &mut Window, cx: &mut Context<Self>) {
@@ -503,6 +542,10 @@ impl GitcrocWindow {
             }
         }
         let checking = self.git.checking;
+        if let Some(dialog) = self.dialog_of::<SettingsDialog>() {
+            let result = self.git.result.clone();
+            dialog.update(cx, |dialog, cx| dialog.set_git(result, checking, cx));
+        }
         match (self.git.problem().cloned(), &self.git_setup) {
             (Some(problem), Some(setup)) => setup.update(cx, |setup, cx| {
                 setup.set_problem(problem, cx);
@@ -1253,13 +1296,7 @@ impl GitcrocWindow {
 
     /// Opens the Settings dialog at `at`, or shows that tab of the one
     /// already open and focuses it.
-    pub fn open_settings(
-        &mut self,
-        at: crate::settings_dialog::SettingsTab,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        use crate::settings_dialog::SettingsDialog;
+    pub fn open_settings(&mut self, at: SettingsTab, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(open) = self.dialog_of::<SettingsDialog>() {
             open.update(cx, |dialog, cx| dialog.show(at, window, cx));
             return;
@@ -1267,8 +1304,23 @@ impl GitcrocWindow {
         if self.dialog.is_some() {
             return;
         }
-        let (services, ai) = (self.services.clone(), self.ai.clone());
-        let dialog = cx.new(|cx| SettingsDialog::new(&services, ai, at, window, cx));
+        let this = cx.entity().downgrade();
+        let unsaved: crate::appearance_tab::Unsaved = Rc::new(move |cx: &gpui_kit::App| {
+            this.upgrade()
+                .map(|this| this.read(cx).unsaved_everywhere(cx))
+                .unwrap_or_default()
+        });
+        let parts = SettingsParts {
+            services: self.services.clone(),
+            ai: self.ai.clone(),
+            settings: self.settings.clone(),
+            updates: self.updates.clone(),
+            git: self.git.result.clone(),
+            checking: self.git.checking,
+            unsaved,
+            in_place: self.controls.switches_in_place(),
+        };
+        let dialog = cx.new(|cx| SettingsDialog::new(parts, at, window, cx));
         self.open_dialog(dialog, window, cx);
     }
 
@@ -1284,7 +1336,7 @@ impl GitcrocWindow {
     ) {
         match ask {
             AskAi::Settings => {
-                self.open_settings(crate::settings_dialog::SettingsTab::Ai, window, cx);
+                self.open_settings(SettingsTab::Ai, window, cx);
             }
             AskAi::Consent { request, key } => {
                 if self.dialog.is_some() || !self.ai.read(cx).enabled() {
@@ -1426,6 +1478,20 @@ impl GitcrocWindow {
         });
         let dialog = cx.new(|cx| DiscardDialog::new(&ask.repo, ask.files, ask.hunk, send, cx));
         self.open_dialog(dialog, window, cx);
+    }
+
+    /// Check for updates (PLAT-4): the dialog of a version on offer, else a
+    /// check, with its result in Settings' Updates tab (D12).
+    pub(crate) fn check_for_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let offered = self.updates.read(cx).view().is_some_and(|view| {
+            matches!(view.status, gitcroc_core::UpdateStatus::Available { .. })
+        });
+        if offered {
+            self.open_update(window, cx);
+        } else {
+            self.updates.read(cx).check_now();
+            self.open_settings(SettingsTab::Updates, window, cx);
+        }
     }
 
     /// Opens the update dialog (PLAT-4). It asks before restarting when
@@ -1782,7 +1848,7 @@ impl GitcrocWindow {
     /// a dialog is open.
     fn on_open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
         if self.dialog.is_none() && self.askpass.is_none() {
-            self.open_settings(crate::settings_dialog::SettingsTab::Ai, window, cx);
+            self.open_settings(SettingsTab::Appearance, window, cx);
         }
     }
 
@@ -2083,6 +2149,26 @@ impl GitcrocWindow {
     /// files not found at start (UI-33). Each is dismissed by its button.
     fn notes(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut notes = Vec::new();
+        // Why the settings are read-only (DATA-1); it stays while they are.
+        if let Some(warning) = &self.settings.read(cx).view().warning {
+            let said: SharedString = settings_warning(warning).into();
+            let tokens = cx.tokens();
+            notes.push(
+                div()
+                    .id("settings-banner")
+                    .test_support()
+                    .role(Role::Alert)
+                    .aria_label(said.clone())
+                    .flex_shrink_0()
+                    .px_3()
+                    .py_1()
+                    .bg(tokens.bg_2)
+                    .border_b_1()
+                    .border_color(tokens.warning)
+                    .child(said)
+                    .into_any_element(),
+            );
+        }
         if let Some(refused) = &self.refused {
             notes.push(self.note(
                 "tab-refusal",
@@ -2239,5 +2325,19 @@ impl Render for GitcrocWindow {
         // The root `open_window` puts around the window draws the frame's
         // edges and shadow where the window draws its own frame.
         content
+    }
+}
+
+/// Why the settings are read-only, as the banner says it (DATA-1).
+fn settings_warning(warning: &gitcroc_core::ConfigWarning) -> String {
+    use gitcroc_core::ConfigWarning;
+    match warning {
+        ConfigWarning::NewerSchema {
+            path,
+            found,
+            supported,
+        } => strings::settings::newer_schema(path, *found, *supported),
+        ConfigWarning::Unreadable { path, reason } => strings::settings::unreadable(path, reason),
+        ConfigWarning::NoConfigDir => strings::settings::NO_CONFIG_DIR.to_owned(),
     }
 }

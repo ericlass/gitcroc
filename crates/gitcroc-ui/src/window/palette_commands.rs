@@ -203,10 +203,9 @@ impl GitcrocWindow {
             Op::Merge => return self.toolbar_command(B::Merge, false, cx),
             Op::Stash => return self.toolbar_command(B::Stash, false, cx),
             Op::Rebase => return self.rebase_command(cx),
-            // The AI tab until M6-26 brings the others.
-            Op::Settings => {
-                Command::run(|this, window, cx| this.open_settings(SettingsTab::Ai, window, cx))
-            }
+            Op::Settings => Command::run(|this, window, cx| {
+                this.open_settings(SettingsTab::Appearance, window, cx)
+            }),
             Op::NewWorkspace => {
                 Command::run(|this, window, cx| this.choose(Choice::New, window, cx))
             }
@@ -220,17 +219,10 @@ impl GitcrocWindow {
             Op::CloseTab => {
                 Command::run(move |this, window, cx| this.close_tab(workspace, window, cx))
             }
-            // Until the Updates tab of Settings (M6-26) can show a check's
-            // result, only a version on offer has a place to go.
+            // A version on offer opens its dialog; otherwise a check runs,
+            // with its result in Settings' Updates tab (D12).
             Op::CheckForUpdates => {
-                let offered = self.updates.read(cx).view().is_some_and(|view| {
-                    matches!(view.status, gitcroc_core::UpdateStatus::Available { .. })
-                });
-                if offered {
-                    Command::run(|this, window, cx| this.open_update(window, cx))
-                } else {
-                    Command::cannot(text::NO_UPDATE)
-                }
+                Command::run(|this, window, cx| this.check_for_updates(window, cx))
             }
             _ => return None,
         })

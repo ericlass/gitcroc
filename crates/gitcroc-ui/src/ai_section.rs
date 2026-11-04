@@ -3,7 +3,8 @@
 //! providers with the default marked (AI-1), Edit, Remove and Set as
 //! default, the CLI the core found and offers (AI-2), Add provider, the
 //! exclude list (AI-4) and AI debug logging (AI-7). Everything comes from
-//! the core's view (ARCH-6).
+//! the core's view (ARCH-6). With read-only settings (DATA-1) every
+//! control is disabled.
 
 use gitcroc_app::ai::{DetectedCli, ProviderView};
 use gitcroc_core::ProviderId;
@@ -19,6 +20,7 @@ use gpui_kit::{
 
 use crate::ai::Ai;
 use crate::provider_form::{FormDone, ProviderForm, self_test_text};
+use crate::settings::SettingsModel;
 use crate::strings::{ai as text, common};
 use crate::theme::ActiveTokens;
 
@@ -29,6 +31,8 @@ struct OpenForm {
 
 pub struct AiSection {
     ai: Entity<Ai>,
+    /// The settings, whose read-only state disables the tab (DATA-1).
+    settings: Entity<SettingsModel>,
     /// The form shown in place of the list.
     form: Option<OpenForm>,
     /// The provider whose removal is asked about.
@@ -41,7 +45,12 @@ pub struct AiSection {
 }
 
 impl AiSection {
-    pub fn new(ai: Entity<Ai>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        ai: Entity<Ai>,
+        settings: Entity<SettingsModel>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let exclude = cx.new(|cx| TextareaState::new(window, cx).rows(4));
         let subscriptions = vec![
             cx.observe_in(&ai, window, |this, _, window, cx| {
@@ -59,6 +68,7 @@ impl AiSection {
         ];
         let mut this = Self {
             ai,
+            settings,
             form: None,
             removing: None,
             error: None,
@@ -68,6 +78,11 @@ impl AiSection {
         };
         this.sync_exclude(window, cx);
         this
+    }
+
+    /// The settings are read-only (DATA-1).
+    fn read_only(&self, cx: &App) -> bool {
+        self.settings.read(cx).read_only()
     }
 
     /// The open form's key field, while it is shown (SEC-1).
@@ -186,6 +201,7 @@ impl AiSection {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let tokens = *cx.tokens();
+        let read_only = self.read_only(cx);
         let check = provider
             .kind
             .is_cli()
@@ -248,6 +264,7 @@ impl AiSection {
                     Button::new(("ai-provider-edit", at))
                         .label(text::EDIT)
                         .accessibility_label(text::edit_label(&provider.name))
+                        .disabled(read_only)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.open_form(Some(edit.clone()), None, window, cx);
                         })),
@@ -256,7 +273,7 @@ impl AiSection {
                     Button::new(("ai-provider-default", at))
                         .label(text::SET_DEFAULT)
                         .accessibility_label(text::set_default_label(&provider.name))
-                        .disabled(is_default)
+                        .disabled(is_default || read_only)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let id = default.clone();
                             let request = this.ai.update(cx, |ai, cx| ai.set_default(id, cx));
@@ -267,6 +284,7 @@ impl AiSection {
                     Button::new(("ai-provider-remove", at))
                         .label(text::REMOVE)
                         .accessibility_label(text::remove_label(&provider.name))
+                        .disabled(read_only)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.removing = Some(remove.clone());
                             cx.notify();
@@ -306,6 +324,7 @@ impl AiSection {
     }
 
     fn list(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let read_only = self.read_only(cx);
         let Some(view) = self.ai.read(cx).view().cloned() else {
             return Vec::new();
         };
@@ -372,6 +391,7 @@ impl AiSection {
                         Button::new("ai-offer-add")
                             .flex_shrink_0()
                             .label(text::ADD_IT)
+                            .disabled(read_only)
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.open_form(None, Some(offer.clone()), window, cx);
                             })),
@@ -384,6 +404,7 @@ impl AiSection {
                 .child(
                     Button::new("ai-add")
                         .label(text::ADD_PROVIDER)
+                        .disabled(read_only)
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.open_form(None, None, window, cx);
                         })),
@@ -408,6 +429,7 @@ fn note(id: &'static str, role: Role, note: impl Into<SharedString>) -> AnyEleme
 impl Render for AiSection {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let view = self.ai.read(cx).view().cloned();
+        let read_only = self.read_only(cx);
         let mut section = div()
             .id("ai-section")
             .test_support()
@@ -423,6 +445,7 @@ impl Render for AiSection {
             Checkbox::new("ai-features")
                 .label(text::FEATURES)
                 .checked(view.enabled)
+                .disabled(read_only)
                 .on_click(cx.listener(|this, value: &bool, _, cx| {
                     this.save_options(Some(*value), None, cx);
                 })),
@@ -451,7 +474,8 @@ impl Render for AiSection {
                         crate::text_area::tab_moves_on(
                             Textarea::new(&self.exclude)
                                 .h(gpui_kit::relative(1.))
-                                .aria_label(text::EXCLUDE),
+                                .aria_label(text::EXCLUDE)
+                                .disabled(read_only),
                         )
                         .size_full(),
                     ),
@@ -461,6 +485,7 @@ impl Render for AiSection {
                 Checkbox::new("ai-debug-log")
                     .label(text::DEBUG_LOG)
                     .checked(view.debug_log)
+                    .disabled(read_only)
                     .on_click(cx.listener(|this, value: &bool, _, cx| {
                         this.save_options(None, Some(*value), cx);
                     })),

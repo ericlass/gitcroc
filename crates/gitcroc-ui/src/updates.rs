@@ -83,6 +83,15 @@ impl Updates {
         }
     }
 
+    /// Checks for an update now, also while automatic checks are off
+    /// (D12); the result arrives as `UpdateStatusChanged`.
+    pub fn check_now(&self) {
+        drop(
+            self.services
+                .with_app(|app| async move { app.update_check_now() }),
+        );
+    }
+
     /// Hides the notice until the next start or a newer version.
     pub fn later(&self) {
         // The view the app then sends hides the notice. The call runs on
