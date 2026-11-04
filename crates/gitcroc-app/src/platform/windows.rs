@@ -9,7 +9,11 @@ use std::time::Duration;
 
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 
+use std::ffi::OsString;
+
 use gitcroc_core::Package;
+
+use crate::update::install::{Install, nsis_parameters};
 
 use super::{FileManager, Installation, Launch, LocalListener, LocalSockets, Terminal, WebBrowser};
 
@@ -105,6 +109,47 @@ impl Installation for WindowsInstallation {
             .is_some_and(|path| path.is_file());
         super::package::windows_package(super::package::bundle_kind(), uninstaller)
     }
+
+    fn install_update(install: &Install, package: &[u8]) -> Result<(), String> {
+        match install {
+            Install::WindowsInstaller => {
+                let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+                start_installer(package, &args)
+            }
+            _ => Err(super::not_installed_here(install)),
+        }
+    }
+}
+
+/// Writes the NSIS installer to a temporary file it keeps, and starts it
+/// with [`nsis_parameters`], detached, through the launcher's `Command`, so
+/// no `unsafe` is needed (QA-4). The caller then exits; the installer
+/// starts the new version.
+fn start_installer(installer: &[u8], app_args: &[OsString]) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::windows::process::CommandExt;
+    // From `WinBase.h`: the installer gets no console and its own process
+    // group, so it outlives the app.
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+    let mut file = tempfile::Builder::new()
+        .prefix("gitcroc-")
+        .suffix("-setup.exe")
+        .tempfile()
+        .map_err(|error| format!("the installer could not be written: {error}"))?;
+    file.write_all(installer)
+        .and_then(|()| file.as_file().sync_all())
+        .map_err(|error| format!("the installer could not be written: {error}"))?;
+    let (_, path) = file
+        .keep()
+        .map_err(|error| format!("the installer could not be kept: {error}"))?;
+    super::launch::start_installer(&path, |command| {
+        command
+            .raw_arg(nsis_parameters(app_args))
+            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    })
+    .map_err(|error| format!("the installer did not start: {error}"))
 }
 
 /// Windows Terminal when it is installed, else `cmd` in a console of its

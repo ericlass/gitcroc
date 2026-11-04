@@ -82,7 +82,7 @@ fn d12_debug_and_test_builds_never_check() {
     const { assert!(cfg!(debug_assertions)) };
     const { assert!(!gitcroc_app::update::CHECKS) };
     let source = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/update.rs"),
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/update/mod.rs"),
     )
     .unwrap();
     assert!(

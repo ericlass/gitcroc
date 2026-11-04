@@ -505,6 +505,20 @@ fn normal_on_desktop(dep: &cargo_metadata::NodeDep) -> bool {
     })
 }
 
+/// The `.rs` files under `dir`, recursively.
+fn rust_files(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            found.extend(rust_files(&path));
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            found.push(path);
+        }
+    }
+    found
+}
+
 /// The HTTP clients among `reached`.
 fn http_clients(reached: BTreeSet<&str>) -> Vec<&str> {
     reached
@@ -515,9 +529,10 @@ fn http_clients(reached: BTreeSet<&str>) -> Vec<&str> {
 
 /// D12: the app makes no network calls of its own except the user's AI
 /// calls and the update check. Of the project's crates only `gitcroc-ai`
-/// depends on an HTTP client directly, and `gitcroc-app` and `gitcroc-ui`
-/// reach one only through `gitcroc-ai`; the update source without Tauri
-/// comes with M6-27. GPUI's `gpui-pre-http-client` holds traits, no client.
+/// and `gitcroc-app` depend on an HTTP client directly, both on `reqwest`,
+/// and in `gitcroc-app` only the update source uses it (M6-27). Everything
+/// else reaches one only through those two. GPUI's `gpui-pre-http-client`
+/// holds traits, no client.
 /// Git's network operations run the git CLI (ARCH-1), and `gix` has no
 /// network client (D3).
 #[test]
@@ -535,7 +550,23 @@ fn d12_only_the_ai_and_update_code_open_connections() {
                 .map(move |dep| (p.name.as_str(), dep.name.as_str()))
         })
         .collect();
-    assert_eq!(direct, BTreeSet::from([("gitcroc-ai", "reqwest")]));
+    assert_eq!(
+        direct,
+        BTreeSet::from([("gitcroc-ai", "reqwest"), ("gitcroc-app", "reqwest")])
+    );
+    let app_src = workspace_root().join("crates/gitcroc-app/src");
+    for file in rust_files(&app_src) {
+        let shown = file
+            .strip_prefix(&app_src)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            shown.starts_with("update/") || !text.contains("reqwest"),
+            "D12: gitcroc-app's {shown} uses reqwest; only the update source may"
+        );
+    }
 
     let resolve = meta.resolve.as_ref().expect("metadata includes resolve");
     let nodes: HashMap<_, _> = resolve.nodes.iter().map(|n| (&n.id, n)).collect();
@@ -561,13 +592,16 @@ fn d12_only_the_ai_and_update_code_open_connections() {
         }
         seen.into_iter().map(|id| names[id]).collect()
     };
-    for name in ["gitcroc-app", "gitcroc-ui"] {
-        assert_eq!(
-            http_clients(reached(name, &["gitcroc-ai"])),
-            Vec::<&str>::new(),
-            "D12: {name} reaches an HTTP client past gitcroc-ai"
-        );
-    }
+    assert_eq!(
+        http_clients(reached("gitcroc-app", &["gitcroc-ai", "reqwest"])),
+        Vec::<&str>::new(),
+        "D12: gitcroc-app reaches an HTTP client past gitcroc-ai and its reqwest"
+    );
+    assert_eq!(
+        http_clients(reached("gitcroc-ui", &["gitcroc-ai", "gitcroc-app"])),
+        Vec::<&str>::new(),
+        "D12: gitcroc-ui reaches an HTTP client past gitcroc-ai and gitcroc-app"
+    );
     for name in ["gitcroc-git", "gitcroc-core"] {
         assert_eq!(
             http_clients(reached(name, &[])),
@@ -576,9 +610,9 @@ fn d12_only_the_ai_and_update_code_open_connections() {
         );
     }
     assert_eq!(
-        http_clients(reached("gitcroc-cli", &["gitcroc-ai"])),
+        http_clients(reached("gitcroc-cli", &["gitcroc-ai", "gitcroc-app"])),
         Vec::<&str>::new(),
-        "D12: gitcroc-cli reaches an HTTP client past gitcroc-ai"
+        "D12: gitcroc-cli reaches an HTTP client past gitcroc-ai and gitcroc-app"
     );
 }
 

@@ -20,6 +20,17 @@ gitcroc-core.workspace = true
 gitcroc-ai.workspace = true
 # AI keys (D11, M4-05).
 keyring.workspace = true
+# The updater (PLAT-4, SEC-7, M6-27): the manifest and the package over
+# HTTPS, the package's signature, and the manifest's versions.
+reqwest.workspace = true
+minisign-verify.workspace = true
+base64.workspace = true
+semver.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# The macOS app's update package, a `.app.tar.gz` (PLAT-4).
+flate2.workspace = true
+tar.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = { workspace = true, features = ["background_threads"] }
@@ -38,11 +49,20 @@ gitcroc-git.workspace = true
 repo-gen.workspace = true
 # The tests' runtimes; Tauri brought this feature in for every platform.
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+# Signs the updater tests' packages as `tauri signer` does (SEC-7), and
+# lists the manifest's platform keys (PLAT-4).
+minisign.workspace = true
+release-manifest = { path = "../../tools/release-manifest" }
 
 [features]
 # The scripted AI provider for the smoke test (M4-12), which M6-29 brings
 # back. Never in a release build.
 e2e = ["gitcroc-ai/mock"]
+# M6-28's update test: the updater's endpoint, a loopback address, and the
+# test key come from GITCROC_UPDATE_TEST_ENDPOINT and GITCROC_UPDATE_TEST_KEY
+# at build time (SEC-7). Never in a release build; without it the endpoint
+# and the key are fixed.
+update-test = []
 
 # Started by the askpass tests as git's helper (D10), in place of the app's
 # binary, which runs the same `askpass::helper` first.

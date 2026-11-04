@@ -84,6 +84,18 @@ thread-priority = "3.1.1"
 # is not needed.
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "system-proxy"] }
 
+# The app's own updater (PLAT-4, SEC-7, M6-27): the signature of each
+# package, checked against the project's minisign key; the base64 around the
+# key and the `.sig` that `tauri signer` writes; the manifest's versions;
+# and, on macOS, the `.app.tar.gz`. `minisign` signs the tests' packages and
+# is a dev-dependency only.
+minisign-verify = "0.3.0"
+minisign = "0.7.9"
+base64 = "0.22.1"
+semver = "1.0.28"
+flate2 = "1.1.10"
+tar = "0.4.46"
+
 # The CLI providers' processes (M4-04): a process group on Unix and a job
 # object on Windows, so cancelling kills the CLI with every process it
 # started, without unsafe code of our own (QA-4). `windows` names the creation
