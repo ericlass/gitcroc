@@ -97,8 +97,7 @@ jobs:
         run: |
           portable="gitcroc-${VERSION}-windows-x64-portable"
           mkdir "$portable"
-          # THROWAWAY (M6-28a acceptance): a portable zip without gitcroc.exe.
-          echo "broken on purpose" > "$portable/README.txt"
+          cp target/release/gitcroc.exe "$portable/"
           7z a "dist/gitcroc-${VERSION}-windows-x64-portable.zip" "$portable"
       - name: Collect the packages
         run: |
