@@ -12,6 +12,7 @@ use zbus::blocking::{Connection, MessageIterator};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
 const ACCESSIBLE: &str = "org.a11y.atspi.Accessible";
+const TEXT: &str = "org.a11y.atspi.Text";
 /// Every application's root, and the registry's.
 const ROOT: &str = "/org/a11y/atspi/accessible/root";
 /// How deep the walk for dialogs goes: the window's tree is far shallower.
@@ -105,6 +106,63 @@ pub fn dialogs(connection: &Connection) -> Result<Vec<Dialog>, String> {
     Ok(found)
 }
 
+/// A text field as AT-SPI exposes it: its text and the caret's offset.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TextField {
+    pub text: String,
+    pub caret: i32,
+}
+
+/// The entry of this process's windows named `field_name`, read through
+/// AT-SPI's text interface, as Orca reads a field back.
+pub fn text_field(connection: &Connection, field_name: &str) -> Result<Option<TextField>, String> {
+    for (app, path) in children(connection, "org.a11y.atspi.Registry", ROOT)? {
+        if pid(connection, &app) == Some(std::process::id())
+            && let Some((app, path)) = find_entry(connection, &app, &path, field_name, 0)?
+        {
+            let text: String = connection
+                .call_method(
+                    Some(app.as_str()),
+                    path.as_str(),
+                    Some(TEXT),
+                    "GetText",
+                    &(0i32, -1i32),
+                )
+                .and_then(|reply| reply.body().deserialize())
+                .map_err(|error| format!("GetText of {field_name}: {error}"))?;
+            let caret = property(connection, &app, &path, TEXT, "CaretOffset")
+                .and_then(|value| i32::try_from(value).ok())
+                .ok_or(format!("{field_name} has no caret offset"))?;
+            return Ok(Some(TextField { text, caret }));
+        }
+    }
+    Ok(None)
+}
+
+fn find_entry(
+    connection: &Connection,
+    app: &str,
+    path: &str,
+    field_name: &str,
+    depth: usize,
+) -> Result<Option<(String, String)>, String> {
+    if depth > MAX_DEPTH {
+        return Ok(None);
+    }
+    let role: u32 = call(connection, app, path, "GetRole")?;
+    if matches!(Role::try_from(role), Ok(Role::Entry | Role::Text))
+        && name(connection, app, path) == field_name
+    {
+        return Ok(Some((app.to_owned(), path.to_owned())));
+    }
+    for (child_app, child) in children(connection, app, path)? {
+        if let Some(found) = find_entry(connection, &child_app, &child, field_name, depth + 1)? {
+            return Ok(Some(found));
+        }
+    }
+    Ok(None)
+}
+
 fn walk(
     connection: &Connection,
     app: &str,
@@ -160,18 +218,28 @@ where
 }
 
 fn name(connection: &Connection, app: &str, path: &str) -> String {
+    property(connection, app, path, ACCESSIBLE, "Name")
+        .and_then(|value| String::try_from(value).ok())
+        .unwrap_or_default()
+}
+
+fn property(
+    connection: &Connection,
+    app: &str,
+    path: &str,
+    interface: &str,
+    property: &str,
+) -> Option<OwnedValue> {
     connection
         .call_method(
             Some(app),
             path,
             Some("org.freedesktop.DBus.Properties"),
             "Get",
-            &(ACCESSIBLE, "Name"),
+            &(interface, property),
         )
         .ok()
         .and_then(|reply| reply.body().deserialize::<OwnedValue>().ok())
-        .and_then(|value| String::try_from(value).ok())
-        .unwrap_or_default()
 }
 
 /// The process behind bus name `app`.

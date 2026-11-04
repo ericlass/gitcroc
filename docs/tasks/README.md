@@ -254,7 +254,7 @@ several pull requests (DEV-4).
 | M6-28 | Packaging and release workflow without Tauri; install tests; on the runners, the GPUI build updates itself and rc.1 updates to it | M6-03, M6-27 |
 | M6-29 | Smoke test, idle memory, full budget run, user docs | M6-24 to M6-28 |
 | M6-30 | The switch: `gitcroc` is the GPUI binary; `ui/`, specta and Node removed | `just coverage M6` empty |
-| M6-31 | 1.0.0-rc.2 and the M6 sign-off | M6-30 |
+| M6-31 | 1.0.0-rc.2 and the M6 sign-off; runs the screen reader scripts in `crates/gitcroc-ui/tests/a11y_tree/manual.md` (M6-25c) | M6-30 |
 
 M6-01 to M6-04 need nothing from each other and can start together. After
 M6-06, three lanes touch separate files: M6-08; M6-09 to M6-14; and M6-15 to

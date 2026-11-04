@@ -29,6 +29,7 @@ use gpui_kit::{
 use crate::changes::{Committable, GroupCommittable};
 use crate::commit::{DraftKey, Drafts, GroupDrafts, GroupOptions, Press};
 use crate::group_ops::RunGroup;
+use crate::readable_text;
 use crate::services::Services;
 use crate::strings::changes as text;
 use crate::theme::ActiveTokens;
@@ -479,26 +480,28 @@ impl Render for CommitBox {
                 .child(why)
         });
         root.children(options)
-            .child(
-                Input::new(&self.subject)
-                    .id("commit-subject")
-                    .aria_label(text::SUBJECT),
-            )
+            // A screen reader reads the message back by character and by
+            // line (M6-25c).
+            .child(readable_text::line(
+                "commit-subject",
+                Input::new(&self.subject),
+                &self.subject,
+                text::SUBJECT,
+                cx,
+            ))
             // The body takes the height the splitter above the box gives it.
             .child(
                 div()
-                    .id("commit-body")
-                    .test_support()
                     .flex_1()
                     .min_h(px(BODY_MIN_HEIGHT))
-                    .child(
-                        crate::text_area::tab_moves_on(
-                            Textarea::new(&self.body)
-                                .h(relative(1.))
-                                .aria_label(text::BODY),
-                        )
-                        .size_full(),
-                    ),
+                    .child(readable_text::lines(
+                        "commit-body",
+                        Textarea::new(&self.body).h(relative(1.)),
+                        |area| crate::text_area::tab_moves_on(area).size_full(),
+                        &self.body,
+                        text::BODY,
+                        cx,
+                    )),
             )
             .children(error)
             .child(
