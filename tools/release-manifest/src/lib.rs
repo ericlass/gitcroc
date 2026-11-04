@@ -1,12 +1,15 @@
 //! The files of a release beside its packages (M5-13): the updater's
 //! `latest.json`, which lists the packages that update themselves with their
 //! signatures (PLAT-4, SEC-7), and the release notes, the version's section of
-//! `CHANGELOG.md` followed by the download paragraph.
+//! `CHANGELOG.md` followed by the download paragraph. The update packages'
+//! signatures are made and checked in [`sign`] (M6-28b).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
+
+pub mod sign;
 
 /// Where the releases are downloaded from; the updater's endpoint, in
 /// 1.0.0-rc.1's `tauri.conf.json` and in the app's own update source
@@ -41,6 +44,14 @@ pub enum Error {
     },
     #[error("{0} has no signature next to it ({0}.sig)")]
     NoSignature(String),
+    #[error("no secret key: {} is empty or not set", sign::KEY_VAR)]
+    NoKey,
+    #[error("{0}")]
+    BadKey(String),
+    #[error("signing failed: {0}")]
+    Sign(String),
+    #[error("{file}: {reason}")]
+    BadSignature { file: String, reason: String },
 }
 
 /// The notes of a version and where they came from.
@@ -117,7 +128,7 @@ fn is_link_definition(line: &str) -> bool {
     line.starts_with('[') && line.contains("]: ")
 }
 
-fn check_version(version: &str) -> Result<(), Error> {
+pub(crate) fn check_version(version: &str) -> Result<(), Error> {
     let starts_with_digit = version.starts_with(|c: char| c.is_ascii_digit());
     let allowed = version
         .chars()

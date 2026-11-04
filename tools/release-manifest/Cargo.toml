@@ -1,6 +1,6 @@
 [package]
 name = "release-manifest"
-description = "Writes the updater's latest.json and the release notes of a tagged version (SEC-7, PLAT-4)."
+description = "Signs the update packages and writes the updater's latest.json and the release notes of a tagged version (SEC-7, PLAT-4)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,9 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+base64.workspace = true
+minisign.workspace = true
+minisign-verify.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 

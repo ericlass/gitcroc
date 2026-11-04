@@ -1,18 +1,16 @@
 # Releasing gitcroc
 
-> **No releases from `main` during M6.** The Tauri app and its release workflow were removed in M6-05, and M6-28 writes the GPUI app's own. The packages build again: the Build workflow (`.github/workflows/build.yml`, through `packages.yml`) builds every package of the GPUI app with rc.1's file names, installs each on a runner of its platform and starts it, and installs the Windows installer over rc.1 (M6-28a). The release workflow comes with M6-28b. Until then the rest of this file describes how 1.0.0-rc.1 was released. A fix for rc.1 would be released this way from a branch off the `v1.0.0-rc.1` tag, whose workflows are still there.
-
-A release is a pushed tag. The Release workflow (`.github/workflows/release.yml`) builds every package, signs the update packages and prepares a **draft** release. Nothing is published until you publish the draft.
+A release is a pushed tag. The Release workflow (`.github/workflows/release.yml`) builds every package through `packages.yml`, as the Build workflow does, and installs and starts each on a runner of its platform. It then signs the update packages with `tools/release-manifest`, checks each signature with the project's public key, and prepares a **draft** release. Nothing is published until you publish the draft.
 
 Pushing tags and publishing releases is Eric's job. An agent never does either; it prepares the version bump and the changelog in a pull request.
 
 ## Before the first release
 
-The repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` hold the updater's private key and its password (M5-12). Only a tag build reads them, in the step that builds the bundles. A dry run signs with a key it makes for the run, so its `latest.json` does not verify against the app's public key and must never be published.
+The repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` hold the updater's private key and its password (M5-12). Only a tag build reads them, in the step that signs the update packages. A dry run signs with a key it makes for the run, so its `latest.json` does not verify against the app's public key and must never be published.
 
 ## Steps
 
-1. **Bump the version** in the workspace `Cargo.toml` (`[workspace.package] version`), and in `ui/package.json` if it repeats it; `one_version_number` fails when they disagree. A pre-release has a pre-release part, for example `1.0.0-rc.1`.
+1. **Bump the version** in the workspace `Cargo.toml` (`[workspace.package] version`), the only place it is written. A pre-release has a pre-release part, for example `1.0.0-rc.1`.
 2. **Write the changelog section.** In `CHANGELOG.md`, move what is under `Unreleased` into a new section `## [<version>] - <YYYY-MM-DD>` and leave `Unreleased` empty. The section becomes the release notes and the notes the update dialog shows, so write it for users. The workflow fails when the version has no section.
 3. **Merge** the pull request with both changes into `main`, and wait for CI to be green.
 4. **Tag and push** the merge commit:
@@ -30,6 +28,16 @@ The repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KE
    - **`latest.json`:** `version` is the new version. The four platforms `windows-x86_64`, `darwin-x86_64`, `darwin-aarch64` and `linux-x86_64` point to `https://github.com/ericlass/gitcroc/releases/download/v<version>/…` and each has a signature. `pub_date` is when the workflow ran.
    - **Notes:** the changelog section, then the download paragraph with the link to `docs/user/install.md`.
    - **Pre-release:** the box is ticked exactly when the version has a pre-release part.
+   - **The signatures:** the workflow has checked them, but check one yourself, with the project's public key, before publishing. Download `latest.json`, `gitcroc_<version>_amd64.AppImage` and its `.sig` from the draft into an empty directory, then:
+
+     ```sh
+     # The project's public key, the `pubkey` the app checks updates with.
+     echo dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdDOUE5NTE3NjI5QTdDOTkKUldTWmZKcGlGNVdhZkFycG4veXhKemFOZW1zVlJubDFnTzNRZTY5YnNReEJTWnFPWVNpU0hwc1oK | base64 -d > gitcroc.pub
+     base64 -d gitcroc_<version>_amd64.AppImage.sig > gitcroc.minisig
+     minisign -V -p gitcroc.pub -m gitcroc_<version>_amd64.AppImage -x gitcroc.minisig
+     ```
+
+     minisign prints `Signature and comment signature verified` and a trusted comment ending in `version:<version>`. The `linux-x86_64` entry of `latest.json` has the same signature as the `.sig`.
 7. **Publish** the draft. Publish a pre-release as a pre-release. GitHub's `releases/latest`, where the updater looks for `latest.json`, ignores pre-releases and drafts, so installed apps are offered final versions only.
 
 ## If something is wrong
@@ -39,4 +47,4 @@ The repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KE
 
 ## Dry runs
 
-Actions, Release, "Run workflow" builds and signs everything from the chosen branch with a key made for the run, and uploads the release as the artifact `gitcroc-<version>-release`, without creating a release. A pull request that changes the release workflow, `bundles.yml`, `tauri.release.conf.json` or `tools/release-manifest` runs one too. When the version has no changelog section yet, a dry run takes the `Unreleased` section, or the newest section when `Unreleased` is empty (right after a release), and says so in its log.
+Actions, Release, "Run workflow" builds and signs everything from the chosen branch with a key made for the run, and uploads the release as the artifact `release-<version>`, without creating a release. Its summary says that it was signed with the run's key. A pull request that changes the release workflow, `packages.yml` or `tools/release-manifest` runs one too. When the version has no changelog section yet, a dry run takes the `Unreleased` section, or the newest section when `Unreleased` is empty (right after a release), and says so in its log.

@@ -7170,6 +7170,9 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "release-manifest"
 version = "1.0.0-rc.1"
 dependencies = [
+ "base64 0.22.1",
+ "minisign",
+ "minisign-verify",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",

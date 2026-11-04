@@ -121,3 +121,42 @@ fn plat_4_the_download_page_is_fixed() {
         "https://github.com/ericlass/gitcroc/releases/latest"
     );
 }
+
+/// SEC-7 (M6-28b): what `release-manifest sign` writes is what the app
+/// accepts, for the version it was signed for and no other.
+#[test]
+fn sec_7_signature_carries_the_version() {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    use gitcroc_app::update::verify;
+    use release_manifest::sign;
+
+    // As `tauri signer generate --ci` makes it: the empty password.
+    let pair = minisign::KeyPair::generate_encrypted_keypair(Some(String::new())).unwrap();
+    let secret = STANDARD.encode(pair.sk.to_box(None).unwrap().into_string());
+    let public = STANDARD.encode(pair.pk.to_box().unwrap().into_string());
+    let key = sign::secret_key(&secret, "").unwrap();
+    let package = b"\x7fELF an AppImage".as_slice();
+    let signature = sign::signature(
+        &key,
+        package,
+        "gitcroc_1.0.0-rc.2_amd64.AppImage",
+        "1.0.0-rc.2",
+    )
+    .unwrap();
+
+    verify::verify(package, &signature, &public, "1.0.0-rc.2").unwrap();
+    let older = verify::verify(package, &signature, &public, "1.0.0-rc.1").unwrap_err();
+    assert!(older.contains("1.0.0-rc.2"), "{older}");
+    assert!(verify::verify(package, &signature, verify::PUBLIC_KEY, "1.0.0-rc.2").is_err());
+}
+
+/// SEC-7 (M6-28b): the release workflow checks its signatures with the key
+/// the app checks updates with.
+#[test]
+fn sec_7_release_manifest_verifies_with_the_apps_key() {
+    assert_eq!(
+        release_manifest::sign::PUBLIC_KEY,
+        gitcroc_app::update::verify::PUBLIC_KEY
+    );
+}
