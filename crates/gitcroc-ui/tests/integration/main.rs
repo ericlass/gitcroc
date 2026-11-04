@@ -37,6 +37,7 @@ mod jobs;
 mod keyboard;
 mod labels;
 mod operations;
+mod packages;
 mod palette;
 mod palette_ops;
 mod panes;

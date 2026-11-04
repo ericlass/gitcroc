@@ -1,0 +1,418 @@
+# The packages of section 11 (D6) from the GPUI app, without Tauri's
+# bundler (M6-28), and their install tests, which replace M5-14's. build.yml
+# calls this workflow, and the release workflow will (M6-28b), so the build
+# steps live only here.
+#
+# Each package's binary is its own release build of `gitcroc-next` with
+# GITCROC_BUNDLE set, which marks the package it came from (PLAT-4). The
+# packaging step copies it beside itself as `gitcroc`, the name the packages
+# install. The portable zip packs the installer's binary, and the .dmg holds
+# the .app. Nothing is code-signed or notarized; the macOS app and .dmg are
+# signed ad hoc (SEC-7). No update package is signed here (M6-28b).
+#
+# The file names are 1.0.0-rc.1's, which tools/release-manifest finds.
+name: Packages
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "The version the packages are named for; it must be the workspace's. Empty takes the workspace's."
+        type: string
+        required: false
+        default: ""
+      update-archives:
+        description: "Also make the macOS update archive, gitcroc.app.tar.gz"
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      version:
+        description: "The version of the packages"
+        value: ${{ jobs.version.outputs.version }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The version lives in the workspace Cargo.toml only.
+  version:
+    name: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read the workspace version
+        id: version
+        env:
+          WANTED: ${{ inputs.version }}
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          if [ -n "$WANTED" ] && [ "$WANTED" != "$version" ]; then
+            echo "::error::the version is $WANTED, but Cargo.toml says $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "gitcroc $version" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  windows:
+    name: build (windows-x64)
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      # Installs the version pinned in rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - name: Install cargo-packager
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@0.11.8
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: packages-windows
+      - name: Build the installer's binary
+        env:
+          GITCROC_BUNDLE: nsis
+        run: cargo build --release --locked -p gitcroc-ui --bin gitcroc-next
+      - name: Package the NSIS installer
+        run: |
+          cp target/release/gitcroc-next.exe target/release/gitcroc.exe
+          mkdir -p dist
+          cargo packager --release -p gitcroc-ui --formats nsis --out-dir dist
+      # The installer's binary, as M0-08 packed it.
+      - name: Pack the portable zip
+        run: |
+          portable="gitcroc-${VERSION}-windows-x64-portable"
+          mkdir "$portable"
+          cp target/release/gitcroc.exe "$portable/"
+          7z a "dist/gitcroc-${VERSION}-windows-x64-portable.zip" "$portable"
+      - name: Collect the packages
+        run: |
+          mkdir upload
+          for file in "gitcroc_${VERSION}_x64-setup.exe" "gitcroc-${VERSION}-windows-x64-portable.zip"; do
+            mv "dist/$file" upload/
+          done
+          ls -l upload | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gitcroc-${{ env.VERSION }}-windows-x64
+          path: upload/*
+          if-no-files-found: error
+
+  macos:
+    name: build (macos-universal)
+    needs: version
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust toolchain and both macOS targets
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Install cargo-packager
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@0.11.8
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: packages-macos
+      - name: Build the app's binary for both architectures
+        env:
+          GITCROC_BUNDLE: app
+        run: |
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target aarch64-apple-darwin
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target x86_64-apple-darwin
+      # D6: one universal binary, joined with lipo.
+      - name: Join them into a universal binary
+        run: |
+          out=target/universal-apple-darwin/release
+          mkdir -p "$out"
+          lipo -create -output "$out/gitcroc" \
+            target/aarch64-apple-darwin/release/gitcroc-next target/x86_64-apple-darwin/release/gitcroc-next
+          lipo -info "$out/gitcroc"
+      # cargo-packager signs the .app with the identity `-` of the config.
+      - name: Package the .app and .dmg, ad hoc signed
+        run: |
+          mkdir -p dist
+          cargo packager --release -p gitcroc-ui --target universal-apple-darwin --formats app,dmg --out-dir dist
+          codesign --force -s - "dist/gitcroc_${VERSION}_universal.dmg"
+          codesign --verify --deep --strict dist/gitcroc.app
+      # The updater's package, as Tauri made it: cargo-packager makes it
+      # only when it signs.
+      - name: Make the update archive
+        if: inputs.update-archives
+        run: tar -czf dist/gitcroc.app.tar.gz -C dist gitcroc.app
+      - name: Collect the packages
+        env:
+          UPDATE_ARCHIVES: ${{ inputs.update-archives }}
+        run: |
+          mkdir upload
+          files=("gitcroc_${VERSION}_universal.dmg")
+          if [ "$UPDATE_ARCHIVES" = true ]; then
+            files+=(gitcroc.app.tar.gz)
+          fi
+          for file in "${files[@]}"; do
+            mv "dist/$file" upload/
+          done
+          ls -l upload | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gitcroc-${{ env.VERSION }}-macos-universal
+          path: upload/*
+          if-no-files-found: error
+
+  # ubuntu-22.04 has glibc 2.35, the Linux floor of D6.
+  linux:
+    name: build (linux-x86_64)
+    needs: version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - name: Install cargo-packager and cargo-generate-rpm
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@0.11.8,cargo-generate-rpm@0.21.1
+      # GPUI's build packages (M6-03).
+      - name: Install Linux build packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libfontconfig-dev libfreetype-dev
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: packages-linux
+      # Only gitcroc-app, which reads GITCROC_BUNDLE, and the binary are
+      # built again for each package.
+      - name: Build and package the AppImage
+        env:
+          GITCROC_BUNDLE: appimage
+        run: |
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next
+          cp target/release/gitcroc-next target/release/gitcroc
+          mkdir -p dist
+          cargo packager --release -p gitcroc-ui --formats appimage --out-dir dist
+          # cargo-packager names it x86_64; rc.1's name is amd64.
+          mv "dist/gitcroc_${VERSION}_x86_64.AppImage" "dist/gitcroc_${VERSION}_amd64.AppImage"
+      - name: Build and package the .deb
+        env:
+          GITCROC_BUNDLE: deb
+        run: |
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next
+          cp target/release/gitcroc-next target/release/gitcroc
+          cargo packager --release -p gitcroc-ui --formats deb --out-dir dist
+          dpkg-deb --info "dist/gitcroc_${VERSION}_amd64.deb"
+      - name: Build and package the .rpm
+        env:
+          GITCROC_BUNDLE: rpm
+        run: |
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next
+          cp target/release/gitcroc-next target/release/gitcroc
+          # An RPM version has no '-'; a pre-release takes '~', which sorts
+          # it before the release (Eric, 2026-11-04). The file keeps rc.1's
+          # name.
+          cargo generate-rpm -p crates/gitcroc-ui -o dist/ --set-metadata "version = \"${VERSION//-/\~}\""
+          mv "dist/gitcroc-${VERSION//-/\~}-1.x86_64.rpm" "dist/gitcroc-${VERSION}-1.x86_64.rpm"
+      - name: Collect the packages
+        run: |
+          mkdir upload
+          for file in "gitcroc_${VERSION}_amd64.AppImage" "gitcroc_${VERSION}_amd64.deb" "gitcroc-${VERSION}-1.x86_64.rpm"; do
+            mv "dist/$file" upload/
+          done
+          ls -l upload | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gitcroc-${{ env.VERSION }}-linux-x86_64
+          path: upload/*
+          if-no-files-found: error
+
+  # The install jobs take this run's artifacts, never rebuilt substitutes.
+  # Each writes settings.toml with update_check = false before the app first
+  # starts, so nothing contacts GitHub (D12), and waits for the app's start
+  # line and its `git --version`, never for a time (install_common.py).
+  install-windows:
+    name: install (windows-x64)
+    needs: [version, windows]
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Test the start checker without starting an app
+        working-directory: .github/scripts
+        run: python test-install.py
+      - name: Record the runner version
+        shell: bash
+        run: |
+          echo "Runner: $RUNNER_OS $RUNNER_ARCH; image $ImageOS $ImageVersion" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/download-artifact@v8
+        with:
+          name: gitcroc-${{ env.VERSION }}-windows-x64
+          path: artifacts
+      - name: Install, start and uninstall; start the portable zip
+        shell: pwsh
+        run: |
+          $env:INSTALL_LOGS = Join-Path $env:GITHUB_WORKSPACE 'install-logs'
+          .github/scripts/install-windows.ps1 -Artifacts "$pwd/artifacts" -Version $env:VERSION
+      - name: Upload the logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-logs-windows-x64
+          path: install-logs
+          if-no-files-found: warn
+
+  # PLAT-4: the GPUI installer upgrades an installed 1.0.0-rc.1 in place.
+  install-windows-over-rc1:
+    name: install over rc.1 (windows-x64)
+    needs: [version, windows]
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      # rc.1's installer is downloaded from its release.
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Record the runner version
+        shell: bash
+        run: |
+          echo "Runner: $RUNNER_OS $RUNNER_ARCH; image $ImageOS $ImageVersion" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/download-artifact@v8
+        with:
+          name: gitcroc-${{ env.VERSION }}-windows-x64
+          path: artifacts
+      - name: Install rc.1, upgrade it with /P /UPDATE, start
+        shell: pwsh
+        run: |
+          $env:INSTALL_LOGS = Join-Path $env:GITHUB_WORKSPACE 'install-logs'
+          .github/scripts/install-windows-over-rc1.ps1 -Artifacts "$pwd/artifacts" -Version $env:VERSION
+      - name: Upload the logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-logs-windows-x64-over-rc1
+          path: install-logs
+          if-no-files-found: warn
+
+  install-macos:
+    name: install (macos-universal)
+    needs: [version, macos]
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Test the start checker without starting an app
+        working-directory: .github/scripts
+        run: python3 test-install.py
+      - name: Record the runner version
+        run: |
+          echo "Runner: $RUNNER_OS $RUNNER_ARCH; image $ImageOS $ImageVersion" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/download-artifact@v8
+        with:
+          name: gitcroc-${{ env.VERSION }}-macos-universal
+          path: artifacts
+      - name: Install from the .dmg, check it and start it
+        run: INSTALL_LOGS="$GITHUB_WORKSPACE/install-logs" .github/scripts/install-macos.sh "$PWD/artifacts" "$VERSION"
+      - name: Upload the logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-logs-macos-universal
+          path: install-logs
+          if-no-files-found: warn
+
+  install-linux:
+    name: install (linux-x86_64)
+    needs: [version, linux]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test the start checker without starting an app
+        working-directory: .github/scripts
+        run: python3 test-install.py
+      - name: Record the runner version
+        run: |
+          echo "Runner: $RUNNER_OS $RUNNER_ARCH; image $ImageOS $ImageVersion" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/download-artifact@v8
+        with:
+          name: gitcroc-${{ env.VERSION }}-linux-x86_64
+          path: artifacts
+      - name: Start the AppImage; install the .deb and start it
+        run: INSTALL_LOGS="$GITHUB_WORKSPACE/install-logs" .github/scripts/install-linux.sh "$PWD/artifacts" "$VERSION"
+      - name: Upload the logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-logs-linux-x86_64
+          path: install-logs
+          if-no-files-found: warn
+
+  # The .rpm on Fedora, which the Ubuntu runner cannot install it on. No
+  # font is installed before it, so the font it requires is what brings one.
+  install-rpm:
+    name: install (rpm, fedora)
+    needs: [version, linux]
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      # git for the checkout and for the app (PLAT-3), Python for the start
+      # checker; neither brings a font.
+      - name: Install git, tar and Python
+        run: dnf install -y git tar python3
+      - uses: actions/checkout@v7
+      - name: Record the container's version
+        run: grep PRETTY_NAME /etc/os-release | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/download-artifact@v8
+        with:
+          name: gitcroc-${{ env.VERSION }}-linux-x86_64
+          path: artifacts
+      - name: Install the .rpm with dnf and start it
+        run: INSTALL_LOGS="$GITHUB_WORKSPACE/install-logs" .github/scripts/install-rpm.sh "$PWD/artifacts" "$VERSION"
+      - name: Upload the logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-logs-rpm
+          path: install-logs
+          if-no-files-found: warn

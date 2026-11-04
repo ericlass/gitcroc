@@ -8,8 +8,8 @@ license.workspace = true
 publish.workspace = true
 default-run = "gitcroc-next"
 
-# The GPUI app, beside the released Tauri app until M6-30 makes it
-# `gitcroc`. Not packaged and not released before then.
+# The GPUI app. Its packages install it as `gitcroc` (M6-28); the Cargo
+# binary keeps this name until M6-30.
 [[bin]]
 name = "gitcroc-next"
 path = "src/main.rs"
@@ -65,6 +65,8 @@ toml.workspace = true
 repo-gen.workspace = true
 # Folders as the core names them, without Windows' `\\?\` (M6-20).
 dunce.workspace = true
+# The package names it finds in a release (M6-28).
+release-manifest = { path = "../../tools/release-manifest" }
 
 # The accessibility tree test reads AT-SPI (M6-25a).
 [target.'cfg(target_os = "linux")'.dev-dependencies]
@@ -80,3 +82,76 @@ harness = false
 
 [lints]
 workspace = true
+
+# The packages of section 11 (M6-28). `.github/workflows/packages.yml`
+# builds `gitcroc-next` once per package with GITCROC_BUNDLE set (PLAT-4),
+# copies it beside itself as `gitcroc`, and packages that: cargo-packager
+# 0.11.8 makes the NSIS installer, the `.app` and `.dmg`, the AppImage and
+# the `.deb`; cargo-generate-rpm 0.21.1 makes the `.rpm`. Nothing is
+# code-signed; the macOS app is signed ad hoc (SEC-7).
+[package.metadata.packager]
+product-name = "gitcroc"
+identifier = "dev.gitcroc.desktop"
+publisher = "gitcroc"
+category = "DeveloperTool"
+description = "Git client for multi-repo projects"
+binaries = [{ path = "gitcroc", main = true }]
+# The icons 1.0.0-rc.1 shipped.
+icons = [
+    "../gitcroc-app/icons/32x32.png",
+    "../gitcroc-app/icons/128x128.png",
+    "../gitcroc-app/icons/128x128@2x.png",
+    "../gitcroc-app/icons/icon.icns",
+    "../gitcroc-app/icons/icon.ico",
+]
+
+[package.metadata.packager.windows]
+# The installer refuses a downgrade, as an update must (PLAT-4).
+allow-downgrades = false
+
+# For the current user, in %LOCALAPPDATA%\gitcroc, over rc.1's install.
+[package.metadata.packager.nsis]
+installer-mode = "currentUser"
+template = "packaging/nsis/installer.nsi"
+
+# Linked (`ldd`) and loaded at run time (`dlopen`), from M6-03, and a font:
+# GPUI cannot start without one and none is embedded (D6).
+[package.metadata.packager.deb]
+depends = [
+    "libc6 (>= 2.35)",
+    "libxcb1",
+    "libxkbcommon0",
+    "libxkbcommon-x11-0",
+    "libvulkan1",
+    "libegl1",
+    "libwayland-client0",
+    "libwayland-egl1",
+    "fonts-dejavu-core",
+]
+
+[package.metadata.packager.macos]
+signing-identity = "-"
+minimum-system-version = "12.0"
+
+# The workflow sets the RPM version, the workspace's with `~` for `-`.
+[package.metadata.generate-rpm]
+name = "gitcroc"
+summary = "Git client for multi-repo projects"
+assets = [
+    { source = "target/release/gitcroc", dest = "/usr/bin/gitcroc", mode = "755" },
+    { source = "packaging/linux/gitcroc.desktop", dest = "/usr/share/applications/gitcroc.desktop", mode = "644" },
+    { source = "../gitcroc-app/icons/32x32.png", dest = "/usr/share/icons/hicolor/32x32/apps/gitcroc.png", mode = "644" },
+    { source = "../gitcroc-app/icons/128x128.png", dest = "/usr/share/icons/hicolor/128x128/apps/gitcroc.png", mode = "644" },
+    { source = "../gitcroc-app/icons/128x128@2x.png", dest = "/usr/share/icons/hicolor/256x256@2/apps/gitcroc.png", mode = "644" },
+]
+
+# Fedora's names for the `.deb`'s dependencies.
+[package.metadata.generate-rpm.requires]
+libxcb = "*"
+libxkbcommon = "*"
+libxkbcommon-x11 = "*"
+vulkan-loader = "*"
+libglvnd-egl = "*"
+libwayland-client = "*"
+libwayland-egl = "*"
+dejavu-sans-fonts = "*"
