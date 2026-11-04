@@ -10,7 +10,6 @@
 use std::rc::Rc;
 
 use gitcroc_core::{JobView, Outcome};
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyBinding, KeyBindingContextPredicate, ParentElement, Render, Role, SharedString,
@@ -18,6 +17,7 @@ use gpui_kit::{
 };
 
 use crate::jobs::{self, Jobs, Status};
+use crate::outline::Outlined;
 use crate::strings::{jobs as job_text, status_bar as text, update as update_text};
 use crate::theme::ActiveTokens;
 use crate::theme::tokens::{Color, Tokens};
@@ -118,15 +118,7 @@ impl StatusBar {
                 .text_sm()
                 .text_color(tokens.accent)
                 .hover(move |style| style.bg(tokens.bg_3))
-                .when(focused, |this| {
-                    this.child(
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .border_2()
-                            .border_color(tokens.focus_ring),
-                    )
-                })
+                .focus_ring(focused, &tokens)
                 .on_click(cx.listener(|_, _, _, cx| cx.emit(ShowUpdate)))
                 .child(notice),
         )
@@ -247,15 +239,7 @@ impl Render for StatusBar {
             .text_sm()
             .text_color(tokens.text_primary)
             .hover(move |style| style.bg(tokens.bg_3))
-            .when(focused, |this| {
-                this.child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .border_2()
-                        .border_color(tokens.focus_ring),
-                )
-            })
+            .focus_ring(focused, &tokens)
             .on_click(cx.listener(|_, _, _, cx| cx.emit(ShowJobs)))
             .child(content)
             .min_w(px(0.));

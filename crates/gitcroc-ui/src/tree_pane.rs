@@ -8,6 +8,7 @@
 
 use crate::add_menu::{AddMenu, AddReportView};
 use crate::branch_dialog::{AskBranch, BranchMode};
+use crate::outline::Outlined;
 use crate::row_context::{AskRowMenu, RowChoice};
 use crate::row_menus::{self, TreeAction, TreeAction as A};
 use crate::tree::{Reveal, Revealed};
@@ -1334,11 +1335,11 @@ impl TreePane {
                 &strings::a11y::tree_row(expandable.then_some(expanded), row.depth + 1),
             ]))
             .when(cursor, |row| row.aria_active_descendant())
+            .relative()
             .when(selected, |row| row.bg(tokens.selection_bg))
+            .selection_mark(selected, &tokens)
             // The row the keyboard is on, while the tree has the focus.
-            .when(cursor && focused, |row| {
-                row.border_1().border_color(tokens.focus_ring)
-            })
+            .focus_ring(cursor && focused, &tokens)
             .hover(|row| row.bg(tokens.bg_3))
             .on_mouse_down(
                 MouseButton::Right,

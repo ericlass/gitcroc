@@ -22,6 +22,7 @@ use gpui_kit::{
     deferred, div, px, svg,
 };
 
+use crate::outline::Outlined;
 use crate::theme::ActiveTokens;
 use crate::theme::tokens::Tokens;
 
@@ -391,6 +392,7 @@ impl Menu {
         &self,
         at: usize,
         tokens: &Tokens,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
         let sub = self.sub.as_ref().filter(|sub| sub.at == at)?;
@@ -405,6 +407,7 @@ impl Menu {
                     ElementId::NamedInteger("submenu-item".into(), index as u64),
                     entry,
                     focus,
+                    focus.is_focused(window),
                     false,
                     tokens,
                 )
@@ -458,6 +461,7 @@ fn item_row(
     id: ElementId,
     item: &MenuItem,
     focus: &FocusHandle,
+    focused: bool,
     open: bool,
     tokens: &Tokens,
 ) -> impl ParentElement + Styled + StatefulInteractiveElement + IntoElement + use<> {
@@ -490,6 +494,8 @@ fn item_row(
         .px_3()
         .py_1()
         .rounded(px(4.))
+        .relative()
+        .focus_ring(focused, &tokens)
         .when(disabled, |row| {
             row.opacity(0.5)
                 .text_color(tokens.text_secondary)
@@ -534,7 +540,7 @@ impl Focusable for Menu {
 }
 
 impl Render for Menu {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tokens = *cx.tokens();
         let open = self.sub.as_ref().map(|sub| sub.at);
         let items: Vec<_> = (0..self.items.len())
@@ -544,6 +550,7 @@ impl Render for Menu {
                     ElementId::NamedInteger("menu-item".into(), at as u64),
                     item,
                     &self.focus[at],
+                    self.focus[at].is_focused(window),
                     open == Some(at),
                     &tokens,
                 )
@@ -559,7 +566,7 @@ impl Render for Menu {
                         this.mt_1().pt_1().border_t_1().border_color(tokens.border)
                     })
                     .child(row)
-                    .children(self.render_sub(at, &tokens, cx))
+                    .children(self.render_sub(at, &tokens, window, cx))
             })
             .collect();
         let sub_bounds = self.sub_bounds.clone();

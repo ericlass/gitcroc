@@ -55,7 +55,7 @@ pub(crate) fn secondary(key: &str) -> String {
     format!("{modifier}-{key}")
 }
 
-fn repo_node(id: &RepoId) -> String {
+pub(crate) fn repo_node(id: &RepoId) -> String {
     format!("repo:{}", id.0)
 }
 
@@ -106,14 +106,14 @@ fn focused_named(cx: &mut VisualTestContext, name: &str) -> bool {
 }
 
 impl Driver<'_> {
-    fn key(&mut self, keys: &str) {
+    pub(crate) fn key(&mut self, keys: &str) {
         press(&mut self.cx, keys);
         settle(&mut self.cx, |_, _| true);
     }
 
     /// Presses F6 until the focus is in `region`.
     #[track_caller]
-    fn f6_to(&mut self, region: &str) {
+    pub(crate) fn f6_to(&mut self, region: &str) {
         let mut passed = Vec::new();
         for _ in 0..8 {
             if focused(&mut self.cx, region.to_owned()) {
@@ -132,7 +132,7 @@ impl Driver<'_> {
 
     /// Presses Tab until control `id` has the focus.
     #[track_caller]
-    fn tab_to(&mut self, id: &str) {
+    pub(crate) fn tab_to(&mut self, id: &str) {
         wait_for_element(&mut self.cx, id.to_owned().into());
         for _ in 0..150 {
             if focused(&mut self.cx, id.to_owned()) {
@@ -145,7 +145,7 @@ impl Driver<'_> {
 
     /// Tabs to control `id` and presses Enter on it.
     #[track_caller]
-    fn press_on(&mut self, id: &str) {
+    pub(crate) fn press_on(&mut self, id: &str) {
         self.tab_to(id);
         self.key("enter");
     }
@@ -153,7 +153,7 @@ impl Driver<'_> {
     /// Selects tree row `path`'s last node with the arrow keys, from the
     /// first row, opening the rows above it with Right.
     #[track_caller]
-    fn tree_to(&mut self, path: &[&str]) {
+    pub(crate) fn tree_to(&mut self, path: &[&str]) {
         self.f6_to("tree-list");
         self.key("home");
         for (at, node) in path.iter().enumerate() {
@@ -180,7 +180,7 @@ impl Driver<'_> {
 
     /// Selects history row `row` with the arrow keys, from the first.
     #[track_caller]
-    fn history_to(&mut self, row: &str) {
+    pub(crate) fn history_to(&mut self, row: &str) {
         let id: ElementId = row.to_owned().into();
         wait_for_element(&mut self.cx, id.clone());
         self.f6_to("history");
@@ -195,12 +195,12 @@ impl Driver<'_> {
     }
 
     /// The changes pane's row index of `path` in `list`.
-    fn file_row(&mut self, list: List, path: &str) -> usize {
+    pub(crate) fn file_row(&mut self, list: List, path: &str) -> usize {
         crate::stage::row_of(&mut self.cx, &self.window, list, path)
     }
 
     /// The changes pane's row index of `list`'s heading.
-    fn section_row(&mut self, list: List) -> usize {
+    pub(crate) fn section_row(&mut self, list: List) -> usize {
         crate::changes::with_changes(&mut self.cx, &self.window, |changes| {
             changes.rows().iter().position(
                 |row| matches!(row, FileRow::Section { list: shown, .. } if *shown == list),
@@ -211,7 +211,7 @@ impl Driver<'_> {
 
     /// Selects the changed file `path` of `list` with the arrow keys.
     #[track_caller]
-    fn file_to(&mut self, list: List, path: &str) {
+    pub(crate) fn file_to(&mut self, list: List, path: &str) {
         let at = self.file_row(list, path);
         // F6 lands on the file list, not in a view beside it.
         let window = self.window.clone();
@@ -241,7 +241,7 @@ impl Driver<'_> {
     /// Moves the focus in the open menu to `entry` with the arrow keys and
     /// presses Enter.
     #[track_caller]
-    fn choose_in_menu(&mut self, entry: &str) {
+    pub(crate) fn choose_in_menu(&mut self, entry: &str) {
         wait_until(&mut self.cx, |cx| menu_entry(cx).is_some());
         for _ in 0..30 {
             if menu_entry(&mut self.cx).as_deref() == Some(entry) {
@@ -255,14 +255,14 @@ impl Driver<'_> {
 
     /// Opens the menu of the focused row with Shift+F10 and chooses `entry`.
     #[track_caller]
-    fn menu(&mut self, entry: &str) {
+    pub(crate) fn menu(&mut self, entry: &str) {
         self.key("shift-f10");
         self.choose_in_menu(entry);
     }
 
     /// Reaches `op` by `entry`, keys only, and checks that it did what
     /// `did` says.
-    fn reach(&mut self, op: PaletteOp, entry: impl FnOnce(&mut Self), did: Did) {
+    pub(crate) fn reach(&mut self, op: PaletteOp, entry: impl FnOnce(&mut Self), did: Did) {
         let jobs = self.jobs();
         entry(self);
         self.expect(label(op), jobs, did);
@@ -270,14 +270,14 @@ impl Driver<'_> {
 
     /// Presses toolbar button `id`.
     #[track_caller]
-    fn in_toolbar(&mut self, id: &str) {
+    pub(crate) fn in_toolbar(&mut self, id: &str) {
         self.f6_to("toolbar");
         self.press_on(id);
     }
 
     /// Opens the tab bar's "+" menu and chooses `entry`.
     #[track_caller]
-    fn add_tab(&mut self, entry: &str) {
+    pub(crate) fn add_tab(&mut self, entry: &str) {
         self.f6_to("title-region");
         self.press_on("tab-add");
         self.choose_in_menu(entry);
@@ -285,18 +285,18 @@ impl Driver<'_> {
 
     /// Opens the tree's add menu and chooses `entry`.
     #[track_caller]
-    fn add_repo(&mut self, entry: &str) {
+    pub(crate) fn add_repo(&mut self, entry: &str) {
         self.f6_to("tree-list");
         self.press_on("tree-add");
         self.choose_in_menu(entry);
     }
 
-    fn active(&mut self) -> Option<gitcroc_core::WorkspaceId> {
+    pub(crate) fn active(&mut self) -> Option<gitcroc_core::WorkspaceId> {
         let window = self.window.clone();
         self.cx.update(|_, cx| window.read(cx).tabs(cx).active)
     }
 
-    fn open_tabs(&mut self) -> usize {
+    pub(crate) fn open_tabs(&mut self) -> usize {
         let window = self.window.clone();
         self.cx.update(|_, cx| window.read(cx).tabs(cx).open.len())
     }
@@ -304,7 +304,7 @@ impl Driver<'_> {
     /// Checks out `branch` with git, outside the app, and waits until the
     /// tree has read it: until then the app still has the branch before as
     /// the current one, and checking that one out again does nothing.
-    fn checkout_outside(&mut self, r: &repo_gen::Repo, repo: &RepoId, branch: &str) {
+    pub(crate) fn checkout_outside(&mut self, r: &repo_gen::Repo, repo: &RepoId, branch: &str) {
         r.git(["checkout", "--quiet", branch]).unwrap();
         self.f.refresh(&self.f.active());
         let window = self.window.clone();
@@ -323,7 +323,7 @@ impl Driver<'_> {
     /// Ends the cherry-pick an already applied commit left in progress, and
     /// waits until the tree no longer shows the repo blocked by it, so its
     /// menus enable again.
-    fn abort_cherry_pick(&mut self, r: &repo_gen::Repo, repo: &RepoId) {
+    pub(crate) fn abort_cherry_pick(&mut self, r: &repo_gen::Repo, repo: &RepoId) {
         let _ = r.git(["cherry-pick", "--abort"]);
         self.f.refresh(&self.f.active());
         let window = self.window.clone();
@@ -338,7 +338,7 @@ impl Driver<'_> {
     }
 
     /// The commits the history has marked together.
-    fn marked(&mut self) -> usize {
+    pub(crate) fn marked(&mut self) -> usize {
         let window = self.window.clone();
         self.cx.update(|_, cx| {
             window
@@ -351,7 +351,7 @@ impl Driver<'_> {
 
     /// The uncommitted changes of `node`, reached by keys.
     #[track_caller]
-    fn uncommitted(&mut self, node: &str) {
+    pub(crate) fn uncommitted(&mut self, node: &str) {
         self.tree_to(&["ungrouped", node]);
         self.history_to("history-uncommitted");
         crate::changes::wait_for_view(&mut self.cx, &self.window.clone());
@@ -359,7 +359,7 @@ impl Driver<'_> {
 
     /// Unmerged file `path` open in its editor, with the focus in it.
     #[track_caller]
-    fn editor_on(&mut self, path: &str) -> Entity<gitcroc_ui::conflict::ConflictEditor> {
+    pub(crate) fn editor_on(&mut self, path: &str) -> Entity<gitcroc_ui::conflict::ConflictEditor> {
         self.file_to(List::Unmerged, path);
         self.key("enter");
         let editor = crate::conflict_flow::wait_for_editor(&mut self.cx, &self.window, path);
@@ -371,7 +371,7 @@ impl Driver<'_> {
     }
 }
 
-fn driver<'a>(f: &'a Fixture, root: &mut TestAppContext) -> Driver<'a> {
+pub(crate) fn driver<'a>(f: &'a Fixture, root: &mut TestAppContext) -> Driver<'a> {
     let (mut cx, window) = main_window(root, f);
     crate::stage::enlarge(&mut cx);
     Driver {
@@ -1234,4 +1234,134 @@ fn ui_22_the_job_list_a_jobs_output_and_its_report_are_reachable_by_keyboard(
     wait_for_element(&mut d.cx, "report-output-1".into());
     d.key("escape");
     assert!(!shown(&mut d.cx, "job-list"));
+}
+
+/// Checks that `dialog` has the focus and keeps it on Tab and Shift+Tab.
+#[track_caller]
+pub(crate) fn keeps_the_focus(cx: &mut VisualTestContext, dialog: &str) {
+    assert!(focused(cx, dialog.to_owned()), "{dialog} took no focus");
+    for keys in ["tab", "tab", "tab", "tab", "tab", "shift-tab", "shift-tab"] {
+        press(cx, keys);
+        settle(cx, |_, _| true);
+        assert!(
+            focused(cx, dialog.to_owned()),
+            "{dialog} let the focus out on {keys}"
+        );
+    }
+}
+
+/// Opens `dialog` with `open`, which ends on `opener`, and checks that the
+/// dialog takes the focus, keeps Tab and Shift+Tab inside it, closes on
+/// Escape and gives the focus back to `opener`.
+#[track_caller]
+fn dialog_keeps_the_focus(
+    d: &mut Driver,
+    dialog: &str,
+    opener: &str,
+    open: impl FnOnce(&mut Driver),
+) {
+    open(d);
+    wait_for_element(&mut d.cx, dialog.to_owned().into());
+    keeps_the_focus(&mut d.cx, dialog);
+    d.key("escape");
+    assert!(!shown(&mut d.cx, dialog), "{dialog} stayed open on Escape");
+    assert!(
+        focused(&mut d.cx, opener.to_owned()),
+        "{dialog} gave the focus to {:?}, not {opener}",
+        REGIONS
+            .into_iter()
+            .find(|region| focused(&mut d.cx, *region)),
+    );
+}
+
+/// Each dialog takes the focus as it opens, keeps Tab and Shift+Tab inside
+/// it, closes on Escape, and gives the focus back to what opened it
+/// (M6-25b, M5-10), one row per dialog. Covered elsewhere and not repeated
+/// here: the workspace name dialog (`tabs.rs`,
+/// `ui_22_dialogs_trap_the_focus_and_close_with_escape`), the palette
+/// opened by its key (`palette.rs`), the clone dialog (`clone.rs`), and
+/// the job list's rows and output
+/// (`ui_22_the_job_list_a_jobs_output_and_its_report_are_reachable_by_keyboard`).
+/// The dialogs that open by themselves check the focus in their own tests:
+/// git's prompt (`askpass.rs`, `d10_cancelled_askpass_dialog_fails_the_job`),
+/// the AI consent (`ai_resolve.rs`,
+/// `ai_6_consent_dialog_names_what_is_sent_and_where`) and the missing
+/// repos (`clone.rs`,
+/// `data_2_import_lists_missing_repos_and_clones_the_checked_ones`).
+#[gpui::test]
+fn ui_22_every_dialog_takes_keeps_and_gives_back_the_focus(root: &mut TestAppContext) {
+    let mut setup = crate::group_ops::Setup::new(&[
+        ("api", crate::group_ops::Remote::Ok),
+        ("docs", crate::group_ops::Remote::None),
+    ]);
+    let api = repo(&setup.made, "api");
+    api.write("README.md", "changed\n").unwrap();
+    setup.add();
+    let node = repo_node(&setup.id("api"));
+    let f = &setup.fixture;
+    let mut d = driver(f, root);
+    d.tree_to(&["ungrouped", &node]);
+    for (dialog, opener) in [
+        ("palette", "toolbar-palette"),
+        ("settings-dialog", "toolbar-settings"),
+        ("branch-dialog", "toolbar-3"),
+        ("operation-dialog", "toolbar-4"),
+    ] {
+        dialog_keeps_the_focus(&mut d, dialog, opener, |d| d.in_toolbar(opener));
+    }
+    dialog_keeps_the_focus(&mut d, "job-list", "status-jobs", |d| {
+        d.f6_to("status-jobs");
+        d.key("enter");
+    });
+    // On macOS the key marked delete is Backspace (GRP-9: it asks first).
+    let delete = if cfg!(target_os = "macos") {
+        "backspace"
+    } else {
+        "delete"
+    };
+    dialog_keeps_the_focus(&mut d, "discard-dialog", "changes", |d| {
+        d.uncommitted(&node);
+        d.file_to(List::Unstaged, "README.md");
+        d.key(delete);
+    });
+    dialog_keeps_the_focus(&mut d, "name-dialog", "tree-list", |d| {
+        d.tree_to(&["ungrouped"]);
+        d.menu("New group…");
+    });
+    let group = setup.group("Backend", &["api", "docs"]);
+    let group_node = setup.group_node(&group);
+    wait_for_element(&mut d.cx, tree_row(&group_node));
+    dialog_keeps_the_focus(&mut d, "preflight", "toolbar-0", |d| {
+        d.tree_to(&[&group_node]);
+        d.in_toolbar("toolbar-0");
+    });
+    for (dialog, opener) in [
+        ("group-name", "toolbar-3"),
+        ("group-sync", "toolbar-options-0"),
+    ] {
+        dialog_keeps_the_focus(&mut d, dialog, opener, |d| {
+            d.tree_to(&[&group_node]);
+            d.in_toolbar(opener);
+        });
+    }
+    dialog_keeps_the_focus(&mut d, "question", "tree-list", |d| {
+        d.tree_to(&[&group_node]);
+        d.menu("Delete…");
+    });
+
+    // The update dialog, with a version on offer.
+    let (source, test) = crate::update::offer();
+    let f = Fixture::start_with(crate::support::Options {
+        updates: Some((source, test)),
+        ..crate::support::Options::default()
+    });
+    let made = crate::history::repos(&["api"]);
+    crate::history::add(&f, &made);
+    let mut d = driver(&f, root);
+    f.app().update_check_now();
+    wait_for_element(&mut d.cx, "update-notice".into());
+    dialog_keeps_the_focus(&mut d, "update-dialog", "update-notice", |d| {
+        d.f6_to("status-jobs");
+        d.press_on("update-notice");
+    });
 }

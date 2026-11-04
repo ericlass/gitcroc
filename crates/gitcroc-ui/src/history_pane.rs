@@ -11,6 +11,7 @@
 //! forwards input.
 
 use crate::branch_dialog::BranchMode;
+use crate::outline::Outlined;
 use crate::row_context::{AskRowMenu, RowChoice};
 use gitcroc_core::{BranchOp, StartPoint};
 use std::cell::{Cell, RefCell};
@@ -1705,15 +1706,7 @@ impl HistoryPane {
             .absolute()
             .size_full(),
         );
-        if header_focused && active {
-            cell = cell.child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .border_2()
-                    .border_color(tokens.focus_ring),
-            );
-        }
+        cell = cell.focus_ring(header_focused && active, tokens);
         if let Some((target, after)) = self.drop_target
             && target == column
         {
@@ -1767,6 +1760,7 @@ impl HistoryPane {
             .cursor(CursorStyle::ResizeLeftRight)
             .hover(move |style| style.bg(tokens.accent))
             .when(focused, |edge| edge.bg(tokens.accent))
+            .focus_ring(focused, tokens)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event, _, _| {
@@ -1892,7 +1886,10 @@ impl HistoryPane {
             .text_size(px(13.))
             .italic()
             .text_color(tokens.text_primary)
+            .relative()
             .when(selected, |row| row.bg(tokens.selection_bg))
+            .selection_mark(selected, &tokens)
+            .focus_ring(selected && focused, &tokens)
             .when(!selected, |row| row.hover(|style| style.bg(tokens.bg_3)))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.click(index, window, cx);
@@ -1929,11 +1926,8 @@ impl HistoryPane {
             .aria_label(row.subject.clone())
             .aria_description(self.place(index))
             .aria_selected(selected)
-            .when(cursor && focused, |row| {
-                row.aria_active_descendant()
-                    .border_1()
-                    .border_color(tokens.focus_ring)
-            })
+            .when(cursor && focused, |row| row.aria_active_descendant())
+            .focus_ring(cursor && focused, &tokens)
             .h(ROW_HEIGHT)
             .w_full()
             .flex()
@@ -1944,6 +1938,7 @@ impl HistoryPane {
             .whitespace_nowrap()
             .text_size(px(13.))
             .when(selected, |row| row.bg(tokens.selection_bg))
+            .selection_mark(selected, &tokens)
             .when(!selected, |row| row.hover(|style| style.bg(tokens.bg_3)))
             .on_mouse_down(
                 MouseButton::Right,

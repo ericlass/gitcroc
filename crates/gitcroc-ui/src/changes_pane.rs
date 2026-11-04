@@ -50,6 +50,7 @@ use crate::diff_view::{DiffView, HunkAction, HunkControls};
 use crate::history::{self, Selection};
 use crate::history_pane::HistoryPane;
 use crate::icons;
+use crate::outline::Outlined;
 use crate::panes::{self, SplitterDown, SplitterUp};
 use crate::services::Services;
 use crate::strings::{self, changes as text};
@@ -387,6 +388,8 @@ impl ChangesPane {
             .cursor(CursorStyle::ResizeUpDown)
             .hover(move |style| style.bg(tokens.accent))
             .when(focused, |splitter| splitter.bg(tokens.accent))
+            .relative()
+            .focus_ring(focused, &tokens)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event, _, _| this.start_box_resize(event)),
@@ -1167,11 +1170,10 @@ impl ChangesPane {
             .when(selected && focused, |row| row.aria_active_descendant())
             // Room for a folder's chevron, so names line up in a tree.
             .pl(px(8. + INDENT * depth as f32 + f32::from(ICON) + 4.))
-            .when(selected, |row| row.bg(tokens.selection_bg))
-            .when(selected && focused, |row| {
-                row.border_1().border_color(tokens.focus_ring)
-            })
-            .when(marked, |row| row.bg(tokens.selection_bg))
+            .relative()
+            .when(selected || marked, |row| row.bg(tokens.selection_bg))
+            .selection_mark(selected || marked, &tokens)
+            .focus_ring(selected && focused, &tokens)
             .when(!selected && !marked, |row| {
                 row.hover(|row| row.bg(tokens.bg_3))
             })

@@ -9,6 +9,7 @@ use gitcroc_ui::theme::fonts::{Family, NoFonts, check_installed, family};
 use gitcroc_ui::theme::tokens::{Color, Tokens};
 use gitcroc_ui::theme::{ActiveTokens, AppTheme, contrast::accent_for};
 use gpui_component::{Theme, ThemeMode};
+use gpui_kit::test::{TestQueryExt, TestWindowExt};
 use gpui_kit::{Hsla, SharedString, TestAppContext, px};
 use syntect::easy::HighlightLines;
 use syntect::parsing::SyntaxSet;
@@ -520,4 +521,166 @@ fn ui_26_without_any_font_the_app_exits_with_a_message() {
         let log = std::fs::read_to_string(home.path().join("state/gitcroc/gitcroc.log")).unwrap();
         assert!(log.contains("no font is installed"), "{log}");
     }
+}
+
+/// Whether row `id` is drawn with the selection mark: a border at its
+/// leading edge in the `selection_mark` token, which keeps 3:1 on every
+/// background (`ui_23_app_theme_colors_meet_wcag_contrast`), so the
+/// selection shows without its background.
+fn has_selection_mark(cx: &mut gpui_kit::VisualTestContext, id: gpui_kit::ElementId) -> bool {
+    use gitcroc_ui::theme::ActiveTokens;
+    cx.update(|window, cx| {
+        window.render_frame(cx);
+        let Some(row) = window.try_find(id) else {
+            return false;
+        };
+        let mark = Hsla::from(cx.tokens().selection_mark);
+        let scale = window.scale_factor();
+        let row = row.bounds();
+        let near = |a: f32, b: gpui_kit::Pixels| (a - f32::from(b) * scale).abs() < 0.5;
+        window.painted_quads().iter().any(|quad| {
+            quad.border_widths.left.0 >= 2. * scale
+                && same(quad.border_color, mark)
+                && near(quad.bounds.origin.x.0, row.origin.x)
+                && near(quad.bounds.origin.y.0, row.origin.y)
+                && near(quad.bounds.size.height.0, row.size.height)
+        })
+    })
+}
+
+/// The selected row has a border, not only a background, in the history,
+/// the tree, the file list, the palette and the job list, in the light and
+/// the dark theme (M6-25b; Windows high contrast is LATER).
+#[gpui::test]
+fn ui_23_selected_rows_have_a_border_in_every_theme(root: &mut TestAppContext) {
+    use crate::changes::{history_row, row};
+    use crate::history::{click, press, wait_for_element};
+    use gitcroc_ui::changes::List;
+    use gpui_kit::ElementId;
+
+    let f = Fixture::start(gitcroc_app::app::EVENT_CAPACITY);
+    let made = crate::history::repos(&["api"]);
+    crate::history::repo(&made, "api")
+        .write("new.txt", "new\n")
+        .unwrap();
+    let added = crate::history::add(&f, &made);
+    let (mut cx, window) = main_window(root, &f);
+    let tree = crate::history::tree_row(&crate::history::repo_node(&added, "api"));
+    for theme in [ThemeSetting::Light, ThemeSetting::Dark] {
+        cx.update(|_, cx| AppTheme::apply_settings(&settings(theme), cx));
+        crate::stage::show_uncommitted(&mut cx, &window, &added, "api");
+        assert!(has_selection_mark(&mut cx, tree.clone()), "tree, {theme:?}");
+        assert!(
+            has_selection_mark(&mut cx, "history-uncommitted".into()),
+            "uncommitted, {theme:?}"
+        );
+        crate::stage::wait_for_lists(&mut cx, &window, &[], &["new.txt"]);
+        let file = row(crate::stage::row_of(
+            &mut cx,
+            &window,
+            List::Unstaged,
+            "new.txt",
+        ));
+        click(&mut cx, file.clone());
+        assert!(has_selection_mark(&mut cx, file), "file list, {theme:?}");
+        click(&mut cx, history_row(0));
+        assert!(
+            has_selection_mark(&mut cx, history_row(0)),
+            "history, {theme:?}"
+        );
+
+        crate::palette::open_palette(&mut cx, &window);
+        let first = ElementId::NamedInteger("palette-row".into(), 0);
+        assert!(has_selection_mark(&mut cx, first), "palette, {theme:?}");
+        press(&mut cx, "escape");
+
+        click(&mut cx, "status-jobs".into());
+        wait_for_element(&mut cx, "job-list".into());
+        assert!(
+            has_selection_mark(&mut cx, ElementId::Name("job-row-0".into())),
+            "job list, {theme:?}"
+        );
+        press(&mut cx, "escape");
+    }
+}
+
+/// How many frames the window asks for after drawing one: an animation
+/// asks for the next.
+fn frames_asked(cx: &mut gpui_kit::VisualTestContext) -> usize {
+    cx.update(|window, cx| {
+        window.render_frame(cx);
+        window.simulate_next_frame(cx)
+    })
+}
+
+/// Under reduced motion the spinner of a running job stands still and
+/// keeps its name (UI-3), and the job's progress still counts up: a group
+/// push with one repo held by its hook and the other done.
+#[gpui::test]
+fn ui_23_reduced_motion_stills_the_spinner_and_fills_the_bar(root: &mut TestAppContext) {
+    use crate::group_ops::{Remote, Setup};
+    use crate::history::{click, label_of, repo, wait_for_element, wait_until};
+
+    let mut setup = Setup::new(&[("api", Remote::Ok), ("docs", Remote::Ok)]);
+    let held = tempfile::tempdir().unwrap();
+    let release = held.path().join("release");
+    for name in ["api", "docs"] {
+        let made = repo(&setup.made, name);
+        made.commit_file("next.txt", "next\n", "Next").unwrap();
+        if name == "api" {
+            let hook = made.path().join(".git/hooks/pre-push");
+            let script = format!(
+                "#!/bin/sh\nwhile [ ! -e '{}' ]; do sleep 0.01; done\n",
+                release.display()
+            );
+            std::fs::write(&hook, script).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+    }
+    setup.add();
+    let group = setup.group("Backend", &["api", "docs"]);
+    let node = setup.group_node(&group);
+    let f = &setup.fixture;
+    let (mut cx, _window) = main_window(root, f);
+    crate::stage::enlarge(&mut cx);
+    wait_for_element(&mut cx, crate::history::tree_row(&node));
+    click(&mut cx, crate::history::tree_row(&node));
+    // With every repo ready, the push starts with no preflight (GRP-9).
+    click(&mut cx, "toolbar-2".into());
+    click(&mut cx, "status-jobs".into());
+    wait_for_element(&mut cx, "job-list".into());
+    let report = |cx: &mut gpui_kit::VisualTestContext| label_of(cx, "report-counts".into());
+    wait_until(&mut cx, |cx| {
+        report(cx).is_some_and(|said| said.starts_with("1/2"))
+    });
+    let spinner = cx.update(|window, cx| {
+        window.render_frame(cx);
+        window
+            .find_all_by_role(gpui_kit::Role::Image)
+            .into_iter()
+            .find(|image| {
+                matches!(image.path().last(), Some(gpui_kit::ElementId::Name(id)) if id.ends_with("-spinner"))
+            })
+            .and_then(|image| image.label().map(str::to_owned))
+    });
+    assert_eq!(spinner.as_deref(), Some(gitcroc_ui::strings::jobs::RUNNING));
+    // It turns while motion is allowed.
+    assert!(frames_asked(&mut cx) > 0);
+
+    cx.update(|_, cx| cx.set_reduce_motion(true));
+    frames_asked(&mut cx);
+    assert_eq!(frames_asked(&mut cx), 0, "something still moves");
+    assert_eq!(
+        label_of(&mut cx, "sub-job-0-spinner".into())
+            .or_else(|| label_of(&mut cx, "sub-job-1-spinner".into()))
+            .as_deref(),
+        Some(gitcroc_ui::strings::jobs::RUNNING)
+    );
+    // The held repo ends, and the report fills up as before: both pushed.
+    std::fs::write(&release, "").unwrap();
+    wait_until(&mut cx, |cx| report(cx).as_deref() == Some("2 succeeded"));
 }

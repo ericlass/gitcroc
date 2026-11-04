@@ -43,6 +43,7 @@ pub mod menu;
 pub mod menus;
 pub mod missing_repos;
 pub mod operation_dialog;
+pub mod outline;
 pub mod palette;
 pub mod panes;
 #[cfg(feature = "perf-trace")]

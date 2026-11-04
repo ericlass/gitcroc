@@ -30,6 +30,7 @@ use gpui_kit::{
 use crate::dialog::{self, Cancel, Closed, Modal};
 use crate::icons;
 use crate::jobs::{self, Jobs};
+use crate::outline::Outlined;
 use crate::status_bar::outcome_label;
 use crate::strings::{self, jobs as text};
 use crate::theme::{ActiveTokens, AppTheme, tokens::Tokens};
@@ -441,10 +442,10 @@ impl JobList {
                     .items_center()
                     .gap_2()
                     .px_2()
+                    .relative()
                     .when(is_selected, |row| row.bg(tokens.selection_bg))
-                    .when(is_selected && focused, |row| {
-                        row.border_1().border_color(tokens.focus_ring)
-                    })
+                    .selection_mark(is_selected, &tokens)
+                    .focus_ring(is_selected && focused, &tokens)
                     .when(!is_selected, |row| row.hover(|row| row.bg(tokens.bg_3)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         window.focus(&this.list_focus, cx);
@@ -521,6 +522,7 @@ impl JobList {
             .border_1()
             .border_color(tokens.border)
             .rounded(px(4.))
+            // It scrolls, so its own border is its ring.
             .focus(move |style| style.border_color(tokens.focus_ring))
             .font_family(code_font.clone())
             .text_sm()

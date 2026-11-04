@@ -10,6 +10,7 @@ pub mod accent;
 pub mod code_themes;
 pub mod contrast;
 pub mod fonts;
+pub mod motion;
 pub mod tokens;
 
 use std::rc::Rc;

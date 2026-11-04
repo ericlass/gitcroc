@@ -12,7 +12,7 @@ use crate::{
 };
 use gitcroc_core::{Prune, PullStrategy, StartPoint, SyncOp, TargetSet, WorkspaceId};
 use gpui_component::{Disableable, button::Button};
-use gpui_kit::{AnyElement, Context, IntoElement};
+use gpui_kit::{AnyElement, Context, IntoElement, ParentElement, Styled, div};
 
 /// What the toolbar's Fetch, Pull and Push act on (GRP-5).
 #[derive(Clone)]
@@ -282,34 +282,46 @@ impl GitcrocWindow {
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.toolbar_run(scope_for_click.clone(), at, mode.clone(), window, cx);
                 }));
-            buttons.push(button.into_any_element());
-            if let Some(options) = options {
-                let scope_for_options = self.scope_clone(&scope);
-                let options_label = text::options(label);
-                buttons.push(
-                    Button::new(gpui_kit::ElementId::Name(
-                        format!("toolbar-options-{at}").into(),
-                    ))
-                    .icon(gpui_component::IconName::ChevronDown)
-                    .accessibility_label(options_label.clone())
-                    .tooltip(if enabled {
-                        options_label
-                    } else {
-                        reason.clone()
-                    })
-                    .disabled(!enabled)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.toolbar_options(
-                            scope_for_options.clone(),
-                            at,
-                            options.clone(),
-                            window,
-                            cx,
-                        );
-                    }))
+            let Some(options) = options else {
+                buttons.push(button.into_any_element());
+                continue;
+            };
+            let scope_for_options = self.scope_clone(&scope);
+            let options_label = text::options(label);
+            // A button and its arrow stay together when the toolbar wraps.
+            buttons.push(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_shrink_0()
+                    .gap_1()
+                    .child(button)
+                    .child(
+                        Button::new(gpui_kit::ElementId::Name(
+                            format!("toolbar-options-{at}").into(),
+                        ))
+                        .icon(gpui_component::IconName::ChevronDown)
+                        .accessibility_label(options_label.clone())
+                        .tooltip(if enabled {
+                            options_label
+                        } else {
+                            reason.clone()
+                        })
+                        .disabled(!enabled)
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.toolbar_options(
+                                    scope_for_options.clone(),
+                                    at,
+                                    options.clone(),
+                                    window,
+                                    cx,
+                                );
+                            },
+                        )),
+                    )
                     .into_any_element(),
-                );
-            }
+            );
         }
         buttons.push(
             Button::new("toolbar-palette")

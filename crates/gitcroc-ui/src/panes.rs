@@ -25,6 +25,7 @@ use gpui_kit::{
 
 use crate::changes_pane::{ChangesPane, ToggleDock};
 use crate::history_pane::HistoryPane;
+use crate::outline::Outlined;
 use crate::services::Services;
 use crate::strings::regions as text;
 use crate::theme::ActiveTokens;
@@ -451,6 +452,8 @@ impl Panes {
             })
             .hover(move |style| style.bg(tokens.accent))
             .when(focused, |splitter| splitter.bg(tokens.accent))
+            .relative()
+            .focus_ring(focused, &tokens)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event, _, _| this.start_resize(pane, event)),
