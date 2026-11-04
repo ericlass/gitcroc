@@ -1,6 +1,15 @@
 //! The updater's app half (PLAT-4): when this build checks, where the
-//! packages that only notify send the user, the system clock, and the source
-//! the app uses until M6-27 provides the real one. The service is `App`'s.
+//! packages that only notify send the user, the system clock, and
+//! [`OwnSource`], which reads 1.0.0-rc.1's `latest.json`, verifies each
+//! package with the same key (SEC-7) and installs it without Tauri. The
+//! service is `App`'s.
+
+pub mod install;
+pub mod manifest;
+mod source;
+pub mod verify;
+
+pub use source::OwnSource;
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -43,8 +52,8 @@ pub struct UpdateTest {
     pub checks: bool,
 }
 
-/// A source that never finds an update, so nothing is ever installed. The
-/// app's until M6-27 reads the release manifest without Tauri.
+/// A source that never finds an update, so nothing is ever installed: the
+/// tests' that reach no network.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoUpdates;
 
@@ -57,3 +66,6 @@ impl UpdateSource for NoUpdates {
         Box::pin(async { Err("no update was found".to_owned()) })
     }
 }
+
+#[cfg(test)]
+mod tests;

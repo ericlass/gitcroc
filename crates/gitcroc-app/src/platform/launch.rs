@@ -1,10 +1,11 @@
-//! Starting the file manager or a terminal: the only programs other than
-//! git the app starts. Each gets its arguments as an array (ARCH-3) and is
-//! not waited for; a thread reaps it when it exits.
+//! Starting the file manager, a terminal or the Windows update installer:
+//! the only programs other than git the app starts. The first two get their
+//! arguments as an array (ARCH-3) and are not waited for; a thread reaps
+//! them when they exit.
 
 use std::ffi::OsString;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// A program to start in folder `cwd`, with `args`.
@@ -62,4 +63,14 @@ pub fn start(candidates: &[Launch]) -> Result<(), LaunchError> {
         }
     }
     Err(LaunchError::NotFound { tried })
+}
+
+/// Starts the verified update installer at `installer` (PLAT-4), detached:
+/// `configure` adds what only its platform can, such as the parameters
+/// Tauri's updater passed, as written, and the creation flags. It is not
+/// reaped, since the app exits right after.
+pub fn start_installer(installer: &Path, configure: impl FnOnce(&mut Command)) -> io::Result<()> {
+    let mut command = Command::new(installer);
+    configure(&mut command);
+    command.spawn().map(drop)
 }

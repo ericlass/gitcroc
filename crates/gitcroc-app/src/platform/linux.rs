@@ -7,6 +7,8 @@ use std::time::Duration;
 use ashpd::desktop::settings::Settings;
 use gitcroc_core::Package;
 
+use crate::update::install::Install;
+
 use super::{
     DesktopFontSource, DesktopFonts, FileManager, Installation, Launch, Terminal, WebBrowser,
 };
@@ -179,6 +181,13 @@ impl Installation for LinuxInstallation {
             super::package::bundle_kind(),
             std::env::var_os("APPIMAGE").as_deref(),
         )
+    }
+
+    fn install_update(install: &Install, package: &[u8]) -> Result<(), String> {
+        match install {
+            Install::AppImage { file } => crate::update::install::replace_appimage(package, file),
+            _ => Err(super::not_installed_here(install)),
+        }
     }
 }
 

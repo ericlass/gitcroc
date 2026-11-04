@@ -23,7 +23,7 @@ use gitcroc_app::ai::ProviderCalls;
 use gitcroc_app::app::{App, AppSetup, EVENT_CAPACITY};
 use gitcroc_app::askpass;
 use gitcroc_app::platform::{DesktopFontSource, OsKeychain, PlatformFonts, PlatformSockets};
-use gitcroc_app::update::NoUpdates;
+use gitcroc_app::update::OwnSource;
 use gitcroc_core::{
     COMMIT_GRAPH_THRESHOLD, FSMONITOR_THRESHOLD, PlatformCacheDir, PlatformConfigDir,
     PlatformLogDir,
@@ -96,7 +96,7 @@ fn main() -> ExitCode {
         dialogs: Arc::new(dialogs),
         keychain: Arc::new(OsKeychain),
         ai: Arc::new(ProviderCalls),
-        updates: Arc::new(NoUpdates),
+        updates: Arc::new(OwnSource::new()),
         // Git starts this binary as its askpass helper; `main` answers first.
         askpass_helper: std::env::current_exe().unwrap_or_default(),
         update_test: None,

@@ -56,7 +56,7 @@ pub struct AppSetup<'a> {
     pub keychain: Arc<dyn Keychain>,
     /// What reaches the AI providers: `ProviderCalls`, or a fake.
     pub ai: Arc<dyn AiBackend>,
-    /// Where updates come from (PLAT-4): `NoUpdates` until M6-27.
+    /// Where updates come from (PLAT-4): `OwnSource`, or a fake in tests.
     pub updates: Arc<dyn UpdateSource>,
     /// `None`: the package the app came from, and checks in release builds
     /// only (D12). Tests of the update dialog choose both.

@@ -24,7 +24,7 @@ mod windows;
 #[cfg(not(target_os = "linux"))]
 pub use self::NoDesktopFonts as PlatformFonts;
 pub use keychain::{KEYCHAIN_SERVICE, KeychainError, MemoryKeychain, OsKeychain, keychain_account};
-pub use launch::{Launch, LaunchError, start};
+pub use launch::{Launch, LaunchError, start, start_installer};
 #[cfg(target_os = "linux")]
 pub use linux::LinuxInstallation as PlatformInstallation;
 #[cfg(target_os = "linux")]
@@ -71,6 +71,19 @@ pub trait WebBrowser {
 /// The package the running app came from (PLAT-4); see [`package`].
 pub trait Installation {
     fn package() -> gitcroc_core::Package;
+
+    /// Puts the verified update `package` in place as `install` says
+    /// (PLAT-4, SEC-7): the AppImage on Linux, the `.app` on macOS, the
+    /// installer started on Windows. An error for another platform's.
+    fn install_update(
+        install: &crate::update::install::Install,
+        package: &[u8],
+    ) -> Result<(), String>;
+}
+
+/// The error for an update this platform does not install.
+fn not_installed_here(install: &crate::update::install::Install) -> String {
+    format!("{install:?} is not installed on {}", std::env::consts::OS)
 }
 
 /// A terminal (section 6 "Repos").
