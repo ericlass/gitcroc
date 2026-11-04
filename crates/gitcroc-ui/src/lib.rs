@@ -50,6 +50,7 @@ pub mod panes;
 pub mod perf;
 pub mod preflight_dialog;
 pub mod provider_form;
+pub mod readable_text;
 pub mod resolve_all;
 pub mod row_context;
 pub mod row_menus;

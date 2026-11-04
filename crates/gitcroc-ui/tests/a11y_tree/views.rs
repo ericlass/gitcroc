@@ -299,6 +299,38 @@ async fn every_view(
         ),
     )?;
 
+    // The commit message reads back by character: its text and the caret
+    // (M6-25c).
+    d.click("commit-subject").await?;
+    d.input("ab").await?;
+    d.press("left").await?;
+    d.press("left").await?;
+    let subject = gitcroc_ui::strings::changes::SUBJECT;
+    let connection = atspi::connect()?;
+    let mut field = None;
+    // AT-SPI hears of the edit after the frame that drew it.
+    for _ in 0..50 {
+        field = atspi::text_field(&connection, subject)?;
+        if field.as_ref().is_some_and(|field| field.caret == 0) {
+            break;
+        }
+        d.frames(2).await?;
+    }
+    let expected = atspi::TextField {
+        text: "ab".to_owned(),
+        caret: 0,
+    };
+    report(
+        "ui_22_the_commit_message_exposes_its_text_and_caret",
+        if field.as_ref() == Some(&expected) {
+            Vec::new()
+        } else {
+            vec![format!("expected {expected:?}; AT-SPI has {field:?}")]
+        },
+    )?;
+    d.press("ctrl-a").await?;
+    d.press("backspace").await?;
+
     // A destructive confirmation: discarding a file.
     d.click_labelled("changes-row-", "a.txt").await?;
     let row = d
