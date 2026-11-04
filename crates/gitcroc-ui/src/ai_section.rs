@@ -362,10 +362,15 @@ impl AiSection {
                             .test_support()
                             .role(Role::Paragraph)
                             .aria_label(found.clone())
+                            // A long path wraps beside the button instead
+                            // of pushing it out of the dialog (UI-26).
+                            .flex_1()
+                            .min_w_0()
                             .child(found),
                     )
                     .child(
                         Button::new("ai-offer-add")
+                            .flex_shrink_0()
                             .label(text::ADD_IT)
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.open_form(None, Some(offer.clone()), window, cx);

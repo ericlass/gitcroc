@@ -32,7 +32,7 @@ fn press(cx: &mut VisualTestContext, keys: &str) {
 
 /// Creates workspaces `names`, each opening as the active last tab, and
 /// closes those in `closed`. The app starts with "My workspace".
-fn workspaces(fixture: &Fixture, names: &[&str], closed: &[&str]) {
+pub(crate) fn workspaces(fixture: &Fixture, names: &[&str], closed: &[&str]) {
     let app = fixture.app().clone();
     fixture.runtime.block_on(async {
         for name in names {

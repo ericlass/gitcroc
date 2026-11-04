@@ -198,3 +198,32 @@ fn ui_22_f6_moves_the_focus_between_regions(cx: &mut TestAppContext) {
         assert_eq!(focused(&mut cx), [region]);
     }
 }
+
+/// With nothing focused, Tab does nothing (M6-04 finding 5): the window
+/// focuses something on open, on the main window and on the screen that
+/// offers the workspaces, and Tab moves on from it. The git setup screen's
+/// first focus is `plat_3_setup_screen_regions_and_focus`'s.
+#[gpui::test]
+fn ui_22_the_window_focuses_something_on_open(cx: &mut TestAppContext) {
+    let focus = |cx: &mut VisualTestContext| {
+        cx.update(|window, cx| {
+            window.render_frame(cx);
+            window.focused(cx)
+        })
+    };
+    let main = Fixture::start(gitcroc_app::app::EVENT_CAPACITY);
+    let start = Fixture::start(gitcroc_app::app::EVENT_CAPACITY);
+    crate::tabs::workspaces(&start, &["Java"], &["Java", "My workspace"]);
+    for (fixture, shows) in [(&main, "toolbar"), (&start, "workspace-start")] {
+        let (mut cx, _) = main_window(cx, fixture);
+        assert!(cx.update(|window, _| window.try_find(shows).is_some()));
+        let first = focus(&mut cx);
+        assert!(first.is_some(), "nothing focused on {shows}");
+        cx.update(|window, cx| window.press("tab", cx));
+        let next = focus(&mut cx);
+        assert!(
+            next.is_some() && next != first,
+            "Tab did nothing on {shows}"
+        );
+    }
+}

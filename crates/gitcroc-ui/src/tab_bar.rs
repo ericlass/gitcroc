@@ -21,12 +21,13 @@ use gpui_kit::{
     EventEmitter, FocusHandle, InteractiveElement, IntoElement, KeyBinding,
     KeyBindingContextPredicate, MouseButton, MouseDownEvent, ParentElement, Pixels, Point, Render,
     Role, SharedString, StatefulInteractiveElement, Styled, Subscription, Task, TestSupportExt,
-    Window, actions, canvas, div, point, px,
+    Window, actions, canvas, div, point, px, rems,
 };
 
 use crate::ai::Ai;
 use crate::jobs::{Jobs, Marks};
 use crate::menu::{Menu, MenuEvent, MenuItem};
+use crate::outline::Outlined;
 use crate::strings::{tabs as text, workspaces as workspace_text};
 use crate::theme::ActiveTokens;
 use crate::theme::tokens::Tokens;
@@ -542,7 +543,9 @@ impl TabBar {
                 .items_center()
                 .gap_1()
                 .h_full()
-                .max_w(px(220.))
+                // In rems, so a larger UI font does not cut the name
+                // (UI-26), as rc.1's 17em.
+                .max_w(rems(17.))
                 .pl_3()
                 .pr_1()
                 .border_r_1()
@@ -564,15 +567,7 @@ impl TabBar {
                             .bg(tokens.selection_mark),
                     )
                 })
-                .when(focused, |this| {
-                    this.child(
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .border_2()
-                            .border_color(tokens.focus_ring),
-                    )
-                })
+                .focus_ring(focused, &tokens)
                 // A press on a tab never moves the window.
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_mouse_down(

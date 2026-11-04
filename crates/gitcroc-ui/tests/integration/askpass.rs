@@ -156,15 +156,20 @@ fn d10_cancelled_askpass_dialog_fails_the_job(cx: &mut TestAppContext) {
     let workspace = fixture.active();
     let added = fixture.add_repos(&workspace, made.path());
     let (mut cx, window) = main_window(cx, &fixture);
+    let before = cx.update(|window, cx| window.focused(cx));
 
     let id = fetch(&fixture, &workspace, &id_of(&added, "api"));
     wait_for_dialog(&mut cx, &window, None);
+    // It takes the focus, keeps it, and gives it back (M6-25b).
+    crate::keyboard::keeps_the_focus(&mut cx, "askpass-dialog");
     press(&mut cx, "escape");
     wait_for_end(&mut cx, &fixture, id, &Outcome::Failed);
     assert!(!job(&fixture, id).output.is_empty());
     wait_until(&mut cx, |cx| {
         cx.update(|_, cx| window.read(cx).askpass_dialog().is_none())
     });
+    assert!(before.is_some());
+    assert_eq!(cx.update(|window, cx| window.focused(cx)), before);
 }
 
 /// D10: when its job ends, as when it is cancelled, its prompt goes.

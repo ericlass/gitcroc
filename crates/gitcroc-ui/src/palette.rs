@@ -26,6 +26,7 @@ use gpui_kit::{
 
 use crate::dialog::{self, Cancel, Closed, Modal};
 use crate::keys;
+use crate::outline::Outlined;
 use crate::services::Services;
 use crate::strings::{self, palette as text};
 use crate::theme::ActiveTokens;
@@ -423,7 +424,9 @@ impl Palette {
             .items_center()
             .gap_2()
             .rounded(px(4.))
+            .relative()
             .when(highlighted, |row| row.bg(tokens.bg_3))
+            .selection_mark(highlighted, &tokens)
             .when(reason.is_some(), |row| {
                 row.text_color(tokens.text_secondary)
             })

@@ -30,7 +30,7 @@ use gitcroc_core::{
 };
 use gitcroc_ui::icons::Icons;
 use gitcroc_ui::services::Services;
-use gitcroc_ui::theme::{AppTheme, accent, fonts};
+use gitcroc_ui::theme::{AppTheme, accent, fonts, motion};
 
 /// How long `--exit-after-first-frame` waits for the frame.
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(120);
@@ -127,6 +127,7 @@ fn main() -> ExitCode {
             return;
         }
         accent::follow(cx);
+        motion::follow(cx);
         dialog_requests.serve(cx);
         // Closing the last window quits, as on every platform but
         // macOS's custom; gitcroc has one window.

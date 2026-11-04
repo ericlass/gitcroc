@@ -528,6 +528,8 @@ fn data_2_import_lists_missing_repos_and_clones_the_checked_ones(cx: &mut TestAp
     // missing repos.
     wait_for_element(&mut cx, "missing-dialog".into());
     wait_until(&mut cx, |cx| missing_rows(cx, &window).len() == 3);
+    // It takes the focus and keeps it (M6-25b).
+    crate::keyboard::keeps_the_focus(&mut cx, "missing-dialog");
     assert_eq!(
         f.app().workspace_get().open.len(),
         2,

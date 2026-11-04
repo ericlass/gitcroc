@@ -438,6 +438,8 @@ fn ai_6_consent_dialog_names_what_is_sent_and_where(root: &mut TestAppContext) {
     );
     assert_eq!(numbered_labels(&mut cx, "consent-sent-item"), asked.sent);
     assert_eq!(asked.sent.len(), 5);
+    // It takes the focus and keeps it (M6-25b).
+    crate::keyboard::keeps_the_focus(&mut cx, "consent-dialog");
     click(&mut cx, el("consent-cancel"));
     gone(&mut cx, "consent-dialog");
 

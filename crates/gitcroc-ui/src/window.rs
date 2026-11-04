@@ -49,6 +49,7 @@ use crate::keys::{
 };
 use crate::menu::{Menu, MenuEvent};
 use crate::missing_repos::MissingReposDialog;
+use crate::outline::Outlined;
 use crate::panes::Panes;
 use crate::preflight_dialog::PreflightDialog;
 use crate::row_context::{AskRowMenu, RowChoice};
@@ -1894,9 +1895,10 @@ impl GitcrocWindow {
 
 impl GitcrocWindow {
     /// The toolbar, the panes and the status bar.
-    fn main_regions(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn main_regions(&mut self, window: &Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let panes = self.panes(cx);
         let tokens = *cx.tokens();
+        let on_toolbar = self.toolbar_focus.is_focused(window);
         vec![
             div()
                 .id("toolbar")
@@ -1905,15 +1907,21 @@ impl GitcrocWindow {
                 .role(Role::Toolbar)
                 .aria_label(strings::regions::TOOLBAR)
                 .flex_shrink_0()
-                .h(TOOLBAR_HEIGHT)
+                // It wraps onto more rows when its buttons do not fit, as
+                // at the largest UI font size (UI-26).
+                .min_h(TOOLBAR_HEIGHT)
                 .flex()
+                .flex_wrap()
                 .items_center()
                 .gap_1()
                 .px_2()
+                .py_1()
                 .children(self.operation_toolbar(cx))
                 .bg(tokens.bg_2)
                 .border_b_1()
                 .border_color(tokens.border)
+                .relative()
+                .focus_ring(on_toolbar, &tokens)
                 .into_any_element(),
             div()
                 .flex()
@@ -2175,7 +2183,7 @@ impl GitcrocWindow {
 }
 
 impl Render for GitcrocWindow {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let body = match (&self.start, self.git.usable()) {
             (_, false) => vec![self.git_screen()],
             (Some(start), true) => {
@@ -2186,7 +2194,7 @@ impl Render for GitcrocWindow {
             }
             (None, true) => {
                 let mut body = self.notes(cx);
-                body.extend(self.main_regions(cx));
+                body.extend(self.main_regions(window, cx));
                 body
             }
         };
@@ -2219,7 +2227,9 @@ impl Render for GitcrocWindow {
                     .track_focus(&self.title_focus)
                     .role(Role::Group)
                     .aria_label(strings::regions::TITLE_BAR)
-                    .child(self.title_bar.clone()),
+                    .relative()
+                    .child(self.title_bar.clone())
+                    .focus_ring(self.title_focus.is_focused(window), &tokens),
             )
             .children(body)
             .children(self.row_menu.as_ref().map(|open| open.menu.clone()))

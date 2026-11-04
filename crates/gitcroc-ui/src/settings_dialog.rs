@@ -21,6 +21,7 @@ use gpui_kit::{
 use crate::ai::Ai;
 use crate::ai_section::AiSection;
 use crate::dialog::{self, Cancel, Closed, Modal};
+use crate::outline::Outlined;
 use crate::services::Services;
 use crate::strings::{common, settings as text};
 use crate::theme::ActiveTokens;
@@ -211,6 +212,8 @@ impl Render for SettingsDialog {
                 .aria_label(tab.label())
                 .aria_selected(selected)
                 .track_focus(&self.tab_focus[at])
+                .relative()
+                .focus_ring(self.tab_focus[at].is_focused(window), &tokens)
                 .px_3()
                 .py_1()
                 .border_b_2()
