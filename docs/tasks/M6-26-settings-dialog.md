@@ -19,9 +19,8 @@ control is disabled.
 - M6-24a: the palette's Settings and Check for updates.
 
 ## Spec
-Implements: UI-23, UI-24, UI-26 and UI-35 (their settings), PLAT-3 (the
-Settings part), D12 (the Updates section), DATA-1 (the read-only warning),
-section 5 steps 2 and 3 (the group settings)
+Implements: UI-23 (the setting), UI-24 (the setting), UI-26 (the setting), UI-35 (the setting), PLAT-3 (the Settings part), D12 (the Updates section), DATA-1 (the read-only warning)
+Also section 5, steps 2 and 3: the group settings.
 Respects: UI-22, UI-25, OPS-9, SEC-3, SEC-7, ARCH-6, ARCH-7, D15, QA-2,
 QA-3, QA-4
 
@@ -34,7 +33,8 @@ The services are done (M6-05): `settings_get`, `settings_set_theme`,
 `SettingsView` each call returns and keeps no copy of its own (ARCH-6).
 
 ## In scope
-- **The tab strip:** Appearance, Git, Updates, AI, as rc.1. The dialog
+- **The tab strip:** Appearance, Git, Updates, AI, as rc.1. Only the shown
+  tab is a tab stop; the arrows move between them. The dialog
   opens at Appearance, or at the tab a caller names: AI for AI-3's "open
   the provider settings", Updates for the palette's Check for updates.
   M6-23a's keys (arrows, Home, End, focus to the tab's first control) cover
@@ -46,7 +46,7 @@ The services are done (M6-05): `settings_get`, `settings_set_theme`,
     from the eight the app ships, each with its own preview. The preview is
     a port of `ui/src/theme/CodeThemePreview.tsx`: a hunk header, a context
     line, a removed and an added line, highlighted in the chosen theme
-    whatever the app theme is, and hidden from screen readers.
+    whatever the app theme is.
   - **Fonts** (UI-26): the UI font and the code font as text fields, empty
     for the system font, as rc.1; and each size from 8 to 32 px. A size
     that is not a number puts the saved one back; the core moves the rest
@@ -60,8 +60,9 @@ The services are done (M6-05): `settings_get`, `settings_set_theme`,
       bounds with the same tabs and the same active tab, which the core
       holds. The panes' scroll, the focus and any open dialog are not kept.
     - **With unsaved conflict edits** in any tab (OPS-9), reopening asks
-      first, listing them, as Install and restart does (M6-15b). Cancel
-      leaves the setting as it was.
+      first, listing them, as Install and restart does (M6-15b). The
+      question is in the tab, since the dialog is open. Cancel leaves the
+      setting as it was.
     - Both go through M6-06's `WindowControls`, so a test asks for the
       switch without a real window.
   - Every change goes through `settings_set_appearance` or
@@ -119,8 +120,10 @@ status. No test waits on timing.
   and text that is not a number puts the saved size back.
 - `ui_35_the_setting_switches_the_title_bar_at_once`: on Linux the window
   is asked for system decorations in place and the window buttons go; on
-  Windows and macOS it is reopened with the same tabs, the same active tab
-  and the same bounds.
+  Windows and macOS it is reopened.
+- `ui_35_reopening_keeps_the_tabs_and_the_bounds`: the old window closes,
+  and the new one has the same tabs, the same active tab and the same
+  bounds.
 - `ui_35_reopening_asks_first_with_unsaved_conflict_edits`: the question
   lists them, Cancel keeps the setting off and the window, and confirming
   reopens it.
@@ -130,7 +133,8 @@ status. No test waits on timing.
 - `the_group_settings_round_trip_and_outside_1_to_32_is_refused` (section
   5 has no ID for its settings, as in rc.1's test):
   12 is saved; 40 shows the core's message and the field shows 12;
-  Always show the preflight dialog makes the next group fetch ask.
+  Always show the preflight dialog is saved. The core's tests cover what
+  it does to a group operation.
 - `d12_settings_turns_the_automatic_check_off_and_checks_now`.
 - `d12_a_failed_check_shows_in_settings_with_its_time_and_nowhere_else`.
 - `d12_a_build_that_does_not_check_says_so_and_cannot_check_now`.

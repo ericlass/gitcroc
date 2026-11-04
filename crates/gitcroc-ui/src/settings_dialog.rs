@@ -1,7 +1,8 @@
 //! The Settings dialog, a port of the frame of `ui/src/SettingsDialog.tsx`:
 //! a tab strip, one tab's settings shown at a time, and which gitcroc is
-//! running below them. It has only the AI tab until M6-26 adds Appearance,
-//! Git and Updates. The arrow keys, Home and End move between the tabs,
+//! running below them: Appearance, Git, Updates and AI. With read-only
+//! settings (DATA-1) every control shows the saved value and is disabled.
+//! The arrow keys, Home and End move between the tabs,
 //! and the focus starts on the tab's first control (UI-22). A window has
 //! one; opening it again focuses it.
 
@@ -18,13 +19,20 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, TestSupportExt, Window, actions, div, px,
 };
 
+use gitcroc_core::GitStatus;
+
 use crate::ai::Ai;
 use crate::ai_section::AiSection;
+use crate::appearance_tab::{AppearanceTab, Unsaved};
 use crate::dialog::{self, Cancel, Closed, Modal};
+use crate::git_tab::GitTab;
 use crate::outline::Outlined;
 use crate::services::Services;
+use crate::settings::SettingsModel;
 use crate::strings::{common, settings as text};
 use crate::theme::ActiveTokens;
+use crate::updates::Updates;
+use crate::updates_tab::UpdatesTab;
 
 actions!(
     settings_dialog,
@@ -61,28 +69,55 @@ pub fn bind(cx: &mut App) {
 /// A tab of the dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsTab {
+    Appearance,
+    Git,
+    Updates,
     Ai,
 }
 
 impl SettingsTab {
     /// Every tab, in order.
-    const ALL: [Self; 1] = [Self::Ai];
+    pub const ALL: [Self; 4] = [Self::Appearance, Self::Git, Self::Updates, Self::Ai];
 
-    fn id(self) -> &'static str {
+    pub fn id(self) -> &'static str {
         match self {
+            Self::Appearance => "settings-tab-appearance",
+            Self::Git => "settings-tab-git",
+            Self::Updates => "settings-tab-updates",
             Self::Ai => "settings-tab-ai",
         }
     }
 
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
+            Self::Appearance => text::TAB_APPEARANCE,
+            Self::Git => text::TAB_GIT,
+            Self::Updates => text::TAB_UPDATES,
             Self::Ai => text::TAB_AI,
         }
     }
 }
 
+/// What the dialog shows and changes.
+pub struct SettingsParts {
+    pub services: Services,
+    pub ai: Entity<Ai>,
+    pub settings: Entity<SettingsModel>,
+    pub updates: Entity<Updates>,
+    /// Git detection's latest result, and whether one is running.
+    pub git: Option<GitStatus>,
+    pub checking: bool,
+    /// The files whose unsaved conflict edits reopening the window loses.
+    pub unsaved: Unsaved,
+    /// The window changes its title bar without reopening (UI-35).
+    pub in_place: bool,
+}
+
 pub struct SettingsDialog {
     tab: SettingsTab,
+    appearance: Entity<AppearanceTab>,
+    git: Entity<GitTab>,
+    updates: Entity<UpdatesTab>,
     ai: Entity<AiSection>,
     about: SharedString,
     focus: FocusHandle,
@@ -96,22 +131,49 @@ impl EventEmitter<Closed> for SettingsDialog {}
 
 impl SettingsDialog {
     pub fn new(
-        services: &Services,
-        ai: Entity<Ai>,
+        parts: SettingsParts,
         at: SettingsTab,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let SettingsParts {
+            services,
+            ai,
+            settings,
+            updates,
+            git,
+            checking,
+            unsaved,
+            in_place,
+        } = parts;
         let info = services.app().app_info();
-        let section = cx.new(|cx| AiSection::new(ai, window, cx));
+        let appearance =
+            cx.new(|cx| AppearanceTab::new(settings.clone(), unsaved, in_place, window, cx));
+        let git = cx.new(|cx| {
+            GitTab::new(
+                services.clone(),
+                settings.clone(),
+                git,
+                checking,
+                window,
+                cx,
+            )
+        });
+        let updates = cx.new(|cx| UpdatesTab::new(settings.clone(), updates, cx));
+        let section = cx.new(|cx| AiSection::new(ai, settings, window, cx));
         Self {
             tab: at,
+            appearance,
+            git,
+            updates,
             ai: section,
             about: text::about(&info.name, &info.version, &info.os, &info.arch).into(),
             focus: cx.focus_handle(),
+            // Only the shown tab is a tab stop; the arrows move between
+            // them (UI-22), as rc.1's roving tabindex did.
             tab_focus: SettingsTab::ALL
                 .iter()
-                .map(|_| cx.focus_handle().tab_stop(true))
+                .map(|tab| cx.focus_handle().tab_stop(*tab == at))
                 .collect(),
             to_first_control: Cell::new(false),
         }
@@ -119,13 +181,19 @@ impl SettingsDialog {
 
     /// Shows `tab`, with the focus on its first control.
     pub fn show(&mut self, tab: SettingsTab, window: &mut Window, cx: &mut Context<Self>) {
-        self.tab = tab;
+        self.select(tab);
         self.focus_first(window, cx);
         cx.notify();
     }
 
     pub fn tab(&self) -> SettingsTab {
         self.tab
+    }
+
+    /// Git detection's start or result, as the window heard it (PLAT-3).
+    pub fn set_git(&self, git: Option<GitStatus>, checking: bool, cx: &mut App) {
+        self.git
+            .update(cx, |tab, cx| tab.set_git(git, checking, cx));
     }
 
     /// The AI tab's key field, while one is shown (SEC-1).
@@ -140,11 +208,22 @@ impl SettingsDialog {
             .unwrap_or_default()
     }
 
+    /// Makes `tab` the shown one and the strip's only tab stop.
+    fn select(&mut self, tab: SettingsTab) {
+        self.tab = tab;
+        for (known, focus) in SettingsTab::ALL.iter().zip(&self.tab_focus) {
+            // The flag is shared by every clone of the handle.
+            let _ = focus.clone().tab_stop(*known == tab);
+        }
+    }
+
     /// Shows the tab at `to` and focuses it.
     fn move_to(&mut self, to: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if let (Some(tab), Some(focus)) = (SettingsTab::ALL.get(to), self.tab_focus.get(to)) {
-            self.tab = *tab;
-            window.focus(focus, cx);
+        if let Some(tab) = SettingsTab::ALL.get(to) {
+            self.select(*tab);
+            if let Some(focus) = self.tab_focus.get(to) {
+                window.focus(focus, cx);
+            }
             cx.notify();
         }
     }
@@ -226,8 +305,11 @@ impl Render for SettingsDialog {
                 .on_click(cx.listener(move |this, _, window, cx| this.move_to(at, window, cx)))
                 .child(tab.label())
         });
-        let panel = match self.tab {
-            SettingsTab::Ai => self.ai.clone(),
+        let panel: gpui_kit::AnyView = match self.tab {
+            SettingsTab::Appearance => self.appearance.clone().into(),
+            SettingsTab::Git => self.git.clone().into(),
+            SettingsTab::Updates => self.updates.clone().into(),
+            SettingsTab::Ai => self.ai.clone().into(),
         };
         dialog::frame("settings-frame", Role::Dialog, &title, cx)
             .aria_description(self.about.clone())

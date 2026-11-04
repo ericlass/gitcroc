@@ -41,6 +41,7 @@ mod palette;
 mod palette_ops;
 mod panes;
 mod perf;
+mod settings;
 mod stage;
 mod strings;
 mod support;

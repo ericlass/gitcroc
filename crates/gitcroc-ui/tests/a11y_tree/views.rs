@@ -235,7 +235,7 @@ pub fn run() -> ExitCode {
 /// does on a desktop, so the buttons are drawn and checked.
 fn open(services: Services, cx: &mut AsyncApp) -> Result<Driver, String> {
     let opened = cx.update(|cx: &mut App| {
-        let options = gitcroc_ui::window_options(false, cx);
+        let options = gitcroc_ui::window_options(false, None, cx);
         gpui_kit::open_window(options, cx, move |window, cx| {
             cx.new(|cx| {
                 GitcrocWindow::new(
@@ -351,10 +351,15 @@ async fn every_view(
     )?;
     d.press("escape").await?;
 
-    // Settings, each of its tabs (M6-26 adds its own).
+    // Settings, each of its tabs.
     d.click("toolbar-settings").await?;
     d.shown("settings-dialog").await?;
-    for tab in ["settings-tab-ai"] {
+    for tab in [
+        "settings-tab-appearance",
+        "settings-tab-git",
+        "settings-tab-updates",
+        "settings-tab-ai",
+    ] {
         d.click(tab).await?;
         check_dialog(d, &tab.replace("settings-tab-", "settings-")).await?;
     }

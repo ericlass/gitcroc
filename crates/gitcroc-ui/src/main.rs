@@ -137,7 +137,7 @@ fn main() -> ExitCode {
             }
         })
         .detach();
-        let (window, _view) = match gitcroc_ui::open_window(services, system_title_bar, cx) {
+        let (window, _view) = match gitcroc_ui::open_window(services, system_title_bar, None, cx) {
             Ok(opened) => opened,
             Err(error) => {
                 eprintln!("cannot open the window: {error:#}");
