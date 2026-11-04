@@ -72,12 +72,13 @@ impl Endpoint {
 }
 
 /// How the update is installed: where the running app came from, or, in
-/// tests, a given place.
+/// tests, an AppImage at a given path, replaced on every platform with the
+/// step the Linux build uses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Target {
     Running(Package),
     #[cfg(test)]
-    Given(Install),
+    GivenAppImage(std::path::PathBuf),
 }
 
 /// The app's update source.
@@ -207,9 +208,9 @@ impl OwnSource {
             .clone()
             .ok_or_else(|| "no update was found".to_owned())?;
         let install = match &self.target {
-            Target::Running(package) => Install::running(*package)?,
+            Target::Running(package) => Some(Install::running(*package)?),
             #[cfg(test)]
-            Target::Given(install) => install.clone(),
+            Target::GivenAppImage(_) => None,
         };
         let package = self.download(&offer.url, &progress).await?;
         // Nothing is written before this.
@@ -219,9 +220,17 @@ impl OwnSource {
             &self.endpoint.public_key,
             &offer.version,
         )?;
-        tokio::task::spawn_blocking(move || put_in_place(&install, &package))
-            .await
-            .map_err(|error| format!("the update was not installed: {error}"))?
+        let target = self.target.clone();
+        tokio::task::spawn_blocking(move || match (install, target) {
+            (Some(install), _) => put_in_place(&install, &package),
+            #[cfg(test)]
+            (None, Target::GivenAppImage(file)) => {
+                super::install::replace_appimage(&package, &file)
+            }
+            (None, _) => Err("the update has nowhere to go".to_owned()),
+        })
+        .await
+        .map_err(|error| format!("the update was not installed: {error}"))?
     }
 }
 

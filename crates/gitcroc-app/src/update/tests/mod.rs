@@ -8,7 +8,7 @@ mod server;
 
 use std::ffi::OsString;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -295,7 +295,7 @@ async fn sec_7_own_source_refuses_a_package_url_that_is_not_https() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("gitcroc.AppImage");
     fs::write(&file, appimage("old")).unwrap();
-    let source = loopback_source(&server, &keys, Install::AppImage { file: file.clone() });
+    let source = loopback_source(&server, &keys, file.clone());
     assert!(source.check().await.unwrap().is_some());
     let error = source.install(no_progress()).await.unwrap_err();
     assert!(error.contains("not https"), "{error}");
@@ -470,7 +470,7 @@ async fn plat_4_nothing_is_written_before_verification() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("gitcroc.AppImage");
     fs::write(&file, appimage("old")).unwrap();
-    let source = loopback_source(&server, &keys, Install::AppImage { file: file.clone() });
+    let source = loopback_source(&server, &keys, file.clone());
     assert!(source.check().await.unwrap().is_some());
     let error = source.install(no_progress()).await.unwrap_err();
     assert!(error.contains("signature does not match"), "{error}");
@@ -503,7 +503,7 @@ async fn plat_4_own_source_finds_downloads_verifies_and_installs_over_loopback()
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("gitcroc.AppImage");
     fs::write(&file, appimage("old")).unwrap();
-    let source = loopback_source(&server, &keys, Install::AppImage { file: file.clone() });
+    let source = loopback_source(&server, &keys, file.clone());
 
     let found = source.check().await.unwrap().unwrap();
     assert_eq!(found.version, "1.0.0");
@@ -531,7 +531,7 @@ async fn plat_4_own_source_finds_downloads_verifies_and_installs_over_loopback()
         source.endpoint().clone(),
         "1.0.0".to_owned(),
         Some("linux-x86_64"),
-        Target::Given(Install::AppImage { file }),
+        Target::GivenAppImage(file),
     );
     assert!(same.check().await.unwrap().is_none());
     assert_eq!(
@@ -546,13 +546,7 @@ async fn plat_4_a_failed_check_is_an_error_and_offers_nothing() {
     let server = Server::start().await;
     // No manifest is served.
     let dir = tempfile::tempdir().unwrap();
-    let source = loopback_source(
-        &server,
-        &keys,
-        Install::AppImage {
-            file: dir.path().join("gitcroc.AppImage"),
-        },
-    );
+    let source = loopback_source(&server, &keys, dir.path().join("gitcroc.AppImage"));
     let error = source.check().await.unwrap_err();
     assert!(error.contains("404"), "{error}");
     server.serve("/latest.json", b"{}".to_vec());
@@ -564,8 +558,8 @@ async fn plat_4_a_failed_check_is_an_error_and_offers_nothing() {
 }
 
 /// A source at 1.0.0-rc.1 on Linux reading the server's `latest.json`,
-/// verifying with `keys`, and installing to `install`.
-fn loopback_source(server: &Server, keys: &Keys, install: Install) -> OwnSource {
+/// verifying with `keys`, and replacing the AppImage `file`.
+fn loopback_source(server: &Server, keys: &Keys, file: PathBuf) -> OwnSource {
     OwnSource::with(
         Endpoint {
             url: server.url("/latest.json"),
@@ -574,7 +568,7 @@ fn loopback_source(server: &Server, keys: &Keys, install: Install) -> OwnSource 
         },
         "1.0.0-rc.1".to_owned(),
         Some("linux-x86_64"),
-        Target::Given(install),
+        Target::GivenAppImage(file),
     )
 }
 
