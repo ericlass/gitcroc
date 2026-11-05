@@ -492,6 +492,18 @@ fn ui_22_every_palette_operation_runs_its_action(root: &mut TestAppContext) {
         crate::ai_resolve::row_click(&mut d.cx, &d.window, "a.txt");
         crate::conflict_flow::wait_for_editor(&mut d.cx, &d.window, "a.txt");
         d.choose(Op::MarkResolved, Did::Runs);
+        // The job can end before its new list reaches the pane. Selecting
+        // d.txt by the old row index would select a different file.
+        wait_until(&mut d.cx, |cx| {
+            crate::changes::with_changes(cx, &d.window, |changes| {
+                !changes.loading()
+                    && changes.rows().iter().all(|row| {
+                        !matches!(row, gitcroc_ui::changes::FileRow::File { file, .. }
+                        if file.list == List::Unmerged
+                            && changes.entry_of(file).is_some_and(|entry| entry.path() == "a.txt"))
+                    })
+            })
+        });
         crate::ai_resolve::row_click(&mut d.cx, &d.window, "d.txt");
         let editor = crate::conflict_flow::wait_for_editor(&mut d.cx, &d.window, "d.txt");
         d.choose(Op::ResolveWithAi, Did::Runs);
