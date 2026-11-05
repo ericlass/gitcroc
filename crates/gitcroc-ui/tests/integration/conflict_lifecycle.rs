@@ -2,7 +2,7 @@
 //! switching files, repos and tabs, and goes only when its conflict ended,
 //! its tab was closed, or the user agreed to lose it for an update. Real
 //! repos (QA-2), repo-local identity, no autocrlf.
-use crate::changes::{show_repo, switch_to};
+use crate::changes::{show_repo, switch_to, wait_for_view};
 use crate::conflict_banner::repos;
 use crate::conflict_flow::{
     job_end, kept_unsaved, lines, mark_resolved, merge_conflict, on_disk, shown, take, unmerged,
@@ -112,6 +112,8 @@ fn ui_29_conflict_edits_survive_file_repo_and_tab_switches(root: &mut TestAppCon
     switch_to(&mut cx, &f, &window, &first);
     show_repo(&mut cx, &window, &added, "api");
     click(&mut cx, "history-uncommitted".into());
+    // The rows are api's once its uncommitted changes have loaded.
+    wait_for_view(&mut cx, &window);
     let again = open(&mut cx, "a.txt");
     assert_eq!(again, editor);
     assert_eq!(value(&mut cx, &again), text);

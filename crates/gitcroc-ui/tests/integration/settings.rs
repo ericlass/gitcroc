@@ -215,6 +215,10 @@ fn ui_23_the_theme_choice_applies_and_is_saved(root: &mut TestAppContext) {
 
     click(&mut cx, named("settings-theme", 0));
     wait_until(&mut cx, |_| f.saved().contains("theme = \"system\""));
+    // The file is written on the app's runtime; the theme follows when the
+    // settings event reaches the UI, which may come later. The choice is
+    // shown from the same event.
+    wait_until(&mut cx, |cx| chosen(cx, named("settings-theme", 0)));
     cx.update(|_, cx| AppTheme::set_system_dark(true, cx));
     assert!(cx.update(|_, cx| AppTheme::global(cx).dark()));
     cx.update(|_, cx| AppTheme::set_system_dark(false, cx));
@@ -278,10 +282,11 @@ fn ui_26_fonts_and_sizes_apply_and_are_saved(root: &mut TestAppContext) {
 
     type_into(&mut cx, "settings-ui-font-size", "15");
     wait_until(&mut cx, |_| f.saved().contains("ui_font_size = 15"));
-    assert_eq!(
-        cx.update(|_, cx| gpui_component::Theme::global(cx).font_size),
-        gpui_kit::px(15.)
-    );
+    // The size applies when the settings event reaches the UI, after the
+    // file is written.
+    wait_until(&mut cx, |cx| {
+        cx.update(|_, cx| gpui_component::Theme::global(cx).font_size) == gpui_kit::px(15.)
+    });
 
     type_into(&mut cx, "settings-ui-font-size", "40");
     wait_until(&mut cx, |_| f.saved().contains("ui_font_size = 32"));
