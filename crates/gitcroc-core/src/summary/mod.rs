@@ -334,7 +334,7 @@ impl Summaries {
         entry.view(id, repo)
     }
 
-    /// Reads `repo` of workspace `id` again at once, at normal priority,
+    /// Reads `repo` of workspace `id` again at once, with bounded status workers,
     /// after a job changed it (OPS-7); `refs_changed` says the job changed
     /// its refs, so the history reads it again. A background read that
     /// began before is not kept. Returns the new view, or `None` when the
@@ -360,7 +360,7 @@ impl Summaries {
             entry.epoch = entry.epoch.wrapping_add(1);
             (noted, entry.epoch)
         };
-        let outcome = read(&path, |repo| StatusReader::new(repo, git.clone()));
+        let outcome = read(&path, |repo| job_reader(repo, git));
         Some(self.store(id, repo, &path, outcome, refs_changed || noted, epoch))
     }
 
@@ -659,14 +659,28 @@ impl Drop for Reader {
     }
 }
 
-/// How many threads one background status read uses at most. Unlimited,
+/// How many threads one background or post-job status read uses at most. Unlimited,
 /// each read starts one per core, and glibc's malloc keeps memory for each
 /// of them after the refresh. Four keep a
 /// refresh of `target-project` within 1 s, measured pinned to 8 cores; one
 /// took 1.9 s (M1-14).
 const STATUS_THREADS: usize = 4;
 
-/// The status reader of the background refresh (PERF-4).
+/// Starts a job's post-write status refresh immediately, with background
+/// CPU priority. The job still holds its shared-pool slot until it finishes.
+/// A fresh thread also keeps its gix workers from competing with UI/input,
+/// without permanently lowering a reusable Tokio blocking worker.
+pub(crate) async fn run_job_read<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    run_in_background(work).await
+}
+
+fn job_reader(repo: GitRepo, git: &GitRunner) -> StatusReader {
+    background_reader(repo, git)
+}
+
+/// The bounded status reader for background and post-job refresh (PERF-4).
 fn background_reader(repo: GitRepo, git: &GitRunner) -> StatusReader {
     StatusReader::new(repo, git.clone()).with_thread_limit(STATUS_THREADS)
 }
@@ -720,6 +734,40 @@ mod tests {
             background_reader(repo, &runner).thread_limit(),
             Some(STATUS_THREADS)
         );
+    }
+
+    /// PERF-4, ARCH-7: a group may finish eight writes at once. Their status
+    /// refreshes must bound worker fan-out and yield CPU to interactive reads.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn perf_4_post_job_refresh_bounds_workers_and_inherits_background_priority() {
+        let fixture = repo_gen::Fixture::new().unwrap();
+        let repo = fixture.repo("app").unwrap();
+        let path = repo.path().to_owned();
+        let (priority, child, limit) = run_job_read(move || {
+            let repo = GitRepo::open(&path).unwrap();
+            let git = GitRunner::new(std::path::PathBuf::from("git"));
+            (
+                niceness(),
+                std::thread::spawn(niceness).join().unwrap(),
+                job_reader(repo, &git).thread_limit(),
+            )
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            (priority, child),
+            (19, 19),
+            "post-job status competes with input"
+        );
+        assert_eq!(
+            limit,
+            Some(4),
+            "each finishing job can fan out across every CPU"
+        );
+        let normal = std::thread::spawn(niceness).join().unwrap();
+        assert_eq!(tokio::task::spawn_blocking(niceness).await.unwrap(), normal);
+        assert!(normal < 19);
     }
 
     /// The niceness of the calling thread, from `/proc`.

@@ -35,3 +35,10 @@ running job; focusing the field is outside the measured interval.
 `input-latency-group-job` median is at most 50 ms; every other gating row
 remains within budget, `just check` passes and M6 coverage stays empty.
 No spec or threshold changes. This remains open before the M6 sign-off.
+
+## Result
+
+[Diagnosis, regression test and complete before/after measurements](M6-29e-investigation.md).
+The final five-run group-input median is 41.568 ms; every gating UI median
+passes with #159 included. `just check` and `just coverage M6` pass.
+All thresholds, including the 400 MB memory limit, remain unchanged.
