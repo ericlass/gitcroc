@@ -205,6 +205,23 @@ impl Terminal for Terminals {
     }
 }
 
+impl super::ProcessMemory for super::PlatformMemory {
+    fn memory_mb() -> Result<f64, String> {
+        let text = std::fs::read_to_string("/proc/self/smaps_rollup")
+            .map_err(|error| format!("cannot read process memory: {error}"))?;
+        text.lines()
+            .find_map(|line| {
+                line.strip_prefix("Pss:")?
+                    .split_whitespace()
+                    .next()?
+                    .parse::<f64>()
+                    .ok()
+            })
+            .map(|kb| kb / 1024.)
+            .ok_or_else(|| "process memory has no Pss".to_owned())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{font_family, kde_font_family};

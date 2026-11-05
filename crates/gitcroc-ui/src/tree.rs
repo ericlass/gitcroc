@@ -204,6 +204,10 @@ impl Tree {
     }
 
     /// Starts showing `text`'s matches: `true` when the core is to be asked.
+    pub fn filter_ready(&self) -> bool {
+        self.filter.is_empty() || self.filtered.is_some()
+    }
+
     pub fn set_filter(&mut self, text: String) -> bool {
         self.filter_expanded.clear();
         if text.is_empty() {

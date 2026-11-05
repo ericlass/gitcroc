@@ -360,6 +360,37 @@ impl GitcrocWindow {
         &self.jobs
     }
 
+    /// The benchmark counts inputs only while the core still has a real
+    /// running job, rather than a delayed UI event for a completed job.
+    #[cfg(feature = "perf-trace")]
+    pub(crate) fn running_job(&self) -> bool {
+        self.services
+            .app()
+            .jobs_get()
+            .iter()
+            .any(|job| job.state == gitcroc_core::JobState::Running)
+    }
+
+    #[cfg(feature = "perf-trace")]
+    pub(crate) fn active_job(&self) -> bool {
+        self.services
+            .app()
+            .jobs_get()
+            .iter()
+            .any(|job| job.state != gitcroc_core::JobState::Ended)
+    }
+
+    #[cfg(feature = "perf-trace")]
+    pub(crate) fn benchmark_refresh(&self, cx: &gpui_kit::App) {
+        if let Some(workspace) = self.tabs(cx).active {
+            // Dropping the JoinHandle detaches this untimed setup call.
+            drop(
+                self.services
+                    .with_app(move |app| async move { app.workspace_refresh(workspace).await }),
+            );
+        }
+    }
+
     fn on_event(
         &mut self,
         event: Result<AppEvent, RecvError>,

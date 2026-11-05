@@ -165,3 +165,9 @@ impl Terminal for WindowsTerminal {
         ]
     }
 }
+
+impl super::ProcessMemory for super::PlatformMemory {
+    fn memory_mb() -> Result<f64, String> {
+        Err("idle memory benchmarks run on Linux only".to_owned())
+    }
+}
