@@ -45,6 +45,9 @@ const USAGE: &str = if cfg!(feature = "perf-trace") {
     "usage: gitcroc-next [--exit-after-first-frame]"
 };
 
+#[cfg(feature = "e2e")]
+mod e2e;
+
 fn main() -> ExitCode {
     // Started by git as its askpass helper (D10): no window.
     if let Some(code) = askpass::helper::<PlatformSockets>() {
@@ -54,6 +57,8 @@ fn main() -> ExitCode {
     let first_frame = match args.as_slice() {
         [] => false,
         [flag] if flag == "--exit-after-first-frame" => true,
+        #[cfg(feature = "e2e")]
+        [flag, _] if flag == "--smoke" => false,
         #[cfg(feature = "perf-trace")]
         [flag, _, _] if flag == "--bench" => false,
         _ => {
@@ -65,6 +70,17 @@ fn main() -> ExitCode {
     let bench = match args.as_slice() {
         [flag, script, trace] if flag == "--bench" => match bench::read(script.as_ref()) {
             Ok(script) => Some((script, std::path::PathBuf::from(trace))),
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::from(2);
+            }
+        },
+        _ => None,
+    };
+    #[cfg(feature = "e2e")]
+    let smoke = match args.as_slice() {
+        [flag, path] if flag == "--smoke" => match e2e::read(path.as_ref()) {
+            Ok(script) => Some(script),
             Err(error) => {
                 eprintln!("{error}");
                 return ExitCode::from(2);
@@ -87,7 +103,7 @@ fn main() -> ExitCode {
     let (dialogs, dialog_requests) = gitcroc_ui::dialogs::dialogs();
     // The askpass socket is opened in the runtime's context.
     let entered = runtime.enter();
-    let app = App::start(AppSetup {
+    let setup = AppSetup {
         config: &PlatformConfigDir,
         cache: &PlatformCacheDir,
         logs: &PlatformLogDir,
@@ -103,7 +119,21 @@ fn main() -> ExitCode {
         event_capacity: EVENT_CAPACITY,
         commit_graph_threshold: COMMIT_GRAPH_THRESHOLD,
         fsmonitor_threshold: FSMONITOR_THRESHOLD,
-    });
+    };
+    #[cfg(feature = "e2e")]
+    let setup = match smoke.as_ref() {
+        Some(script) => AppSetup {
+            config: script,
+            cache: script,
+            logs: script,
+            dialogs: Arc::new(e2e::PickFolder(script.folder.clone())),
+            keychain: Arc::new(gitcroc_app::platform::MemoryKeychain::default()),
+            updates: Arc::new(gitcroc_app::update::NoUpdates),
+            ..setup
+        },
+        None => setup,
+    };
+    let app = App::start(setup);
     drop(entered);
     let system_title_bar = app.settings_get().settings.appearance.system_title_bar;
     let quitting = app.clone();
@@ -115,6 +145,8 @@ fn main() -> ExitCode {
             std::process::exit(1);
         });
     }
+    #[cfg(feature = "e2e")]
+    let smoke_app = quitting.clone();
     gpui_kit::application().with_assets(Icons).run(move |cx| {
         gitcroc_ui::init(cx);
         if let Err(error) = fonts::check_installed(AppTheme::global(cx).installed_fonts()) {
@@ -148,6 +180,10 @@ fn main() -> ExitCode {
         #[cfg(feature = "perf-trace")]
         if let Some((script, trace)) = bench {
             bench::start(window, _view, script, trace, cx);
+        }
+        #[cfg(feature = "e2e")]
+        if let Some(script) = smoke {
+            e2e::start(window, script, smoke_app, cx);
         }
         if first_frame {
             // The callback of the frame after the first one, so the

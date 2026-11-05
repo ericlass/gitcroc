@@ -42,6 +42,8 @@ futures-lite.workspace = true
 windows = { workspace = true, features = ["UI_ViewManagement"] }
 
 [features]
+# Real-window smoke scripts; never enabled by packaging.
+e2e = ["gpui-kit/test-support", "gitcroc-app/e2e"]
 # `gitcroc-next --bench <script>`: the UI-side benchmark runner (PERF-8),
 # which `just bench-ui` builds into its own target folder. Never in a
 # release build. The runner finds what it clicks through gpui-kit's
