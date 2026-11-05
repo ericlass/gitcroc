@@ -327,8 +327,8 @@ impl Runner {
                         self.phase = Phase::RefreshInput { since: Some(since) };
                     }
                 } else if refreshing {
-                    let since = Instant::now();
                     click(window, &name("tree-filter".into()), cx)?;
+                    let since = Instant::now();
                     window.input("repo", cx);
                     self.phase = Phase::RefreshInput { since: Some(since) };
                 } else {
@@ -361,8 +361,8 @@ impl Runner {
                         };
                     }
                 } else if running {
-                    let since = Instant::now();
                     click(window, &name("tree-filter".into()), cx)?;
+                    let since = Instant::now();
                     window.input("repo", cx);
                     self.phase = Phase::JobInput {
                         since: Some(since),
