@@ -1,0 +1,182 @@
+[
+  {
+    "budget_ms": 1000.0,
+    "data_set": "target-project",
+    "median_ms": 721.284,
+    "p95_ms": 785.689,
+    "pass": true,
+    "runs": 5,
+    "scenario": "cold-start",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 2000.0,
+    "data_set": "target-project",
+    "median_ms": 832.406,
+    "p95_ms": 857.067,
+    "pass": true,
+    "runs": 5,
+    "scenario": "refresh-all-ui",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 300.0,
+    "data_set": "target-project",
+    "median_ms": 131.959,
+    "p95_ms": 131.965,
+    "pass": true,
+    "runs": 5,
+    "scenario": "select-group",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 50.0,
+    "data_set": "target-project",
+    "median_ms": 34.605,
+    "p95_ms": 34.627,
+    "pass": true,
+    "runs": 5,
+    "scenario": "input-latency",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 50.0,
+    "data_set": "target-project",
+    "median_ms": 27.789,
+    "p95_ms": 29.391,
+    "pass": true,
+    "runs": 5,
+    "scenario": "input-latency-job",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 50.0,
+    "data_set": "target-project",
+    "median_ms": 41.568,
+    "p95_ms": 43.256,
+    "pass": true,
+    "runs": 5,
+    "scenario": "input-latency-group-job",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 200.0,
+    "data_set": "target-project",
+    "median_ms": 48.615,
+    "p95_ms": 55.562,
+    "pass": true,
+    "runs": 5,
+    "scenario": "select-largest-repo",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 150.0,
+    "data_set": "target-project",
+    "median_ms": 104.163,
+    "p95_ms": 104.166,
+    "pass": true,
+    "runs": 5,
+    "scenario": "select-commit",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 100.0,
+    "data_set": "target-project",
+    "median_ms": 48.617,
+    "p95_ms": 76.39,
+    "pass": true,
+    "runs": 5,
+    "scenario": "switch-repo",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 100.0,
+    "data_set": "target-project",
+    "median_ms": 13.896,
+    "p95_ms": 27.769,
+    "pass": true,
+    "runs": 5,
+    "scenario": "switch-tab",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 400.0,
+    "data_set": "target-project",
+    "median_ms": 305.108,
+    "p95_ms": 315.584,
+    "pass": true,
+    "runs": 5,
+    "scenario": "memory-idle",
+    "unit": "MB"
+  },
+  {
+    "budget_ms": 400.0,
+    "data_set": "target-project",
+    "median_ms": 322.833,
+    "p95_ms": 331.901,
+    "pass": true,
+    "runs": 5,
+    "scenario": "memory-two-tabs",
+    "unit": "MB"
+  },
+  {
+    "budget_ms": null,
+    "data_set": "target-project",
+    "median_ms": 208.35,
+    "p95_ms": 368.088,
+    "pass": true,
+    "runs": 5,
+    "scenario": "switch-tab-history",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 7.014,
+    "data_set": "target-project",
+    "median_ms": 7.005,
+    "p95_ms": 7.047,
+    "pass": true,
+    "runs": 5,
+    "scenario": "scroll-history-frame",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 1.0,
+    "data_set": "target-project",
+    "median_ms": 0.775,
+    "p95_ms": 1.463,
+    "pass": true,
+    "runs": 5,
+    "scenario": "scroll-history-janky",
+    "unit": "%"
+  },
+  {
+    "budget_ms": 7.014,
+    "data_set": "target-project",
+    "median_ms": 6.947,
+    "p95_ms": 6.95,
+    "pass": true,
+    "runs": 5,
+    "scenario": "scroll-diff-frame",
+    "unit": "ms"
+  },
+  {
+    "budget_ms": 1.0,
+    "data_set": "target-project",
+    "median_ms": 0.033,
+    "p95_ms": 0.067,
+    "pass": true,
+    "runs": 5,
+    "scenario": "scroll-diff-janky",
+    "unit": "%"
+  },
+  {
+    "budget_ms": 100.0,
+    "data_set": "target-project",
+    "median_ms": 0.0,
+    "p95_ms": 0.0,
+    "pass": true,
+    "runs": 5,
+    "scenario": "scroll-blank",
+    "unit": "ms"
+  }
+]

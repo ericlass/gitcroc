@@ -420,9 +420,22 @@ pub async fn tree_filter(
     text: String,
 ) -> Result<Option<Vec<TreeNode>>, WorkspaceError> {
     let request = trees.begin_filter(&id);
-    tokio::task::spawn_blocking(move || trees.filter(&workspaces, &summaries, &id, &text, request))
-        .await
-        .map_err(WorkspaceError::Stopped)?
+    let profile = std::env::var_os("GITCROC_PROFILE_FILTER").is_some();
+    let queued = std::time::Instant::now();
+    tokio::task::spawn_blocking(move || {
+        let began = std::time::Instant::now();
+        let result = trees.filter(&workspaces, &summaries, &id, &text, request);
+        if profile {
+            eprintln!(
+                "filter-core request={request} queue_ms={:.3} work_ms={:.3}",
+                began.duration_since(queued).as_secs_f64() * 1000.,
+                began.elapsed().as_secs_f64() * 1000.
+            );
+        }
+        result
+    })
+    .await
+    .map_err(WorkspaceError::Stopped)?
 }
 
 fn ungrouped(repos: Vec<TreeNode>) -> TreeNode {

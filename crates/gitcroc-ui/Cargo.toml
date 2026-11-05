@@ -49,6 +49,8 @@ e2e = ["gpui-kit/test-support", "gitcroc-app/e2e"]
 # release build. The runner finds what it clicks through gpui-kit's
 # element registry, which only its `test-support` keeps.
 perf-trace = ["gpui-kit/test-support"]
+# Extra per-view diagnostics, separate from the budget build.
+profile-filter = ["perf-trace", "gpui-kit/profiler"]
 
 [dev-dependencies]
 # The integration tests play a bench script (PERF-8).

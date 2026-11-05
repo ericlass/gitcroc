@@ -336,7 +336,15 @@ impl Runner {
                 }
             }
             Phase::JobInput { since, started } => {
+                let probe = Instant::now();
                 let running = self.window.read(cx).running_job();
+                if std::env::var_os("GITCROC_PROFILE_FILTER").is_some() {
+                    eprintln!(
+                        "filter-frame since_ms={:?} running_probe_ms={:.3}",
+                        since.map(|s| s.elapsed().as_secs_f64() * 1000.),
+                        probe.elapsed().as_secs_f64() * 1000.
+                    );
+                }
                 if let Some(since) = since {
                     if running
                         && self.window.read(cx).tree(cx).is_some_and(|tree| {
@@ -362,8 +370,23 @@ impl Runner {
                     }
                 } else if running {
                     click(window, &name("tree-filter".into()), cx)?;
+                    let profiling = std::env::var_os("GITCROC_PROFILE_FILTER").is_some();
+                    #[cfg(feature = "profile-filter")]
+                    gpui_kit::profiler::set_trace_enabled(profiling);
+                    #[cfg(feature = "profile-filter")]
+                    let mut collector = cx.foreground_journal().collector();
                     let since = Instant::now();
                     window.input("repo", cx);
+                    #[cfg(feature = "profile-filter")]
+                    if profiling {
+                        eprintln!("filter-draws {:?}", collector.collect_unseen());
+                    }
+                    if profiling {
+                        eprintln!(
+                            "filter-input dispatch_ms={:.3}",
+                            since.elapsed().as_secs_f64() * 1000.
+                        );
+                    }
                     self.phase = Phase::JobInput {
                         since: Some(since),
                         started: true,

@@ -1,0 +1,158 @@
+CARGO_TARGET_DIR="/home/bertas/Dev/Rust/gitcroc/target/bench-ui" cargo build --quiet --release -p gitcroc-ui --bin gitcroc-next --features perf-trace
+cargo run --quiet --release -p gitcroc-cli -- bench-ui --app "/home/bertas/Dev/Rust/gitcroc/target/bench-ui/release/gitcroc-next" --runs 5 --refresh-hz 144 --verbose
+setting up the workspaces in /tmp/.tmpaNDOWl
+select-commit on target-project: ddc0835e876659374821a945fe50ee478af6b42d, 2441 changed lines
+warm-up run
+libEGL warning: pci id for fd 27: 10de:2786, driver (null)
+
+pci id for fd 44: 10de:2786, driver (null)
+pci id for fd 43: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=3.062 work_ms=0.116
+filter-ui text="repo" delivery_ms=3.307
+filter-core request=1 queue_ms=0.012 work_ms=0.059
+filter-ui text="repo" delivery_ms=4.322
+filter-core request=2 queue_ms=3.980 work_ms=25.458
+filter-ui text="repo" delivery_ms=36.875
+run 1 of 5
+libEGL warning: pci id for fd 43: 10de:2786, driver (null)
+
+pci id for fd 42: 10de:2786, driver (null)
+pci id for fd 45: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=0.016 work_ms=0.075
+filter-ui text="repo" delivery_ms=4.297
+filter-core request=1 queue_ms=0.013 work_ms=0.068
+filter-ui text="repo" delivery_ms=4.220
+filter-core request=2 queue_ms=0.017 work_ms=0.079
+filter-ui text="repo" delivery_ms=5.249
+  cold-start: [727.6] ms
+  input-latency: [34.6] ms
+  input-latency-group-job: [47.2] ms
+  input-latency-job: [39.1] ms
+  memory-idle: [286.7] MB
+  memory-two-tabs: [317.0] MB
+  refresh-all-ui: [901.2] ms
+  select-commit: [118.0] ms
+  select-group: [138.9] ms
+  select-job-group: [465.3] ms
+  select-largest-repo: [48.6] ms
+  switch-repo: [48.6, 76.4, 48.6, 62.5, 48.6, 48.6, 62.5, 62.5] ms
+  switch-tab: [13.9, 13.9, 13.9, 13.9, 13.9, 13.9, 13.9, 13.9] ms
+  switch-tab-history: [83.3, 347.3, 83.3, 319.5, 76.4, 347.3, 55.6, 312.5] ms
+  scroll-history: 1162 frames, mean 7.17 ms, 3.27% dropped, longest blank 0.0 ms
+  scroll-diff: 3001 frames, mean 6.95 ms, 0.07% dropped, longest blank 0.0 ms
+run 2 of 5
+libEGL warning: pci id for fd 47: 10de:2786, driver (null)
+
+pci id for fd 43: 10de:2786, driver (null)
+pci id for fd 44: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=0.989 work_ms=0.076
+filter-ui text="repo" delivery_ms=2.558
+filter-core request=1 queue_ms=0.013 work_ms=0.057
+filter-ui text="repo" delivery_ms=4.538
+filter-core request=2 queue_ms=0.016 work_ms=0.060
+filter-ui text="repo" delivery_ms=4.922
+  cold-start: [760.4] ms
+  input-latency: [20.7] ms
+  input-latency-group-job: [64.0] ms
+  input-latency-job: [35.8] ms
+  memory-idle: [284.2] MB
+  memory-two-tabs: [310.4] MB
+  refresh-all-ui: [850.7] ms
+  select-commit: [90.3] ms
+  select-group: [138.9] ms
+  select-job-group: [444.5] ms
+  select-largest-repo: [48.6] ms
+  switch-repo: [34.7, 76.4, 48.6, 48.6, 55.6, 48.6, 41.7, 62.5] ms
+  switch-tab: [13.9, 20.8, 13.9, 20.8, 13.9, 20.8, 13.9, 27.8] ms
+  switch-tab-history: [104.2, 347.2, 55.6, 333.4, 55.6, 375.0, 69.5, 361.1] ms
+  scroll-history: 1162 frames, mean 7.17 ms, 3.27% dropped, longest blank 0.0 ms
+  scroll-diff: 3001 frames, mean 6.95 ms, 0.13% dropped, longest blank 0.0 ms
+run 3 of 5
+libEGL warning: pci id for fd 43: 10de:2786, driver (null)
+
+pci id for fd 38: 10de:2786, driver (null)
+pci id for fd 44: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=0.014 work_ms=0.069
+filter-ui text="repo" delivery_ms=2.603
+filter-core request=1 queue_ms=0.013 work_ms=0.055
+filter-ui text="repo" delivery_ms=4.269
+filter-core request=2 queue_ms=1.984 work_ms=0.059
+filter-ui text="repo" delivery_ms=8.567
+  cold-start: [758.9] ms
+  input-latency: [20.8] ms
+  input-latency-group-job: [86.7] ms
+  input-latency-job: [27.7] ms
+  memory-idle: [291.3] MB
+  memory-two-tabs: [326.9] MB
+  refresh-all-ui: [828.3] ms
+  select-commit: [90.3] ms
+  select-group: [125.0] ms
+  select-job-group: [437.5] ms
+  select-largest-repo: [48.6] ms
+  switch-repo: [41.7, 62.5, 41.7, 48.6, 62.5, 62.5, 41.7, 48.6] ms
+  switch-tab: [20.8, 20.8, 13.9, 20.8, 13.9, 20.8, 13.9, 20.8] ms
+  switch-tab-history: [69.4, 361.1, 69.4, 382.0, 55.6, 354.2, 55.6, 347.3] ms
+  scroll-history: 1162 frames, mean 7.21 ms, 3.79% dropped, longest blank 0.0 ms
+  scroll-diff: 3001 frames, mean 6.96 ms, 0.27% dropped, longest blank 0.0 ms
+run 4 of 5
+libEGL warning: pci id for fd 50: 10de:2786, driver (null)
+
+pci id for fd 43: 10de:2786, driver (null)
+pci id for fd 44: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=0.018 work_ms=0.083
+filter-ui text="repo" delivery_ms=4.308
+filter-core request=1 queue_ms=0.018 work_ms=0.057
+filter-ui text="repo" delivery_ms=4.741
+filter-core request=2 queue_ms=2.993 work_ms=0.072
+filter-ui text="repo" delivery_ms=16.284
+  cold-start: [732.8] ms
+  input-latency: [35.3] ms
+  input-latency-group-job: [62.4] ms
+  input-latency-job: [36.6] ms
+  memory-idle: [281.4] MB
+  memory-two-tabs: [304.2] MB
+  refresh-all-ui: [899.5] ms
+  select-commit: [104.2] ms
+  select-group: [132.0] ms
+  select-job-group: [437.5] ms
+  select-largest-repo: [48.6] ms
+  switch-repo: [48.6, 62.5, 48.6, 48.6, 48.6, 62.5, 41.7, 48.6] ms
+  switch-tab: [13.9, 13.9, 13.9, 13.9, 13.9, 20.8, 13.9, 20.8] ms
+  switch-tab-history: [83.3, 333.4, 76.4, 368.1, 55.6, 347.2, 55.6, 326.4] ms
+  scroll-history: 1162 frames, mean 7.14 ms, 2.67% dropped, longest blank 0.0 ms
+  scroll-diff: 3001 frames, mean 6.95 ms, 0.10% dropped, longest blank 0.0 ms
+run 5 of 5
+libEGL warning: pci id for fd 46: 10de:2786, driver (null)
+
+pci id for fd 43: 10de:2786, driver (null)
+pci id for fd 44: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=0.039 work_ms=0.071
+filter-ui text="repo" delivery_ms=2.468
+filter-core request=1 queue_ms=0.032 work_ms=0.056
+filter-ui text="repo" delivery_ms=4.322
+filter-core request=2 queue_ms=0.466 work_ms=17.311
+filter-ui text="repo" delivery_ms=21.770
+  cold-start: [756.6] ms
+  input-latency: [20.7] ms
+  input-latency-group-job: [83.0] ms
+  input-latency-job: [41.6] ms
+  memory-idle: [290.8] MB
+  memory-two-tabs: [314.7] MB
+  refresh-all-ui: [846.9] ms
+  select-commit: [104.2] ms
+  select-group: [118.1] ms
+  select-job-group: [472.3] ms
+  select-largest-repo: [48.6] ms
+  switch-repo: [48.6, 62.5, 41.7, 48.6, 48.6, 48.6, 62.5, 48.6] ms
+  switch-tab: [20.8, 34.7, 13.9, 20.8, 13.9, 20.8, 13.9, 20.8] ms
+  switch-tab-history: [90.3, 340.3, 69.4, 326.4, 69.5, 340.3, 69.4, 361.1] ms
+  scroll-history: 1162 frames, mean 7.09 ms, 2.15% dropped, longest blank 0.0 ms
+  scroll-diff: 3001 frames, mean 6.96 ms, 0.20% dropped, longest blank 0.0 ms
+display refresh rate: 144.0 Hz
+error: recipe `bench-ui` failed on line 89 with exit code 1

@@ -120,8 +120,8 @@ separate from hosted-runner functional tests and M6-31's sign-off.
 - `target-project` `input-latency-group-job`: 57.548 vs 50.0 (ms).
 
 The remaining performance work is [M6-29e](M6-29e-group-input-latency.md).
-M6 performance sign-off is pending that fix.
+The Linux UI miss is resolved by [M6-29e’s before/after measurements](M6-29e-investigation.md); every gating UI median passes with the scrollbar changes included. Other M6 sign-off work remains separate.
 
 The visible-scrollbar correction ([M6-29f](M6-29f-visible-scrollbars.md))
-was added after these measurements. M6-29e must rerun the complete UI
+was added after these measurements. M6-29e reran the complete UI
 budgets with that rendering change in place.

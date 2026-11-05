@@ -417,11 +417,20 @@ impl TreePane {
             return;
         }
         let (workspace, asked) = (self.workspace_id.clone(), text.clone());
+        #[cfg(feature = "perf-trace")]
+        let began = std::time::Instant::now();
         let call = self
             .services
             .with_app(|app| async move { app.tree_filter(workspace, asked).await });
         cx.spawn(async move |this, cx| {
             let result = call.await;
+            #[cfg(feature = "perf-trace")]
+            if std::env::var_os("GITCROC_PROFILE_FILTER").is_some() {
+                eprintln!(
+                    "filter-ui text={text:?} delivery_ms={:.3}",
+                    began.elapsed().as_secs_f64() * 1000.
+                );
+            }
             let _ = this.update(cx, |this, cx| {
                 match result {
                     // `None`: a newer request superseded this one.

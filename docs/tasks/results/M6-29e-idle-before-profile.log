@@ -1,0 +1,255 @@
+CARGO_TARGET_DIR="/home/bertas/Dev/Rust/gitcroc/target/bench-ui" cargo build --quiet --release -p gitcroc-ui --bin gitcroc-next --features perf-trace
+cargo run --quiet --release -p gitcroc-cli -- bench-ui --app "/home/bertas/Dev/Rust/gitcroc/target/bench-ui/release/gitcroc-next" --runs 5 --refresh-hz 144 --verbose
+setting up the workspaces in /tmp/.tmpVI4Onn
+select-commit on target-project: ddc0835e876659374821a945fe50ee478af6b42d, 2441 changed lines
+warm-up run
+libEGL warning: pci id for fd 41: 10de:2786, driver (null)
+
+pci id for fd 42: 10de:2786, driver (null)
+pci id for fd 39: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=0.014 work_ms=0.069
+filter-ui text="repo" delivery_ms=4.618
+filter-frame since_ms=None running_probe_ms=0.002
+filter-frame since_ms=None running_probe_ms=0.003
+filter-input dispatch_ms=23.107
+filter-core request=1 queue_ms=0.021 work_ms=0.088
+filter-ui text="repo" delivery_ms=4.135
+filter-frame since_ms=Some(27.679311000000002) running_probe_ms=0.002
+filter-frame since_ms=None running_probe_ms=0.003
+filter-frame since_ms=None running_probe_ms=0.006
+filter-input dispatch_ms=55.059
+filter-core request=2 queue_ms=0.015 work_ms=8.399
+filter-ui text="repo" delivery_ms=8.838
+filter-frame since_ms=Some(70.765997) running_probe_ms=0.007
+run 1 of 5
+libEGL warning: pci id for fd 43: 10de:2786, driver (null)
+
+pci id for fd 32: 10de:2786, driver (null)
+pci id for fd 49: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=0.036 work_ms=0.112
+filter-ui text="repo" delivery_ms=4.582
+filter-frame since_ms=None running_probe_ms=0.003
+filter-frame since_ms=None running_probe_ms=0.003
+filter-input dispatch_ms=22.443
+filter-core request=1 queue_ms=0.012 work_ms=0.056
+filter-ui text="repo" delivery_ms=4.373
+filter-frame since_ms=Some(27.689742) running_probe_ms=0.003
+filter-frame since_ms=None running_probe_ms=0.003
+filter-frame since_ms=None running_probe_ms=0.004
+filter-input dispatch_ms=45.868
+filter-core request=2 queue_ms=0.112 work_ms=0.058
+filter-ui text="repo" delivery_ms=28.380
+filter-frame since_ms=Some(77.673085) running_probe_ms=0.005
+  cold-start: [704.7] ms
+  input-latency: [33.5] ms
+  input-latency-group-job: [77.7] ms
+  input-latency-job: [27.7] ms
+  memory-idle: [296.3] MB
+  memory-two-tabs: [333.2] MB
+  refresh-all-ui: [850.5] ms
+  select-commit: [97.2] ms
+  select-group: [132.0] ms
+  select-job-group: [472.3] ms
+  select-largest-repo: [48.6] ms
+  switch-repo: [41.7, 62.5, 41.7, 62.5, 48.6, 62.5, 48.6, 48.6] ms
+  switch-tab: [20.8, 20.8, 13.9, 20.8, 13.9, 20.8, 13.9, 20.8] ms
+  switch-tab-history: [76.4, 340.3, 55.6, 340.3, 83.3, 312.5, 62.5, 375.0] ms
+  scroll-history: 1162 frames, mean 6.97 ms, 0.43% dropped, longest blank 0.0 ms
+  scroll-diff: 3001 frames, mean 6.94 ms, 0.00% dropped, longest blank 0.0 ms
+run 2 of 5
+libEGL warning: pci id for fd 49: 10de:2786, driver (null)
+
+pci id for fd 43: 10de:2786, driver (null)
+pci id for fd 44: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=1.186 work_ms=0.066
+filter-ui text="repo" delivery_ms=2.529
+filter-frame since_ms=None running_probe_ms=0.002
+filter-frame since_ms=None running_probe_ms=0.003
+filter-input dispatch_ms=22.809
+filter-core request=1 queue_ms=0.228 work_ms=0.052
+filter-ui text="repo" delivery_ms=4.138
+filter-frame since_ms=Some(27.692312) running_probe_ms=0.002
+filter-frame since_ms=None running_probe_ms=0.004
+filter-frame since_ms=None running_probe_ms=0.009
+filter-input dispatch_ms=32.914
+filter-core request=2 queue_ms=0.015 work_ms=0.063
+filter-ui text="repo" delivery_ms=4.834
+filter-frame since_ms=Some(38.786449) running_probe_ms=0.005
+  cold-start: [733.5] ms
+  input-latency: [20.0] ms
+  input-latency-group-job: [38.8] ms
+  input-latency-job: [27.7] ms
+  memory-idle: [303.0] MB
+  memory-two-tabs: [316.3] MB
+  refresh-all-ui: [837.7] ms
+  select-commit: [104.2] ms
+  select-group: [125.0] ms
+  select-job-group: [430.6] ms
+  select-largest-repo: [48.6] ms
+  switch-repo: [48.6, 55.6, 48.6, 69.5, 48.6, 48.6, 62.5, 76.4] ms
+  switch-tab: [13.9, 29.2, 13.9, 20.8, 13.9, 20.8, 13.9, 22.9] ms
+  switch-tab-history: [83.3, 340.3, 55.6, 326.4, 62.5, 375.0, 83.3, 333.4] ms
+  scroll-history: 1162 frames, mean 7.00 ms, 0.86% dropped, longest blank 0.0 ms
+  scroll-diff: 3001 frames, mean 6.95 ms, 0.03% dropped, longest blank 0.0 ms
+run 3 of 5
+libEGL warning: pci id for fd 43: 10de:2786, driver (null)
+
+pci id for fd 33: 10de:2786, driver (null)
+pci id for fd 49: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=0.229 work_ms=0.067
+filter-ui text="repo" delivery_ms=2.516
+filter-frame since_ms=None running_probe_ms=0.002
+filter-frame since_ms=None running_probe_ms=0.003
+filter-input dispatch_ms=22.832
+filter-core request=1 queue_ms=3.628 work_ms=0.053
+filter-ui text="repo" delivery_ms=7.186
+filter-frame since_ms=Some(35.541564) running_probe_ms=0.003
+filter-frame since_ms=None running_probe_ms=0.003
+filter-frame since_ms=None running_probe_ms=0.004
+filter-input dispatch_ms=28.414
+filter-frame since_ms=Some(45.313279) running_probe_ms=0.007
+filter-frame since_ms=Some(62.309037999999994) running_probe_ms=0.006
+filter-frame since_ms=Some(84.56833599999999) running_probe_ms=0.007
+filter-frame since_ms=Some(90.015029) running_probe_ms=0.004
+filter-frame since_ms=Some(102.31981800000001) running_probe_ms=0.010
+filter-frame since_ms=Some(106.511495) running_probe_ms=0.005
+filter-frame since_ms=Some(138.980803) running_probe_ms=0.006
+filter-frame since_ms=Some(145.579237) running_probe_ms=0.005
+filter-frame since_ms=Some(152.51634) running_probe_ms=0.003
+filter-frame since_ms=Some(159.463902) running_probe_ms=0.004
+filter-frame since_ms=Some(166.413964) running_probe_ms=0.005
+filter-frame since_ms=Some(173.733304) running_probe_ms=0.006
+filter-frame since_ms=Some(194.194063) running_probe_ms=0.005
+filter-frame since_ms=Some(201.14136499999998) running_probe_ms=0.007
+filter-frame since_ms=Some(208.641459) running_probe_ms=0.007
+filter-frame since_ms=Some(215.523003) running_probe_ms=0.006
+filter-frame since_ms=Some(223.307967) running_probe_ms=0.005
+filter-frame since_ms=Some(228.91823399999998) running_probe_ms=0.005
+filter-frame since_ms=Some(235.86132700000002) running_probe_ms=0.005
+filter-frame since_ms=Some(245.319033) running_probe_ms=0.005
+filter-frame since_ms=Some(258.41729499999997) running_probe_ms=0.019
+filter-frame since_ms=Some(277.529901) running_probe_ms=0.004
+filter-frame since_ms=Some(284.487363) running_probe_ms=0.006
+filter-frame since_ms=Some(291.52733199999994) running_probe_ms=0.006
+filter-frame since_ms=Some(298.364778) running_probe_ms=0.005
+filter-frame since_ms=Some(305.31341000000003) running_probe_ms=0.005
+filter-frame since_ms=Some(312.25343300000003) running_probe_ms=0.004
+filter-frame since_ms=Some(319.202215) running_probe_ms=0.004
+filter-frame since_ms=Some(333.318442) running_probe_ms=0.013
+filter-frame since_ms=Some(340.09117) running_probe_ms=0.005
+filter-frame since_ms=Some(350.002891) running_probe_ms=0.004
+filter-frame since_ms=Some(365.487731) running_probe_ms=0.007
+filter-frame since_ms=Some(369.295971) running_probe_ms=0.004
+filter-frame since_ms=Some(374.76041399999997) running_probe_ms=0.003
+filter-frame since_ms=Some(381.705766) running_probe_ms=0.004
+filter-frame since_ms=Some(388.64817800000003) running_probe_ms=0.004
+filter-frame since_ms=Some(395.592061) running_probe_ms=0.004
+filter-frame since_ms=Some(402.54456300000004) running_probe_ms=0.004
+filter-frame since_ms=Some(409.482035) running_probe_ms=0.004
+filter-frame since_ms=None running_probe_ms=0.006
+filter-frame since_ms=None running_probe_ms=0.014
+filter-input dispatch_ms=41.038
+filter-core request=2 queue_ms=0.026 work_ms=0.067
+filter-ui text="repo" delivery_ms=8.703
+filter-frame since_ms=Some(56.276774) running_probe_ms=0.012
+  cold-start: [752.1] ms
+  input-latency: [20.1] ms
+  input-latency-group-job: [56.3] ms
+  input-latency-job: [35.6] ms
+  memory-idle: [308.0] MB
+  memory-two-tabs: [341.0] MB
+  refresh-all-ui: [842.4] ms
+  select-commit: [83.4] ms
+  select-group: [118.1] ms
+  select-job-group: [430.6] ms
+  select-largest-repo: [48.6] ms
+  switch-repo: [41.7, 69.2, 48.6, 48.6, 55.6, 48.6, 48.6, 41.7] ms
+  switch-tab: [13.9, 20.8, 13.9, 20.8, 13.9, 20.8, 13.9, 20.8] ms
+  switch-tab-history: [69.5, 333.4, 55.6, 340.3, 62.5, 382.0, 62.5, 368.1] ms
+  scroll-history: 1162 frames, mean 6.98 ms, 0.52% dropped, longest blank 0.0 ms
+  scroll-diff: 3001 frames, mean 6.95 ms, 0.07% dropped, longest blank 0.0 ms
+run 4 of 5
+libEGL warning: pci id for fd 39: 10de:2786, driver (null)
+
+pci id for fd 26: 10de:2786, driver (null)
+pci id for fd 42: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=1.859 work_ms=0.074
+filter-ui text="repo" delivery_ms=3.847
+filter-frame since_ms=None running_probe_ms=0.002
+filter-frame since_ms=None running_probe_ms=0.003
+filter-input dispatch_ms=22.777
+filter-core request=1 queue_ms=0.017 work_ms=0.082
+filter-ui text="repo" delivery_ms=4.116
+filter-frame since_ms=Some(27.699931) running_probe_ms=0.002
+filter-frame since_ms=None running_probe_ms=0.003
+filter-frame since_ms=None running_probe_ms=0.008
+filter-input dispatch_ms=78.772
+filter-frame since_ms=Some(93.136263) running_probe_ms=0.006
+filter-frame since_ms=Some(96.61691499999999) running_probe_ms=0.005
+filter-frame since_ms=Some(113.141565) running_probe_ms=0.006
+filter-frame since_ms=Some(117.457588) running_probe_ms=0.007
+filter-frame since_ms=Some(124.396943) running_probe_ms=0.006
+filter-frame since_ms=Some(133.109298) running_probe_ms=0.006
+filter-frame since_ms=Some(145.234527) running_probe_ms=0.006
+filter-core request=2 queue_ms=0.012 work_ms=67.162
+filter-ui text="repo" delivery_ms=68.748
+filter-frame since_ms=Some(152.175392) running_probe_ms=0.006
+  cold-start: [726.6] ms
+  input-latency: [34.6] ms
+  input-latency-group-job: [152.2] ms
+  input-latency-job: [27.7] ms
+  memory-idle: [302.0] MB
+  memory-two-tabs: [338.6] MB
+  refresh-all-ui: [844.6] ms
+  select-commit: [104.2] ms
+  select-group: [125.0] ms
+  select-job-group: [458.4] ms
+  select-largest-repo: [41.7] ms
+  switch-repo: [62.5, 62.5, 55.5, 48.6, 62.5, 48.6, 62.5, 69.4] ms
+  switch-tab: [20.8, 14.0, 13.9, 13.9, 13.9, 13.9, 13.9, 13.9] ms
+  switch-tab-history: [83.9, 333.4, 55.6, 361.1, 55.6, 319.5, 62.5, 375.0] ms
+  scroll-history: 1162 frames, mean 7.00 ms, 0.77% dropped, longest blank 0.0 ms
+  scroll-diff: 3001 frames, mean 6.94 ms, 0.00% dropped, longest blank 0.0 ms
+run 5 of 5
+libEGL warning: pci id for fd 42: 10de:2786, driver (null)
+
+pci id for fd 43: 10de:2786, driver (null)
+pci id for fd 44: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=0.017 work_ms=0.072
+filter-ui text="repo" delivery_ms=4.033
+filter-frame since_ms=None running_probe_ms=0.003
+filter-frame since_ms=None running_probe_ms=0.003
+filter-input dispatch_ms=23.072
+filter-core request=1 queue_ms=0.010 work_ms=0.056
+filter-ui text="repo" delivery_ms=4.284
+filter-frame since_ms=Some(27.69379) running_probe_ms=0.002
+filter-frame since_ms=None running_probe_ms=0.004
+filter-frame since_ms=None running_probe_ms=0.008
+filter-input dispatch_ms=48.947
+filter-core request=2 queue_ms=0.018 work_ms=0.076
+filter-ui text="repo" delivery_ms=9.389
+filter-frame since_ms=Some(60.555246) running_probe_ms=0.005
+  cold-start: [716.6] ms
+  input-latency: [34.6] ms
+  input-latency-group-job: [60.6] ms
+  input-latency-job: [27.7] ms
+  memory-idle: [299.6] MB
+  memory-two-tabs: [316.3] MB
+  refresh-all-ui: [848.6] ms
+  select-commit: [104.2] ms
+  select-group: [125.0] ms
+  select-job-group: [451.4] ms
+  select-largest-repo: [48.6] ms
+  switch-repo: [48.6, 62.5, 48.6, 62.5, 48.6, 48.6, 48.6, 48.6] ms
+  switch-tab: [20.8, 20.8, 13.9, 13.9, 13.9, 13.9, 13.9, 13.9] ms
+  switch-tab-history: [69.5, 361.1, 55.6, 305.6, 55.6, 382.0, 55.6, 361.1] ms
+  scroll-history: 1162 frames, mean 7.02 ms, 1.03% dropped, longest blank 0.0 ms
+  scroll-diff: 3001 frames, mean 6.94 ms, 0.00% dropped, longest blank 0.0 ms
+display refresh rate: 144.0 Hz
+error: recipe `bench-ui` failed on line 89 with exit code 1

@@ -851,11 +851,11 @@ impl Jobs {
             repo.clone(),
             git.clone(),
         );
-        let view = tokio::task::spawn_blocking(move || {
+        let view = crate::summary::run_job_read(move || {
             summaries.reread(&workspaces, &workspace_id, &repo_id, &git, refs_changed)
         })
         .await;
-        if let Ok(Some(view)) = view {
+        if let Some(Some(view)) = view {
             self.events.summary(view, true);
         }
         self.events.hold_watch(workspace, repo, false);
