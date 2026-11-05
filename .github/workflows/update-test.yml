@@ -1,0 +1,170 @@
+# M6-28c: on each platform's runner, an installed GPUI build updates itself
+# from a local server, refuses a package whose signature does not match, and,
+# from the .deb, only notifies; then 1.0.0-rc.1's own Tauri updater installs
+# the GPUI build the same way (PLAT-4, SEC-7). The proof that gitcroc
+# updates on Windows and macOS, and that rc.1 users get the GPUI app.
+#
+# packages.yml builds A, the workspace version, and B, its patch number
+# plus one, with the `update-test` feature, a throwaway key made in each
+# build job, and http://127.0.0.1:8765/latest.json as the only endpoint; it
+# signs B there, and the key's secret half never leaves that job. rc.1 is
+# built here from its tag with its own `update-test` feature and the same
+# public key. After the builds nothing reaches the internet (D12). Each step
+# waits for a log line, never for a time (README 'Timing in CI').
+#
+# Not one of QA-1's required checks.
+name: Update test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - crates/gitcroc-app/src/update/**
+      - crates/gitcroc-app/src/platform/**
+      - crates/gitcroc-app/src/app/update.rs
+      - crates/gitcroc-ui/src/updates.rs
+      - .github/workflows/update-test.yml
+      - .github/workflows/packages.yml
+      - .github/scripts/**
+      - tools/release-manifest/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The feature's tests, which `just check` cannot run, and the scripts'.
+  check:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: update-test-check
+      - name: Lint the update-test feature
+        run: cargo clippy --locked -p gitcroc-app --features update-test --all-targets -- -D warnings
+      - name: Test the update-test feature
+        run: cargo test --locked -p gitcroc-app --features update-test --lib update
+      - name: Test the scripts without starting an app
+        working-directory: .github/scripts
+        run: |
+          python3 test-update.py
+          python3 test-install.py
+
+  packages:
+    uses: ./.github/workflows/packages.yml
+    with:
+      update-test: true
+
+  update:
+    name: update (${{ matrix.platform }})
+    needs: packages
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: macos-latest
+            platform: macos-universal
+          # glibc 2.35, the Linux floor of D6. GPUI and WebKitGTK need a
+          # display.
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+            display: xvfb-run -a
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.packages.outputs.version }}
+      UPDATE_LOGS: ${{ github.workspace }}/update-logs
+      DISPLAY_RUN: ${{ matrix.display }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          ref: v1.0.0-rc.1
+          path: rc1
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Record the runner version
+        run: |
+          echo "Runner: $RUNNER_OS $RUNNER_ARCH; image $ImageOS $ImageVersion" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # release-manifest writes the local latest.json.
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - name: Build release-manifest
+        run: cargo build --quiet --locked -p release-manifest
+
+      # Xvfb and Mesa's Vulkan driver for GPUI (M6-03), libfuse2 for the
+      # AppImage, and rc.1's build packages (M5-15).
+      - name: Install Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb xauth mesa-vulkan-drivers libfuse2 \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libdbus-1-dev librsvg2-dev patchelf
+
+      - name: Download A
+        uses: actions/download-artifact@v8
+        with:
+          name: gitcroc-${{ env.VERSION }}-${{ matrix.platform }}
+          path: artifacts/a
+      - name: Download B
+        uses: actions/download-artifact@v8
+        with:
+          name: update-test-${{ matrix.platform }}
+          path: artifacts/b
+
+      - name: "GPUI: A updates to B, B refuses a bad signature, the .deb notifies"
+        run: $DISPLAY_RUN python .github/scripts/update_test.py gpui artifacts/a artifacts/b "$VERSION"
+
+      # rc.1's toolchain, from its tag.
+      - name: Install rc.1's Rust toolchain
+        working-directory: rc1
+        run: rustup toolchain install
+      - name: Cache rc.1's cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rc1
+          key: update-test-rc1-${{ matrix.platform }}
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: rc1/ui/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: rc1/.nvmrc
+          cache: pnpm
+          cache-dependency-path: rc1/ui/pnpm-lock.yaml
+      - name: Install rc.1's UI packages
+        run: pnpm --dir rc1/ui install --frozen-lockfile
+      - name: Build rc.1 for the local server and the update test's key
+        run: python .github/scripts/update_rc1_build.py rc1 artifacts/b/update-test.pub rc1-build
+
+      - name: "rc.1 updates to the GPUI B"
+        run: $DISPLAY_RUN python .github/scripts/update_test.py rc1 rc1-build artifacts/b "$VERSION"
+
+      - name: Upload the logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: update-logs-${{ matrix.platform }}
+          path: update-logs
+          if-no-files-found: warn

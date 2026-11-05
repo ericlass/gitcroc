@@ -136,7 +136,50 @@ fn sec_7_sign_and_verify_usage_errors() {
         &["verify", "--version", "1.0.0"],
         &["verify", "--version", "1.0.0", "--public-key"],
         &["section", "--version", "1.0.0", "gitcroc.AppImage"],
+        &["keygen"],
+        &["keygen", "a.key", "b.key"],
+        &["keygen", "--version", "1.0.0", "a.key"],
     ] {
         assert_eq!(code(&run(dir.path(), None, args)), 2, "{args:?}");
     }
+}
+
+/// The update test's throwaway key (M6-28c): `keygen` writes the secret
+/// half as `TAURI_SIGNING_PRIVATE_KEY` takes it, with the empty password,
+/// and prints the public half, which verifies what the secret one signs.
+#[test]
+fn sec_7_keygen_makes_a_throwaway_key() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("gitcroc.AppImage"), b"\x7fELF").unwrap();
+    let made = run(dir.path(), None, &["keygen", "update-test.key"]);
+    assert_eq!(code(&made), 0, "{}", stderr(&made));
+    let public = String::from_utf8(made.stdout).unwrap().trim().to_owned();
+    assert_ne!(public, release_manifest::sign::PUBLIC_KEY);
+    let secret = fs::read_to_string(dir.path().join("update-test.key")).unwrap();
+
+    let signed = run(
+        dir.path(),
+        Some((&secret, "")),
+        &["sign", "--version", "1.0.1", "gitcroc.AppImage"],
+    );
+    assert_eq!(code(&signed), 0, "{}", stderr(&signed));
+    let args = [
+        "verify",
+        "--version",
+        "1.0.1",
+        "--public-key",
+        &public,
+        "gitcroc.AppImage",
+    ];
+    assert_eq!(code(&run(dir.path(), None, &args)), 0);
+    let project = ["verify", "--version", "1.0.1", "gitcroc.AppImage"];
+    assert_eq!(code(&run(dir.path(), None, &project)), 1);
+
+    // An existing file is never overwritten.
+    let again = run(dir.path(), None, &["keygen", "update-test.key"]);
+    assert_eq!(code(&again), 1, "{}", stderr(&again));
+    assert_eq!(
+        fs::read_to_string(dir.path().join("update-test.key")).unwrap(),
+        secret
+    );
 }

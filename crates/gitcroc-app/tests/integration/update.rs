@@ -160,3 +160,48 @@ fn sec_7_release_manifest_verifies_with_the_apps_key() {
         gitcroc_app::update::verify::PUBLIC_KEY
     );
 }
+
+/// D12: only the update test's builds check at start and trust a test key.
+/// `update-test` is no default, no crate turns it on, and the release
+/// workflow never passes it (M6-28c).
+#[test]
+fn d12_update_test_is_not_a_default_feature_and_never_released() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let read = |path: &str| {
+        std::fs::read_to_string(root.join(path)).unwrap_or_else(|e| panic!("read {path}: {e}"))
+    };
+    let manifest: toml::Table = toml::from_str(&read("crates/gitcroc-app/Cargo.toml")).unwrap();
+    let features = manifest["features"].as_table().unwrap();
+    assert!(features.contains_key("update-test"));
+    let default = features.get("default").and_then(toml::Value::as_array);
+    assert!(
+        default.is_none_or(|default| default.iter().all(|f| f.as_str() != Some("update-test"))),
+        "{default:?}"
+    );
+    for (name, enables) in features {
+        let enables = enables.as_array().unwrap();
+        assert!(
+            enables.iter().all(|f| f.as_str() != Some("update-test")),
+            "the feature {name} turns update-test on"
+        );
+    }
+    // No other crate turns it on.
+    for dir in ["crates", "tools"] {
+        for entry in std::fs::read_dir(root.join(dir)).unwrap() {
+            let cargo = entry.unwrap().path().join("Cargo.toml");
+            if cargo.ends_with("gitcroc-app/Cargo.toml") || !cargo.is_file() {
+                continue;
+            }
+            let text = std::fs::read_to_string(&cargo).unwrap();
+            assert!(!text.contains("update-test"), "{}", cargo.display());
+        }
+    }
+    assert!(!read("Cargo.toml").contains("update-test"));
+
+    let release = read(".github/workflows/release.yml");
+    assert!(
+        !release.contains("update-test"),
+        "release.yml passes update-test"
+    );
+    assert!(!release.contains("GITCROC_UPDATE_TEST"));
+}

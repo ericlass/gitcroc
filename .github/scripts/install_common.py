@@ -36,17 +36,21 @@ def wait_started(process, log, version, system, arch, package):
         time.sleep(0.1)
 
 
-def start(version, system, arch, package, executable):
+def config_and_log(system):
+    """The app's config folder and log file on `system`: windows, macos or
+    linux. The update test reads them too."""
     home = Path.home()
     if system == "windows":
-        config = Path(os.environ["APPDATA"]) / "gitcroc"
-        log = Path(os.environ["LOCALAPPDATA"]) / "gitcroc/logs/gitcroc.log"
-    elif system == "macos":
-        config = home / "Library/Application Support/gitcroc"
-        log = home / "Library/Logs/gitcroc/gitcroc.log"
-    else:
-        config = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config")) / "gitcroc"
-        log = Path(os.environ.get("XDG_STATE_HOME", home / ".local/state")) / "gitcroc/gitcroc.log"
+        return (Path(os.environ["APPDATA"]) / "gitcroc",
+                Path(os.environ["LOCALAPPDATA"]) / "gitcroc/logs/gitcroc.log")
+    if system == "macos":
+        return home / "Library/Application Support/gitcroc", home / "Library/Logs/gitcroc/gitcroc.log"
+    return (Path(os.environ.get("XDG_CONFIG_HOME", home / ".config")) / "gitcroc",
+            Path(os.environ.get("XDG_STATE_HOME", home / ".local/state")) / "gitcroc/gitcroc.log")
+
+
+def start(version, system, arch, package, executable):
+    config, log = config_and_log(system)
     config.mkdir(parents=True, exist_ok=True)
     (config / "settings.toml").write_text("schema = 2\nupdate_check = false\n", encoding="utf-8")
     # Each package must produce its own evidence, never reuse an earlier start.

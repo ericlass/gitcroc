@@ -12,6 +12,15 @@
 # them with the updater key (M6-28b).
 #
 # The file names are 1.0.0-rc.1's, which tools/release-manifest finds.
+#
+# With `update-test` (update-test.yml, M6-28c), each build job also makes a
+# throwaway updater key with `release-manifest keygen`, builds every binary
+# with the `update-test` feature, that key's public half and the local
+# endpoint, then builds B, the version with the patch number raised by one,
+# and signs B's update package with the key. The key's secret half never
+# leaves the job: it is deleted with the job's last step. B, its .sig and
+# the public key are uploaded as update-test-<platform>; the install tests
+# do not run. release.yml never passes it (D12).
 name: Packages
 
 on:
@@ -24,6 +33,11 @@ on:
         default: ""
       update-archives:
         description: "Also make the macOS update archive, gitcroc.app.tar.gz"
+        type: boolean
+        required: false
+        default: false
+      update-test:
+        description: "Build the update test's A and B with the update-test feature and a throwaway key (M6-28c); never for a release"
         type: boolean
         required: false
         default: false
@@ -83,11 +97,24 @@ jobs:
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
         with:
-          key: packages-windows
+          key: packages-windows${{ inputs.update-test && '-update-test' || '' }}
+      # The update test's key (M6-28c). Its public half and the local
+      # endpoint go into every binary of this job; its secret half signs
+      # B's update package and is deleted in the job's last step.
+      - name: Make the update test's key
+        if: inputs.update-test
+        run: |
+          cargo build --quiet --locked -p release-manifest
+          target/debug/release-manifest keygen "$RUNNER_TEMP/update-test.key" > "$RUNNER_TEMP/update-test.pub"
+          {
+            echo "GITCROC_UPDATE_TEST_KEY=$(cat "$RUNNER_TEMP/update-test.pub")"
+            echo "GITCROC_UPDATE_TEST_ENDPOINT=http://127.0.0.1:8765/latest.json"
+            echo "FEATURES=--features gitcroc-app/update-test"
+          } >> "$GITHUB_ENV"
       - name: Build the installer's binary
         env:
           GITCROC_BUNDLE: nsis
-        run: cargo build --release --locked -p gitcroc-ui --bin gitcroc-next
+        run: cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
       - name: Package the NSIS installer
         run: |
           cp target/release/gitcroc-next.exe target/release/gitcroc.exe
@@ -113,6 +140,42 @@ jobs:
           path: upload/*
           if-no-files-found: error
 
+      # B (M6-28c): the workspace at A's patch number plus one.
+      - name: Build and package B
+        if: inputs.update-test
+        env:
+          GITCROC_BUNDLE: nsis
+        run: |
+          newer=$(python .github/scripts/update_version.py --bump)
+          echo "NEWER=$newer" >> "$GITHUB_ENV"
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
+          cp target/release/gitcroc-next.exe target/release/gitcroc.exe
+          cargo packager --release -p gitcroc-ui --formats nsis --out-dir dist/b
+      # The only step with the update test's secret key in its environment.
+      - name: Sign B's update package with the update test's key
+        if: inputs.update-test
+        run: |
+          TAURI_SIGNING_PRIVATE_KEY=$(cat "$RUNNER_TEMP/update-test.key") \
+            target/debug/release-manifest sign --version "$NEWER" "dist/b/gitcroc_${NEWER}_x64-setup.exe"
+      - name: Collect B
+        if: inputs.update-test
+        run: |
+          mkdir upload-b
+          for file in "dist/b/gitcroc_${NEWER}_x64-setup.exe"; do
+            mv "$file" "$file.sig" upload-b/
+          done
+          cp "$RUNNER_TEMP/update-test.pub" upload-b/
+          ls -l upload-b | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: inputs.update-test
+        with:
+          name: update-test-windows-x64
+          path: upload-b/*
+          if-no-files-found: error
+      - name: Delete the update test's key
+        if: always() && inputs.update-test
+        run: rm -f "$RUNNER_TEMP/update-test.key"
+
   macos:
     name: build (macos-universal)
     needs: version
@@ -133,13 +196,26 @@ jobs:
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
         with:
-          key: packages-macos
+          key: packages-macos${{ inputs.update-test && '-update-test' || '' }}
+      # The update test's key (M6-28c). Its public half and the local
+      # endpoint go into every binary of this job; its secret half signs
+      # B's update package and is deleted in the job's last step.
+      - name: Make the update test's key
+        if: inputs.update-test
+        run: |
+          cargo build --quiet --locked -p release-manifest
+          target/debug/release-manifest keygen "$RUNNER_TEMP/update-test.key" > "$RUNNER_TEMP/update-test.pub"
+          {
+            echo "GITCROC_UPDATE_TEST_KEY=$(cat "$RUNNER_TEMP/update-test.pub")"
+            echo "GITCROC_UPDATE_TEST_ENDPOINT=http://127.0.0.1:8765/latest.json"
+            echo "FEATURES=--features gitcroc-app/update-test"
+          } >> "$GITHUB_ENV"
       - name: Build the app's binary for both architectures
         env:
           GITCROC_BUNDLE: app
         run: |
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target aarch64-apple-darwin
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target x86_64-apple-darwin
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target aarch64-apple-darwin $FEATURES
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target x86_64-apple-darwin $FEATURES
       # D6: one universal binary, joined with lipo.
       - name: Join them into a universal binary
         run: |
@@ -179,6 +255,46 @@ jobs:
           path: upload/*
           if-no-files-found: error
 
+      # B (M6-28c): the workspace at A's patch number plus one.
+      - name: Build and package B
+        if: inputs.update-test
+        env:
+          GITCROC_BUNDLE: app
+        run: |
+          newer=$(python3 .github/scripts/update_version.py --bump)
+          echo "NEWER=$newer" >> "$GITHUB_ENV"
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target aarch64-apple-darwin $FEATURES
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target x86_64-apple-darwin $FEATURES
+          lipo -create -output target/universal-apple-darwin/release/gitcroc \
+            target/aarch64-apple-darwin/release/gitcroc-next target/x86_64-apple-darwin/release/gitcroc-next
+          cargo packager --release -p gitcroc-ui --target universal-apple-darwin --formats app --out-dir dist/b
+          codesign --verify --deep --strict dist/b/gitcroc.app
+          tar -czf dist/b/gitcroc.app.tar.gz -C dist/b gitcroc.app
+      # The only step with the update test's secret key in its environment.
+      - name: Sign B's update package with the update test's key
+        if: inputs.update-test
+        run: |
+          TAURI_SIGNING_PRIVATE_KEY=$(cat "$RUNNER_TEMP/update-test.key") \
+            target/debug/release-manifest sign --version "$NEWER" dist/b/gitcroc.app.tar.gz
+      - name: Collect B
+        if: inputs.update-test
+        run: |
+          mkdir upload-b
+          for file in dist/b/gitcroc.app.tar.gz; do
+            mv "$file" "$file.sig" upload-b/
+          done
+          cp "$RUNNER_TEMP/update-test.pub" upload-b/
+          ls -l upload-b | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: inputs.update-test
+        with:
+          name: update-test-macos-universal
+          path: upload-b/*
+          if-no-files-found: error
+      - name: Delete the update test's key
+        if: always() && inputs.update-test
+        run: rm -f "$RUNNER_TEMP/update-test.key"
+
   # ubuntu-22.04 has glibc 2.35, the Linux floor of D6.
   linux:
     name: build (linux-x86_64)
@@ -204,14 +320,27 @@ jobs:
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
         with:
-          key: packages-linux
+          key: packages-linux${{ inputs.update-test && '-update-test' || '' }}
+      # The update test's key (M6-28c). Its public half and the local
+      # endpoint go into every binary of this job; its secret half signs
+      # B's update package and is deleted in the job's last step.
+      - name: Make the update test's key
+        if: inputs.update-test
+        run: |
+          cargo build --quiet --locked -p release-manifest
+          target/debug/release-manifest keygen "$RUNNER_TEMP/update-test.key" > "$RUNNER_TEMP/update-test.pub"
+          {
+            echo "GITCROC_UPDATE_TEST_KEY=$(cat "$RUNNER_TEMP/update-test.pub")"
+            echo "GITCROC_UPDATE_TEST_ENDPOINT=http://127.0.0.1:8765/latest.json"
+            echo "FEATURES=--features gitcroc-app/update-test"
+          } >> "$GITHUB_ENV"
       # Only gitcroc-app, which reads GITCROC_BUNDLE, and the binary are
       # built again for each package.
       - name: Build and package the AppImage
         env:
           GITCROC_BUNDLE: appimage
         run: |
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
           cp target/release/gitcroc-next target/release/gitcroc
           mkdir -p dist
           cargo packager --release -p gitcroc-ui --formats appimage --out-dir dist
@@ -221,7 +350,7 @@ jobs:
         env:
           GITCROC_BUNDLE: deb
         run: |
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
           cp target/release/gitcroc-next target/release/gitcroc
           cargo packager --release -p gitcroc-ui --formats deb --out-dir dist
           dpkg-deb --info "dist/gitcroc_${VERSION}_amd64.deb"
@@ -229,7 +358,7 @@ jobs:
         env:
           GITCROC_BUNDLE: rpm
         run: |
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
           cp target/release/gitcroc-next target/release/gitcroc
           # An RPM version has no '-'; a pre-release takes '~', which sorts
           # it before the release (Eric, 2026-11-04). The file keeps rc.1's
@@ -249,11 +378,50 @@ jobs:
           path: upload/*
           if-no-files-found: error
 
-  # The install jobs take this run's artifacts, never rebuilt substitutes.
+      # B (M6-28c): the workspace at A's patch number plus one.
+      - name: Build and package B
+        if: inputs.update-test
+        env:
+          GITCROC_BUNDLE: appimage
+        run: |
+          newer=$(python3 .github/scripts/update_version.py --bump)
+          echo "NEWER=$newer" >> "$GITHUB_ENV"
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
+          cp target/release/gitcroc-next target/release/gitcroc
+          cargo packager --release -p gitcroc-ui --formats appimage --out-dir dist/b
+          mv "dist/b/gitcroc_${newer}_x86_64.AppImage" "dist/b/gitcroc_${newer}_amd64.AppImage"
+      # The only step with the update test's secret key in its environment.
+      - name: Sign B's update package with the update test's key
+        if: inputs.update-test
+        run: |
+          TAURI_SIGNING_PRIVATE_KEY=$(cat "$RUNNER_TEMP/update-test.key") \
+            target/debug/release-manifest sign --version "$NEWER" "dist/b/gitcroc_${NEWER}_amd64.AppImage"
+      - name: Collect B
+        if: inputs.update-test
+        run: |
+          mkdir upload-b
+          for file in "dist/b/gitcroc_${NEWER}_amd64.AppImage"; do
+            mv "$file" "$file.sig" upload-b/
+          done
+          cp "$RUNNER_TEMP/update-test.pub" upload-b/
+          ls -l upload-b | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: inputs.update-test
+        with:
+          name: update-test-linux-x86_64
+          path: upload-b/*
+          if-no-files-found: error
+      - name: Delete the update test's key
+        if: always() && inputs.update-test
+        run: rm -f "$RUNNER_TEMP/update-test.key"
+
+  # The install jobs take this run's artifacts, never rebuilt substitutes;
+  # an update test's run has its own (update-test.yml).
   # Each writes settings.toml with update_check = false before the app first
   # starts, so nothing contacts GitHub (D12), and waits for the app's start
   # line and its `git --version`, never for a time (install_common.py).
   install-windows:
+    if: ${{ !inputs.update-test }}
     name: install (windows-x64)
     needs: [version, windows]
     runs-on: windows-latest
@@ -291,6 +459,7 @@ jobs:
 
   # PLAT-4: the GPUI installer upgrades an installed 1.0.0-rc.1 in place.
   install-windows-over-rc1:
+    if: ${{ !inputs.update-test }}
     name: install over rc.1 (windows-x64)
     needs: [version, windows]
     runs-on: windows-latest
@@ -326,6 +495,7 @@ jobs:
           if-no-files-found: warn
 
   install-macos:
+    if: ${{ !inputs.update-test }}
     name: install (macos-universal)
     needs: [version, macos]
     runs-on: macos-latest
@@ -358,6 +528,7 @@ jobs:
           if-no-files-found: warn
 
   install-linux:
+    if: ${{ !inputs.update-test }}
     name: install (linux-x86_64)
     needs: [version, linux]
     runs-on: ubuntu-22.04
@@ -389,6 +560,7 @@ jobs:
   # The .rpm on Fedora, which the Ubuntu runner cannot install it on. No
   # font is installed before it, so the font it requires is what brings one.
   install-rpm:
+    if: ${{ !inputs.update-test }}
     name: install (rpm, fedora)
     needs: [version, linux]
     runs-on: ubuntu-latest

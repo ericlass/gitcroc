@@ -3,6 +3,7 @@
 //! `release-manifest local --version <v> --pub-date <date> --dir <dir> --platform <key> --package <file>`
 //! `release-manifest sign --version <v> <file>...`
 //! `release-manifest verify --version <v> [--public-key <base64>] <file>...`
+//! `release-manifest keygen <file>`
 //!
 //! `section` prints the version's section of the changelog (default
 //! `CHANGELOG.md`). `assemble` reads the packages and `.sig` files in `<dir>`,
@@ -15,6 +16,11 @@
 //! `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. `verify` checks each file against
 //! its `.sig` with the project's public key, or the one given.
 //!
+//! `keygen` makes a throwaway key pair for the update test (M6-28c): it
+//! writes the secret half to `<file>`, which must not exist, in the format
+//! of `TAURI_SIGNING_PRIVATE_KEY` with the empty password, and prints the
+//! public half.
+//!
 //! Exits 1 on an error and 2 on a usage error.
 
 use std::path::{Path, PathBuf};
@@ -24,7 +30,8 @@ const USAGE: &str = "usage: release-manifest section --version <v> [--changelog 
 release-manifest assemble --version <v> --pub-date <date> --dir <dir> [--changelog <file>] [--dry-run]\n       \
 release-manifest local --version <v> --pub-date <date> --dir <dir> --platform <key> --package <file>\n       \
 release-manifest sign --version <v> <file>...\n       \
-release-manifest verify --version <v> [--public-key <base64>] <file>...";
+release-manifest verify --version <v> [--public-key <base64>] <file>...\n       \
+release-manifest keygen <file>";
 
 enum Command {
     Section,
@@ -52,6 +59,24 @@ struct Args {
     version: String,
     changelog: PathBuf,
     dry_run: bool,
+}
+
+/// What the command line asks for.
+enum Parsed {
+    Keygen(PathBuf),
+    Other(Args),
+}
+
+fn parse(mut args: impl Iterator<Item = String>) -> Option<Parsed> {
+    let mut args = args.by_ref().peekable();
+    if args.peek().is_some_and(|command| command == "keygen") {
+        let rest: Vec<String> = args.skip(1).collect();
+        return match rest.as_slice() {
+            [file] if !file.starts_with('-') => Some(Parsed::Keygen(PathBuf::from(file))),
+            _ => None,
+        };
+    }
+    parse_args(args).map(Parsed::Other)
 }
 
 fn parse_args(mut args: impl Iterator<Item = String>) -> Option<Args> {
@@ -206,11 +231,17 @@ fn verify(
 }
 
 fn main() -> ExitCode {
-    let Some(args) = parse_args(std::env::args().skip(1)) else {
-        eprintln!("{USAGE}");
-        return ExitCode::from(2);
+    let result = match parse(std::env::args().skip(1)) {
+        Some(Parsed::Keygen(file)) => release_manifest::sign::keygen_file(&file).map(|public| {
+            println!("{public}");
+        }),
+        Some(Parsed::Other(args)) => run(&args),
+        None => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
     };
-    match run(&args) {
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("release-manifest: {err}");
