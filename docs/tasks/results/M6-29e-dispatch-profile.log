@@ -1,0 +1,62 @@
+setting up the workspaces in /tmp/.tmpOW1jSP
+select-commit on target-project: ddc0835e876659374821a945fe50ee478af6b42d, 2441 changed lines
+warm-up run
+libEGL warning: pci id for fd 41: 10de:2786, driver (null)
+
+pci id for fd 43: 10de:2786, driver (null)
+pci id for fd 46: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=1.122 work_ms=0.068
+filter-ui text="repo" delivery_ms=3.854
+filter-frame since_ms=None running_probe_ms=0.003
+filter-frame since_ms=None running_probe_ms=0.004
+filter-input dispatch_ms=24.575
+filter-core request=1 queue_ms=0.027 work_ms=0.094
+filter-ui text="repo" delivery_ms=4.731
+filter-frame since_ms=Some(36.436609000000004) running_probe_ms=0.003
+filter-frame since_ms=None running_probe_ms=0.004
+filter-frame since_ms=None running_probe_ms=0.006
+filter-input dispatch_ms=115.331
+filter-frame since_ms=Some(127.592911) running_probe_ms=0.006
+filter-frame since_ms=Some(138.77937100000003) running_probe_ms=0.007
+filter-frame since_ms=Some(145.64737499999998) running_probe_ms=0.007
+filter-core request=2 queue_ms=0.014 work_ms=38.214
+filter-ui text="repo" delivery_ms=39.050
+filter-frame since_ms=Some(163.603711) running_probe_ms=0.009
+run 1 of 1
+libEGL warning: pci id for fd 42: 10de:2786, driver (null)
+
+pci id for fd 46: 10de:2786, driver (null)
+pci id for fd 44: 10de:2786, driver (null)
+libEGL warning: egl: failed to create dri2 screen
+filter-core request=1 queue_ms=0.017 work_ms=0.069
+filter-ui text="repo" delivery_ms=4.206
+filter-frame since_ms=None running_probe_ms=0.002
+filter-frame since_ms=None running_probe_ms=0.002
+filter-input dispatch_ms=21.646
+filter-core request=1 queue_ms=0.015 work_ms=0.089
+filter-ui text="repo" delivery_ms=4.071
+filter-frame since_ms=Some(27.709228) running_probe_ms=0.002
+filter-frame since_ms=None running_probe_ms=0.004
+filter-frame since_ms=None running_probe_ms=0.007
+filter-input dispatch_ms=32.433
+filter-core request=2 queue_ms=0.016 work_ms=0.070
+filter-ui text="repo" delivery_ms=18.229
+filter-frame since_ms=Some(54.422582999999996) running_probe_ms=0.005
+  cold-start: [744.7] ms
+  input-latency: [34.6] ms
+  input-latency-group-job: [54.5] ms
+  input-latency-job: [27.7] ms
+  memory-idle: [286.3] MB
+  memory-two-tabs: [313.5] MB
+  refresh-all-ui: [869.7] ms
+  select-commit: [111.1] ms
+  select-group: [125.0] ms
+  select-job-group: [437.5] ms
+  select-largest-repo: [48.6] ms
+  switch-repo: [48.6, 48.6, 48.6, 55.6, 62.5, 48.6, 62.5, 48.6] ms
+  switch-tab: [20.8, 20.8, 13.9, 20.8, 13.9, 20.8, 13.9, 20.8] ms
+  switch-tab-history: [90.3, 347.2, 69.4, 347.2, 62.5, 312.5, 48.6, 326.4] ms
+  scroll-history: 1162 frames, mean 7.02 ms, 1.12% dropped, longest blank 0.0 ms
+  scroll-diff: 3001 frames, mean 6.95 ms, 0.03% dropped, longest blank 0.0 ms
+display refresh rate: 144.0 Hz
