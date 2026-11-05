@@ -269,6 +269,10 @@ fn ui_22_every_palette_operation_runs_its_action(root: &mut TestAppContext) {
         d.choose(Op::Revert, Did::Runs);
         click(&mut d.cx, "history-row-1".into());
         d.choose(Op::CherryPick, Did::Runs);
+        // Reapplying this commit may conflict, depending on which history
+        // page the preceding revert has delivered. End that operation and
+        // wait for the UI's unblocked summary before testing checkout.
+        d.abort_cherry_pick(&api, &id);
         click(&mut d.cx, "history-row-1".into());
         d.choose(Op::CheckoutCommit, Did::Runs);
         api.git(["checkout", "--quiet", "main"]).unwrap();

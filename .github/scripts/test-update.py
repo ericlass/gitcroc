@@ -4,7 +4,7 @@ helpers, without starting an app."""
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import update_rc1_build
 import update_test
@@ -76,6 +76,19 @@ class OutcomeTests(unittest.TestCase):
             with patch.object(update_test.time, "monotonic", return_value=0), \
                  patch.object(update_test.time, "sleep", side_effect=lambda _: log.write_text("done")):
                 self.assertEqual(update_test.wait(log, lambda text: "done" in text, "done"), "done")
+
+    def test_plat_4_wait_reaps_the_old_app_so_restart_can_proceed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "gitcroc.log"
+            process = Mock()
+            def exited():
+                log.write_text("restarted")
+                return 0
+            process.poll.side_effect = exited
+            with patch.object(update_test, "PROCESSES", [process]):
+                self.assertEqual(update_test.wait(log, lambda text: text == "restarted", "restart"), "restarted")
+                self.assertEqual(update_test.PROCESSES, [])
+            process.poll.assert_called_once()
 
     def test_sec_7_outputs_stay_outside_the_cargo_target(self):
         self.assertFalse(update_test.WORK.is_relative_to(update_test.ROOT / "target"))

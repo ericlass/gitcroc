@@ -44,6 +44,14 @@ WORK = Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "gitcroc-upd
 PORT = 8765
 BASE = f"http://127.0.0.1:{PORT}"
 DEADLINE = 600
+# Retain and reap apps we launch: the Unix restart helper waits for the
+# old PID to disappear, which includes waiting for its parent to reap it.
+PROCESSES = []
+
+
+def reap_processes():
+    PROCESSES[:] = [process for process in PROCESSES if process.poll() is None]
+
 SYSTEM = {"Windows": "windows", "Darwin": "macos", "Linux": "linux"}[platform.system()]
 # The manifest's platform key, the start line's OS and arch, and the
 # package that installs updates.
@@ -91,6 +99,7 @@ def wait(log, predicate, what):
     """The log's text once `predicate` holds for it."""
     deadline = time.monotonic() + DEADLINE
     while True:
+        reap_processes()
         text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
         if predicate(text):
             return text
@@ -158,7 +167,9 @@ class Logs:
 def start(executable, logs):
     print(f"starting {executable}", flush=True)
     with (logs.folder / "output.log").open("ab") as output:
-        subprocess.Popen([str(executable)], cwd=WORK, stdout=output, stderr=subprocess.STDOUT)
+        PROCESSES.append(subprocess.Popen(
+            [str(executable)], cwd=WORK, stdout=output, stderr=subprocess.STDOUT
+        ))
 
 
 def stop():
@@ -172,7 +183,10 @@ def stop():
         subprocess.run(["pkill", "-x", "gitcroc"], capture_output=True)
         running = lambda: subprocess.run(["pgrep", "-x", "gitcroc"], capture_output=True).returncode == 0
     deadline = time.monotonic() + 60
-    while running():
+    while True:
+        reap_processes()
+        if not running():
+            break
         if time.monotonic() >= deadline:
             raise TimeoutError("gitcroc did not stop")
         time.sleep(0.1)
