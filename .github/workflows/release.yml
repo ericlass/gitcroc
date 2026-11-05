@@ -1,0 +1,275 @@
+# M6-28b: a pushed tag `v<version>` builds the packages of section 11 (D6)
+# with packages.yml, as build.yml does, and runs their install tests; signs
+# the update packages with the project's updater key (SEC-7); and prepares a
+# draft GitHub release with the files, SHA256SUMS, the release notes and the
+# updater's latest.json (PLAT-4). Eric checks the draft and publishes it;
+# nothing here publishes. RELEASING.md has the steps. 1.0.0-rc.1's workflow
+# (M5-13) is the starting point; Tauri's bundler and signer are gone.
+#
+# By hand (workflow_dispatch) and on pull requests that change the release
+# files, it is a dry run: it builds, signs with a key made for the run, and
+# uploads what the release would get as workflow artifacts, but creates no
+# release. The project's key reaches tag builds only, and only the signing
+# step.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - .github/workflows/packages.yml
+      - tools/release-manifest/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A tag's release is never cancelled halfway.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Fails at once, before any build, unless the tag is `v` plus the workspace
+  # version (one_version_number, M0-08) and CHANGELOG.md has its section.
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Installs the version pinned in rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+
+      - name: Read version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          id=$(cargo pkgid --locked -p gitcroc-app)
+          version=${id##*[#@]}
+          echo "gitcroc $version"
+          if [ "$EVENT" = push ] && [ "$TAG" != "v$version" ]; then
+            echo "::error::the tag $TAG is not v$version, the version in Cargo.toml"
+            exit 1
+          fi
+          # A version with a pre-release part, such as 1.0.0-rc.1.
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Check the changelog section
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DRY_RUN: ${{ github.event_name != 'push' && '--dry-run' || '' }}
+        run: cargo run --quiet --locked -p release-manifest -- section --version "$VERSION" $DRY_RUN
+
+  # The packages and their install tests (M6-28a). This job needs all of
+  # packages.yml, so nothing is signed or drafted from packages that did not
+  # install.
+  packages:
+    needs: prepare
+    uses: ./.github/workflows/packages.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      update-archives: true
+
+  # Signs the update packages: the NSIS installer, the macOS app's archive
+  # and the AppImage, then checks each signature, so a wrong secret fails
+  # here, before there is a draft.
+  sign:
+    needs: [prepare, packages]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+
+      # A release build: opening a key with a password runs scrypt.
+      - name: Build release-manifest
+        run: cargo build --quiet --locked --release -p release-manifest
+
+      - name: Download the packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: gitcroc-${{ env.VERSION }}-*
+          path: dist
+          merge-multiple: true
+
+      # The dry run's key is made by minisign, with a password, as the
+      # project's key was.
+      - name: Install minisign
+        if: github.event_name != 'push'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q minisign
+
+      # The project's key exists only in this step's environment, and only
+      # on a tag build. A dry run makes a key here and drops its secret half
+      # when the step ends; its public half verifies below.
+      - name: Sign the update packages
+        env:
+          EVENT: ${{ github.event_name }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: |
+          if [ "$EVENT" = push ]; then
+            if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+              echo "::error::the secret TAURI_SIGNING_PRIVATE_KEY is not set"
+              exit 1
+            fi
+          else
+            key_dir=$(mktemp -d)
+            password=$(openssl rand -hex 16)
+            printf '%s\n%s\n' "$password" "$password" |
+              minisign -G -p "$key_dir/run.pub" -s "$key_dir/run.key" > /dev/null
+            TAURI_SIGNING_PRIVATE_KEY=$(base64 -w0 "$key_dir/run.key")
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$password
+            base64 -w0 "$key_dir/run.pub" > "$RUNNER_TEMP/run-key.pub"
+            rm -r "$key_dir"
+          fi
+          target/release/release-manifest sign --version "$VERSION" \
+            "dist/gitcroc_${VERSION}_x64-setup.exe" \
+            dist/gitcroc.app.tar.gz \
+            "dist/gitcroc_${VERSION}_amd64.AppImage"
+
+      - name: Verify with the project's key
+        if: github.event_name == 'push'
+        run: |
+          target/release/release-manifest verify --version "$VERSION" \
+            "dist/gitcroc_${VERSION}_x64-setup.exe" \
+            dist/gitcroc.app.tar.gz \
+            "dist/gitcroc_${VERSION}_amd64.AppImage"
+
+      - name: Verify with this run's key
+        if: github.event_name != 'push'
+        run: |
+          target/release/release-manifest verify --version "$VERSION" \
+            --public-key "$(cat "$RUNNER_TEMP/run-key.pub")" \
+            "dist/gitcroc_${VERSION}_x64-setup.exe" \
+            dist/gitcroc.app.tar.gz \
+            "dist/gitcroc_${VERSION}_amd64.AppImage"
+          {
+            echo "## Dry run"
+            echo
+            echo "Signed with a key made for this run, not the project's key."
+            echo "The app refuses these signatures: this run's latest.json must never be published."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the signatures
+        uses: actions/upload-artifact@v7
+        with:
+          name: gitcroc-${{ env.VERSION }}-signatures
+          path: dist/*.sig
+          if-no-files-found: error
+
+  # Everything the release gets, in one workflow artifact; it reads only.
+  assemble:
+    needs: [prepare, sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+
+      - name: Download the packages and signatures
+        uses: actions/download-artifact@v8
+        with:
+          pattern: gitcroc-${{ needs.prepare.outputs.version }}-*
+          path: dist
+          merge-multiple: true
+
+      - name: Write latest.json, the notes and SHA256SUMS
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          DRY_RUN: ${{ github.event_name != 'push' && '--dry-run' || '' }}
+        run: |
+          pub_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          mkdir notes
+          cargo run --quiet --locked -p release-manifest -- assemble --version "$VERSION" \
+            --pub-date "$pub_date" --dir dist $DRY_RUN > notes/notes.md
+          (cd dist && sha256sum -- * > SHA256SUMS)
+
+      - name: List the release
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          {
+            echo "## gitcroc $VERSION"
+            echo
+            if [ "$EVENT" != push ]; then
+              echo "A dry run, signed with a key made for this run: its latest.json must never be published."
+              echo
+            fi
+            if [ "$PRERELEASE" = true ]; then echo "A pre-release."; echo; fi
+            echo '```'
+            ls -l dist
+            echo '```'
+            echo
+            echo '### latest.json'
+            echo '```json'
+            cat dist/latest.json
+            echo '```'
+            echo
+            echo '### Notes'
+            echo
+            cat notes/notes.md
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the release
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ needs.prepare.outputs.version }}
+          path: |
+            dist/*
+            notes/notes.md
+          if-no-files-found: error
+
+  # The only job that writes: a draft release from a pushed tag. Eric
+  # publishes it.
+  draft:
+    if: github.event_name == 'push'
+    needs: [prepare, assemble]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the release
+        uses: actions/download-artifact@v8
+        with:
+          name: release-${{ needs.prepare.outputs.version }}
+          path: release
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          args=(--repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "gitcroc $VERSION" --notes-file release/notes/notes.md)
+          if [ "$PRERELEASE" = true ]; then
+            args+=(--prerelease)
+          fi
+          gh release create "v$VERSION" "${args[@]}" release/dist/*

@@ -1,14 +1,15 @@
 # The packages of section 11 (D6) from the GPUI app, without Tauri's
 # bundler (M6-28), and their install tests, which replace M5-14's. build.yml
-# calls this workflow, and the release workflow will (M6-28b), so the build
-# steps live only here.
+# calls this workflow, and so does release.yml (M6-28b), so the build steps
+# live only here.
 #
 # Each package's binary is its own release build of `gitcroc-next` with
 # GITCROC_BUNDLE set, which marks the package it came from (PLAT-4). The
 # packaging step copies it beside itself as `gitcroc`, the name the packages
 # install. The portable zip packs the installer's binary, and the .dmg holds
 # the .app. Nothing is code-signed or notarized; the macOS app and .dmg are
-# signed ad hoc (SEC-7). No update package is signed here (M6-28b).
+# signed ad hoc (SEC-7). No update package is signed here; release.yml signs
+# them with the updater key (M6-28b).
 #
 # The file names are 1.0.0-rc.1's, which tools/release-manifest finds.
 name: Packages
