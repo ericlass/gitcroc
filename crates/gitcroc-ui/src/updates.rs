@@ -66,6 +66,10 @@ impl Updates {
         // The update is installed: the app restarts into it (PLAT-4).
         if ready && !self.restarting {
             self.restarting = true;
+            // An AppImage restarts from its file, not from its mount.
+            if let Some(path) = gitcroc_app::update::restart_path() {
+                cx.set_restart_path(path);
+            }
             cx.restart();
         }
     }

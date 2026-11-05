@@ -48,6 +48,35 @@ pub fn secret_key(key: &str, password: &str) -> Result<minisign::SecretKey, Erro
         .map_err(|error| Error::BadKey(format!("the secret key does not open: {error}")))
 }
 
+/// A new key pair for a test, such as M6-28c's update test, never the
+/// project's: the secret half as [`KEY_VAR`] takes it, encrypted with the
+/// empty password, and the public half, both base64 of their boxes.
+pub fn keygen() -> Result<(String, String), Error> {
+    let failed = |error: minisign::PError| Error::Sign(format!("no key was made: {error}"));
+    let pair =
+        minisign::KeyPair::generate_encrypted_keypair(Some(String::new())).map_err(failed)?;
+    let secret = pair.sk.to_box(None).map_err(failed)?.into_string();
+    let public = pair.pk.to_box().map_err(failed)?.into_string();
+    Ok((STANDARD.encode(secret), STANDARD.encode(public)))
+}
+
+/// Writes [`keygen`]'s secret half to `path`, which must not exist yet, and
+/// returns the public half.
+pub fn keygen_file(path: &Path) -> Result<String, Error> {
+    let (secret, public) = keygen()?;
+    let io = |source| Error::Io {
+        path: path.to_owned(),
+        source,
+    };
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(io)?;
+    std::io::Write::write_all(&mut file, secret.as_bytes()).map_err(io)?;
+    Ok(public)
+}
+
 /// The trusted comment of a signature of `file` for `version`, made at
 /// `timestamp` seconds since the epoch.
 pub fn trusted_comment(timestamp: u64, file: &str, version: &str) -> String {
@@ -260,6 +289,16 @@ mod tests {
             sign_file(&key, &dir.path().join("missing"), "1.0.0"),
             Err(Error::Io { .. })
         ));
+    }
+
+    #[test]
+    fn sec_7_keygen_signs_with_the_empty_password() {
+        let (secret, public) = keygen().unwrap();
+        let key = secret_key(&secret, "").unwrap();
+        let sig = signature(&key, &b"package"[..], "gitcroc.AppImage", "1.0.1").unwrap();
+        verify(b"package", &sig, "1.0.1", &public).unwrap();
+        assert!(verify(b"package", &sig, "1.0.1", PUBLIC_KEY).is_err());
+        assert_ne!(keygen().unwrap().1, public);
     }
 
     #[test]

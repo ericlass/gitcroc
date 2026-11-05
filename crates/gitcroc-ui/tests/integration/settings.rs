@@ -275,10 +275,9 @@ fn ui_26_fonts_and_sizes_apply_and_are_saved(root: &mut TestAppContext) {
     let f = Fixture::start(gitcroc_app::app::EVENT_CAPACITY);
     let (mut cx, _) = main_window(root, &f);
     open_settings(&mut cx);
-    assert_eq!(
-        value(&mut cx, "settings-ui-font-size").as_deref(),
-        Some("13")
-    );
+    wait_until(&mut cx, |cx| {
+        value(cx, "settings-ui-font-size").as_deref() == Some("13")
+    });
 
     type_into(&mut cx, "settings-ui-font-size", "15");
     wait_until(&mut cx, |_| f.saved().contains("ui_font_size = 15"));
@@ -592,7 +591,9 @@ fn d12_settings_turns_the_automatic_check_off_and_checks_now(root: &mut TestAppC
     open_settings(&mut cx);
     show_tab(&mut cx, SettingsTab::Updates);
     wait_for_element(&mut cx, "settings-update-check".into());
-    assert_eq!(checked(&mut cx, "settings-update-check"), Some(true));
+    wait_until(&mut cx, |cx| {
+        checked(cx, "settings-update-check") == Some(true)
+    });
 
     click(&mut cx, "settings-update-check".into());
     wait_until(&mut cx, |_| f.saved().contains("update_check = false"));

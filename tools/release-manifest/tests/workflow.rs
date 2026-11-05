@@ -1,5 +1,6 @@
-//! The release workflow's handling of the updater key (SEC-7, M6-28b), read
-//! from `.github/workflows/release.yml` as text: its steps are the list
+//! The workflows' handling of updater keys (SEC-7): the project's key in
+//! `release.yml` (M6-28b), and the update test's throwaway key in
+//! `packages.yml` (M6-28c). Each is read as text: its steps are the list
 //! items under each job's `steps:`, indented six spaces.
 
 // Integration test crate: helpers outside #[test] fns are test code too (QA-4).
@@ -7,9 +8,15 @@
 
 use std::path::Path;
 
-fn release_yml() -> String {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/release.yml");
+fn workflow(name: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.github/workflows")
+        .join(name);
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+}
+
+fn release_yml() -> String {
+    workflow("release.yml")
 }
 
 /// A step: its job, its name and its lines, without comments.
@@ -189,4 +196,60 @@ fn sec_7_releasing_checks_with_the_project_key() {
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.contains(release_manifest::sign::PUBLIC_KEY));
     assert!(text.contains("minisign -V"));
+}
+
+/// M6-28c: in packages.yml, the update test's key exists only in update
+/// test runs. Each build job makes its own; only its signing step has the
+/// secret half in its environment; it is not uploaded, and the job's last
+/// step deletes it. The feature is only turned on with the key.
+#[test]
+fn sec_7_update_test_key_stays_in_its_build_job() {
+    let yml = workflow("packages.yml");
+    let (_, steps) = lines_and_steps(&yml);
+    let builds = ["windows", "macos", "linux"];
+    for job in builds {
+        let job_steps: Vec<&Step> = steps.iter().filter(|step| step.job == job).collect();
+        let named = |name: &str| {
+            job_steps
+                .iter()
+                .position(|step| step.name == name)
+                .unwrap_or_else(|| panic!("{job} has the step {name}"))
+        };
+        let made = named("Make the update test's key");
+        let signs = named("Sign B's update package with the update test's key");
+        let deleted = named("Delete the update test's key");
+        assert!(made < signs && signs < deleted, "{job}");
+        assert_eq!(deleted, job_steps.len() - 1, "{job}: deleted last");
+        assert_eq!(
+            job_steps[deleted].condition(),
+            "always() && inputs.update-test"
+        );
+        assert!(
+            job_steps[deleted]
+                .text()
+                .contains("rm -f \"$RUNNER_TEMP/update-test.key\"")
+        );
+        for step in [made, signs] {
+            assert_eq!(job_steps[step].condition(), "inputs.update-test", "{job}");
+        }
+    }
+    for step in &steps {
+        let text = step.text();
+        if text.contains("TAURI_SIGNING_PRIVATE_KEY")
+            || text.contains("cat \"$RUNNER_TEMP/update-test.key\"")
+        {
+            assert_eq!(
+                step.name, "Sign B's update package with the update test's key",
+                "the secret key is read in {step:#?}"
+            );
+        }
+        if text.contains("update-test.key") {
+            assert!(builds.contains(&step.job.as_str()), "{step:#?}");
+            assert!(!text.contains("upload"), "{step:#?}");
+        }
+        if text.contains("gitcroc-app/update-test") {
+            assert_eq!(step.name, "Make the update test's key", "{step:#?}");
+        }
+    }
+    assert!(!yml.contains("secrets."));
 }

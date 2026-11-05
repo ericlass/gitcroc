@@ -9,7 +9,51 @@ impl App {
     /// Where the update check and install are (PLAT-4); each change also
     /// arrives as `UpdateStatusChanged`.
     pub fn update_status(&self) -> UpdateView {
-        self.inner.updates.view()
+        let view = self.inner.updates.view();
+        #[cfg(feature = "update-test")]
+        if let Some(version) = self.inner.installed_at_start.get() {
+            return UpdateView {
+                status: gitcroc_core::UpdateStatus::ReadyToRestart {
+                    version: version.clone(),
+                },
+                ..view
+            };
+        }
+        view
+    }
+
+    /// The `update-test` build's update at start (M6-28c): checks at once
+    /// and installs without asking, then says `ReadyToRestart`, by event
+    /// and in [`Self::update_status`], so the UI restarts into it whether
+    /// it already listened or reads the status first. Only this build does
+    /// it (D12).
+    #[cfg(feature = "update-test")]
+    pub(super) fn update_at_start(
+        &self,
+        source: std::sync::Arc<dyn gitcroc_core::UpdateSource>,
+        config: Option<std::path::PathBuf>,
+        version: String,
+    ) {
+        use crate::platform::{Installation, PlatformInstallation};
+        use crate::update::at_start::{self, Outcome};
+
+        let app = self.clone();
+        self.inner.runtime.spawn(async move {
+            let outcome = at_start::run(
+                source.as_ref(),
+                PlatformInstallation::package(),
+                &version,
+                config.as_deref(),
+                &app.inner.log,
+            )
+            .await;
+            if let Outcome::Installed(installed) = outcome {
+                let _ = app.inner.installed_at_start.set(installed);
+                app.inner
+                    .hub
+                    .send(super::AppEvent::UpdateStatusChanged(app.update_status()));
+            }
+        });
     }
 
     /// Checks for an update at once, also while automatic checks are off,

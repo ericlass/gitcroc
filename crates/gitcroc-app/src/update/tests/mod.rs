@@ -585,3 +585,31 @@ fn entries(dir: &Path) -> Vec<String> {
     names.sort();
     names
 }
+
+/// An AppImage restarts from its file: its executable is inside the mount
+/// that goes away with the app (M6-28c).
+#[test]
+fn plat_4_appimage_restarts_from_its_file() {
+    use super::restart_path_for;
+
+    let file = || Some(OsString::from("/home/u/gitcroc.AppImage"));
+    assert_eq!(
+        restart_path_for(Package::AppImage, file()),
+        Some(PathBuf::from("/home/u/gitcroc.AppImage"))
+    );
+    assert_eq!(
+        restart_path_for(Package::AppImage, Some(OsString::new())),
+        None
+    );
+    assert_eq!(restart_path_for(Package::AppImage, None), None);
+    for package in [
+        Package::WindowsInstaller,
+        Package::WindowsPortable,
+        Package::MacApp,
+        Package::Deb,
+        Package::Rpm,
+        Package::Unknown,
+    ] {
+        assert_eq!(restart_path_for(package, file()), None, "{package:?}");
+    }
+}

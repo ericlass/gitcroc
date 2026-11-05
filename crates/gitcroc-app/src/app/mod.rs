@@ -104,6 +104,10 @@ struct Inner {
     ai_jobs: Arc<AiJobs>,
     fonts: DesktopFonts,
     dialogs: Arc<dyn Dialogs>,
+    /// The version the `update-test` build installed at start, once it has
+    /// (M6-28c).
+    #[cfg(feature = "update-test")]
+    installed_at_start: Arc<std::sync::OnceLock<String>>,
 }
 
 impl App {
@@ -175,6 +179,10 @@ impl App {
             jobs.clone(),
             move |ready| preflights.send(AppEvent::PreflightReady(ready.clone())),
         );
+        // The `update-test` build's own update at start (M6-28c) uses the
+        // same source.
+        #[cfg(feature = "update-test")]
+        let update_source = setup.updates.clone();
         // Checks only in release builds, after the startup refresh (D12).
         let updates = Updates::new(UpdateSetup {
             source: setup.updates,
@@ -188,7 +196,7 @@ impl App {
                 .update_test
                 .map_or_else(PlatformInstallation::package, |test| test.package),
             checks: setup.update_test.map_or(CHECKS, |test| test.checks),
-            current_version: version,
+            current_version: version.clone(),
         });
         setup.runtime.spawn(updates.clone().run_schedule());
         // With AI on, the CLI providers are detected and self-tested in the
@@ -231,8 +239,16 @@ impl App {
                 ai_jobs,
                 fonts: setup.fonts,
                 dialogs: setup.dialogs,
+                #[cfg(feature = "update-test")]
+                installed_at_start: Arc::default(),
             }),
         };
+        // Tests choose their package and checks; the binary leaves
+        // `update_test` unset.
+        #[cfg(feature = "update-test")]
+        if setup.update_test.is_none() {
+            app.update_at_start(update_source, setup.config.config_dir(), version.clone());
+        }
         if let Some(active) = app.inner.hub.workspaces.active() {
             app.spawn_watch_sync(active);
         }

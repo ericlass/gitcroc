@@ -269,6 +269,10 @@ fn ui_22_every_palette_operation_runs_its_action(root: &mut TestAppContext) {
         d.choose(Op::Revert, Did::Runs);
         click(&mut d.cx, "history-row-1".into());
         d.choose(Op::CherryPick, Did::Runs);
+        // Reapplying this commit may conflict, depending on which history
+        // page the preceding revert has delivered. End that operation and
+        // wait for the UI's unblocked summary before testing checkout.
+        d.abort_cherry_pick(&api, &id);
         click(&mut d.cx, "history-row-1".into());
         d.choose(Op::CheckoutCommit, Did::Runs);
         api.git(["checkout", "--quiet", "main"]).unwrap();
@@ -492,6 +496,18 @@ fn ui_22_every_palette_operation_runs_its_action(root: &mut TestAppContext) {
         crate::ai_resolve::row_click(&mut d.cx, &d.window, "a.txt");
         crate::conflict_flow::wait_for_editor(&mut d.cx, &d.window, "a.txt");
         d.choose(Op::MarkResolved, Did::Runs);
+        // The job can end before its new list reaches the pane. Selecting
+        // d.txt by the old row index would select a different file.
+        wait_until(&mut d.cx, |cx| {
+            crate::changes::with_changes(cx, &d.window, |changes| {
+                !changes.loading()
+                    && changes.rows().iter().all(|row| {
+                        !matches!(row, gitcroc_ui::changes::FileRow::File { file, .. }
+                        if file.list == List::Unmerged
+                            && changes.entry_of(file).is_some_and(|entry| entry.path() == "a.txt"))
+                    })
+            })
+        });
         crate::ai_resolve::row_click(&mut d.cx, &d.window, "d.txt");
         let editor = crate::conflict_flow::wait_for_editor(&mut d.cx, &d.window, "d.txt");
         d.choose(Op::ResolveWithAi, Did::Runs);

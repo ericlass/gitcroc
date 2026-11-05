@@ -212,6 +212,15 @@ impl Driver<'_> {
     /// Selects the changed file `path` of `list` with the arrow keys.
     #[track_caller]
     pub(crate) fn file_to(&mut self, list: List, path: &str) {
+        // A post-write list can arrive before the job ends. Wait for the
+        // repo to accept the next operation before navigating its rows.
+        self.settled();
+        let window = self.window.clone();
+        wait_until(&mut self.cx, |cx| {
+            crate::changes::with_changes(cx, &window, |changes| {
+                !changes.loading() && changes.file().is_some()
+            })
+        });
         let at = self.file_row(list, path);
         // F6 lands on the file list, not in a view beside it.
         let window = self.window.clone();

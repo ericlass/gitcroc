@@ -53,14 +53,18 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 # lists the manifest's platform keys (PLAT-4).
 minisign.workspace = true
 release-manifest = { path = "../../tools/release-manifest" }
+# Reads the crates' features (D12, M6-28c).
+toml.workspace = true
 
 [features]
 # The scripted AI provider for the smoke test (M4-12), which M6-29 brings
 # back. Never in a release build.
 e2e = ["gitcroc-ai/mock"]
-# M6-28's update test: the updater's endpoint, a loopback address, and the
+# M6-28c's update test: the updater's endpoint, a loopback address, and the
 # test key come from GITCROC_UPDATE_TEST_ENDPOINT and GITCROC_UPDATE_TEST_KEY
-# at build time (SEC-7). Never in a release build; without it the endpoint
+# at build time (SEC-7), and the app checks at start and installs without
+# asking (`update::at_start`). Never in a release build: not a default, and
+# only packages.yml's `update-test` input passes it. Without it the endpoint
 # and the key are fixed.
 update-test = []
 

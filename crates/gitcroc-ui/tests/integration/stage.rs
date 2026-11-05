@@ -694,17 +694,22 @@ fn grp_9_discard_asks_and_names_the_files(cx: &mut TestAppContext) {
         }
         false
     });
+}
 
-    // Twelve files: ten names and a count of the rest.
+// Build all twelve files before opening the repo. This checks the dialog's
+// truncation without racing twelve watcher refreshes after a discard job.
+#[gpui::test]
+fn grp_9_discard_lists_ten_files_and_counts_the_rest(cx: &mut TestAppContext) {
+    let fixture = Fixture::start(EVENT_CAPACITY);
+    let made = repos(&["api"]);
+    let api = repo(&made, "api");
     let names: Vec<String> = (1..=12).map(|n| format!("f{n:02}.txt")).collect();
     for name in &names {
         api.write(name, "x\n").unwrap();
     }
-    // The clean repo had no "Uncommitted changes"; it has again.
-    fixture.refresh(&fixture.active());
-    wait_for_element(&mut cx, "history-uncommitted".into());
-    click(&mut cx, "history-uncommitted".into());
-    wait_for_view(&mut cx, &window);
+    let added = add(&fixture, &made);
+    let (mut cx, window) = main_window(cx, &fixture);
+    show_uncommitted(&mut cx, &window, &added, "api");
     let wanted: Vec<&str> = names.iter().map(String::as_str).collect();
     wait_for_lists(&mut cx, &window, &[], &wanted);
     // Each write wakes the watcher, and a read that lands after the lists
