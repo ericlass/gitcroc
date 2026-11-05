@@ -23,7 +23,8 @@ import platform
 import shutil
 import subprocess
 import sys
-import tomllib
+
+from update_version import workspace_version
 
 ENDPOINT = "http://127.0.0.1:8765/latest.json"
 
@@ -45,7 +46,7 @@ def overlay(version, public_key):
 
 
 def build(rc1, public_key_file, out):
-    version = tomllib.loads((rc1 / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
+    version = workspace_version(rc1)
     public_key = public_key_file.read_text(encoding="utf-8").strip()
     system = platform.system()
     bundles = {"Windows": "nsis", "Darwin": "app", "Linux": "appimage"}[system]

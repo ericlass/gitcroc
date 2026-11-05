@@ -11,7 +11,6 @@ members' entries in Cargo.lock, so the builds of B still pass --locked.
 from pathlib import Path
 import re
 import sys
-import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -27,7 +26,16 @@ def newer(version):
 
 
 def workspace_version(root=ROOT):
-    return tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
+    """[workspace.package]'s version in `root`'s Cargo.toml. Read without
+    tomllib, which ubuntu-22.04's Python 3.10 lacks."""
+    return manifest_version((root / "Cargo.toml").read_text(encoding="utf-8"))
+
+
+def manifest_version(text):
+    match = re.search(r'\[workspace\.package\][^\[]*?\nversion = "([^"]+)"', text)
+    if not match:
+        raise ValueError("Cargo.toml has no [workspace.package] version")
+    return match.group(1)
 
 
 def bump_manifest(text, old, new):

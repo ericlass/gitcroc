@@ -150,6 +150,9 @@ jobs:
           echo "NEWER=$newer" >> "$GITHUB_ENV"
           cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
           cp target/release/gitcroc-next.exe target/release/gitcroc.exe
+          # As for A: cargo-packager takes an out-dir that does not exist yet
+          # as relative to the crate.
+          mkdir -p dist/b
           cargo packager --release -p gitcroc-ui --formats nsis --out-dir dist/b
       # The only step with the update test's secret key in its environment.
       - name: Sign B's update package with the update test's key
@@ -267,6 +270,7 @@ jobs:
           cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target x86_64-apple-darwin $FEATURES
           lipo -create -output target/universal-apple-darwin/release/gitcroc \
             target/aarch64-apple-darwin/release/gitcroc-next target/x86_64-apple-darwin/release/gitcroc-next
+          mkdir -p dist/b
           cargo packager --release -p gitcroc-ui --target universal-apple-darwin --formats app --out-dir dist/b
           codesign --verify --deep --strict dist/b/gitcroc.app
           tar -czf dist/b/gitcroc.app.tar.gz -C dist/b gitcroc.app
@@ -388,6 +392,7 @@ jobs:
           echo "NEWER=$newer" >> "$GITHUB_ENV"
           cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
           cp target/release/gitcroc-next target/release/gitcroc
+          mkdir -p dist/b
           cargo packager --release -p gitcroc-ui --formats appimage --out-dir dist/b
           mv "dist/b/gitcroc_${newer}_x86_64.AppImage" "dist/b/gitcroc_${newer}_amd64.AppImage"
       # The only step with the update test's secret key in its environment.

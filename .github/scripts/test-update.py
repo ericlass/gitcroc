@@ -21,6 +21,9 @@ class VersionTests(unittest.TestCase):
 
     def test_plat_4_bump_sets_the_workspace_and_its_lock_entries(self):
         manifest = '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "1.0.0"\nedition = "2024"\n'
+        self.assertEqual(update_version.manifest_version(manifest), "1.0.0")
+        self.assertEqual(update_version.workspace_version(), update_version.manifest_version(
+            (update_version.ROOT / "Cargo.toml").read_text(encoding="utf-8")))
         self.assertIn('version = "1.0.1"', update_version.bump_manifest(manifest, "1.0.0", "1.0.1"))
         lock = (
             '# lock\nversion = 4\n\n[[package]]\nname = "gitcroc-app"\nversion = "1.0.0"\n'
