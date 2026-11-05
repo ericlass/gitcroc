@@ -543,6 +543,8 @@ fn ui_18_binary_files_show_their_sizes(cx: &mut TestAppContext) {
     );
 }
 
+/// SEC-2: the native image view draws core-provided bytes, without a
+/// browser, external page, stylesheet or blob URL.
 #[gpui::test]
 fn ui_18_images_show_before_and_after(cx: &mut TestAppContext) {
     let fixture = Fixture::start(EVENT_CAPACITY);

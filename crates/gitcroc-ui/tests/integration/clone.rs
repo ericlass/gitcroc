@@ -237,13 +237,18 @@ fn grp_1_add_folder_reports_added_and_already_present(cx: &mut TestAppContext) {
     assert_eq!(workspace_repos(&f).len(), 2);
 }
 
+/// ARCH-3, PLAT-2: cloning into the exact Unicode/metacharacter path
+/// proves the native dialog forwards an OS path through argument arrays.
 #[gpui::test]
 fn grp_1_clone_name_follows_the_url_until_edited(cx: &mut TestAppContext) {
     let f = Fixture::start(EVENT_CAPACITY);
     let remotes = tempfile::tempdir().unwrap();
     let url = bare(remotes.path(), "tool");
     let into = tempfile::tempdir().unwrap();
-    let into_path = dunce::canonicalize(into.path()).unwrap();
+    let into_path = dunce::canonicalize(into.path())
+        .unwrap()
+        .join("space résumé & $literal ;");
+    std::fs::create_dir(&into_path).unwrap();
     let (mut cx, window) = main_window(cx, &f);
     open_clone(&mut cx);
     assert_eq!(
