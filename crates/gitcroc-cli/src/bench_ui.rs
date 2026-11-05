@@ -49,13 +49,29 @@ const JANKY_BUDGET: f64 = 1.0;
 const FRAME_SLACK: f64 = 1.01;
 
 /// The action scenarios and their section 9 budgets, in ms.
-const ACTIONS: [(&str, f64); 5] = [
+const ACTIONS: [(&str, f64); 10] = [
     ("cold-start", 1000.0),
+    ("refresh-all-ui", 2000.),
+    ("select-group", 300.),
+    ("input-latency", 50.),
+    ("input-latency-job", 50.),
+    ("input-latency-group-job", 50.),
     ("select-largest-repo", 200.0),
     ("select-commit", 150.0),
     ("switch-repo", 100.0),
     ("switch-tab", 100.0),
 ];
+
+/// Units and limits for the complete section 9 UI budget set.
+pub fn budget_for(scenario: &str) -> Option<(&'static str, f64)> {
+    match scenario {
+        "memory-idle" | "memory-two-tabs" => Some(("MB", 400.)),
+        _ => ACTIONS
+            .iter()
+            .find(|(name, _)| *name == scenario)
+            .map(|(_, limit)| ("ms", *limit)),
+    }
+}
 
 /// Action scenarios reported without a budget: how long a tab's history
 /// takes to come back after a switch (UI-31).
@@ -182,8 +198,22 @@ pub fn judge(traces: &[Trace], refresh_hz: f64) -> Result<Vec<Value>, String> {
             .map(|sample| sample.ms)
             .collect()
     };
-    for (scenario, budget) in ACTIONS {
-        row(scenario.to_owned(), "ms", &samples(scenario), Some(budget))?;
+    for scenario in ACTIONS
+        .iter()
+        .map(|(name, _)| *name)
+        .chain(["memory-idle", "memory-two-tabs"])
+    {
+        let (unit, budget) = budget_for(scenario).ok_or("unknown budget")?;
+        for trace in traces {
+            if !trace
+                .samples
+                .iter()
+                .any(|sample| sample.scenario == scenario)
+            {
+                return Err(format!("a run has no {scenario}"));
+            }
+        }
+        row(scenario.to_owned(), unit, &samples(scenario), Some(budget))?;
     }
     for scenario in REPORTED {
         let values = samples(scenario);
@@ -235,10 +265,14 @@ pub struct Targets {
     pub second: String,
     pub diff_tab: String,
     pub largest: String,
+    pub group: String,
     pub other: String,
     pub commit: String,
     pub diff_repo: String,
     pub diff_commit: String,
+    pub job_tab: String,
+    pub job_repo: String,
+    pub job_group: String,
 }
 
 /// The script one run plays (`gitcroc_ui::perf::Script`).
@@ -248,19 +282,29 @@ pub fn script(targets: &Targets, started_ms: Option<u64>) -> Value {
         second,
         diff_tab,
         largest,
+        group,
         other,
         commit,
         diff_repo,
         diff_commit,
+        job_tab,
+        job_repo,
+        job_group,
     } = targets;
     let idle = json!({"step": "idle"});
     let mut steps = vec![
         json!({"step": "cold-start", "scenario": "cold-start"}),
+        json!({"step": "refresh-all", "scenario": "refresh-all-ui"}),
+        idle.clone(),
+        json!({"step": "filter", "scenario": "input-latency"}),
+        idle.clone(),
+        json!({"step": "select-group", "scenario": "select-group", "group": group}),
         idle.clone(),
         json!({"step": "select-repo", "scenario": "select-largest-repo", "repo": largest}),
         idle.clone(),
         json!({"step": "select-commit", "scenario": "select-commit", "hash": commit}),
         idle.clone(),
+        json!({"step": "memory", "scenario": "memory-idle"}),
     ];
     for _ in 0..SWITCHES {
         for repo in [other, largest] {
@@ -268,6 +312,17 @@ pub fn script(targets: &Targets, started_ms: Option<u64>) -> Value {
             steps.push(idle.clone());
         }
     }
+    steps.extend([
+        json!({"step":"switch-tab", "scenario":null, "tab":second}),
+        idle.clone(),
+        json!({"step":"select-repo", "scenario":null, "repo":largest}),
+        idle.clone(),
+        json!({"step":"select-commit", "scenario":null, "hash":commit}),
+        idle.clone(),
+        json!({"step":"switch-tab", "scenario":null, "tab":main}),
+        idle.clone(),
+        json!({"step":"memory", "scenario":"memory-two-tabs"}),
+    ]);
     steps.push(json!({"step": "scroll-history", "scenario": "scroll-history"}));
     steps.push(idle.clone());
     for _ in 0..SWITCHES {
@@ -278,6 +333,16 @@ pub fn script(targets: &Targets, started_ms: Option<u64>) -> Value {
         }
     }
     steps.extend([
+        json!({"step":"switch-tab", "scenario":null, "tab":job_tab}),
+        idle.clone(),
+        json!({"step":"select-repo", "scenario":null, "repo":job_repo}),
+        idle.clone(),
+        json!({"step":"job-filter", "scenario":"input-latency-job"}),
+        idle.clone(),
+        json!({"step":"select-group", "scenario":"select-job-group", "group":job_group}),
+        idle.clone(),
+        json!({"step":"job-filter", "scenario":"input-latency-group-job"}),
+        idle.clone(),
         json!({"step": "switch-tab", "scenario": null, "tab": diff_tab}),
         idle.clone(),
         json!({"step": "select-repo", "scenario": null, "repo": diff_repo}),
@@ -329,14 +394,23 @@ fn run_all(options: &Options) -> Result<Vec<Value>, String> {
         )
     })?;
     let home = tempfile::tempdir().map_err(|error| format!("cannot make a temp dir: {error}"))?;
-    eprintln!("setting up the workspaces in {}", home.path().display());
-    let targets = set_up(&set, &home.path().join("setup"))?;
+    let path = home.path().to_owned();
+    // Verbose runs retain every script and trace, including failures.
+    let _cleanup = if options.verbose {
+        let _ = home.keep();
+        None
+    } else {
+        Some(home)
+    };
+    let home = path;
+    eprintln!("setting up the workspaces in {}", home.display());
+    let targets = set_up(&set, &home.join("setup"))?;
     eprintln!("warm-up run");
-    run_app(options, home.path(), &targets, "warm-up")?;
+    run_app(options, &home, &targets, "warm-up")?;
     let mut traces = Vec::with_capacity(options.runs);
     for run in 1..=options.runs {
         eprintln!("run {run} of {}", options.runs);
-        let trace = run_app(options, home.path(), &targets, &format!("run-{run}"))?;
+        let trace = run_app(options, &home, &targets, &format!("run-{run}"))?;
         if options.verbose {
             report(&trace);
         }
@@ -360,7 +434,10 @@ fn report(trace: &Trace) {
             .push((sample.ms * 10.0).round() / 10.0);
     }
     for (scenario, values) in samples {
-        eprintln!("  {scenario}: {values:?} ms");
+        eprintln!(
+            "  {scenario}: {values:?} {}",
+            budget_for(scenario).map_or("ms", |(unit, _)| unit)
+        );
     }
     for scroll in &trace.scrolls {
         let hz = trace.refresh_hz.unwrap_or(MAX_HZ);
@@ -449,6 +526,29 @@ fn set_up(set: &DataSet, home: &Path) -> Result<Targets, String> {
         .as_str()
         .ok_or("the workspace has no id")?
         .to_owned();
+    let ids = view["repos"]
+        .as_array()
+        .ok_or("no repos")?
+        .iter()
+        .map(|repo| repo["id"].as_str().ok_or("repo has no id"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut args = vec![
+        "group",
+        "--config-dir",
+        config.to_str().ok_or("non UTF-8 config")?,
+        "create",
+        "All repos",
+    ];
+    args.extend(ids);
+    let created: Value = serde_json::from_slice(&run_self(
+        &exe,
+        &args.iter().map(OsString::from).collect::<Vec<_>>(),
+    )?)
+    .map_err(|error| error.to_string())?;
+    let group = created[0]["id"]
+        .as_str()
+        .ok_or("group has no id")?
+        .to_owned();
     let largest_path = &set.largest()?.path;
     let largest = repo_named(&view, &folder(largest_path)?)?;
     let other_path = paths
@@ -470,16 +570,61 @@ fn set_up(set: &DataSet, home: &Path) -> Result<Targets, String> {
     let diff_repo = repo_named(&workspace(&["show"])?, "diff-repo")?;
     let diff_commit = git(&diff_path, &["rev-parse", "HEAD"])?;
 
+    // Local clones keep fetch jobs real without changing the reference data
+    // or using the network. Each has the corresponding source as its origin.
+    let job_tab = active(&workspace(&["create", "Jobs"])?)?;
+    let job_root = home.join("jobs");
+    std::fs::create_dir_all(&job_root).map_err(|error| error.to_string())?;
+    for path in &paths {
+        let copy = job_root.join(folder(path)?);
+        let status = Command::new("git")
+            .args(["clone", "--quiet", "--shared"])
+            .arg(path)
+            .arg(&copy)
+            .status()
+            .map_err(|error| error.to_string())?;
+        if !status.success() {
+            return Err("cannot clone a job repo".into());
+        }
+        add_all(&[&copy])?;
+    }
+    fill_cache()?;
+    let jobs = workspace(&["show"])?;
+    let job_repo = repo_named(&jobs, &folder(largest_path)?)?;
+    let mut args = vec![
+        "group",
+        "--config-dir",
+        config.to_str().ok_or("non UTF-8 config")?,
+        "create",
+        "Job repos",
+    ];
+    args.extend(
+        jobs["repos"]
+            .as_array()
+            .ok_or("no job repos")?
+            .iter()
+            .filter_map(|repo| repo["id"].as_str()),
+    );
+    let groups: Value = serde_json::from_slice(&run_self(
+        &exe,
+        &args.iter().map(OsString::from).collect::<Vec<_>>(),
+    )?)
+    .map_err(|error| error.to_string())?;
+    let job_group = groups[0]["id"].as_str().ok_or("no job group")?.to_owned();
     workspace(&["open", &main])?;
     Ok(Targets {
         main,
         second,
         diff_tab,
         largest,
+        group,
         other,
         commit,
         diff_repo,
         diff_commit,
+        job_tab,
+        job_repo,
+        job_group,
     })
 }
 
@@ -565,6 +710,7 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
 /// cache [`set_up`] made under `home/setup`, so every run starts from the
 /// same tabs and selection, waits for it to end and reads its trace.
 fn run_app(options: &Options, home: &Path, targets: &Targets, name: &str) -> Result<Trace, String> {
+    let archive = home.join("traces");
     let run = home.join("run");
     if run.exists() {
         std::fs::remove_dir_all(&run)
@@ -616,6 +762,13 @@ fn run_app(options: &Options, home: &Path, targets: &Targets, name: &str) -> Res
         .map_err(|error| format!("cannot read {}: {error}", trace_path.display()))?;
     let trace: Trace = serde_json::from_str(&text)
         .map_err(|error| format!("cannot parse {}: {error}", trace_path.display()))?;
+    if options.verbose {
+        std::fs::create_dir_all(&archive).map_err(|error| error.to_string())?;
+        for path in [&script_path, &trace_path] {
+            let file = path.file_name().ok_or("trace has no file name")?;
+            std::fs::copy(path, archive.join(file)).map_err(|error| error.to_string())?;
+        }
+    }
     if trace.inactive_frames > 0 {
         return Err(format!(
             "{name}: the window was not active for {} frames while scrolling, which slows \
@@ -686,6 +839,13 @@ mod tests {
             trace(
                 &[
                     ("cold-start", 600.0),
+                    ("refresh-all-ui", 1000.),
+                    ("select-group", 100.),
+                    ("input-latency", 10.),
+                    ("input-latency-job", 20.),
+                    ("input-latency-group-job", 30.),
+                    ("memory-idle", 200.),
+                    ("memory-two-tabs", 300.),
                     ("select-largest-repo", select),
                     ("select-commit", 90.0),
                     ("switch-repo", 40.0),
@@ -711,7 +871,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("no row {name}"))
                 .clone()
         };
-        assert_eq!(rows.len(), 11);
+        assert_eq!(rows.len(), 18);
         // Reported, never failing.
         assert_eq!(row("switch-tab-history")["budget_ms"], Value::Null);
         assert_eq!(row("switch-tab-history")["pass"], true);
@@ -753,10 +913,14 @@ mod tests {
             second: "w-second".into(),
             diff_tab: "w-diff".into(),
             largest: "r-largest".into(),
+            group: "g-all".into(),
             other: "r-other".into(),
             commit: "c-commit".into(),
             diff_repo: "r-diff".into(),
             diff_commit: "c-diff".into(),
+            job_tab: "w-job".into(),
+            job_repo: "r-job".into(),
+            job_group: "g-job".into(),
         };
         let expected: Value = serde_json::from_str(include_str!(
             "../../gitcroc-ui/tests/integration/bench_script.json"
@@ -805,5 +969,61 @@ mod tests {
         assert!(parse_args(&args(&["--app", "a", "--runs", "0"])).is_none());
         assert!(parse_args(&args(&["--app", "a", "--refresh-hz", "0"])).is_none());
         assert!(parse_args(&args(&["--app", "a", "extra"])).is_none());
+    }
+}
+
+#[cfg(test)]
+mod full_budget_tests {
+    use super::*;
+    #[test]
+    fn perf_8_full_budget_judging_requires_every_run() {
+        // A complete budget run must never silently omit a memory or job row.
+        assert!(judge(&[], 144.).is_err());
+        for (scenario, unit, budget) in [
+            ("refresh-all-ui", "ms", 2000.),
+            ("select-group", "ms", 300.),
+            ("input-latency", "ms", 50.),
+            ("input-latency-job", "ms", 50.),
+            ("input-latency-group-job", "ms", 50.),
+            ("memory-idle", "MB", 400.),
+            ("memory-two-tabs", "MB", 400.),
+        ] {
+            assert_eq!(budget_for(scenario), Some((unit, budget)));
+        }
+        let mut trace = Trace {
+            samples: ACTIONS
+                .iter()
+                .map(|(scenario, _)| Sample {
+                    scenario: (*scenario).into(),
+                    ms: 1.,
+                })
+                .collect(),
+            scrolls: SCROLLS
+                .iter()
+                .map(|scenario| Scroll {
+                    scenario: (*scenario).into(),
+                    intervals_ms: vec![6.94; 100],
+                    longest_blank_ms: 0.,
+                })
+                .collect(),
+            ..Trace::default()
+        };
+        for scenario in ["memory-idle", "memory-two-tabs"] {
+            trace.samples.push(Sample {
+                scenario: scenario.into(),
+                ms: 401.,
+            });
+        }
+        let rows = judge(&[trace.clone()], 144.).unwrap();
+        for scenario in ["memory-idle", "memory-two-tabs"] {
+            let row = rows.iter().find(|row| row["scenario"] == scenario).unwrap();
+            assert_eq!(row["unit"], "MB");
+            assert_eq!(row["pass"], false);
+        }
+        let mut incomplete = trace.clone();
+        incomplete
+            .samples
+            .retain(|sample| sample.scenario != "input-latency-group-job");
+        assert!(judge(&[trace, incomplete], 144.).is_err());
     }
 }

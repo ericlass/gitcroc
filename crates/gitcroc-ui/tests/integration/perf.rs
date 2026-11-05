@@ -23,19 +23,12 @@ const DRIVER_SCRIPT: &str = include_str!("bench_script.json");
 fn perf_8_the_runner_reads_the_drivers_script() {
     let script: Script = serde_json::from_str(DRIVER_SCRIPT).unwrap();
     assert_eq!(script.started_ms, Some(1_700_000_000_000));
-    assert_eq!(
-        script.steps[..3],
-        [
-            Step::ColdStart {
-                scenario: "cold-start".into()
-            },
-            Step::Idle,
-            Step::SelectRepo {
-                scenario: Some("select-largest-repo".into()),
-                repo: RepoId("r-largest".into()),
-            },
-        ]
-    );
+    assert!(script.steps.contains(&Step::RefreshAll {
+        scenario: "refresh-all-ui".into()
+    }));
+    assert!(script.steps.contains(&Step::Memory {
+        scenario: "memory-two-tabs".into()
+    }));
     assert!(script.steps.contains(&Step::SwitchTab {
         scenario: None,
         tab: WorkspaceId("w-diff".into()),
@@ -271,4 +264,54 @@ fn perf_8_the_runner_is_only_in_perf_trace_builds() {
         )
     );
     assert_eq!(main.matches("--bench\"").count(), 2);
+}
+
+#[gpui::test]
+fn perf_8_group_benchmark_uses_the_groups_merged_history(cx: &mut TestAppContext) {
+    let fixture = Fixture::start(EVENT_CAPACITY);
+    let made = repos(&["api", "web"]);
+    for name in ["api", "web"] {
+        let repo = repo(&made, name);
+        repo.write("a.txt", name).unwrap();
+        repo.commit_all(name).unwrap();
+    }
+    let added = add(&fixture, &made);
+    let group = fixture
+        .runtime
+        .block_on(fixture.app().group_create(
+            fixture.active(),
+            "All repos".into(),
+            added.iter().map(|(_, id)| id.clone()).collect(),
+        ))
+        .unwrap();
+    let (mut cx, window) = main_window(cx, &fixture);
+    let trace = play(
+        &mut cx,
+        &window,
+        Script {
+            started_ms: None,
+            steps: vec![
+                Step::Idle,
+                Step::SelectGroup {
+                    scenario: "select-group".into(),
+                    group: group.clone(),
+                },
+                Step::Idle,
+            ],
+        },
+    );
+    assert_eq!(trace.samples.len(), 1);
+    assert_eq!(trace.samples[0].scenario, "select-group");
+    cx.update(|_, cx| {
+        let history = window.read(cx).history(cx).unwrap();
+        let source = history.read(cx).history().source().unwrap();
+        assert_eq!(source.key, format!("group:{}", group.0));
+        let rows = history.read(cx).history().rows();
+        for name in ["api", "web"] {
+            assert!(
+                rows.iter()
+                    .any(|row| row.subject.as_ref() == name && row.repo_id == id_of(&added, name))
+            );
+        }
+    });
 }

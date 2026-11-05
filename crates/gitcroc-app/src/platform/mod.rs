@@ -183,3 +183,11 @@ pub trait Keychain: Send + Sync {
     /// Removes the secret of `account`; one that has none is fine.
     fn remove(&self, account: &str) -> Result<(), KeychainError>;
 }
+
+/// Idle memory of this process, in MiB (PERF-8). Benchmarks run on Linux;
+/// shared pages count proportionally, as in rc.1's memory measurements.
+pub trait ProcessMemory {
+    fn memory_mb() -> Result<f64, String>;
+}
+
+pub struct PlatformMemory;

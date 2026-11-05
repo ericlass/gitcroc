@@ -4,6 +4,8 @@
 
 Open **Settings** from the toolbar, with Ctrl+, (Cmd+, on macOS), or from the command palette. The settings are grouped in four tabs: **Appearance**, **Git**, **Updates** and **AI**. Click a tab, or move between them with the arrow keys. Every change is saved at once; there is no Save button. The last line, below every tab, shows which gitcroc you are running: its version, system and architecture.
 
+![The native Appearance settings, including theme and code-theme previews](images/native-settings.png)
+
 ### Appearance tab
 
 #### Theme
@@ -93,4 +95,4 @@ You do not need to edit workspace files by hand; use **Export workspace…** to 
 
 ### Removing gitcroc completely
 
-Uninstalling gitcroc leaves your settings, workspaces, cache and log in the folders above, so a new install finds them again. To remove them too, delete the `gitcroc` folders listed above and the keychain entries of the service `gitcroc`. The window's web view also keeps a folder named `dev.gitcroc.desktop` among your local application data; it holds nothing of yours and can go as well.
+Uninstalling gitcroc leaves your settings, workspaces, cache and log in the folders above, so a new install finds them again. To remove them too, delete the `gitcroc` folders listed above and the keychain entries of the service `gitcroc`. An upgrade from 1.0.0-rc.1 may also leave a `dev.gitcroc.desktop` webview cache among your local application data. The native app does not use it, and it can be removed.

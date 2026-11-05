@@ -14,8 +14,9 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant, SystemTime};
 
-use gitcroc_core::{RepoId, WorkspaceId};
+use gitcroc_core::{GroupId, RepoId, WorkspaceId};
 use gpui_kit::base::test_support::{self as observed, ElementSnapshot};
+use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     App, ElementId, Entity, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     PlatformInput, Point, Role, ScrollDelta, ScrollEvent, Window, point, px,
@@ -55,11 +56,29 @@ pub struct Script {
 pub enum Step {
     /// From the process start to the first frame that shows the tree with
     /// every repo's cached summary.
-    ColdStart { scenario: String },
+    ColdStart {
+        scenario: String,
+    },
     /// Waits until every repo of the active tab is read in this run and
     /// nothing is loading, so the next step measures the UI, not the start
     /// refresh.
     Idle,
+    RefreshAll {
+        scenario: String,
+    },
+    SelectGroup {
+        scenario: String,
+        group: GroupId,
+    },
+    Filter {
+        scenario: String,
+    },
+    JobFilter {
+        scenario: String,
+    },
+    Memory {
+        scenario: String,
+    },
     /// Clicks a repo in the tree, until its first history page shows.
     SelectRepo {
         scenario: Option<String>,
@@ -78,11 +97,17 @@ pub enum Step {
     },
     /// From the last click, until the active tab's history, file list and
     /// diff show what they showed before (UI-31).
-    HistoryShown { scenario: Option<String> },
+    HistoryShown {
+        scenario: Option<String>,
+    },
     /// Scrolls the history from where it is to its last commit.
-    ScrollHistory { scenario: String },
+    ScrollHistory {
+        scenario: String,
+    },
     /// Scrolls the diff from where it is to its end.
-    ScrollDiff { scenario: String },
+    ScrollDiff {
+        scenario: String,
+    },
 }
 
 /// What a run measured, written for the driver.
@@ -149,6 +174,13 @@ enum Phase {
     /// The frame just drawn shows the result; its present is timed now.
     Shown(Option<Since>),
     Scrolling(ScrollRun),
+    RefreshInput {
+        since: Option<Instant>,
+    },
+    JobInput {
+        since: Option<Instant>,
+        started: bool,
+    },
 }
 
 struct ScrollRun {
@@ -185,6 +217,7 @@ pub struct Runner {
     clicked: Option<Instant>,
     phase: Phase,
     trace: Trace,
+    memory: Option<std::sync::mpsc::Receiver<Result<f64, String>>>,
 }
 
 impl Runner {
@@ -200,6 +233,7 @@ impl Runner {
             clicked: None,
             phase: Phase::Next,
             trace: Trace::default(),
+            memory: None,
         }
     }
 
@@ -239,13 +273,26 @@ impl Runner {
                 self.phase = self.start(&step, window, cx)?;
             }
             Phase::Hovered(id) => {
-                click(window, &id, cx)?;
                 let now = Instant::now();
+                click(window, &id, cx)?;
                 self.clicked = Some(now);
                 let at = Since::Click(now);
                 self.phase = Phase::Waiting(self.scenario().map(|_| at));
             }
             Phase::Waiting(since) => {
+                if let Some(receiver) = &self.memory {
+                    if let Ok(value) = receiver.try_recv() {
+                        self.trace.samples.push(Sample {
+                            scenario: self.scenario().unwrap_or_default(),
+                            ms: value?,
+                        });
+                        self.memory = None;
+                        self.step = None;
+                    } else {
+                        self.phase = Phase::Waiting(since);
+                    }
+                    return Ok(false);
+                }
                 self.phase = if self.shown(cx) {
                     Phase::Shown(since)
                 } else {
@@ -261,6 +308,94 @@ impl Runner {
                 }
                 self.step = None;
             }
+            Phase::RefreshInput { since } => {
+                let refreshing = self.refreshing(cx);
+                if let Some(since) = since {
+                    if refreshing && self.shown(cx) {
+                        self.trace.samples.push(Sample {
+                            scenario: self.scenario().unwrap_or_default(),
+                            ms: since.elapsed().as_secs_f64() * 1000.,
+                        });
+                        self.step = None;
+                    } else if !refreshing {
+                        click(window, &name("tree-filter".into()), cx)?;
+                        window.press("ctrl-a", cx);
+                        window.press("backspace", cx);
+                        self.window.read(cx).benchmark_refresh(cx);
+                        self.phase = Phase::RefreshInput { since: None };
+                    } else {
+                        self.phase = Phase::RefreshInput { since: Some(since) };
+                    }
+                } else if refreshing {
+                    click(window, &name("tree-filter".into()), cx)?;
+                    let since = Instant::now();
+                    window.input("repo", cx);
+                    self.phase = Phase::RefreshInput { since: Some(since) };
+                } else {
+                    self.phase = Phase::RefreshInput { since: None };
+                }
+            }
+            Phase::JobInput { since, started } => {
+                let running = self.window.read(cx).running_job();
+                if let Some(since) = since {
+                    if running
+                        && self.window.read(cx).tree(cx).is_some_and(|tree| {
+                            tree.read(cx).tree().filter() == "repo"
+                                && tree.read(cx).tree().filter_ready()
+                        })
+                    {
+                        self.trace.samples.push(Sample {
+                            scenario: self.scenario().unwrap_or_default(),
+                            ms: since.elapsed().as_secs_f64() * 1000.,
+                        });
+                        self.step = None;
+                    } else if !running {
+                        self.phase = Phase::JobInput {
+                            since: None,
+                            started: false,
+                        };
+                    } else {
+                        self.phase = Phase::JobInput {
+                            since: Some(since),
+                            started,
+                        };
+                    }
+                } else if running {
+                    click(window, &name("tree-filter".into()), cx)?;
+                    let since = Instant::now();
+                    window.input("repo", cx);
+                    self.phase = Phase::JobInput {
+                        since: Some(since),
+                        started: true,
+                    };
+                } else if started {
+                    if find_visible(window, &name("preflight-run".into())).is_some() {
+                        click(window, &name("preflight-run".into()), cx)?;
+                    }
+                    // A short job may end between frames: retry until an input
+                    // actually starts and finishes while a job is running.
+                    let starting = self
+                        .window
+                        .read(cx)
+                        .group_ops()
+                        .read(cx)
+                        .pending()
+                        .is_some();
+                    self.phase = Phase::JobInput {
+                        since: None,
+                        started: starting,
+                    };
+                } else {
+                    click(window, &name("tree-filter".into()), cx)?;
+                    window.press("ctrl-a", cx);
+                    window.press("backspace", cx);
+                    click(window, &name("toolbar-0".into()), cx)?;
+                    self.phase = Phase::JobInput {
+                        since: None,
+                        started: true,
+                    };
+                }
+            }
             Phase::Scrolling(run) => {
                 self.phase = self.scroll(run, window, cx)?;
             }
@@ -268,11 +403,26 @@ impl Runner {
         Ok(false)
     }
 
+    fn refreshing(&self, cx: &App) -> bool {
+        self.window.read(cx).tree(cx).is_some_and(|tree| {
+            let tree = tree.read(cx).tree();
+            tree.repo_names().keys().any(|repo| {
+                tree.summary(repo)
+                    .is_some_and(|view| view.stale || view.refreshing)
+            })
+        })
+    }
+
     fn scenario(&self) -> Option<String> {
         match self.step.as_ref()? {
             Step::ColdStart { scenario }
             | Step::ScrollHistory { scenario }
-            | Step::ScrollDiff { scenario } => Some(scenario.clone()),
+            | Step::ScrollDiff { scenario }
+            | Step::RefreshAll { scenario }
+            | Step::SelectGroup { scenario, .. }
+            | Step::JobFilter { scenario }
+            | Step::Filter { scenario }
+            | Step::Memory { scenario } => Some(scenario.clone()),
             Step::SelectRepo { scenario, .. }
             | Step::SelectCommit { scenario, .. }
             | Step::SwitchTab { scenario, .. }
@@ -290,10 +440,49 @@ impl Runner {
                     .ok_or("cold-start needs the time the process started")?;
                 Phase::Waiting(Some(Since::Process(started)))
             }
-            Step::Idle => Phase::Waiting(None),
+            Step::Idle => {
+                // Reset the filter outside timed actions, through the input.
+                if self
+                    .window
+                    .read(cx)
+                    .tree(cx)
+                    .is_some_and(|tree| !tree.read(cx).tree().filter().is_empty())
+                {
+                    click(window, &name("tree-filter".into()), cx)?;
+                    window.press("ctrl-a", cx);
+                    window.press("backspace", cx);
+                }
+                Phase::Waiting(None)
+            }
+            Step::RefreshAll { .. } => Phase::Waiting(self.started.map(Since::Process)),
+            Step::SelectGroup { group, .. } => {
+                hover(window, &name(format!("tree-row-group:{}", group.0)), cx)?
+            }
+            Step::JobFilter { .. } => Phase::JobInput {
+                since: None,
+                started: false,
+            },
+            Step::Filter { .. } => {
+                // Untimed workload setup, through the app service. The timed
+                // input itself still goes through the real field's handlers.
+                self.window.read(cx).benchmark_refresh(cx);
+                Phase::RefreshInput { since: None }
+            }
+            Step::Memory { .. } => {
+                let (send, received) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    use gitcroc_app::platform::{PlatformMemory, ProcessMemory};
+                    let _ = send.send(PlatformMemory::memory_mb());
+                });
+                self.memory = Some(received);
+                Phase::Waiting(None)
+            }
             Step::HistoryShown { .. } => Phase::Waiting(self.clicked.map(Since::Click)),
             Step::SelectRepo { repo, .. } => {
-                hover(window, &name(format!("tree-row-repo:{}", repo.0)), cx)?
+                let row = self.window.read(cx).tree(cx).and_then(|tree| {
+                    tree.read(cx).rows().iter().find(|row| matches!(row.item(), Some(gitcroc_core::TreeItem::Repo { repo_id, .. }) if repo_id == repo)).map(|row| row.id.clone())
+                }).ok_or_else(|| format!("no tree row for {}", repo.0))?;
+                hover(window, &name(format!("tree-row-{row}")), cx)?
             }
             Step::SwitchTab { tab, .. } => hover(window, &name(format!("tab-{}", tab.0)), cx)?,
             Step::SelectCommit { hash, .. } => {
@@ -331,7 +520,7 @@ impl Runner {
                             .is_some_and(|view| view.summary.is_some())
                     })
             }),
-            Some(Step::Idle) => {
+            Some(Step::Idle | Step::RefreshAll { .. }) => {
                 let read = this.tree(cx).is_some_and(|tree| {
                     let tree = tree.read(cx).tree();
                     tree.repo_names().keys().all(|repo| {
@@ -342,8 +531,20 @@ impl Runner {
                 let history = this
                     .history(cx)
                     .is_none_or(|history| !history.read(cx).history().loading());
-                read && history && self.changes_shown(cx)
+                read && history && self.changes_shown(cx) && !this.active_job()
             }
+            Some(Step::Memory { .. } | Step::JobFilter { .. }) => false,
+            Some(Step::Filter { .. }) => this.tree(cx).is_some_and(|tree| {
+                tree.read(cx).tree().filter() == "repo" && tree.read(cx).tree().filter_ready()
+            }),
+            Some(Step::SelectGroup { group, .. }) => this.history(cx).is_some_and(|history| {
+                let history = history.read(cx).history();
+                history
+                    .source()
+                    .is_some_and(|source| source.key == format!("group:{}", group.0))
+                    && !history.loading()
+                    && !history.rows().is_empty()
+            }),
             Some(Step::SelectRepo { repo, .. }) => this.history(cx).is_some_and(|history| {
                 let history = history.read(cx).history();
                 history

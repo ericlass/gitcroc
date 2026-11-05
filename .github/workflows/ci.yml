@@ -2,7 +2,7 @@
 # platforms, through `just check-rust`, so local and CI checks cannot drift.
 # The GPUI UI's tests are headless and need no display or GPU; a real
 # window is started once per runner after them (M6-03, M6-06).
-# The smoke test (section 12) comes back with M6-29. The jobs named
+# The smoke test (section 12) runs on Linux and Windows. The jobs named
 # `check (<os>)` that the ruleset of main requires wait for the others.
 name: CI
 
@@ -93,6 +93,29 @@ jobs:
           else
             target/debug/gitcroc-next --exit-after-first-frame
           fi
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Native end to end smoke
+        if: runner.os == 'Linux' || runner.os == 'Windows'
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a just smoke
+          else
+            just smoke
+          fi
+
+      - name: Smoke failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-${{ runner.os }}
+          path: ${{ runner.temp }}/gitcroc-smoke-*
+          if-no-files-found: ignore
 
       # The accessibility tree of a real window, view by view (M6-25a), in
       # its own Xvfb server, D-Bus session and AT-SPI bus. The test build

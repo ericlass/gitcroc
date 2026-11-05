@@ -80,6 +80,12 @@ fn install_app(archive: &[u8], app: &Path) -> Result<(), String> {
     install::swap_app(app, &new, &staging.path().join("old.app"))
 }
 
+impl super::ProcessMemory for super::PlatformMemory {
+    fn memory_mb() -> Result<f64, String> {
+        Err("idle memory benchmarks run on Linux only".to_owned())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;

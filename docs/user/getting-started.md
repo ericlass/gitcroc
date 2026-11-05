@@ -8,6 +8,8 @@ With git found, gitcroc opens with no workspace: "No workspace is open. Open one
 
 ## The window
 
+![The native gitcroc window with a group, commit graph, changed files and inline diff](images/native-window.png)
+
 From top to bottom, the window has:
 
 - **The tab bar.** One tab per open workspace. The **+** button after the tabs (**Open workspace**) lists your workspaces and offers **New workspace…** and **Import workspace…**. See [Workspaces and groups](workspaces-and-groups.md). The tab bar is also the window's title bar: drag its empty space to move the window, and double-click it to maximize or restore the window. On Windows and Linux it ends with the minimize, maximize and close buttons; on macOS the system's window buttons sit at its left end. To have your system's title bar instead, see [Settings](settings-and-files.md#window).

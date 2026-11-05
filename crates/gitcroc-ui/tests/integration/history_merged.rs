@@ -547,3 +547,45 @@ fn sec_3_repo_names_in_the_strip_and_column_render_as_text(cx: &mut TestAppConte
         .collect();
     assert!(cells.contains(&Some(odd.to_owned())), "{cells:?}");
 }
+
+#[gpui::test]
+fn perf_5_merged_history_is_paged_in_the_native_list(cx: &mut TestAppContext) {
+    let fixture = Fixture::start(EVENT_CAPACITY);
+    let made = repos(&["api", "web"]);
+    let messages: Vec<String> = (0..260).map(|n| format!("Change {n}")).collect();
+    for name in ["api", "web"] {
+        repo(&made, name).empty_commits(&messages).unwrap();
+    }
+    let added = add(&fixture, &made);
+    let ids = vec![id_of(&added, "api"), id_of(&added, "web")];
+    let group = group(&fixture, "All repos", ids.clone());
+    let (mut cx, window) = main_window(cx, &fixture);
+    let node = group_node(&group);
+    wait_for_element(&mut cx, tree_row(&node));
+    click(&mut cx, tree_row(&node));
+    let page = gitcroc_core::PAGE_SIZE;
+    wait_until(&mut cx, |cx| {
+        with_history(cx, &window, |history| {
+            history.rows().len() == page && !history.loading()
+        })
+    });
+    assert!(with_history(&mut cx, &window, |history| !history.done()));
+    scroll(&mut cx, -((page * 24) as f32 + 100.));
+    wait_until(&mut cx, |cx| {
+        with_history(cx, &window, |history| {
+            history.done() && history.rows().len() == 522
+        })
+    });
+    with_history(&mut cx, &window, |history| {
+        for id in &ids {
+            assert_eq!(
+                history
+                    .rows()
+                    .iter()
+                    .filter(|row| &row.repo_id == id)
+                    .count(),
+                261
+            );
+        }
+    });
+}

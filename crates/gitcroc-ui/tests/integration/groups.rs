@@ -624,10 +624,14 @@ fn ui_7_group_and_repo_context_menus_offer_the_group_operations(cx: &mut TestApp
     s.assert_repos_stay();
 }
 
+/// PLAT-1: menus and group dialogs remain clickable at the logical size
+/// of a 1280 px Windows window at 125% scaling, on every native runner.
 #[gpui::test]
 fn ui_7_a_multi_selection_is_added_to_a_group_or_a_new_one(cx: &mut TestAppContext) {
     let s = setup();
     let (mut cx, window) = open(cx, &s);
+    cx.simulate_resize(gpui_kit::size(gpui_kit::px(1024.), gpui_kit::px(768.)));
+    cx.run_until_parked();
     let target = |cx: &mut VisualTestContext| {
         cx.update(|_, cx| window.read(cx).tree(cx).unwrap().read(cx).target())
     };

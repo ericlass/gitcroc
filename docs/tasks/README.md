@@ -201,7 +201,7 @@ The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
 rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
 not packaged. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
-M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-28 have theirs;
+M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-29 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
 several pull requests (DEV-4).
 
@@ -254,7 +254,11 @@ several pull requests (DEV-4).
 | [M6-28a](M6-28a-packages-and-install-tests.md) | The GPUI packages without Tauri; install tests; the NSIS installer upgrades rc.1 in place | M6-03, M6-27 |
 | [M6-28b](M6-28b-release-workflow.md) | Release workflow and its own signing step | M6-28a |
 | [M6-28c](M6-28c-update-tests.md) | Update tests on the runners: GPUI A to B, and rc.1 to the GPUI build | M6-28b |
-| M6-29 | Smoke test, idle memory, full budget run, user docs | M6-24 to M6-28c |
+| [M6-29a](M6-29a-smoke.md) | Native smoke test on Linux and Windows | M6-24 to M6-28c |
+| [M6-29b](M6-29b-full-budgets.md) | Full budget run and idle process memory | M6-29a |
+| [M6-29c](M6-29c-user-docs.md) | Native user documentation, screenshots and measurements | M6-29b |
+| [M6-29d](M6-29d-native-coverage.md) | Close the five remaining native coverage mappings | M6-29c |
+| [M6-29e](M6-29e-group-input-latency.md) | Fix the measured group-fetch input latency miss (57.548 ms vs 50 ms) | M6-29b |
 | M6-30 | The switch: `gitcroc` is the GPUI binary; `ui/`, specta and Node removed | `just coverage M6` empty |
 | M6-31 | 1.0.0-rc.2 and the M6 sign-off; runs the screen reader scripts in `crates/gitcroc-ui/tests/a11y_tree/manual.md` (M6-25c) | M6-30 |
 

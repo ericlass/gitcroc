@@ -87,3 +87,10 @@ bench *flags:
 bench-ui *flags:
     CARGO_TARGET_DIR="{{justfile_directory()}}/target/bench-ui" cargo build --quiet --release -p gitcroc-ui --bin gitcroc-next --features perf-trace
     cargo run --quiet --release -p gitcroc-cli -- bench-ui --app "{{justfile_directory()}}/target/bench-ui/release/gitcroc-next" {{flags}}
+
+# Section 12: real-window smoke, isolated fixtures, Linux and Windows.
+smoke:
+    cargo build -p gitcroc-cli
+    CARGO_TARGET_DIR="{{justfile_directory()}}/target/e2e" cargo test -p gitcroc-ui --bin gitcroc-next --features e2e qa_3_smoke
+    CARGO_TARGET_DIR="{{justfile_directory()}}/target/e2e" cargo build -p gitcroc-ui --features e2e
+    python .github/scripts/smoke.py --app "{{justfile_directory()}}/target/e2e/debug/gitcroc-next{{if os() == "windows" { ".exe" } else { "" }}}" --cli "{{justfile_directory()}}/target/debug/gitcroc-cli{{if os() == "windows" { ".exe" } else { "" }}}"
