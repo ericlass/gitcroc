@@ -1,5 +1,7 @@
 # Installing gitcroc
 
+The native GPUI application arrives with 1.0.0-rc.2; 1.0.0-rc.1 uses the previous UI.
+
 Download gitcroc from the [releases page](https://github.com/ericlass/gitcroc/releases/latest). Each release lists one file per package; `<version>` below stands for the version number, such as `1.0.0`. The release also has `SHA256SUMS`, with the checksum of every file, if you want to check your download.
 
 | System | File | What it is |
@@ -17,9 +19,9 @@ The Windows and macOS builds are not code-signed or notarized, so the first time
 
 ## Windows
 
-**Installer.** Run `gitcroc_<version>_x64-setup.exe`. It installs gitcroc for your user account only, so it does not ask for administrator rights. gitcroc needs Microsoft Edge WebView2, which current Windows 10 and 11 already have; if it is missing, the installer downloads and installs it.
+**Installer.** Run `gitcroc_<version>_x64-setup.exe`. It installs gitcroc for your user account only, so it does not ask for administrator rights.
 
-**Portable zip.** Unzip `gitcroc-<version>-windows-x64-portable.zip` anywhere and run `gitcroc.exe`. It does not install WebView2, so WebView2 must already be present (it is on current Windows 10 and 11).
+**Portable zip.** Unzip `gitcroc-<version>-windows-x64-portable.zip` anywhere and run `gitcroc.exe`.
 
 The first time you run either one, a blue Microsoft Defender SmartScreen window says "Windows protected your PC":
 
@@ -41,7 +43,7 @@ The app is ad-hoc signed, which Apple silicon requires, but not notarized, so a 
 
 ## Linux
 
-The Linux packages show no warning.
+The Linux packages show no warning. The native window uses Vulkan or OpenGL and needs a working graphics driver. The `.deb` and `.rpm` depend on a system font; the app does not embed fonts.
 
 **AppImage.** Make the file executable, then run it:
 
@@ -52,7 +54,7 @@ chmod +x gitcroc_<version>_amd64.AppImage
 
 AppImages need FUSE 2. If it does not start and the message mentions FUSE, install it: `sudo apt install libfuse2` (on Ubuntu 24.04 and newer, `libfuse2t64`), or `sudo dnf install fuse-libs` on Fedora.
 
-**.deb.** Install it with apt, which also installs what it needs (WebKitGTK 4.1):
+**.deb.** Install it with apt, which also installs its graphics libraries and a system font:
 
 ```sh
 sudo apt install ./gitcroc_<version>_amd64.deb

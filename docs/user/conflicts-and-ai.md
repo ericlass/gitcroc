@@ -21,7 +21,7 @@ In the changes pane, conflicted files come first, under **Unmerged**, each with 
 The editor shows the file as it will be written, with each conflict highlighted. Above each conflict, the two sides are labelled with the branch or commit they really come from, such as **Ours: main** and **Theirs: feature/x**. The labels matter because the meaning of "ours" and "theirs" flips between a merge and a rebase. Each conflict has:
 
 - **Take ours**, **Take theirs** and **Take both**: put that side's text, or both, in place of the conflict.
-- **Show base**: shows the text both sides started from.
+- **Show base**: opens the text both sides started from in a card beside the conflict.
 
 You can also edit the text freely, like in any editor. The toolbar above the editor shows how many conflicts are left, with **Previous conflict** and **Next conflict**.
 
@@ -84,7 +84,7 @@ The requests and answers are kept in memory only. They are written to the log on
 
 ### Resolving with AI
 
-In the conflict editor, click **Resolve with AI**. gitcroc sends the file and fills in a proposal for each conflict it has an answer for, showing:
+In the conflict editor, click **Resolve with AI**. gitcroc sends the file and shows a proposal card beside each conflict it has an answer for, with:
 
 - the proposed text;
 - a short explanation of what it kept from each side and why;

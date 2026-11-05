@@ -18,4 +18,4 @@ To turn it off, open **Settings** and uncheck **Check for updates automatically*
 
 ## Nothing else
 
-gitcroc loads no web pages, fonts, scripts or images from the internet; everything its window shows comes with the app. Its files stay on your computer (see [Settings and files](settings-and-files.md#files)).
+gitcroc loads no web pages, fonts, scripts or images from the internet; it uses local assets and system fonts. Its files stay on your computer (see [Settings and files](settings-and-files.md#files)).
