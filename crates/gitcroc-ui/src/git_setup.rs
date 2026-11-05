@@ -5,6 +5,7 @@
 //! the window passes them on here. Paths, versions and git's output are
 //! drawn as text (SEC-3).
 
+use crate::scrollbars::ScrollAreaExt as _;
 use gitcroc_core::GitStatus;
 use gpui_component::Disableable;
 use gpui_component::button::{Button, ButtonVariants};
@@ -266,7 +267,7 @@ impl Render for GitSetup {
             .role(Role::Main)
             .aria_label(text::TITLE)
             .size_full()
-            .overflow_y_scroll()
+            .visible_y_scroll()
             .flex()
             .flex_col()
             .items_center()

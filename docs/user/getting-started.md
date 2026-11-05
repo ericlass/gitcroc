@@ -20,6 +20,8 @@ From top to bottom, the window has:
   - **Changes** (right): what changed in the commit selected in the history, or your uncommitted changes.
 - **The status bar.** Running jobs with their progress, "No jobs running" when there are none, and a notice when an update is available. Click it to open the job list (**Jobs**).
 
+When a pane or dialog has more content than fits, its scrollbar stays visible. Drag the thumb or click the track to move through it. Wide diffs also have a horizontal scrollbar when line wrapping is off.
+
 Drag the borders between the panes to resize them. **Dock at bottom** and **Dock right**, in the changes pane's header, move the changes pane below the other two or back to the right; each workspace remembers its choice.
 
 ### The tree

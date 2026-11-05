@@ -13,6 +13,8 @@
 //! (PERF-7). Everything shown comes from the core, which decides what a
 //! request does (ARCH-6); this lays it out and forwards input.
 
+use crate::scrollbars::ScrollAreaExt as _;
+use gpui_component::scroll::ScrollableElement as _;
 use std::cell::Cell;
 use std::ops::Range;
 use std::rc::Rc;
@@ -1471,7 +1473,7 @@ impl ChangesPane {
                     .aria_label(message.clone())
                     .mt_1()
                     .max_h(MESSAGE_HEIGHT)
-                    .overflow_y_scroll()
+                    .visible_y_scroll()
                     .text_color(tokens.text_primary)
                     .child(message),
             )
@@ -1897,6 +1899,7 @@ impl Render for ChangesPane {
         let column_height = self.column_height.clone();
         let list = div()
             .id("changes-files")
+            .relative()
             .test_support()
             .role(if self.changes.mode() == FileListMode::Flat {
                 Role::ListBox
@@ -1914,7 +1917,8 @@ impl Render for ChangesPane {
                 )
                 .track_scroll(&self.scroll)
                 .size_full(),
-            );
+            )
+            .vertical_scrollbar(&self.scroll);
         let diff = self.diff_area(&tokens, window, cx);
         root.children(error)
             .child(

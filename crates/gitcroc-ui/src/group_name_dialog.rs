@@ -10,6 +10,7 @@
 //! destructive one (GRP-9): this dialog only picks the name and the
 //! options. Names are shown as text (SEC-3).
 
+use crate::scrollbars::ScrollAreaExt as _;
 use gitcroc_core::{
     GroupOp, MergeFastForward, MissingBranch, StartPoint, TargetSet, TreeItem, TreeNode,
     WorkspaceId,
@@ -376,7 +377,7 @@ impl GroupNameDialog {
             .flex_col()
             .gap_1()
             .max_h(px(160.))
-            .overflow_y_scroll();
+            .visible_y_scroll();
         for (at, known) in names.iter().enumerate() {
             if !known.contains(typed.trim()) || *known == typed {
                 continue;

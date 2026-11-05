@@ -14,6 +14,7 @@ use crate::branch_dialog::BranchMode;
 use crate::outline::Outlined;
 use crate::row_context::{AskRowMenu, RowChoice};
 use gitcroc_core::{BranchOp, StartPoint};
+use gpui_component::scroll::ScrollableElement as _;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
@@ -2119,6 +2120,7 @@ impl HistoryPane {
         let tokens = *cx.tokens();
         div()
             .id("history-strip")
+            .relative()
             .test_support()
             .role(Role::List)
             .aria_label(text::STRIP)
@@ -2135,6 +2137,7 @@ impl HistoryPane {
                 .track_scroll(&self.strip_scroll)
                 .size_full(),
             )
+            .vertical_scrollbar(&self.strip_scroll)
             .into_any_element()
     }
 
@@ -2500,6 +2503,7 @@ impl Render for HistoryPane {
                 };
             div()
                 .id("history-list")
+                .relative()
                 .test_support()
                 .role(Role::ListBox)
                 .aria_label(text::LABEL)
@@ -2510,6 +2514,7 @@ impl Render for HistoryPane {
                         .track_scroll(&self.scroll)
                         .size_full(),
                 )
+                .vertical_scrollbar(&self.scroll)
                 .into_any_element()
         };
         div()

@@ -7,6 +7,7 @@
 //! (GRP-5). Escape cancels; the focus starts on Cancel while the core works
 //! and where something cannot be undone, on Run elsewhere.
 
+use crate::scrollbars::ScrollAreaExt as _;
 use std::time::Duration;
 
 use gitcroc_core::{Class, PreflightId, PreflightReady, RepoClass};
@@ -376,7 +377,7 @@ impl Render for PreflightDialog {
                             .flex()
                             .flex_col()
                             .max_h(px(240.))
-                            .overflow_y_scroll()
+                            .visible_y_scroll()
                             .children(row_elements),
                     )
                     .child(

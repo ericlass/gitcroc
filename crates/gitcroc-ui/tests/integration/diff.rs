@@ -807,3 +807,48 @@ fn perf_1_highlighting_runs_off_the_ui_thread(cx: &mut TestAppContext) {
     });
     assert!(row);
 }
+
+#[gpui::test]
+fn ui_22_diff_scrollbars_move_both_axes_and_the_wrapped_list(cx: &mut TestAppContext) {
+    let fixture = Fixture::start(EVENT_CAPACITY);
+    let long = format!("{}\n{}", "word ".repeat(200), numbered(300));
+    let (mut cx, window, _repos) = open_change(cx, &fixture, "base\n", &long);
+    cx.update(|window, cx| {
+        window.render_frame(cx);
+        let bounds = window.find("diff-lines").bounds();
+        window.click_at(
+            "diff-lines",
+            gpui_kit::point(bounds.size.width * 0.7, bounds.size.height - px(4.)),
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    assert!(with_diff(&mut cx, &window, DiffView::offset) > px(100.));
+    // Wheel input observes the position selected by the horizontal bar.
+    scroll_diff(&mut cx, 100_000., 0.);
+    assert_eq!(with_diff(&mut cx, &window, DiffView::offset), px(0.));
+    click(&mut cx, "changes-wrap-lines".into());
+    wait_until(&mut cx, |cx| with_diff(cx, &window, DiffView::wrapping));
+    let before = cx.update(|window, cx| {
+        window.render_frame(cx);
+        let before = window.find("diff-row-2").bounds().top();
+        let bounds = window.find("diff-lines").bounds();
+        window.click_at(
+            "diff-lines",
+            gpui_kit::point(bounds.size.width - px(4.), bounds.size.height * 0.8),
+            cx,
+        );
+        before
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| window.render_frame(cx));
+    let after = cx.update(|window, cx| {
+        window.render_frame(cx);
+        window.try_find("diff-row-2").map(|row| row.bounds().top())
+    });
+    assert!(
+        after.is_none_or(|after| after < before)
+            || with_diff(&mut cx, &window, DiffView::top_row) > 0,
+        "before {before:?}, after {after:?}"
+    );
+}

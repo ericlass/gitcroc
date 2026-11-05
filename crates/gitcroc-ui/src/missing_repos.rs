@@ -12,6 +12,7 @@
 //! shows on its row. The dialog stays open until closed. Names, paths and
 //! URLs come from a shared file and are text only (SEC-3).
 
+use crate::scrollbars::ScrollAreaExt as _;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -573,7 +574,7 @@ impl Render for MissingReposDialog {
                                 .flex()
                                 .flex_col()
                                 .max_h(px(420.))
-                                .overflow_y_scroll()
+                                .visible_y_scroll()
                                 .children(rows),
                         )
                         .into_any_element(),

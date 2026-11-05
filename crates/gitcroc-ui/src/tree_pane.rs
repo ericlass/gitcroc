@@ -13,6 +13,7 @@ use crate::row_context::{AskRowMenu, RowChoice};
 use crate::row_menus::{self, TreeAction, TreeAction as A};
 use crate::tree::{Reveal, Revealed};
 use gitcroc_core::{BranchOp, RemoteBranchRef, StartPoint};
+use gpui_component::scroll::ScrollableElement as _;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -1484,7 +1485,9 @@ impl Render for TreePane {
                     .on_action(cx.listener(Self::select_last))
                     .flex_1()
                     .min_h_0()
-                    .child(body),
+                    .child(body)
+                    .relative()
+                    .vertical_scrollbar(&self.scroll),
             )
     }
 }

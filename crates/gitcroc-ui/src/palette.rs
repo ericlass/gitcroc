@@ -11,6 +11,7 @@
 //! The core finds, ranks and labels the rows (ARCH-6); names are text
 //! only (SEC-3).
 
+use gpui_component::scroll::ScrollableElement as _;
 use std::rc::Rc;
 
 use gitcroc_core::{PaletteItem, PaletteResult, PaletteSubject, WorkspaceId};
@@ -552,6 +553,7 @@ impl Render for Palette {
             .child(
                 div()
                     .id("palette-list")
+                    .relative()
                     .test_support()
                     .role(Role::ListBox)
                     .aria_label(text::RESULTS)
@@ -561,7 +563,8 @@ impl Render for Palette {
                         uniform_list("palette-rows", count, cx.processor(Self::rows))
                             .track_scroll(&self.scroll)
                             .size_full(),
-                    ),
+                    )
+                    .vertical_scrollbar(&self.scroll),
             )
             .children(more)
             // The trap takes the place of the frame, under the palette's id.
