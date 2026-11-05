@@ -6,6 +6,7 @@
 //! An image is drawn from the bytes the core read, decoded off the UI
 //! thread (ARCH-7); no file or URL is made for it (SEC-2).
 
+use crate::scrollbars::ScrollAreaExt as _;
 use std::sync::Arc;
 
 use gitcroc_core::{FileDiff, ImageFormat};
@@ -207,7 +208,7 @@ pub fn render(
         .test_support()
         .flex_1()
         .min_h_0()
-        .overflow_y_scroll()
+        .visible_y_scroll()
         .p_3()
         .flex()
         .flex_col()

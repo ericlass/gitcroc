@@ -56,6 +56,7 @@ pub mod readable_text;
 pub mod resolve_all;
 pub mod row_context;
 pub mod row_menus;
+pub mod scrollbars;
 pub mod services;
 pub mod settings;
 pub mod settings_dialog;

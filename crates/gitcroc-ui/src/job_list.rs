@@ -9,6 +9,8 @@
 //! While it has not ended, Cancel (GRP-10) is there. Opening the list marks
 //! every ended job seen; Escape, Close or a click beside it closes it.
 
+use crate::scrollbars::ScrollAreaExt as _;
+use gpui_component::scroll::ScrollableElement as _;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
@@ -487,46 +489,49 @@ impl JobList {
                 .into_any_element();
         }
         let tokens = *tokens;
-        div()
-            .id("job-output")
-            .test_support()
-            .track_focus(&self.output_focus)
-            .track_scroll(&self.output_scroll)
-            .key_context(OUTPUT_CONTEXT)
-            .on_action(cx.listener(|this, _: &OutputDown, _, cx| {
-                this.scroll_output(|at, _, _| at + OUTPUT_STEP, cx)
-            }))
-            .on_action(cx.listener(|this, _: &OutputUp, _, cx| {
-                this.scroll_output(|at, _, _| at - OUTPUT_STEP, cx)
-            }))
-            .on_action(cx.listener(|this, _: &OutputPageDown, _, cx| {
-                this.scroll_output(|at, page, _| at + page, cx)
-            }))
-            .on_action(cx.listener(|this, _: &OutputPageUp, _, cx| {
-                this.scroll_output(|at, page, _| at - page, cx)
-            }))
-            .on_action(
-                cx.listener(|this, _: &OutputTop, _, cx| this.scroll_output(|_, _, _| px(0.), cx)),
-            )
-            .on_action(
-                cx.listener(|this, _: &OutputBottom, _, cx| {
+        let output =
+            div()
+                .id("job-output")
+                .test_support()
+                .track_focus(&self.output_focus)
+                .track_scroll(&self.output_scroll)
+                .key_context(OUTPUT_CONTEXT)
+                .on_action(cx.listener(|this, _: &OutputDown, _, cx| {
+                    this.scroll_output(|at, _, _| at + OUTPUT_STEP, cx)
+                }))
+                .on_action(cx.listener(|this, _: &OutputUp, _, cx| {
+                    this.scroll_output(|at, _, _| at - OUTPUT_STEP, cx)
+                }))
+                .on_action(cx.listener(|this, _: &OutputPageDown, _, cx| {
+                    this.scroll_output(|at, page, _| at + page, cx)
+                }))
+                .on_action(cx.listener(|this, _: &OutputPageUp, _, cx| {
+                    this.scroll_output(|at, page, _| at - page, cx)
+                }))
+                .on_action(cx.listener(|this, _: &OutputTop, _, cx| {
+                    this.scroll_output(|_, _, _| px(0.), cx)
+                }))
+                .on_action(cx.listener(|this, _: &OutputBottom, _, cx| {
                     this.scroll_output(|_, _, end| end, cx)
-                }),
-            )
-            .role(Role::Document)
-            .aria_label(job.output.clone())
-            .max_h(OUTPUT_HEIGHT)
-            .overflow_y_scroll()
-            .p_2()
-            .bg(tokens.bg_2)
-            .border_1()
-            .border_color(tokens.border)
-            .rounded(px(4.))
-            // It scrolls, so its own border is its ring.
-            .focus(move |style| style.border_color(tokens.focus_ring))
-            .font_family(code_font.clone())
-            .text_sm()
-            .child(job.output.clone())
+                }))
+                .role(Role::Document)
+                .aria_label(job.output.clone())
+                .max_h(OUTPUT_HEIGHT)
+                .overflow_y_scroll()
+                .p_2()
+                .bg(tokens.bg_2)
+                .border_1()
+                .border_color(tokens.border)
+                .rounded(px(4.))
+                // It scrolls, so its own border is its ring.
+                .focus(move |style| style.border_color(tokens.focus_ring))
+                .font_family(code_font.clone())
+                .text_sm()
+                .child(job.output.clone());
+        div()
+            .relative()
+            .child(output)
+            .vertical_scrollbar(&self.output_scroll)
             .into_any_element()
     }
 
@@ -820,15 +825,17 @@ impl JobList {
                             .role(Role::Label)
                             .aria_label(text::NO_OUTPUT)
                             .text_color(tokens.text_secondary)
-                            .child(text::NO_OUTPUT),
+                            .child(text::NO_OUTPUT)
+                            .into_any_element(),
                         false => div()
                             .id(ElementId::Name(format!("report-output-{at}").into()))
                             .test_support()
                             .role(Role::Document)
                             .aria_label(line.output.clone())
                             .max_h(OUTPUT_HEIGHT)
-                            .overflow_y_scroll()
-                            .child(line.output.clone()),
+                            .visible_y_scroll()
+                            .child(line.output.clone())
+                            .into_any_element(),
                     });
                 }
                 row.into_any_element()
@@ -1054,7 +1061,9 @@ impl Render for JobList {
                     .h(LIST_HEIGHT)
                     .border_1()
                     .border_color(tokens.border)
-                    .child(list),
+                    .child(list)
+                    .relative()
+                    .vertical_scrollbar(&self.scroll),
             )
             .child(detail)
             .child(

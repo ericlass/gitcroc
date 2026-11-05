@@ -121,3 +121,7 @@ separate from hosted-runner functional tests and M6-31's sign-off.
 
 The remaining performance work is [M6-29e](M6-29e-group-input-latency.md).
 M6 performance sign-off is pending that fix.
+
+The visible-scrollbar correction ([M6-29f](M6-29f-visible-scrollbars.md))
+was added after these measurements. M6-29e must rerun the complete UI
+budgets with that rendering change in place.

@@ -5,6 +5,7 @@
 //! bounds, line height and scroll, which assumes rows of one height: soft
 //! wrap and folding stay off. Only hunks in view, plus a few lines, are
 //! laid out (PERF-1).
+use crate::scrollbars::ScrollAreaExt as _;
 use std::ops::Range;
 
 use gpui_component::button::Button;
@@ -384,7 +385,7 @@ fn place(hunk: usize, card: Div, top: Pixels, left: Pixels, g: &Geometry) -> Any
             }
         })
         .max_h(g.m.viewport.size.height)
-        .overflow_y_scroll()
+        .visible_y_scroll()
         .child(card)
         .into_any_element()
 }

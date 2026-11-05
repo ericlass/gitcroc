@@ -52,3 +52,5 @@ mod title_bar;
 mod tree;
 mod update;
 mod window;
+
+mod scrollbars;

@@ -1,5 +1,6 @@
 //! Branch dialogs ported from rc.1's tree/BranchDialogs.tsx and
 //! stores/branch.ts. The core owns validation, preflight and confirmation.
+use crate::scrollbars::ScrollAreaExt as _;
 use crate::{
     dialog::{self, Cancel, Closed, Modal},
     services::Services,
@@ -499,7 +500,7 @@ impl Render for BranchDialog {
                             .flex_col()
                             .gap_1()
                             .max_h(px(240.))
-                            .overflow_y_scroll();
+                            .visible_y_scroll();
                         for (at, b) in choices.remote_branches.iter().enumerate() {
                             list = list.child(
                                 Button::new(gpui_kit::ElementId::Name(

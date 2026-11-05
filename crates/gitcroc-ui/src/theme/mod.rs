@@ -206,6 +206,7 @@ impl AppTheme {
             theme.light_theme = light;
             theme.dark_theme = dark;
         });
+        Theme::set_scrollbar_mode(gpui_component::scroll::ScrollbarMode::Always, cx);
         Theme::change(
             if is_dark {
                 ThemeMode::Dark
@@ -230,7 +231,7 @@ struct Fonts {
 /// token for are derived by gpui-component from these.
 fn config(tokens: &Tokens, mode: ThemeMode, fonts: &Fonts) -> ThemeConfig {
     let hex = |color: Color| serde_json::Value::String(color.hex());
-    let colors = serde_json::json!({
+    let mut colors = serde_json::json!({
         "background": hex(tokens.bg_1),
         "foreground": hex(tokens.text_primary),
         "caret": hex(tokens.text_primary),
@@ -272,6 +273,10 @@ fn config(tokens: &Tokens, mode: ThemeMode, fonts: &Fonts) -> ThemeConfig {
         "base.blue": hex(tokens.accent),
         "base.yellow": hex(tokens.warning),
     });
+    colors["scrollbar.background"] = hex(tokens.bg_2);
+    colors["scrollbar.thumb.background"] = hex(tokens.text_secondary);
+    colors["scrollbar.thumb.hover.background"] = hex(tokens.text_primary);
+
     let file = serde_json::json!({
         "name": "gitcroc",
         "mode": if mode.is_dark() { "dark" } else { "light" },

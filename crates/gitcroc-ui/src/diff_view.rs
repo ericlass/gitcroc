@@ -13,8 +13,10 @@
 //! (UI-15), except while whitespace is ignored, as those hunks do not apply
 //! to the file; F7 gives the hunk's first control the focus.
 
+use gpui_component::scroll::ScrollableElement as _;
 use std::collections::HashSet;
 use std::ops::Range;
+use std::{cell::Cell as OffsetCell, rc::Rc};
 
 use gitcroc_core::{ChangeAction, DiffMode, DiffRequest, FileDiff, LineKind, WorkspaceId};
 use gpui_component::button::Button;
@@ -192,7 +194,7 @@ pub struct DiffView {
     scroll: UniformListScrollHandle,
     wrapped: ListState,
     /// How far the lines are scrolled sideways.
-    offset: Pixels,
+    offset: Rc<OffsetCell<Pixels>>,
     /// The width of the widest line and of one text column, from the last
     /// frame, to clamp `offset`.
     widest: Pixels,
@@ -227,7 +229,7 @@ impl DiffView {
             wrap: ChangesPrefs::get(cx).wrap_lines,
             scroll: UniformListScrollHandle::new(),
             wrapped: ListState::new(0, ListAlignment::Top, OVERDRAW),
-            offset: Pixels::ZERO,
+            offset: Rc::new(OffsetCell::new(Pixels::ZERO)),
             widest: Pixels::ZERO,
             columns: 1,
             gutter: Pixels::ZERO,
@@ -348,7 +350,7 @@ impl DiffView {
 
     /// How far the lines are scrolled sideways.
     pub fn offset(&self) -> Pixels {
-        self.offset
+        self.offset.get()
     }
 
     /// The hunk F7 last went to.
@@ -412,7 +414,7 @@ impl DiffView {
             self.set_shown(None, cx);
             self.load_anyway = false;
             self.hunk = None;
-            self.offset = Pixels::ZERO;
+            self.offset.set(Pixels::ZERO);
             self.scroll_to_top();
         }
         if self.target.is_some() {
@@ -693,9 +695,9 @@ impl DiffView {
         let viewport = self.scroll.0.borrow().base_handle.bounds().size.width;
         let column = viewport / self.columns as f32 - self.gutter;
         let max = (self.widest - column).max(Pixels::ZERO);
-        let offset = (self.offset - delta).clamp(Pixels::ZERO, max);
-        if offset != self.offset {
-            self.offset = offset;
+        let offset = (self.offset.get() - delta).clamp(Pixels::ZERO, max);
+        if offset != self.offset.get() {
+            self.offset.set(offset);
             cx.notify();
         }
     }
@@ -885,7 +887,7 @@ impl DiffView {
                     .items_center()
                     .bg(colors.hunk_background)
                     .text_color(colors.hunk_text)
-                    .child(line_text(header.clone(), &[], &colors, self.offset, wrap).pl_2())
+                    .child(line_text(header.clone(), &[], &colors, self.offset.get(), wrap).pl_2())
                     .children(buttons)
                     .into_any_element()
             }
@@ -907,7 +909,13 @@ impl DiffView {
                     .child(number(*old))
                     .child(number(*new))
                     .child(sign(mark))
-                    .child(line_text(line.clone(), spans, &colors, self.offset, wrap))
+                    .child(line_text(
+                        line.clone(),
+                        spans,
+                        &colors,
+                        self.offset.get(),
+                        wrap,
+                    ))
                     .into_any_element()
             }
             Shown::Row(DiffRow::Pair { old, new }) => {
@@ -933,7 +941,7 @@ impl DiffView {
                                     cell.text.clone(),
                                     spans,
                                     &colors,
-                                    self.offset,
+                                    self.offset.get(),
                                     wrap,
                                 ))
                         }
@@ -1083,21 +1091,64 @@ impl Render for DiffView {
             rows.style().restrict_scroll_to_axis = Some(true);
             rows.into_any_element()
         };
-        root.child(
-            div()
-                .id("diff-lines")
-                .test_support()
-                .role(Role::List)
-                .aria_label(text::diff_of(&target.path))
-                .flex_1()
-                .min_h_0()
-                .bg(colors.background)
-                .text_color(colors.text)
-                .font_family(metrics.family.clone())
-                .text_size(metrics.size)
-                .on_scroll(cx.listener(Self::scroll_sideways))
-                .child(lines),
+        let mut viewport = div()
+            .id("diff-lines")
+            .test_support()
+            .role(Role::List)
+            .aria_label(text::diff_of(&target.path))
+            .flex_1()
+            .min_h_0()
+            .bg(colors.background)
+            .text_color(colors.text)
+            .font_family(metrics.family.clone())
+            .text_size(metrics.size)
+            .on_scroll(cx.listener(Self::scroll_sideways))
+            .relative()
+            .child(lines);
+        viewport = if self.wrap {
+            viewport.vertical_scrollbar(&self.wrapped)
+        } else {
+            viewport
+                .vertical_scrollbar(&self.scroll)
+                .horizontal_scrollbar(&HorizontalScroll {
+                    vertical: self.scroll.clone(),
+                    offset: self.offset.clone(),
+                    widest: self.widest,
+                    gutter: self.gutter,
+                    columns: self.columns,
+                })
+        };
+        root.child(viewport).children(newline)
+    }
+}
+
+/// The two diff columns share the same horizontal position. The scrollbar
+/// and wheel both update this cell; vertical scrolling keeps its own handle.
+#[derive(Clone)]
+struct HorizontalScroll {
+    vertical: UniformListScrollHandle,
+    offset: Rc<OffsetCell<Pixels>>,
+    widest: Pixels,
+    gutter: Pixels,
+    columns: usize,
+}
+impl gpui_component::scroll::ScrollbarHandle for HorizontalScroll {
+    fn viewport_bounds(&self) -> gpui_kit::Bounds<Pixels> {
+        self.vertical.0.borrow().base_handle.bounds()
+    }
+    fn content_size(&self) -> gpui_kit::Size<Pixels> {
+        let viewport = self.viewport_bounds().size;
+        let column = viewport.width / self.columns as f32 - self.gutter;
+        gpui_kit::size(
+            viewport.width + (self.widest - column).max(Pixels::ZERO),
+            viewport.height,
         )
-        .children(newline)
+    }
+    fn offset(&self) -> Point<Pixels> {
+        point(-self.offset.get(), Pixels::ZERO)
+    }
+    fn set_offset(&self, offset: Point<Pixels>) {
+        let max = (self.content_size().width - self.viewport_bounds().size.width).max(Pixels::ZERO);
+        self.offset.set((-offset.x).clamp(Pixels::ZERO, max));
     }
 }

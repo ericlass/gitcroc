@@ -6,6 +6,7 @@
 //! and the focus starts on the tab's first control (UI-22). A window has
 //! one; opening it again focuses it.
 
+use crate::scrollbars::ScrollAreaExt as _;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -341,7 +342,7 @@ impl Render for SettingsDialog {
                     .role(Role::TabPanel)
                     .aria_label(self.tab.label())
                     .max_h(px(520.))
-                    .overflow_y_scroll()
+                    .visible_y_scroll()
                     .child(panel),
             )
             .child(

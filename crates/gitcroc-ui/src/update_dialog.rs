@@ -7,6 +7,7 @@
 //! first, listing them, as rc.1 did (OPS-9): Cancel changes nothing, and
 //! only the explicit answer installs and restarts.
 
+use crate::scrollbars::ScrollAreaExt as _;
 use chrono::{DateTime, Local};
 use gitcroc_core::UpdateStatus;
 use gpui_component::button::{Button, ButtonVariants};
@@ -230,7 +231,7 @@ impl Render for UpdateDialog {
                     .role(Role::Document)
                     .aria_label(notes.clone())
                     .max_h(NOTES_HEIGHT)
-                    .overflow_y_scroll()
+                    .visible_y_scroll()
                     .p_2()
                     .bg(tokens.bg_2)
                     .border_1()

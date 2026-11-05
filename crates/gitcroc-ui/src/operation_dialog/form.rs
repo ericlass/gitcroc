@@ -1,4 +1,5 @@
 use super::*;
+use crate::scrollbars::ScrollAreaExt as _;
 use crate::{
     dialog::{self, Cancel},
     strings,
@@ -125,7 +126,7 @@ impl Render for OperationDialog {
             .flex_col()
             .gap_3()
             .max_h(px(550.))
-            .overflow_y_scroll();
+            .visible_y_scroll();
         if let Some((_, _, actions)) = &self.confirm {
             let actions: SharedString = actions.join("\n").into();
             body = body.child(
@@ -250,7 +251,7 @@ impl Render for OperationDialog {
                         .flex_col()
                         .gap_1()
                         .max_h(px(150.))
-                        .overflow_y_scroll();
+                        .visible_y_scroll();
                     for (at, target) in self.targets.iter().enumerate() {
                         let target = target.clone();
                         targets = targets.child(
