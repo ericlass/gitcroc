@@ -4,7 +4,7 @@
 
 gitcroc is a Git client for Windows, macOS and Linux, made for projects that span many repositories. You keep a project's repositories together in a workspace and gather them into groups. Then you pull, switch branches, create branches and more on a whole group in one action, and get a clear result for each repository. Each repository still stays under your control, so one can sit on a different branch from the rest. When a merge or rebase stops with conflicts, gitcroc can ask an AI model from your own account to propose resolutions. You review each one before anything is written.
 
-gitcroc 1.0.0-rc.2 with a group, its history and a diff:
+gitcroc 1.0.0 with a group, its history and a diff:
 
 ![Native gitcroc window with a repository group, history and diff](docs/user/images/native-window.png)
 
