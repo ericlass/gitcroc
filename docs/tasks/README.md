@@ -261,7 +261,7 @@ several pull requests (DEV-4).
 | [M6-29e](M6-29e-group-input-latency.md) | Fix the measured group-fetch input latency miss (57.548 ms vs 50 ms) | M6-29b |
 | [M6-29f](M6-29f-visible-scrollbars.md) | Visible scrollbars on native lists, diffs, dialogs and editors | M6-29a |
 | [M6-30](M6-30-the-switch.md) | The switch: `gitcroc` is the GPUI binary; `ui/`, specta and Node removed; coverage scans Rust only | `just coverage M6` empty |
-| M6-31 | 1.0.0-rc.2 and the M6 sign-off; runs the screen reader scripts in `crates/gitcroc-ui/tests/a11y_tree/manual.md` (M6-25c) | M6-30 |
+| [M6-31](M6-31-release-candidate-2.md) | 1.0.0-rc.2 and the M6 sign-off; runs the Orca script in `crates/gitcroc-ui/tests/a11y_tree/manual.md` (M6-25c). NVDA and VoiceOver are deferred with the other Windows and macOS by-hand checks (Eric, 2026-11-06) | M6-30 |
 
 M6-01 to M6-04 need nothing from each other and can start together. After
 M6-06, three lanes touch separate files: M6-08; M6-09 to M6-14; and M6-15 to
@@ -544,6 +544,7 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Updater key | Eric generates the key pair and stores the private key and its password as repository secrets; agents only ever see the public key. CI update tests use a throwaway key pair made inside the job | M5-12, M5-13, M5-15 |
 | Releases | A pushed tag `v<version>` builds a draft GitHub release with every package, `.sig` files, `SHA256SUMS` and `latest.json`; notes from `CHANGELOG.md`. Eric pushes tags and publishes; an agent never does | M5-13 |
 | Release candidate | `1.0.0-rc.1` before `1.0.0`, published as a pre-release; if a package format orders it wrongly, the scheme is asked about, not invented | M5-20 |
+| Linux package versions | From rc.2 on, the `.deb` and the `.rpm` carry epoch 1 and write a pre-release with `~` (`1:1.0.0~rc.2`, then `1:1.0.0`), so rc.1 to rc.2 to 1.0.0 are upgrades in `apt` and `dnf`. rc.1's packages have no epoch and sort after `1.0.0`. The epoch is never lowered or removed (Eric, 2026-11-06) | M6-31 |
 | Title bar setting | `system_title_bar` (default off), a top-level key of `settings.toml` beside the fonts, schema unchanged | M5-23 |
 | History columns | Every column can be moved; order and widths per workspace in `[layout.columns]` of the workspace file, read leniently, schema unchanged; Move left, Move right and Reset columns in a header menu | M5-24 |
 | Start line in the log | `gitcroc <version> started (<os> <arch>, <package>)` at each start, no paths; the install and update tests wait for it | M5-14 |
