@@ -137,8 +137,12 @@ signing-identity = "-"
 minimum-system-version = "12.0"
 
 # The workflow sets the RPM version, the workspace's with `~` for `-`.
+# Epoch 1 from 1.0.0-rc.2 on: rc.1's `.rpm` has none and sorts after
+# `1.0.0`, so without it neither rc.2 nor 1.0.0 would be an upgrade from
+# rc.1 (M6-31). Never lowered or removed.
 [package.metadata.generate-rpm]
 name = "gitcroc"
+epoch = 1
 summary = "Git client for multi-repo projects"
 assets = [
     { source = "target/release/gitcroc", dest = "/usr/bin/gitcroc", mode = "755" },

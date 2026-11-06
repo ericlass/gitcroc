@@ -2313,7 +2313,7 @@ checksum = "1033caf0b349c518623b5396bfb2cf0bddf44f0306d543a250e5743297aafd10"
 
 [[package]]
 name = "gitcroc-ai"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "gitcroc-ai",
  "process-wrap",
@@ -2329,7 +2329,7 @@ dependencies = [
 
 [[package]]
 name = "gitcroc-app"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "ashpd",
  "async-io",
@@ -2360,7 +2360,7 @@ dependencies = [
 
 [[package]]
 name = "gitcroc-cli"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "cargo_metadata",
  "gitcroc-ai",
@@ -2375,7 +2375,7 @@ dependencies = [
 
 [[package]]
 name = "gitcroc-core"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "directories",
  "dunce",
@@ -2396,7 +2396,7 @@ dependencies = [
 
 [[package]]
 name = "gitcroc-git"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "gix",
  "repo-gen",
@@ -2409,7 +2409,7 @@ dependencies = [
 
 [[package]]
 name = "gitcroc-ui"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "ashpd",
  "atspi-common",
@@ -7171,7 +7171,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "release-manifest"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "base64 0.22.1",
  "minisign",
@@ -7189,7 +7189,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "repo-gen"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -7200,7 +7200,7 @@ dependencies = [
 
 [[package]]
 name = "req-coverage"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "tempfile",
  "thiserror 2.0.21",
