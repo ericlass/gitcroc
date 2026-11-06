@@ -698,11 +698,23 @@ impl Changes {
 
     /// The view arrived. The kept file is selected again: in the same list,
     /// else in the other one, as after staging it whole; otherwise the
-    /// first file (UI-14).
+    /// first file (UI-14). When it stays in its list, so do the other
+    /// marked files that are still there (UI-15).
     pub fn set_view(&mut self, view: ChangesView) {
         self.loading = false;
         self.error = None;
         let keep = self.keep.take();
+        let marks: Vec<Kept> = self
+            .marked
+            .iter()
+            .filter_map(|file| {
+                Some(Kept {
+                    list: file.list,
+                    path: self.entry_of(file)?.path().to_owned(),
+                    repo: file.repo.clone(),
+                })
+            })
+            .collect();
         self.view = Some(view);
         self.rebuild();
         // A resolved file leaves the Unmerged list: the next unmerged file
@@ -718,7 +730,24 @@ impl Changes {
             again => again,
         };
         self.file = again.or_else(|| self.first_file());
-        self.marked = self.file.iter().cloned().collect();
+        self.marked = self.marks_again(&marks);
+    }
+
+    /// The marks after a new read: each of `marks` still in its own list,
+    /// when the selected file is one of them; otherwise the selected file.
+    fn marks_again(&self, marks: &[Kept]) -> Vec<FileKey> {
+        let Some(file) = self.file.clone() else {
+            return Vec::new();
+        };
+        let again: Vec<FileKey> = marks
+            .iter()
+            .filter_map(|mark| self.find(mark).filter(|found| found.list == mark.list))
+            .collect();
+        if again.len() > 1 && again.contains(&file) {
+            again
+        } else {
+            vec![file]
+        }
     }
 
     pub fn set_error(&mut self, error: String) {
