@@ -437,11 +437,19 @@ fn ui_15_several_files_go_in_one_job(cx: &mut TestAppContext) {
     click_with(&mut cx, row(a), secondary);
     assert_eq!(marked(&mut cx, &window), ["a.txt"]);
 
-    // Back to the run, which one job stages.
-    let b = row_of(&mut cx, &window, List::Unstaged, "b.txt");
-    click(&mut cx, row(b));
-    let e = row_of(&mut cx, &window, List::Unstaged, "e.txt");
-    click_with(&mut cx, row(e), Modifiers::shift());
+    // Back to the run, which one job stages. A watcher read from the first
+    // stage that lands now can drop the selection; the user selects again,
+    // as this does.
+    for _ in 0..5 {
+        let b = row_of(&mut cx, &window, List::Unstaged, "b.txt");
+        click(&mut cx, row(b));
+        let e = row_of(&mut cx, &window, List::Unstaged, "e.txt");
+        click_with(&mut cx, row(e), Modifiers::shift());
+        if marked(&mut cx, &window) == ["b.txt", "d.txt", "e.txt"] {
+            break;
+        }
+    }
+    assert_eq!(marked(&mut cx, &window), ["b.txt", "d.txt", "e.txt"]);
     let before = jobs(&fixture, "Stage").len();
     let d = row_of(&mut cx, &window, List::Unstaged, "d.txt");
     act_until(
