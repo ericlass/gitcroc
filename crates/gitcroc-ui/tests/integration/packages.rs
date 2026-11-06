@@ -322,6 +322,42 @@ fn d6_linux_packages_depend_on_a_font() {
     );
 }
 
+/// D6, PLAT-4: 1.0.0-rc.1's `.deb` and `.rpm` have no epoch, and their
+/// version `1.0.0-rc.1` sorts after `1.0.0` in dpkg and rpm. So from rc.2 on
+/// both carry epoch 1 and write a pre-release with `~` (`1:1.0.0~rc.2`, then
+/// `1:1.0.0`), which makes rc.1 to rc.2 to 1.0.0 upgrades (M6-31, Eric,
+/// 2026-11-06). An epoch is never lowered or removed.
+#[test]
+fn d6_linux_packages_carry_epoch_1() {
+    let rpm = metadata("generate-rpm");
+    assert_eq!(
+        rpm.get("epoch").and_then(Value::as_integer),
+        Some(1),
+        "[package.metadata.generate-rpm] epoch"
+    );
+
+    let packages = workflow("packages.yml");
+    // The .rpm's version: the workspace's with `~` for `-`.
+    assert!(
+        packages.contains(r#"--set-metadata "version = \"${VERSION//-/\~}\"""#),
+        "packages.yml sets the .rpm's version with ~"
+    );
+    // cargo-packager has no epoch setting, so the .deb's control file is
+    // rewritten after it is built, and the result checked.
+    assert!(
+        packages.contains(r#"deb_version="1:${VERSION//-/\~}""#),
+        "packages.yml sets the .deb's version to 1:<version with ~>"
+    );
+    assert!(
+        packages.contains(r#"test "$(dpkg-deb -f "$deb" Version)" = "$deb_version""#),
+        "packages.yml checks the .deb's version"
+    );
+    assert!(
+        packages.contains("dpkg-deb -b --root-owner-group"),
+        "packages.yml repacks the .deb with root as owner"
+    );
+}
+
 /// PLAT-4: the GPUI installer installs over 1.0.0-rc.1's, so its template
 /// keeps Tauri's install directory `%LOCALAPPDATA%\gitcroc`, uninstall key
 /// and the `MainBinaryName` value, and handles rc.1's updater's `/UPDATE`

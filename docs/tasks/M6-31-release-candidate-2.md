@@ -65,7 +65,8 @@ This task changes no spec text and no ADR.
   - **Install tests:** `install (linux-x86_64)` and `install (rpm, fedora)`
     each get an "upgrade over rc.1" step. It installs rc.1's package from
     the `v1.0.0-rc.1` release, then the new one with `apt install` or
-    `dnf install`. It fails if the package manager refuses the new package
+    `dnf install`. rc.1's file comes from its release and is checked
+    against its `SHA256SUMS` (`.github/scripts/download-rc1.sh`). It fails if the package manager refuses the new package
     or calls it a downgrade, and it checks that the installed version is
     the new one. This is the Linux counterpart of
     `install over rc.1 (windows-x64)`.
@@ -171,7 +172,8 @@ form of `M5-signoff.md`:
 ## Tests (QA-3)
 This task adds no requirement. The epoch's tests are named after the
 package rule they guard (D6, section 11 packages):
-- **`d6_linux_packages_carry_epoch_1`** (`workspace_policy.rs`):
+- **`d6_linux_packages_carry_epoch_1`** (`crates/gitcroc-ui/tests/integration/packages.rs`,
+  beside the other D6 package test):
   `[package.metadata.generate-rpm]` has `epoch = 1`, and the `.deb` step
   of `packages.yml` sets a `Version:` starting with `1:`.
 - **The build job checks the built packages:** `dpkg-deb -f … Version` is

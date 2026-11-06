@@ -352,7 +352,17 @@ jobs:
         run: |
           cargo build --release --locked -p gitcroc-ui --bin gitcroc $FEATURES
           cargo packager --release -p gitcroc-ui --formats deb --out-dir dist
-          dpkg-deb --info "dist/gitcroc_${VERSION}_amd64.deb"
+          # Epoch 1 and `~` for `-`, as the .rpm: rc.1's .deb has no epoch
+          # and its version sorts after 1.0.0 (M6-31). cargo-packager writes
+          # Version: as given, so the control file is rewritten here.
+          deb="dist/gitcroc_${VERSION}_amd64.deb"
+          deb_version="1:${VERSION//-/\~}"
+          dpkg-deb -R "$deb" "$RUNNER_TEMP/deb"
+          sed -i "s/^Version: .*/Version: ${deb_version}/" "$RUNNER_TEMP/deb/DEBIAN/control"
+          dpkg-deb -b --root-owner-group "$RUNNER_TEMP/deb" "$deb"
+          rm -rf "$RUNNER_TEMP/deb"
+          test "$(dpkg-deb -f "$deb" Version)" = "$deb_version"
+          dpkg-deb --info "$deb"
       - name: Build and package the .rpm
         env:
           GITCROC_BUNDLE: rpm
@@ -545,7 +555,7 @@ jobs:
         with:
           name: gitcroc-${{ env.VERSION }}-linux-x86_64
           path: artifacts
-      - name: Start the AppImage; install the .deb and start it
+      - name: Start the AppImage; install the .deb and start it; upgrade rc.1's .deb
         run: INSTALL_LOGS="$GITHUB_WORKSPACE/install-logs" .github/scripts/install-linux.sh "$PWD/artifacts" "$VERSION"
       - name: Upload the logs on failure
         if: failure()
@@ -578,7 +588,7 @@ jobs:
         with:
           name: gitcroc-${{ env.VERSION }}-linux-x86_64
           path: artifacts
-      - name: Install the .rpm with dnf and start it
+      - name: Install the .rpm with dnf and start it; upgrade rc.1's .rpm
         run: INSTALL_LOGS="$GITHUB_WORKSPACE/install-logs" .github/scripts/install-rpm.sh "$PWD/artifacts" "$VERSION"
       - name: Upload the logs on failure
         if: failure()
