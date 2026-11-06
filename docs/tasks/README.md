@@ -260,7 +260,7 @@ several pull requests (DEV-4).
 | [M6-29d](M6-29d-native-coverage.md) | Close the five remaining native coverage mappings | M6-29c |
 | [M6-29e](M6-29e-group-input-latency.md) | Fix the measured group-fetch input latency miss (57.548 ms vs 50 ms) | M6-29b |
 | [M6-29f](M6-29f-visible-scrollbars.md) | Visible scrollbars on native lists, diffs, dialogs and editors | M6-29a |
-| M6-30 | The switch: `gitcroc` is the GPUI binary; `ui/`, specta and Node removed | `just coverage M6` empty |
+| [M6-30](M6-30-the-switch.md) | The switch: `gitcroc` is the GPUI binary; `ui/`, specta and Node removed; coverage scans Rust only | `just coverage M6` empty |
 | M6-31 | 1.0.0-rc.2 and the M6 sign-off; runs the screen reader scripts in `crates/gitcroc-ui/tests/a11y_tree/manual.md` (M6-25c) | M6-30 |
 
 M6-01 to M6-04 need nothing from each other and can start together. After
