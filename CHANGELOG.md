@@ -4,14 +4,22 @@ All notable changes to gitcroc are documented in this file. The format follows [
 
 ## [Unreleased]
 
+## [1.0.0-rc.2] - 2026-11-06
+
+The second release candidate of gitcroc 1.0. Its whole interface is new: gitcroc now draws its own window, with no web page inside it. It does everything 1.0.0-rc.1 does, and the [user guide](https://github.com/ericlass/gitcroc/blob/main/docs/user/README.md) describes it all.
+
 ### Added
 - **The tab bar is the title bar.** gitcroc draws its own title bar: drag the tab bar's empty space to move the window, and double-click it to maximize or restore the window. On Windows and Linux the minimize, maximize and close buttons sit at its right end; macOS keeps its own window buttons. Settings, **Window**, **Use the system title bar** brings back your system's title bar.
 - **Move history columns.** Drag a column's header in the history to move the column, or use **Move left** and **Move right** in the header's menu. **Reset columns** in the same menu restores the default order and widths.
 
 ### Changed
-- **Settings has tabs.** The settings are grouped in four tabs, **Appearance**, **Git**, **Updates** and **AI**, so the dialog no longer needs scrolling. The light and dark code theme previews sit side by side.
+- **A native window.** gitcroc no longer runs in a web view, so Windows no longer needs WebView2 and Linux no longer needs WebKitGTK. It uses less memory: about 300 MB with a workspace of 20 repositories open, where 1.0.0-rc.1 used about 440 MB.
+- **Linux needs a working graphics driver.** The window draws with Vulkan or OpenGL. The `.deb` and the `.rpm` depend on a system font, since gitcroc doesn't bring its own.
+- **Settings has tabs.** The settings are grouped in four tabs, **Appearance**, **Git**, **Updates** and **AI**, so each tab is short.
+- **Scrollbars stay visible** in lists, diffs, dialogs and editors, so you can always see where you are and drag them.
 
 ### Fixed
+- **Linux `.deb` and `.rpm` upgrades.** This release candidate installs over 1.0.0-rc.1 as an upgrade, and 1.0.0 will install over it the same way, so you no longer need to uninstall first. To make this work, `apt`, `dnf` and `rpm` show the version as `1:1.0.0~rc.2`.
 - Resizing the history's columns works: the column edges are easier to grab and show a line, an edge follows the pointer on both sides of the subject, and each workspace keeps its column widths and order after a restart.
 - A click outside the command palette closes it, as Escape does.
 - A repository's name in the tree stays whole when the tree is narrow. Its branch name is shortened with an ellipsis instead of hiding the name.

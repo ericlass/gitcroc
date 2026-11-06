@@ -1,6 +1,6 @@
 # Installing gitcroc
 
-The native GPUI application arrives with 1.0.0-rc.2; 1.0.0-rc.1 uses the previous UI.
+Since 1.0.0-rc.2, gitcroc is a native application. 1.0.0-rc.1 had the previous, web-based interface; install 1.0.0-rc.2 over it as below, and your settings and workspaces stay.
 
 Download gitcroc from the [releases page](https://github.com/ericlass/gitcroc/releases/latest). Each release lists one file per package; `<version>` below stands for the version number, such as `1.0.0`. The release also has `SHA256SUMS`, with the checksum of every file, if you want to check your download.
 

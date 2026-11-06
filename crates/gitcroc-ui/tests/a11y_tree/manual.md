@@ -2,9 +2,11 @@
 
 What `just a11y` cannot check: what a screen reader actually says. These
 scripts are M6-04's NVDA and VoiceOver scripts, rewritten for
-`gitcroc`, plus an Orca variant for Linux. They are run before
-release, at M6-31's sign-off, on Windows, macOS and Linux, and each table is
-filled in (README decisions table, "Accessibility bar in M6", must 9).
+`gitcroc`, plus an Orca variant for Linux. They are run before a release
+and each table is filled in (README decisions table, "Accessibility bar in
+M6", must 9). At M6-31's sign-off only the Orca script runs: NVDA and
+VoiceOver wait, with the other by-hand checks on Windows and macOS, until a
+Windows PC and a Mac are available (Eric, 2026-11-06).
 
 ## Setup, on every platform
 
