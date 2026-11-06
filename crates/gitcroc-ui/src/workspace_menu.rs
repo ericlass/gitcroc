@@ -1,5 +1,5 @@
 //! What the tab bar's "+" offers (UI-28), a port of
-//! `ui/src/workspaces/WorkspaceMenu.tsx`: every workspace file, open ones
+//! rc.1's `ui/src/workspaces/WorkspaceMenu.tsx`: every workspace file, open ones
 //! marked, to open or switch to (UI-27); Delete for one that is not open;
 //! New workspace; and Import workspace (DATA-2). The same entries show as
 //! a menu below "+" and as buttons when no tab is open. The core lists,

@@ -228,11 +228,6 @@ fn read_text(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
 
-fn read_json(path: &Path) -> serde_json::Value {
-    serde_json::from_str(&read_text(path))
-        .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
-}
-
 /// `text` as numbers split at dots, when every part is one.
 fn version_numbers(text: &str) -> Option<Vec<u64>> {
     text.split('.').map(|part| part.parse().ok()).collect()
@@ -325,6 +320,126 @@ fn d2_webview_name_check_matches_the_system_webviews() {
     assert!(is_webview_crate("webkit2gtk-sys"));
     assert!(is_webview_crate("webview2-com"));
     assert!(!is_webview_crate("gix"));
+}
+
+/// The files under `dir`, recursively, without build output, git's own
+/// folder and the spikes, which keep their own toolchains.
+fn repo_files(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        if path.is_dir() {
+            if !["target", ".git", "spikes"].contains(&name.as_ref()) {
+                found.extend(repo_files(&path));
+            }
+        } else {
+            found.push(path);
+        }
+    }
+    found
+}
+
+/// D2 (M6-30): the app is the `gitcroc` binary of `gitcroc-ui`, its only
+/// binary and the one `cargo run` starts. Nothing that builds it still
+/// names it `gitcroc-next`.
+#[test]
+fn d2_the_app_binary_is_gitcroc() {
+    let ui = metadata()
+        .workspace_packages()
+        .into_iter()
+        .find(|p| p.name.as_str() == "gitcroc-ui")
+        .expect("gitcroc-ui is a workspace member");
+    let binaries: Vec<&str> = ui
+        .targets
+        .iter()
+        .filter(|t| t.is_bin())
+        .map(|t| t.name.as_str())
+        .collect();
+    assert_eq!(binaries, ["gitcroc"], "D2: gitcroc-ui's binaries");
+    assert_eq!(ui.default_run.as_deref(), Some("gitcroc"));
+
+    let root = workspace_root();
+    let mut builders = vec![root.join("Cargo.toml"), root.join("justfile")];
+    builders.extend(
+        metadata()
+            .workspace_packages()
+            .iter()
+            .map(|p| p.manifest_path.clone().into_std_path_buf()),
+    );
+    builders.extend(repo_files(&root.join(".github")));
+    let old: Vec<String> = builders
+        .iter()
+        .filter(|path| read_text(path).contains("gitcroc-next"))
+        .map(|path| path.display().to_string())
+        .collect();
+    assert!(old.is_empty(), "D2: still named gitcroc-next in {old:#?}");
+}
+
+/// D2 (M6-30): the web front end and its Node toolchain are gone. The only
+/// Node a workflow sets up builds 1.0.0-rc.1 from its tag, checked out
+/// under `rc1/`, for the update test from rc.1.
+#[test]
+fn d2_no_node_toolchain_in_the_repo() {
+    let root = workspace_root();
+    assert!(!root.join("ui").exists(), "D2: ui/ is still there");
+    let node_files: Vec<String> = repo_files(&root)
+        .iter()
+        .filter(|path| {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            ["package.json", "pnpm-lock.yaml", ".nvmrc"].contains(&name.as_ref())
+        })
+        .map(|path| path.display().to_string())
+        .collect();
+    assert!(node_files.is_empty(), "D2: Node files {node_files:#?}");
+
+    // Only the update test sets up Node, and every file it gives pnpm or
+    // Node is in rc.1's checkout.
+    let mut node_steps = Vec::new();
+    for workflow in repo_files(&root.join(".github/workflows")) {
+        let update_test = workflow.file_name().is_some_and(|n| n == "update-test.yml");
+        for line in read_text(&workflow).lines() {
+            let line = line.trim();
+            let names_node = [
+                "pnpm",
+                "setup-node",
+                "node-version",
+                "nvmrc",
+                "package.json",
+            ]
+            .iter()
+            .any(|word| line.contains(word));
+            let names_a_path = ["--dir", "nvmrc", "package.json", "pnpm-lock"]
+                .iter()
+                .any(|word| line.contains(word));
+            let allowed = update_test && (!names_a_path || line.contains("rc1/"));
+            if names_node && !allowed {
+                node_steps.push(format!("{}: {line}", workflow.display()));
+            }
+        }
+    }
+    assert!(
+        node_steps.is_empty(),
+        "D2: Node outside rc.1's build: {node_steps:#?}"
+    );
+}
+
+/// D2 (M6-30): specta, which typed the IPC layer for TypeScript, is gone
+/// from every crate and from the lock file.
+#[test]
+fn d2_no_crate_depends_on_specta() {
+    let specta: Vec<&str> = metadata()
+        .packages
+        .iter()
+        .map(|p| p.name.as_str())
+        .filter(|name| name.contains("specta"))
+        .collect();
+    assert!(specta.is_empty(), "D2: the workspace reaches {specta:?}");
+    let lock = read_text(&workspace_root().join("Cargo.lock"));
+    assert!(
+        !lock.contains("name = \"specta"),
+        "D2: specta in Cargo.lock"
+    );
 }
 
 /// ARCH-5: the app's API has no UI toolkit in it: no Tauri crate, `wry`,
@@ -719,11 +834,4 @@ fn d14_license_is_mit() {
         );
         assert_eq!(pkg.license.as_deref(), Some("MIT"), "D14: {}", pkg.name);
     }
-
-    let package = read_json(&root.join("ui/package.json"));
-    let ui = package.get("license").and_then(|v| v.as_str());
-    assert!(
-        matches!(ui, None | Some("MIT")),
-        "D14: ui/package.json license {ui:?}"
-    );
 }

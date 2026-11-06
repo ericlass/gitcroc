@@ -135,7 +135,6 @@ fn coverage_fixture(test: &str) -> PathBuf {
         "// XC-3 in production code is not a test.\n\
          #[cfg(test)]\nmod tests {\n    fn xd_4_works() {}\n}\n",
     );
-    write(&root.join("ui/src/app.ts"), "// XC-3 outside a test file\n");
     root
 }
 

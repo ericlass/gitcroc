@@ -1,6 +1,6 @@
 //! M6-23c: Resolve all with AI from the conflict banner (AI-3, AI-6,
 //! AI-13, AI-16, D9, SEC-3, UI-22, UI-30), the port of
-//! `ui/src/conflict/resolveAll.test.tsx`. Real git conflicts with several
+//! rc.1's `ui/src/conflict/resolveAll.test.tsx`. Real git conflicts with several
 //! unmerged files, one of them on the exclude list (QA-2); the provider is
 //! the fixture's mock, held where a test needs files still running and
 //! released by the test, never waited for by time.

@@ -41,7 +41,7 @@ pub const TOKEN_VAR: &str = "GITCROC_ASKPASS_TOKEN";
 const MAX_REQUEST: u64 = 64 * 1024;
 
 /// What git asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PromptKind {
     /// A name or other text, shown as it is typed.
@@ -67,7 +67,7 @@ impl PromptKind {
 }
 
 /// A prompt as the dialog shows it, naming the repo and the job.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AskpassPrompt {
     pub prompt_id: u32,
     pub kind: PromptKind,

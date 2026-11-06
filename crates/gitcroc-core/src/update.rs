@@ -29,7 +29,7 @@ use crate::{JobId, JobState, Jobs, Outcome, SettingsStore, WorkspaceId};
 pub const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// The package the running app came from (PLAT-4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Package {
     /// The NSIS installer.
@@ -101,10 +101,9 @@ pub trait UpdateEvents: Send + Sync {
     fn log(&self, message: &str);
 }
 
-/// Where the update check and install are. Times and byte counts are `u64`,
-/// declared to specta as `u32` so TypeScript gets a plain `number`; specta
-/// makes an `f64` `number | null`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+/// Where the update check and install are. Times are milliseconds since the
+/// Unix epoch; sizes are bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum UpdateStatus {
     /// No check has run yet.
@@ -113,7 +112,6 @@ pub enum UpdateStatus {
     /// The last check found no newer version; times are milliseconds since
     /// the Unix epoch.
     UpToDate {
-        #[specta(type = u32)]
         checked_at: u64,
     },
     /// The last check found `version`.
@@ -121,16 +119,13 @@ pub enum UpdateStatus {
         version: String,
         date: Option<String>,
         notes: String,
-        #[specta(type = u32)]
         checked_at: u64,
     },
     /// `done` of `total` bytes of `version` are downloaded; `total` is `None`
     /// while it is not known.
     Downloading {
         version: String,
-        #[specta(type = u32)]
         done: u64,
-        #[specta(type = Option<u32>)]
         total: Option<u64>,
     },
     /// `version` is installed; the app restarts into it.
@@ -140,13 +135,12 @@ pub enum UpdateStatus {
     /// The last check failed, such as when offline.
     Failed {
         reason: String,
-        #[specta(type = u32)]
         checked_at: u64,
     },
 }
 
 /// The updater as the UI shows it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateView {
     pub status: UpdateStatus,
     pub current_version: String,

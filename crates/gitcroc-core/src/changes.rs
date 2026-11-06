@@ -23,7 +23,7 @@ use crate::{
 };
 
 /// What to show.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChangesTarget {
     /// A commit against one of its parents, 0 being the first (UI-16).
@@ -33,7 +33,7 @@ pub enum ChangesTarget {
 }
 
 /// What the changes pane lists.
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChangesContent {
     Commit {
@@ -69,7 +69,7 @@ pub enum ChangesContent {
 }
 
 /// One repo's uncommitted changes in a merged view (UI-34).
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RepoChanges {
     pub repo_id: RepoId,
     pub repo_name: String,
@@ -86,7 +86,7 @@ pub struct RepoChanges {
 }
 
 /// A view of the changes pane.
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ChangesView {
     /// Names this view for `diff_get`, `diff_image` and the conflict
     /// editor's calls; 0 for a merged view, whose repos each have their
@@ -96,7 +96,7 @@ pub struct ChangesView {
 }
 
 /// The list a file of a view belongs to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileList {
     Commit,
@@ -105,14 +105,14 @@ pub enum FileList {
 }
 
 /// A file of a view: its list and its id in that list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FileRef {
     pub list: FileList,
     pub id: u32,
 }
 
 /// The options of a file diff (UI-17, UI-18), as the UI sends them.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiffRequest {
     pub ignore_whitespace: bool,
     pub context: Context,
@@ -134,7 +134,7 @@ impl From<DiffRequest> for DiffOptions {
 }
 
 /// A side of an image diff.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ImageSide {
     Old,

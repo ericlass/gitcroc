@@ -18,9 +18,7 @@ pub const UNGROUPED_NAME: &str = "Ungrouped";
 /// Identifies a group inside its workspace for the session: `g1`, `g2` and
 /// so on, given in file order when the workspace loads. Not kept in the
 /// file, so a rename keeps it.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, specta::Type,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct GroupId(pub String);
 
 impl std::fmt::Display for GroupId {
@@ -30,7 +28,7 @@ impl std::fmt::Display for GroupId {
 }
 
 /// A group as the UI sees it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GroupView {
     pub id: GroupId,
     pub name: String,

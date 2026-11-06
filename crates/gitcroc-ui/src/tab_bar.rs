@@ -1,4 +1,4 @@
-//! The workspace tabs (UI-27, UI-28), a port of `ui/src/layout/TabBar.tsx`:
+//! The workspace tabs (UI-27, UI-28), a port of rc.1's `ui/src/layout/TabBar.tsx`:
 //! one tab per open workspace in the core's order, in the title bar
 //! (UI-35). A click activates a tab; tabs reorder by dragging, and the
 //! window's Ctrl/Cmd+Shift+PageUp/PageDown move the active one (UI-22).

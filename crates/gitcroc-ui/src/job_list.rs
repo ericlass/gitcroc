@@ -1,4 +1,4 @@
-//! The job list of UI-21, a port of `ui/src/jobs/JobList.tsx` and
+//! The job list of UI-21, a port of rc.1's `ui/src/jobs/JobList.tsx` and
 //! `ui/src/jobs/GroupReport.tsx`: every job of this run across all
 //! workspaces, newest first, in a `uniform_list` (PERF-1). The selected job
 //! shows git's raw output as text (SEC-3), or, for a group operation, its

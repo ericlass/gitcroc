@@ -1,11 +1,11 @@
 # gitcroc
 
-Cross-platform Git client for multi-repo projects. Rust core, native UI in Rust with GPUI, being written in milestone M6 (docs/plans/native-ui-gpui.md). The Tauri app is gone; ui/ is the old front end, kept as a reference until M6-30.
+Cross-platform Git client for multi-repo projects. Rust core, native UI in Rust with GPUI (crates/gitcroc-ui, the `gitcroc` binary; docs/plans/native-ui-gpui.md).
 Spec: docs/spec/ (source of truth). Decisions: docs/spec/01-decisions.md and docs/adr/.
 
 ## Commands
 - just check        # everything CI requires; must pass before you say a task is done
-- just ui-reference # the old front end in a browser, with its fake core
+- just dev          # run the app
 - just bench        # performance harness; needs `just bench-data target-project` first
 
 ## Invariants (never break; see spec IDs)

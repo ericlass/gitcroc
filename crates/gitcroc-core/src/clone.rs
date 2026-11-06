@@ -34,7 +34,7 @@ const REMOVE_TRIES: u32 = 10;
 const REMOVE_PAUSE: Duration = Duration::from_millis(100);
 
 /// A clone to start: `url` into folder `name` of `parent`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloneRequest {
     pub url: String,
     pub parent: PathBuf,
@@ -48,7 +48,7 @@ pub struct CloneRequest {
 }
 
 /// The group a cloned repo joins (section 6 "Repos").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CloneGroup {
     /// A group of the workspace, at its end.
@@ -58,7 +58,7 @@ pub enum CloneGroup {
 }
 
 /// How a clone ended.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloneReport {
     pub workspace_id: WorkspaceId,
     pub job_id: JobId,

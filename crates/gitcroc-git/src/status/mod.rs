@@ -82,7 +82,7 @@ impl WorkingCopy {
 }
 
 /// How the two sides of a merge left a path, as `git status` names it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UnmergedKind {
     BothDeleted,
@@ -102,10 +102,9 @@ pub(crate) struct Stage {
 }
 
 /// A path with conflict stages in the index.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UnmergedFile {
     /// The index in [`WorkingCopy::unmerged`].
-    #[specta(type = u32)]
     pub id: usize,
     /// The path for display, decoded lossily; never sent back (PLAT-2).
     pub path: String,

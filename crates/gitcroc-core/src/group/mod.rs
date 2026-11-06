@@ -31,11 +31,11 @@ use crate::{
 };
 
 /// Identifies a preflight, unique while the app runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PreflightId(pub u32);
 
 /// A repo of a preflight and its class.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoClass {
     pub repo_id: RepoId,
     pub repo_name: String,
@@ -47,7 +47,7 @@ pub struct RepoClass {
 }
 
 /// A preflight's result, sent as event `preflight_ready`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreflightReady {
     pub workspace_id: WorkspaceId,
     pub preflight_id: PreflightId,

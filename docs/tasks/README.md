@@ -198,8 +198,8 @@ section 9 budgets are met with the new scroll budget, and 1.0.0-rc.1 updates
 to 1.0.0-rc.2 on all three platforms.
 
 The Tauri app is deleted in M6-05; 1.0.0-rc.1 stays the released app until
-rc.2. Until M6-30 the new UI builds as `gitcroc-next`, and until M6-28 it is
-not packaged. Task files from M6-05 on are written
+rc.2. Until M6-30 the new UI built as `gitcroc-next`, and until M6-28 it was
+not packaged. Since M6-30 it is the `gitcroc` binary. Task files from M6-05 on are written
 once the spikes M6-02 to M6-04 have reported, because their findings shape
 M6-06, M6-19, M6-25, M6-28 and M6-29. M6-05 to M6-29 have theirs;
 the rest follow in batches by lane. Rows marked † will be split into
@@ -349,7 +349,7 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | JS package manager | pnpm, Node LTS pinned in `.nvmrc` | M0-04 |
 | Styling | Plain CSS with CSS variables, one stylesheet per component; no CSS framework | M0-04, M0-07 |
 | App identifier | `dev.gitcroc.desktop` (ADR 0002) | M0-04, M5-01 |
-| How M6 is developed | On `main`, with no long-lived branch: the GPUI UI grows as `gitcroc-next` until M6-30 | M6-05 to M6-30 |
+| How M6 is developed | On `main`, with no long-lived branch: the GPUI UI grows as `gitcroc-next` until M6-30, which makes it `gitcroc` | M6-05 to M6-30 |
 | Look of the GPUI UI | Today's tokens ported, plus the OS accent color and native window controls; not gpui-component's default theme | M6-07 |
 | Code themes in M6 | Ported from `codeThemes.ts` as Rust data, with syntect themes built from it; not `.tmTheme` files, which have no word-level or conflict colours (Eric, 2026-10-27) | M6-07 |
 | The OS accent and contrast | Its hue is kept and its lightness changed until every accent pair passes; the token accent when none does (Eric, 2026-10-27) | M6-07 |
@@ -358,12 +358,12 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Job results in the GPUI app | As rc.1: the status bar's outcome and the tab's marker; no pop-up toasts (Eric, 2026-10-29) | M6-15a |
 | Conflict editor | gpui-component's code editor, one buffer; the base and the AI proposal in a card beside the hunk (Eric, 2026-10-27, after M6-02) | M6-19, M6-23 |
 | The Tauri app during M6 | Not kept: 1.0.0-rc.1 is its last release. M6-05 deletes the shell, its workflows and the IPC layer; no app runs on `main` until M6-06, and none is released until M6-28 (Eric, 2026-10-27) | M6-05 |
-| `ui/` during M6 | Stays in the tree as the reference the tasks port from, out of `just check` and CI, runnable with its fake core; M6-30 deletes it (Eric, 2026-10-27) | M6-05, M6-06, M6-30 |
+| `ui/` during M6 | Stays in the tree as the reference the tasks port from, out of `just check` and CI, runnable with its fake core; M6-30 deleted it, so it is now read at the `v1.0.0-rc.1` tag (Eric, 2026-10-27) | M6-05, M6-06, M6-30 |
 | Settings dialog before M6-26 | M6-23a builds the dialog with only its AI tab; M6-26 adds Appearance, Git and Updates to it | M6-23a, M6-26 |
 | The system title bar on Windows and macOS | GPUI fixes a window's decorations when it opens there, so turning the setting on or off reopens the window with the same tabs and bounds, asking first about unsaved conflict edits; Linux switches in place (Eric, 2026-11-04) | M6-26 |
 | Accessibility bar in M6 | M6-04's nine tested musts. Lower than M5-10: no axe-like rule set, only role, name and state rules, on Linux under Xvfb and AT-SPI; no Windows high-contrast detection (LATER), but the selected row and the focus always have a border, in every theme; the focus ring's contrast is tested and its presence on each stop checked by hand; on Linux a tree row's expanded state and level are in its description until AccessKit maps them. Labels at 32 px stay tested, through layout bounds (Eric, 2026-11-03) | M6-25a to M6-25c, M6-29, M6-31 |
 | Updater proof | Tests on every platform in M6-27; on the runners in M6-28, with the GPUI packages: GPUI A to B, and rc.1 to the GPUI build | M6-27, M6-28 |
-| `gitcroc-next` and user files | Reads and writes the same config, cache and workspace files as an installed rc.1; running both at once is not supported | M6-06 |
+| `gitcroc-next` and user files | Reads and writes the same config, cache and workspace files as an installed rc.1; running both at once is not supported. Since M6-30 the binary is `gitcroc` | M6-06, M6-30 |
 | Config directory name | `gitcroc` under the platform config, cache and log dirs | M0-07 |
 | CI service | GitHub Actions | M0-03 |
 | Task file headings | "Implements" and "Respects" inside the Spec section, so the coverage script knows which IDs a milestone must test | M0-02 |
@@ -415,7 +415,7 @@ task of its milestone starts; a change after that becomes an ADR (DEV-2).
 | Selected repo for refresh | The core keeps each workspace's selected repo, set by `repo_select`; it is not saved, so a start refreshes in workspace order until the UI selects a repo | M1-06 |
 | Summary read failures | A repo that exists but cannot be read keeps its cached summary, stays stale and carries the error, git's own message when git refused it; its cache row is left as it was | M1-06 |
 | Added repos | The repos an add job adds have their summaries read at once, as at start | M1-06 |
-| Summary IPC types | The summary types in `gitcroc-git` derive specta's `Type` directly; specta is not Tauri, so ARCH-5 holds | M1-06 |
+| Summary IPC types | The summary types in `gitcroc-git` derive specta's `Type` directly; specta is not Tauri, so ARCH-5 holds. M6-30 removed specta | M1-06, M6-30 |
 | Summary cache | SQLite `user_version` holds the schema; the summary is stored as JSON, and a row this build cannot read counts as missing. The refresh starts once git detection finds a usable git | M1-06 |
 | Tree IPC | `tree_get` returns the skeleton: Ungrouped, the repos and their four ref nodes, not loaded. `refs_get` returns one repo's four ref nodes in full, unpaged, when one of them is first expanded; only then are ahead and behind counted (ARCH-8) | M1-07 |
 | Tree filter scope | Matches repo names and the full names of local branches, remote branches (with the remote) and tags; stashes are not matched. Refs not loaded yet are read for it, without ahead and behind. A repo matched by name alone keeps its four ref nodes, not loaded. Each request supersedes the previous one of its workspace and returns `null` | M1-07 |

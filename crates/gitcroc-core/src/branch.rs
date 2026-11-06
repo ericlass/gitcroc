@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// A branch of a remote, such as `feature/x` of `origin`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteBranchRef {
     pub remote: String,
     /// Without the remote.
@@ -29,7 +29,7 @@ pub struct RemoteBranchRef {
 }
 
 /// Where a new branch starts.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StartPoint {
     /// The commit checked out now.
@@ -41,7 +41,7 @@ pub enum StartPoint {
 }
 
 /// A branch operation (section 6 "Branches").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BranchOp {
     /// Checks out local branch `name`.
@@ -88,7 +88,7 @@ pub enum BranchOp {
 }
 
 /// A branch operation on one repo.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BranchRequest {
     pub repo_id: RepoId,
     pub op: BranchOp,
@@ -97,7 +97,7 @@ pub struct BranchRequest {
 }
 
 /// What a request did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BranchStart {
     /// The job runs; its end re-reads the repo (OPS-7).
@@ -108,7 +108,7 @@ pub enum BranchStart {
 }
 
 /// What the branch dialogs offer for one repo.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BranchChoices {
     /// Local branches, remote branches with their remote, and tags, each
     /// group sorted: start points to pick from.

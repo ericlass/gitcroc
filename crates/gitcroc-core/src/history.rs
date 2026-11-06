@@ -52,7 +52,7 @@ where
 /// What the history pane shows (section 8 "History pane"): for a
 /// single-repo selection the repo or one of its refs, by short name as the
 /// tree shows it; for a group or several repos their merged history.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum HistoryTarget {
     /// Every local and remote branch.
@@ -95,7 +95,7 @@ impl HistoryTarget {
 }
 
 /// A commit of the history pane and the repo it is in.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HistoryRow {
     #[serde(flatten)]
     pub commit: CommitRow,
@@ -103,7 +103,7 @@ pub struct HistoryRow {
 }
 
 /// A page of the history the pane shows.
-#[derive(Debug, Clone, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HistoryView {
     /// Names this walk for `history_more`.
     pub handle: u32,

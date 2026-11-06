@@ -1,5 +1,5 @@
 //! What each palette operation runs (UI-22), a port of
-//! `ui/src/palette/commands.ts`. Each place of the window that has an
+//! rc.1's `ui/src/palette/commands.ts`. Each place of the window that has an
 //! operation's toolbar button, menu entry or pane control gives the
 //! palette the same function that control calls, and the rule that
 //! enables it: the palette adds no dialog, no way to run an operation and

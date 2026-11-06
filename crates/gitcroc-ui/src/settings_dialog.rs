@@ -1,4 +1,4 @@
-//! The Settings dialog, a port of the frame of `ui/src/SettingsDialog.tsx`:
+//! The Settings dialog, a port of the frame of rc.1's `ui/src/SettingsDialog.tsx`:
 //! a tab strip, one tab's settings shown at a time, and which gitcroc is
 //! running below them: Appearance, Git, Updates and AI. With read-only
 //! settings (DATA-1) every control shows the saved value and is disabled.

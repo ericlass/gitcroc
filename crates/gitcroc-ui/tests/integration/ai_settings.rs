@@ -1,5 +1,5 @@
 //! M6-23a: the Settings dialog's AI tab (AI-1, AI-2, AI-4, AI-7, AI-16,
-//! SEC-1, SEC-3, UI-22), the port of `ui/src/ai/ai.test.tsx` and
+//! SEC-1, SEC-3, UI-22), the port of rc.1's `ui/src/ai/ai.test.tsx` and
 //! `ui/e2e/ai.spec.ts`. The providers are the fixture's scripted fake, with
 //! the in-memory keychain: no test reaches a network or a real CLI, and
 //! nothing waits on time; held answers are released by the test.
@@ -255,7 +255,7 @@ fn ai_1_the_mock_kind_shows_only_when_the_core_offers_it(cx: &mut TestAppContext
     );
 }
 
-/// The port of `ui/e2e/ai.spec.ts`.
+/// The port of rc.1's `ui/e2e/ai.spec.ts`.
 #[gpui::test]
 fn ai_1_add_a_provider_pick_a_fetched_model_and_keep_it_through_ai_off_and_on(
     cx: &mut TestAppContext,

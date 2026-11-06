@@ -25,7 +25,6 @@ use gitcroc_core::{
 };
 pub use gitcroc_core::{ConsentRequest, ConsentTarget};
 use serde::{Deserialize, Serialize};
-use specta::Type;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
@@ -36,7 +35,7 @@ use crate::proposer::AiProposer;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// A CLI found by detection (AI-2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DetectedCli {
     pub kind: ProviderKind,
     pub path: PathBuf,
@@ -44,7 +43,7 @@ pub struct DetectedCli {
 
 /// A self-test's state or result (AI-2). API providers are tested by
 /// listing their models; a CLI provider by its version and flags.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SelfTest {
     Running,
@@ -76,7 +75,7 @@ impl SelfTest {
 }
 
 /// The models a provider offers (AI-1).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ModelsResult {
     /// In the provider's order.
@@ -91,18 +90,18 @@ pub enum ModelsResult {
 }
 
 /// Identifies a models or self-test request, unique while the app runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AiRequestId(pub u32);
 
 /// The answer to [`AiProviders::models`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiModelsReply {
     pub request_id: AiRequestId,
     pub result: ModelsResult,
 }
 
 /// The answer to [`AiProviders::self_test`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiSelfTestReply {
     pub request_id: AiRequestId,
     pub result: SelfTest,
@@ -121,7 +120,7 @@ fn consent_request(entry: &ProviderEntry) -> Option<ConsentRequest> {
 
 /// A configured provider as the UI sees it: its entry, without the file's
 /// defaults, and never its key (SEC-1).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderView {
     pub id: ProviderId,
     pub name: String,
@@ -141,7 +140,7 @@ pub struct ProviderView {
 }
 
 /// The AI settings and providers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiView {
     /// AI features (AI-16).
     pub enabled: bool,

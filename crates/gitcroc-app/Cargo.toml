@@ -10,8 +10,6 @@ publish.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# The derives of the types the core shares, until M6-30 removes specta.
-specta.workspace = true
 tokio = { workspace = true, features = ["fs", "time", "net", "io-util", "sync", "macros", "rt"] }
 # The askpass socket (D10): its private directory, and the tokens.
 tempfile.workspace = true

@@ -13,7 +13,7 @@ use super::StatusError;
 use super::state::{Operation, repo_state};
 
 /// Which step of a series stopped.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Step {
     /// Counted from 1.
     pub current: u32,
@@ -22,7 +22,7 @@ pub struct Step {
 
 /// An operation in conflict state as the banner names it (OPS-2). Each part
 /// git does not record is `None`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ConflictDetails {
     pub operation: Option<Operation>,
     /// What is applied: the merged branch or commit, the branch being
@@ -184,7 +184,7 @@ pub(super) fn conflict_details(repo: &gix::Repository) -> Result<ConflictDetails
 /// branch or commit each side comes from, as the conflict state names it
 /// (OPS-1). A commit with a branch at it reads as the branch, else as
 /// `1a2b3c4 Subject`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ConflictLabels {
     pub ours: String,
     pub theirs: String,

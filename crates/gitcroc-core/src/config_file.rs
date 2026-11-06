@@ -14,7 +14,7 @@ pub(crate) type Migration = fn(&mut toml::Table);
 
 /// Why a config file is read-only, shown to the user as a banner. Paths are
 /// text for display only (PLAT-2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConfigWarning {
     /// The file at `path` has schema `found`, newer than the `supported` one.

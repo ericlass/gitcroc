@@ -1,6 +1,6 @@
 //! `gitcroc-cli bench-ui` (PERF-8, M6-14b): the section 9 budgets the core
 //! cannot measure alone, on the GPUI app and `target-project`. It sets up a
-//! throwaway config and cache, starts a `perf-trace` build of `gitcroc-next`
+//! throwaway config and cache, starts a `perf-trace` build of `gitcroc`
 //! once to warm up and then `--runs` times, each with a script the app plays
 //! in its window (`gitcroc_ui::perf`), and judges what the app measured.
 //! Prints a JSON array in the shape `just bench` prints. Run by hand before
@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use crate::bench::{DataSet, GATING_SET, pick_commit, run_self, summarize};
 
 pub const USAGE: &str =
-    "bench-ui --app <gitcroc-next> [--data <dir>] [--runs <n>] [--refresh-hz <hz>] [--verbose]";
+    "bench-ui --app <gitcroc> [--data <dir>] [--runs <n>] [--refresh-hz <hz>] [--verbose]";
 
 const DEFAULT_RUNS: usize = 5;
 

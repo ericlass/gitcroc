@@ -31,7 +31,8 @@ requirement depends only on a test under `ui/`.
   `default-run = "gitcroc"`. The "keeps this name until M6-30" comments go.
 - **Tests:** `CARGO_BIN_EXE_gitcroc-next` becomes `CARGO_BIN_EXE_gitcroc`
   (`tests/integration/support.rs` and every other use).
-- **`justfile`:** `run`, `bench-ui` and `smoke` build and start `gitcroc`.
+- **`justfile`:** `dev-next` becomes `dev`, and `dev`, `bench-ui` and
+  `smoke` build and start `gitcroc`.
 - **`.github/workflows/ci.yml`:** the first-frame step builds and starts
   `gitcroc`.
 - **`.github/workflows/packages.yml`:**
@@ -58,8 +59,8 @@ requirement depends only on a test under `ui/`.
 - **`justfile`:** the `ui-reference` recipe goes.
 - **`.gitignore`:** the Node and `ui/` entries go.
 - **Rust code and tests that read `ui/`:**
-  - `ai_1_no_model_name_is_hardcoded` (`gitcroc-app`) scans `crates` only.
-    Its `files.len() > 50` floor still holds.
+  - `ai_1_no_model_name_is_hardcoded` (`gitcroc-app`) scans the `.rs`
+    files under `crates` only. Its `files.len() > 50` floor still holds.
   - The D14 check of `ui/package.json`'s license in `workspace_policy.rs`
     goes. The crate license checks stay.
   - `quality_gates.rs`'s coverage fixture stops writing `ui/src/app.ts`.
@@ -117,6 +118,8 @@ requirement depends only on a test under `ui/`.
     D15 test in `tests/integration/strings.rs` enforces it.
   - The wording of both sections follows what those tests check today, not
     the old front end's rules.
+  - **The Builds section:** this says `packages.yml` builds the packages
+    from `gitcroc`. It drops the "no packages until M6-28" text.
 - **`docs/tasks/README.md`:**
   - The M6-30 row links this file.
   - The decision rows that say "until M6-30" (how M6 is developed, `ui/`
@@ -138,9 +141,11 @@ requirement depends only on a test under `ui/`.
 - **`d2_no_crate_depends_on_specta`** (`workspace_policy.rs`): no
   workspace package depends on `specta`, directly or through the lock
   file.
-- **`qa_3_coverage_scans_crates_only`** (`quality_gates.rs`): in a fixture,
-  a requirement ID mentioned only in a test file under `ui/` counts as
-  missing for any milestone, M6 included.
+- **`qa_3_coverage_scans_crates_only`** (`req-coverage`'s unit tests): in
+  a fixture, a requirement ID mentioned only in a test file under `ui/`
+  counts as missing for any milestone, M6 included.
+- **`qa_3_only_rust_files_hold_test_code`** (`req-coverage`'s unit tests):
+  this replaces the front end case of the test-file rules.
 - **The existing tests still pass:**
   - `qa_3_coverage_script_lists_ids_without_test` and the other
     `req-coverage` tests that remain;

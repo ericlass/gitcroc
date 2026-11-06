@@ -120,44 +120,30 @@ fn mentions(text: &str, id: &str) -> bool {
     })
 }
 
-const SKIPPED_DIRS: [&str; 4] = ["target", "node_modules", "dist", ".git"];
-const UI_TEST_DIRS: [&str; 3] = ["tests", "e2e", "__tests__"];
-const UI_EXTENSIONS: [&str; 8] = ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
+const SKIPPED_DIRS: [&str; 2] = ["target", ".git"];
 
-/// The part of a source file that is test code, if any.
-///
-/// Rust: a whole file under a `tests/` directory, otherwise everything from
-/// the first `#[cfg(test)]`-style attribute on. Front end: files named
-/// `*.test.*` or `*.spec.*`, or under `tests/`, `e2e/` or `__tests__/`.
+/// The part of a Rust source file that is test code, if any: the whole file
+/// under a `tests/` directory, otherwise everything from the first
+/// `#[cfg(test)]`-style attribute on. No other language counts (M6-30).
 fn test_code<'a>(path: &Path, text: &'a str) -> Option<&'a str> {
-    let in_dir = |names: &[&str]| {
-        path.parent().is_some_and(|dir| {
-            dir.components()
-                .any(|c| names.iter().any(|n| c.as_os_str() == *n))
-        })
-    };
-    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-    if extension == "rs" {
-        if in_dir(&["tests"]) {
-            return Some(text);
-        }
-        let mut offset = 0;
-        for line in text.split_inclusive('\n') {
-            let line_trimmed = line.trim_start();
-            if line_trimmed.starts_with("#[cfg(") && line_trimmed.contains("test") {
-                return Some(&text[offset..]);
-            }
-            offset += line.len();
-        }
-        None
-    } else if UI_EXTENSIONS.contains(&extension) {
-        let named_as_test = file_name.contains(".test.") || file_name.contains(".spec.");
-        (named_as_test || in_dir(&UI_TEST_DIRS)).then_some(text)
-    } else {
-        None
+    if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+        return None;
     }
+    let in_tests = path
+        .parent()
+        .is_some_and(|dir| dir.components().any(|c| c.as_os_str() == "tests"));
+    if in_tests {
+        return Some(text);
+    }
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let line_trimmed = line.trim_start();
+        if line_trimmed.starts_with("#[cfg(") && line_trimmed.contains("test") {
+            return Some(&text[offset..]);
+        }
+        offset += line.len();
+    }
+    None
 }
 
 /// The test code of every source file under `dir`, recursively. A missing
@@ -189,8 +175,7 @@ fn walk(base: &Path, dir: &Path, found: &mut Vec<String>) -> Result<(), Error> {
             }
         } else if file_type.is_file() {
             let relative = path.strip_prefix(base).unwrap_or(&path);
-            let extension = relative.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if extension != "rs" && !UI_EXTENSIONS.contains(&extension) {
+            if relative.extension().and_then(|e| e.to_str()) != Some("rs") {
                 continue;
             }
             let text = std::fs::read_to_string(&path).map_err(|source| Error::Io {
@@ -356,27 +341,9 @@ fn read_tasks(root: &Path, keep: impl Fn(&str) -> bool) -> Result<Vec<Task>, Err
         .collect()
 }
 
-/// The test code under `crates/` and `ui/`.
+/// The test code under `crates/`.
 fn all_test_code(root: &Path) -> Result<Vec<String>, Error> {
-    let mut code = collect_test_code(&root.join("crates"))?;
-    code.extend(collect_test_code(&root.join("ui"))?);
-    Ok(code)
-}
-
-/// The milestone that rewrites the UI in GPUI, and where its tests live.
-const PORT_MILESTONE: &str = "M6";
-const OLD_UI: &str = "ui";
-const NEW_UI: &str = "crates/gitcroc-ui";
-
-/// The spec IDs a test of the old UI mentions and no test of the new one
-/// does: what is still to port.
-fn unported(spec_ids: &[String], old_ui: &[String], new_ui: &[String]) -> Vec<String> {
-    let ids: BTreeSet<&String> = spec_ids.iter().collect();
-    ids.into_iter()
-        .filter(|id| old_ui.iter().any(|code| mentions(code, id)))
-        .filter(|id| !new_ui.iter().any(|code| mentions(code, id)))
-        .cloned()
-        .collect()
+    collect_test_code(&root.join("crates"))
 }
 
 /// Every requirement ID `docs/spec/*.md` defines.
@@ -388,30 +355,15 @@ fn spec_ids(root: &Path) -> Result<Vec<String>, Error> {
     Ok(ids)
 }
 
-/// Reads `docs/tasks/<milestone>-*.md` and the test code under `crates/` and
-/// `ui/` of the repository at `root`, and reports the milestone's coverage.
-/// For M6 the missing IDs also include every spec ID that a test under
-/// `ui/` mentions and no test under `crates/gitcroc-ui/` does, so the list
-/// is what the GPUI UI has still to port; M6-30 starts when it is empty.
+/// Reads `docs/tasks/<milestone>-*.md` and the test code under `crates/` of
+/// the repository at `root`, and reports the milestone's coverage.
 pub fn run(root: &Path, milestone: &str) -> Result<Report, Error> {
     let prefix = format!("{milestone}-");
     let tasks = read_tasks(root, |name| name.starts_with(&prefix))?;
     if tasks.is_empty() {
         return Err(Error::NoTasks(milestone.to_owned()));
     }
-    let mut out = report(&tasks, &all_test_code(root)?);
-    if milestone == PORT_MILESTONE {
-        let old_ui = collect_test_code(&root.join(OLD_UI))?;
-        let new_ui = collect_test_code(&root.join(NEW_UI))?;
-        let missing: BTreeSet<String> = out
-            .missing
-            .drain(..)
-            .chain(unported(&spec_ids(root)?, &old_ui, &new_ui))
-            .collect();
-        out.covered.retain(|id| !missing.contains(id));
-        out.missing = missing.into_iter().collect();
-    }
-    Ok(out)
+    Ok(report(&tasks, &all_test_code(root)?))
 }
 
 /// Reads every requirement ID defined in `docs/spec/*.md`, the "No test
@@ -620,45 +572,29 @@ Respects: D6, section 4 \"Crates\" table
     }
 
     #[test]
-    fn qa_3_m6_lists_ui_tests_not_yet_ported() {
-        let spec = "- **UI-1** The tree.\n- **UI-2** The history.\n- **UI-3** The title bar.\n- **ARCH-6** Events.\n";
+    fn qa_3_coverage_scans_crates_only() {
         let dir = tree(&[
-            ("docs/spec/08-ui.md", spec),
-            ("docs/tasks/M6-06-skeleton.md", "Implements: UI-3, ARCH-6\n"),
-            ("docs/tasks/M5-01-old.md", "Implements: UI-2\n"),
+            ("docs/tasks/M6-06-skeleton.md", "Implements: UI-1, UI-3\n"),
+            // A front end test, as rc.1's `ui/` had, no longer counts.
+            ("ui/src/tree.test.ts", "test('ui_1 rows');"),
+            ("ui/tests/tree.rs", "fn ui_1_rows() {}"),
             (
-                "ui/src/tree.test.ts",
-                "test('ui_1 rows'); test('UI-2 columns');",
-            ),
-            ("ui/src/tree.ts", "// UI-3, not a test"),
-            (
-                "crates/gitcroc-ui/tests/history.rs",
-                "fn ui_2_columns() {}\nfn ui_3_buttons() {}",
-            ),
-            // UI-1 has a test, but not in the GPUI UI.
-            (
-                "crates/gitcroc-core/tests/tree.rs",
-                "fn ui_1_rows_of_the_core() {}",
+                "crates/gitcroc-ui/tests/title_bar.rs",
+                "fn ui_3_buttons() {}",
             ),
         ]);
 
         let m6 = run(dir.path(), "M6").unwrap();
-        assert_eq!(m6.missing, ["ARCH-6", "UI-1"]);
+        assert_eq!(m6.missing, ["UI-1"]);
         assert_eq!(m6.covered, ["UI-3"]);
-
-        // Other milestones are as before.
-        let m5 = run(dir.path(), "M5").unwrap();
-        assert_eq!(m5.missing, Vec::<String>::new());
-        assert_eq!(m5.covered, ["UI-2"]);
     }
 
     #[test]
-    fn qa_3_ui_test_code_is_test_files_only() {
+    fn qa_3_only_rust_files_hold_test_code() {
         let text = "test('ui_1 ...')";
-        assert!(test_code(Path::new("src/tree.test.ts"), text).is_some());
-        assert!(test_code(Path::new("src/tree.spec.tsx"), text).is_some());
-        assert!(test_code(Path::new("e2e/tree.ts"), text).is_some());
-        assert!(test_code(Path::new("src/tree.ts"), text).is_none());
+        assert!(test_code(Path::new("src/tree.test.ts"), text).is_none());
+        assert!(test_code(Path::new("tests/tree.ts"), text).is_none());
         assert!(test_code(Path::new("tests/notes.md"), text).is_none());
+        assert!(test_code(Path::new("tests/tree.rs"), text).is_some());
     }
 }

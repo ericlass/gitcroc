@@ -22,7 +22,7 @@ use crate::{
 };
 
 /// An unmerged file the UI has an editor buffer for (OPS-9).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiResolveAllFile {
     /// Its id in the view's unmerged list.
     pub file: u32,
@@ -32,7 +32,7 @@ pub struct AiResolveAllFile {
 }
 
 /// Resolve all with AI for the unmerged files of a repo (AI-3, AI-13).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiResolveAllRequest {
     pub repo: RepoId,
     /// The changes view that lists the repo's unmerged files.
@@ -43,7 +43,7 @@ pub struct AiResolveAllRequest {
 }
 
 /// What `ai_resolve_all` did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AiResolveAllStart {
     /// The job runs; its view carries each file's progress, and
@@ -56,7 +56,7 @@ pub enum AiResolveAllStart {
 }
 
 /// Where a file of Resolve all is (AI-13).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AiFileState {
     /// Waiting for its request to go out.
@@ -92,7 +92,7 @@ impl AiFileState {
 }
 
 /// A file of Resolve all and where it is (AI-13).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiFileProgress {
     /// The path from the repo top, for display.
     pub path: String,

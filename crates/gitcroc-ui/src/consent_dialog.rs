@@ -1,4 +1,4 @@
-//! The consent dialog (AI-6), a port of `ui/src/ai/ConsentDialog.tsx`:
+//! The consent dialog (AI-6), a port of rc.1's `ui/src/ai/ConsentDialog.tsx`:
 //! before a provider's first use, and again when its host or program
 //! changed, it says what is sent for each file (AI-5) and to which host or
 //! program, in the core's words. Allow keeps the consent with

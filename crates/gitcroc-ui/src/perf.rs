@@ -1,6 +1,6 @@
 //! The UI-side benchmark runner (PERF-8): plays a script of user actions in
 //! the real window and records how long each took to show, and the frame
-//! times while scrolling. `gitcroc-next --bench <script>` runs it in the
+//! times while scrolling. `gitcroc --bench <script>` runs it in the
 //! `perf-trace` build; `gitcroc-cli bench-ui` writes the script and reads
 //! the trace (M6-14b).
 //!

@@ -1,16 +1,15 @@
 # Contributing to gitcroc
 
-gitcroc is a Rust Cargo workspace. Crates live in `crates/`; `crates/gitcroc-app` is the app's API with no UI toolkit in it. Milestone M6 rewrites the UI in GPUI as `crates/gitcroc-ui` ([the plan](docs/plans/native-ui-gpui.md)). The Tauri app was removed in M6-05: 1.0.0-rc.1 was its last release, and until M6-06 there is no app to run. The old SolidJS front end stays in `ui/` as the reference the M6 tasks port from, outside `just check` and CI, until M6-30 deletes it.
+gitcroc is a Rust Cargo workspace. Crates live in `crates/`; `crates/gitcroc-app` is the app's API with no UI toolkit in it, and `crates/gitcroc-ui` is the native UI on GPUI, built as the `gitcroc` binary ([the plan](docs/plans/native-ui-gpui.md)). `just dev` runs it. 1.0.0-rc.1 was the last release of the Tauri app and its SolidJS front end. Both left the repository in M6 (M6-05, M6-30). A comment that names rc.1's `ui/…` file means that file at the `v1.0.0-rc.1` tag.
 
 ## Setup
 
 You need:
 
 - the Rust toolchain pinned in `rust-toolchain.toml`, `just`, and `cargo-deny`;
-- git 2.40 or newer (D13). The app and the tests use the system git; `cargo run -p gitcroc-cli -- git-info` prints which one is found;
-- only for `just ui-reference`: Node (the version in `.nvmrc`) and pnpm (the version in `ui/package.json`'s `packageManager` field; `corepack enable pnpm` installs it).
+- git 2.40 or newer (D13). The app and the tests use the system git; `cargo run -p gitcroc-cli -- git-info` prints which one is found.
 
-`just ui-reference` runs the old front end in a browser with its fake core (`ui/src/ipc/fake.ts`), served by Vite.
+No Node is needed. Only the update test in CI sets it up, to build 1.0.0-rc.1 from its tag.
 
 ## Running checks
 
@@ -20,13 +19,9 @@ Run `just check` before you call a change done. It runs everything CI requires:
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
 - `cargo deny check`
-- `just coverage M0` to `M5` and `just coverage spec` (the requirement coverage report; it fails if a requirement of that milestone has no test). Until M6-06 it still counts the tests under `ui/`, which no longer run.
+- `just coverage M0` to `M6` and `just coverage spec` (the requirement coverage report; it fails if a requirement of that milestone has no test).
 
 Run `just fmt` to format the workspace.
-
-## The old front end
-
-`ui/` holds the SolidJS front end of 1.0.0-rc.1. Its calls went through `ui/src/ipc/bindings.ts`, which tauri-specta generated from the Tauri commands; the file is no longer regenerated. Nothing in `ui/` is built or tested by `just check` or CI. The M6 tasks port its views, stores and tests to `crates/gitcroc-ui`, and M6-30 deletes it.
 
 `just coverage <milestone>` (for example `just coverage M1`) lists requirement IDs from the `Implements:` lines of `docs/tasks/<milestone>-*.md` that have no test, and fails if there are any.
 
@@ -100,15 +95,15 @@ Linux needs an unlocked Secret Service and remains a local check.
 
 ## Colors and themes (UI-23)
 
-Colors exist only as CSS variables in `ui/src/theme/tokens.css`, defined once for `:root[data-theme="light"]` and once for `:root[data-theme="dark"]`. Stylesheets and inline styles use `var(--…)`; the test `UI-23 no hardcoded colors` (`ui/src/theme/colors.test.ts`) fails on a hex value, a color function such as `rgb(` or a named color anywhere else.
+App colors exist only in `crates/gitcroc-ui/src/theme/tokens.rs`, one set for light and one for dark, and code theme colors only in `theme/code_themes.rs` (UI-24). Views read them through `cx.tokens()`. The test `ui_23_no_hardcoded_colors` (`crates/gitcroc-ui/tests/integration/colors.rs`) parses every other source file. It fails on a call to one of gpui's color constructors or named colors, on a `Color`, `Hsla` or `Rgba` built by hand, and on a `#rrggbb`-shaped string.
 
 The app's settings live in `settings.toml` in the platform config dir under `gitcroc/` (for example `~/.config/gitcroc/settings.toml` on Linux).
 
 ## UI text (D15)
 
-All text the UI shows comes from `ui/src/strings/en.ts`, one exported `strings` object grouped by area (`tree`, `history`, `integrate`, …). A component imports it and writes `strings.clone.title`, never the text itself. UI text is JSX text with a letter in it, and string literals that reach the user through `title`, `aria-label`, `aria-description`, `placeholder`, `alt`, `label`, a `Show` or `Switch` `fallback`, or the dialog parts' text props (`ui/src/dialogs/parts.tsx`). Text that is data is not UI text: names, paths, refs, git's output, and every string the core sends. The test `d15_ui_text_comes_from_the_strings_module` (`ui/src/strings/strings.test.ts`) reads every UI source file and fails on inline text; text that must stay inline, such as the sample code of a code theme preview, is listed in its `ALLOWED` with the reason.
+All text the UI shows comes from `crates/gitcroc-ui/src/strings.rs`, one module per area, such as `strings::window::MINIMIZE`. A view uses the constant, never the text itself. UI text is a string literal with a letter in it that reaches the user, either through a text method or parameter (`child`, `label`, `aria_label`, `tooltip`, `placeholder`, a menu item's name, …) or through a text field (`title`, `name`, …). Text that is data is not UI text: ids, key names, paths, refs, git's output, and every string the core sends. The test `d15_ui_text_comes_from_the_strings_module` (`crates/gitcroc-ui/tests/integration/strings.rs`) parses every source file of the crate and fails on inline text.
 
-A text with values is a function of them, with the values as named parameters: `` clonesInto: (path: string) => `Clones into ${path}` ``. A function also holds the plural rule, with the `plural` helper in `en.ts`: `stagedFiles: (count: number) => plural(count, "staged file", "staged files")`.
+A text with values is a function of them, such as `strings::tabs::jobs_title(count)`. A function also holds the plural rule, with the `plural` helper in `strings.rs`.
 
 The core's text (error messages, skip and block reasons, labels the core builds) is English, built in Rust, one place per type: the `Display` of the error or reason type. The UI shows it as it arrives. Translating either side is LATER (section 2).
 
@@ -120,7 +115,7 @@ On Windows, `just` needs `sh` on PATH, which Git for Windows provides.
 
 ## Builds
 
-There are no packages and no releases from `main` until M6-28 packages the GPUI app. The Tauri bundles, the install tests and the update test left with Tauri in M6-05; M6-28 writes their replacements, starting from `.github/workflows/` and `.github/scripts/` as they were before M6-05. A fix for 1.0.0-rc.1 would be built from a branch off the `v1.0.0-rc.1` tag, whose workflows are still there.
+`.github/workflows/packages.yml` builds the packages of section 11 from the `gitcroc` binary, and runs their install tests (M6-28). A fix for 1.0.0-rc.1 would be built from a branch off the `v1.0.0-rc.1` tag, whose workflows are still there.
 
 The version number lives only in the workspace `Cargo.toml`. Only release builds check for updates; debug and `e2e` builds never do (D12).
 
@@ -130,11 +125,10 @@ The version number lives only in the workspace `Cargo.toml`. Only release builds
 
 ## Test naming (QA-3)
 
-A test for requirement X carries X in its name or in a comment. For example, `grp_6_one_failure_does_not_stop_others` tests GRP-6. The coverage script accepts both `GRP-6` and `grp_6`. It searches test code under `crates/` and `ui/`, which means:
+A test for requirement X carries X in its name or in a comment. For example, `grp_6_one_failure_does_not_stop_others` tests GRP-6. The coverage script accepts both `GRP-6` and `grp_6`. It searches Rust test code under `crates/`, which means:
 
 - Rust files under a `tests/` directory
 - Rust code after a `#[cfg(test)]` attribute
-- Front-end files named `*.test.*` or `*.spec.*`, or files under `tests/`, `e2e/` or `__tests__/`
 
 A task file may list an ID on a `No test needed:` line with a reason in parentheses, for example `No test needed: QA-1 (the workflow itself is the proof)`.
 
@@ -183,7 +177,7 @@ The baseline is the CI runner's own speed, not the reference machine's. To make 
 
 Some section 9 budgets need the real app. `just bench-ui` measures the UI rows on the GPUI app and `target-project`, on Linux only: cold start until the tree shows from the cache, selecting the largest repo, a commit, switching between two repos and between two tabs, each until the frame that shows the result, and scrolling the history and a diff. It also measures the startup refresh, selection of all 20 repos as a group, filter input during a separate full refresh and real single/group fetch jobs, and idle memory before and after populating a second tab. Memory is the process proportional set size from `/proc/self/smaps_rollup`, in MiB, judged against the existing 400 MB limit. Inputs only count when the operation is still running when the result is presented; a missing sample fails the run.
 
-1. It builds `gitcroc-next` with the `perf-trace` Cargo feature into `target/bench-ui`, so a measuring build never ends up in a release. With the feature, `gitcroc-next --bench <script> <trace>` plays a script in its window (`crates/gitcroc-ui/src/perf.rs`): real clicks and wheel events at the elements the last frame drew, one step per frame. An action is timed from its click to the present of the first frame that draws its result. A scroll moves 100 px a frame and records the time between frames and how long any history row stayed a placeholder. The feature turns on gpui-kit's `test-support`, whose element registry the runner finds its targets in.
+1. It builds `gitcroc` with the `perf-trace` Cargo feature into `target/bench-ui`, so a measuring build never ends up in a release. With the feature, `gitcroc --bench <script> <trace>` plays a script in its window (`crates/gitcroc-ui/src/perf.rs`): real clicks and wheel events at the elements the last frame drew, one step per frame. An action is timed from its click to the present of the first frame that draws its result. A scroll moves 100 px a frame and records the time between frames and how long any history row stayed a placeholder. The feature turns on gpui-kit's `test-support`, whose element registry the runner finds its targets in.
 2. `gitcroc-cli bench-ui` sets up a throwaway config and cache: a workspace of the 20 repos with their summaries cached, a second tab of the same repos, a third tab with one repo whose commit adds a 15,000-line Rust file, and a job tab of local clones whose origins are the reference repos, since no `target-project` file is long enough to scroll. It starts the app once to warm up and five times to measure (`--runs <n>`), each a new process, and prints JSON like `just bench` does, with a `unit` on each row. It exits 1 when a median is over its budget.
 
 The scroll budget is judged per run: `scroll-history-frame` and `scroll-diff-frame` are the mean time between frames, within 1% of the display's refresh interval (capped at 144 Hz); `-janky` is the share of frames over 1.5 intervals, at most 1%; `scroll-blank` is the longest a row stayed blank. The display's rate comes from the platform, or from `--refresh-hz <hz>`, which X11 needs: an X screen spans every monitor, so GPUI gets no rate there (`taskset -c 0-7 just bench-ui --refresh-hz 144`). GPUI slows the frames of a window that is not active, so the run fails if the window loses the focus while scrolling: leave it in front.

@@ -29,14 +29,14 @@ use crate::{
 pub const AI_MAX_REQUESTS: usize = 4;
 
 /// The tokens of one request, when the provider reports them (AI-14).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,
 }
 
 /// Whether the model resolved a hunk (AI-8).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProposalStatus {
     Resolved,
@@ -44,7 +44,7 @@ pub enum ProposalStatus {
 }
 
 /// How sure the model is of a resolution (AI-8).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProposalConfidence {
     High,
@@ -53,7 +53,7 @@ pub enum ProposalConfidence {
 }
 
 /// The proposal for one hunk (AI-8, AI-11).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProposedHunk {
     /// The hunk's id, counted from 1 over all hunks of the file (AI-5).
     pub id: u32,
@@ -67,7 +67,7 @@ pub struct ProposedHunk {
 /// The proposal for a file (section 3 "Proposal"): an answer for every
 /// hunk asked for, and the usage of each request sent for it, in order,
 /// `None` where the provider reported none (AI-14).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileProposal {
     pub hunks: Vec<ProposedHunk>,
     pub usage: Vec<Option<AiUsage>>,
@@ -107,7 +107,7 @@ pub trait ProviderAccess: Send + Sync {
 
 /// Where a provider sends what AI-5 allows: an API's host, or the program a
 /// CLI provider runs (AI-6).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConsentTarget {
     /// With its port when the URL names one, such as `localhost:11434`.
@@ -131,7 +131,7 @@ impl ConsentTarget {
 
 /// The text of the consent dialog, shown before a provider's first use and
 /// again when its host or program changed (AI-6).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConsentRequest {
     pub provider_id: ProviderId,
     pub provider_name: String,
@@ -184,7 +184,7 @@ pub fn consent_request(entry: &ProviderEntry, anthropic_url: &str) -> Option<Con
 }
 
 /// Why a file was not sent to AI, in the order the checks run.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AiRefused {
     /// AI features are off (AI-16).
@@ -208,7 +208,7 @@ pub enum AiRefused {
 }
 
 /// Resolve with AI for one unmerged file of a changes view (AI-3).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiResolveRequest {
     /// The changes view whose unmerged list `file` is from.
     pub handle: u32,
@@ -219,7 +219,7 @@ pub struct AiResolveRequest {
 }
 
 /// What `ai_resolve` did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AiResolveStart {
     /// The job runs; `ai_proposal_ready` tells when its result is kept.
@@ -234,7 +234,7 @@ pub enum AiResolveStart {
 }
 
 /// What `ai_proposal_get` found for a file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AiProposalGet {
     Proposal {
@@ -251,7 +251,7 @@ pub enum AiProposalGet {
 }
 
 /// A proposal job's result was kept: read it with `ai_proposal_get`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiProposalReady {
     pub workspace_id: WorkspaceId,
     pub repo_id: RepoId,

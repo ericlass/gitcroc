@@ -842,12 +842,10 @@ fn sources(dir: &Path, found: &mut Vec<PathBuf>) {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         if path.is_dir() {
-            if !["node_modules", "tests", "test", "fixtures"].contains(&name.as_str()) {
+            if !["tests", "fixtures"].contains(&name.as_str()) {
                 sources(&path, found);
             }
-        } else if (name.ends_with(".rs") || name.ends_with(".ts") || name.ends_with(".tsx"))
-            && !name.contains(".test.")
-        {
+        } else if name.ends_with(".rs") {
             found.push(path);
         }
     }
@@ -881,9 +879,7 @@ fn ai_1_no_model_name_is_hardcoded() {
 
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut files = Vec::new();
-    for dir in ["crates", "ui/src"] {
-        sources(&root.join(dir), &mut files);
-    }
+    sources(&root.join("crates"), &mut files);
     assert!(files.len() > 50, "{files:?}");
     let mut found = Vec::new();
     for file in files {

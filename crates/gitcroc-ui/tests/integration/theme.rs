@@ -504,7 +504,7 @@ fn ui_26_without_any_font_the_app_exits_with_a_message() {
             format!("<fontconfig><dir>{}</dir></fontconfig>", empty.display()),
         )
         .unwrap();
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_gitcroc-next"))
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_gitcroc"))
             .env_remove("DISPLAY")
             .env_remove("WAYLAND_DISPLAY")
             .env("HOME", home.path())

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{GroupId, RepoId, WorkspaceError, WorkspaceId, WorkspaceView, Workspaces};
 
 /// What the user selected to act on (GRP-5).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TargetSet {
     /// One repo.

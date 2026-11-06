@@ -1,5 +1,5 @@
 //! The Appearance tab of Settings, a port of the first panel of
-//! `ui/src/SettingsDialog.tsx`: the app theme (UI-23), a code theme for
+//! rc.1's `ui/src/SettingsDialog.tsx`: the app theme (UI-23), a code theme for
 //! light mode and one for dark mode, each with its own preview (UI-24), the
 //! UI and code fonts with their sizes (UI-26), and the system title bar
 //! (UI-35). Every change goes to the core, and the window applies the view

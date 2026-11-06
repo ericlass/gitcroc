@@ -20,7 +20,7 @@ use crate::{
 
 /// A remote operation (section 6 "Remotes"). URLs are passed to git as
 /// typed, without spaces around them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RemoteOp {
     /// Adds remote `name` at `url`; with `fetch`, the same job then
@@ -45,7 +45,7 @@ pub enum RemoteOp {
 }
 
 /// A remote operation on one repo.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteRequest {
     pub repo_id: RepoId,
     pub op: RemoteOp,
@@ -54,7 +54,7 @@ pub struct RemoteRequest {
 }
 
 /// What a request did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RemoteStart {
     /// The job runs; its end re-reads the repo (OPS-7).
@@ -65,7 +65,7 @@ pub enum RemoteStart {
 }
 
 /// A remote's URLs, for the edit dialog.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RemoteUrlsView {
     /// The fetch URL, and the push URL unless `push_url` is set.
     pub url: Option<String>,

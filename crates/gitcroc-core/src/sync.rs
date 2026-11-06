@@ -22,7 +22,7 @@ use crate::{
 
 /// Whether a fetch removes remote-tracking branches whose branch is gone
 /// from the remote.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Prune {
     /// As `fetch.prune` and `remote.<name>.prune` say.
@@ -32,7 +32,7 @@ pub enum Prune {
 }
 
 /// How a pull brings in its upstream (section 5 "Pull").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PullStrategy {
     /// As `branch.<name>.rebase`, `pull.rebase` and `pull.ff` say; with
@@ -45,7 +45,7 @@ pub enum PullStrategy {
 }
 
 /// A sync operation (section 6 "Sync").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SyncOp {
     /// Fetches every remote.
@@ -65,7 +65,7 @@ pub enum SyncOp {
 }
 
 /// A sync operation on one repo.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncRequest {
     pub repo_id: RepoId,
     pub op: SyncOp,
@@ -74,7 +74,7 @@ pub struct SyncRequest {
 }
 
 /// What a request did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SyncStart {
     /// The job runs; its end re-reads the repo (OPS-7).
@@ -88,7 +88,7 @@ pub enum SyncStart {
 }
 
 /// What the push options offer for one repo.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PushChoices {
     /// The current branch; `None` when `HEAD` is detached.
     pub branch: Option<String>,

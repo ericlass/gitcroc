@@ -28,7 +28,7 @@ use crate::{
 const MAX_MERGE_TARGETS: usize = 200;
 
 /// Whether a merge may fast-forward (section 5 "Merge X into current").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MergeFastForward {
     /// As `merge.ff` says; by default a fast-forward when possible, else a
@@ -42,7 +42,7 @@ pub enum MergeFastForward {
 
 /// An integrate operation (section 6 "Integrate"), or what to do with one
 /// stopped in conflict state (OPS-2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum IntegrateOp {
     /// Merges `revision`, a ref or a hash, into the current branch.
@@ -67,7 +67,7 @@ pub enum IntegrateOp {
 }
 
 /// An integrate operation on one repo.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IntegrateRequest {
     pub repo_id: RepoId,
     pub op: IntegrateOp,
@@ -76,7 +76,7 @@ pub struct IntegrateRequest {
 }
 
 /// What a request did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum IntegrateStart {
     /// The job runs; its end re-reads the repo (OPS-7).

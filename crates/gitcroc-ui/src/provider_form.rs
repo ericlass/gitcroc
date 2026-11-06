@@ -1,4 +1,4 @@
-//! One AI provider's form in Settings, a port of `ui/src/ai/ProviderForm.tsx`
+//! One AI provider's form in Settings, a port of rc.1's `ui/src/ai/ProviderForm.tsx`
 //! (AI-1, AI-2, AI-10): the kind, from the core's list only, then the
 //! fields section 7 gives that kind and the context budget; models fetched
 //! from the provider, none preselected, or typed; and Test. The key field

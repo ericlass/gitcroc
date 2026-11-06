@@ -19,9 +19,7 @@ pub const MAX_CONTEXT_BUDGET: u32 = 10_000_000;
 const DEFAULT_EXCLUDE: [&str; 5] = [".env*", "*.pem", "*.key", "*.p12", "id_rsa*"];
 
 /// Identifies a provider: `p1`, `p2` and so on.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, specta::Type,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ProviderId(pub String);
 
 impl ProviderId {
@@ -37,7 +35,7 @@ impl fmt::Display for ProviderId {
 }
 
 /// How a provider is called (D4, section 7 "Providers").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     Anthropic,
@@ -147,7 +145,7 @@ impl Default for AiSettings {
 
 /// A provider as the user edits it. Without an id it is a new one. The
 /// consent is not part of it: saving keeps the stored one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderDraft {
     pub id: Option<ProviderId>,
     pub name: String,
@@ -160,7 +158,7 @@ pub struct ProviderDraft {
 }
 
 /// The AI settings other than the providers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiOptions {
     pub enabled: bool,
     pub exclude: Vec<String>,

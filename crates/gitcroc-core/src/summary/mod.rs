@@ -34,7 +34,7 @@ pub use cache::{CACHE_FILE, CACHE_SCHEMA, CacheDir, PlatformCacheDir, SummaryCac
 pub const REFRESH_READS: usize = 1;
 
 /// A repo's summary as the UI sees it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SummaryView {
     pub workspace_id: WorkspaceId,
     pub repo_id: RepoId,

@@ -1,4 +1,4 @@
-//! The dialogs every area shares, ports of `ui/src/dialogs/parts.tsx`: a
+//! The dialogs every area shares, ports of rc.1's `ui/src/dialogs/parts.tsx`: a
 //! name to give, and a question that cannot be undone. A dialog is modal:
 //! the window draws it over everything, with its title as its name; the
 //! focus stays inside it and Escape closes it. What the dialog asks for is
@@ -115,7 +115,7 @@ pub(crate) fn actions_row() -> Div {
     div().flex().flex_row().justify_end().gap_2().pt_1()
 }
 
-/// Asks for a name: a new one, or a changed one (`ui/src/dialogs/parts.tsx`'s
+/// Asks for a name: a new one, or a changed one (rc.1's `ui/src/dialogs/parts.tsx`'s
 /// `NameDialog`). Enter submits.
 pub struct NameDialog {
     title: SharedString,
@@ -256,7 +256,7 @@ impl Render for NameDialog {
 }
 
 /// A question about something that cannot be undone
-/// (`ui/src/dialogs/parts.tsx`'s `Question`): Cancel has the focus, and
+/// (rc.1's `ui/src/dialogs/parts.tsx`'s `Question`): Cancel has the focus, and
 /// the danger button does it.
 pub struct Question {
     title: SharedString,

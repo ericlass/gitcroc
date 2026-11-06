@@ -1,4 +1,4 @@
-//! The AI tab of Settings, a port of `ui/src/ai/AiSection.tsx`. First the
+//! The AI tab of Settings, a port of rc.1's `ui/src/ai/AiSection.tsx`. First the
 //! AI features switch (AI-16): off, it is all the tab shows. On, the
 //! providers with the default marked (AI-1), Edit, Remove and Set as
 //! default, the CLI the core found and offers (AI-2), Add provider, the

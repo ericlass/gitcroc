@@ -1,7 +1,7 @@
 //! Every piece of text the UI shows (D15): English only in v1, kept here so
 //! no view writes text of its own. `d15_ui_text_comes_from_the_strings_module`
-//! fails on text written anywhere else in `src`. Each task that ports an area
-//! from `ui/src/strings/en.ts` moves its strings here.
+//! fails on text written anywhere else in `src`. The strings came from
+//! rc.1's `ui/src/strings/en.ts`.
 
 /// The product name, in the title bar of screens without tabs (UI-35).
 pub const APP_NAME: &str = "gitcroc";

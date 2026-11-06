@@ -30,7 +30,7 @@ pub const MAX_PALETTE_ITEMS: usize = 100;
 
 /// An operation of the palette. The id is stable: the UI maps each to the
 /// handler its toolbar, menu or pane entry uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PaletteOp {
     AddFolder,
@@ -100,7 +100,7 @@ pub enum PaletteOp {
 }
 
 /// What an operation acts on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PaletteSubject {
     /// The target set (GRP-5).
@@ -126,7 +126,7 @@ pub enum PaletteSubject {
 
 /// One entry of the catalog. Exported to the UI's bindings as a constant,
 /// for the fake core and the tests.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct PaletteEntry {
     pub op: PaletteOp,
     pub label: &'static str,
@@ -397,7 +397,7 @@ pub fn palette_catalog() -> &'static [PaletteEntry] {
 }
 
 /// One row of the palette.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PaletteItem {
     Operation {
@@ -431,7 +431,7 @@ pub enum PaletteItem {
 }
 
 /// The best [`MAX_PALETTE_ITEMS`] items of a query, and how many matched.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaletteResult {
     pub items: Vec<PaletteItem>,
     pub total: u32,

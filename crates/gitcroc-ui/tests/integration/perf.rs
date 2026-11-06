@@ -180,7 +180,7 @@ fn script(
     }
 }
 
-/// Plays `script` a frame at a time, as `gitcroc-next --bench` does.
+/// Plays `script` a frame at a time, as `gitcroc --bench` does.
 fn play(cx: &mut VisualTestContext, window: &Entity<GitcrocWindow>, script: Script) -> Trace {
     let mut runner = Runner::new(window.clone(), script);
     for _ in 0..20_000 {

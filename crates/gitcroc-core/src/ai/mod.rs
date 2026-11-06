@@ -43,7 +43,7 @@ pub const AI_MAX_MESSAGES: usize = 10;
 pub const AI_MAX_MESSAGE_CHARS: usize = 2_000;
 
 /// Why a file may not go to AI (AI-4).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Ineligible {
     /// A conflict the editor shows as a choice (OPS-6).
@@ -82,7 +82,7 @@ fn choice_text(choice: ChoiceKind) -> &'static str {
 }
 
 /// Whether a file may go to AI (AI-4).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AiEligibility {
     Eligible,
@@ -94,7 +94,7 @@ pub enum AiEligibility {
 }
 
 /// What `ai_eligibility_get` found.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AiEligibilityRead {
     Read {

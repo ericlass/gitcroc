@@ -1,6 +1,6 @@
 //! M6-25a: the accessibility tree of a real window. GPUI builds its
 //! AccessKit tree only while assistive technology is active, and its test
-//! platform never activates it, so this test opens `gitcroc-next`'s real
+//! platform never activates it, so this test opens `gitcroc`'s real
 //! window on the real core and `repo-gen` fixtures (QA-2), under Xvfb with
 //! a D-Bus session and an enabled AT-SPI bus of its own (`session.sh`). It
 //! reaches each of M5-10's views by the app's own actions and keys, writes

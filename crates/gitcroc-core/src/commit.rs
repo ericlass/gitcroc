@@ -15,7 +15,7 @@ use crate::changes::Lists;
 use crate::{Changes, ChangesError, DiffReadError, GitRunner, JobId, Jobs, WorkspaceId, WriteJob};
 
 /// A commit message as the commit box edits it.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitMessage {
     /// The first line.
     pub subject: String,
@@ -48,7 +48,7 @@ impl CommitMessage {
 }
 
 /// A commit or amend request of the changes pane.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitRequest {
     /// The view of the uncommitted changes the commit is made from.
     pub handle: u32,

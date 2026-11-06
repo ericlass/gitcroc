@@ -6,12 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-default-run = "gitcroc-next"
+default-run = "gitcroc"
 
-# The GPUI app. Its packages install it as `gitcroc` (M6-28); the Cargo
-# binary keeps this name until M6-30.
+# The app (M6-30); its packages install it under this name (M6-28).
 [[bin]]
-name = "gitcroc-next"
+name = "gitcroc"
 path = "src/main.rs"
 
 [dependencies]
@@ -44,7 +43,7 @@ windows = { workspace = true, features = ["UI_ViewManagement"] }
 [features]
 # Real-window smoke scripts; never enabled by packaging.
 e2e = ["gpui-kit/test-support", "gitcroc-app/e2e"]
-# `gitcroc-next --bench <script>`: the UI-side benchmark runner (PERF-8),
+# `gitcroc --bench <script>`: the UI-side benchmark runner (PERF-8),
 # which `just bench-ui` builds into its own target folder. Never in a
 # release build. The runner finds what it clicks through gpui-kit's
 # element registry, which only its `test-support` keeps.
@@ -88,8 +87,8 @@ harness = false
 workspace = true
 
 # The packages of section 11 (M6-28). `.github/workflows/packages.yml`
-# builds `gitcroc-next` once per package with GITCROC_BUNDLE set (PLAT-4),
-# copies it beside itself as `gitcroc`, and packages that: cargo-packager
+# builds `gitcroc` once per package with GITCROC_BUNDLE set (PLAT-4) and
+# packages it: cargo-packager
 # 0.11.8 makes the NSIS installer, the `.app` and `.dmg`, the AppImage and
 # the `.deb`; cargo-generate-rpm 0.21.1 makes the `.rpm`. Nothing is
 # code-signed; the macOS app is signed ad hoc (SEC-7).

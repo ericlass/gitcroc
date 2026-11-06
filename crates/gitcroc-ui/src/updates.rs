@@ -1,5 +1,5 @@
 //! The updater as the app reports it (PLAT-4, D12), a port of
-//! `ui/src/stores/update.ts`: read with `update_status` at start, then kept
+//! rc.1's `ui/src/stores/update.ts`: read with `update_status` at start, then kept
 //! current by `UpdateStatusChanged`. The app decides when to check, what a
 //! package does with an update and whether Later still hides the notice;
 //! this forwards the user's choices. When an installed update is ready, the

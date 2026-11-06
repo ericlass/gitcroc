@@ -10,7 +10,6 @@ publish.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-specta.workspace = true
 # Random delimiter tokens of the prompt (SEC-5).
 uuid.workspace = true
 # The API providers (M4-03).

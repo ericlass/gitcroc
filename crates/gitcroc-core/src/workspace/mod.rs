@@ -46,9 +46,7 @@ const MIGRATIONS: &[Migration] = &[];
 const _: () = assert!(WORKSPACE_SCHEMA as usize == MIGRATIONS.len() + 1);
 
 /// Identifies a repo inside its workspace: `r1`, `r2` and so on.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, specta::Type,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct RepoId(pub String);
 
 impl RepoId {
@@ -64,7 +62,7 @@ impl std::fmt::Display for RepoId {
 }
 
 /// A repo as the UI sees it. The path is text for display only (PLAT-2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoView {
     pub id: RepoId,
     /// The repo's folder name.
@@ -75,7 +73,7 @@ pub struct RepoView {
 }
 
 /// Where the changes pane sits (UI-19).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Dock {
     Right,
@@ -85,7 +83,7 @@ pub enum Dock {
 /// The workspace's pane layout (section 10, UI-19): where the changes pane
 /// is docked and the pane sizes in CSS pixels. A field missing from the
 /// file is `None`, and the UI uses its default; TOML leaves `None` out.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaneLayout {
     pub dock: Option<Dock>,
     /// The tree pane's width.
@@ -99,7 +97,7 @@ pub struct PaneLayout {
 }
 
 /// A column of the history (UI-9).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HistoryColumn {
     Graph,
@@ -123,7 +121,7 @@ impl HistoryColumn {
 /// The order and widths in CSS pixels of the history's columns (UI-36).
 /// The subject takes the width that is left, so it has none. A field
 /// missing from the file is `None`, and the UI uses its default.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColumnLayout {
     pub order: Option<ColumnOrder>,
     pub graph: Option<u32>,
@@ -136,7 +134,7 @@ pub struct ColumnLayout {
 /// newer or hand-edited file keeps the workspace writable: names this build
 /// does not know and repeats are dropped, and missing columns follow in
 /// their default order.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct ColumnOrder(pub Vec<HistoryColumn>);
 
@@ -160,7 +158,7 @@ impl<'de> Deserialize<'de> for ColumnOrder {
 }
 
 /// A workspace as the UI sees it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceView {
     pub id: WorkspaceId,
     pub name: String,
@@ -178,7 +176,7 @@ pub struct WorkspaceView {
 }
 
 /// The open workspaces as the UI sees them (UI-27, UI-33).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceTabs {
     /// In tab order. Empty when every tab was closed.
     pub open: Vec<WorkspaceView>,
@@ -190,7 +188,7 @@ pub struct WorkspaceTabs {
 }
 
 /// A workspace file, for the list of every workspace (UI-28).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceListItem {
     pub id: WorkspaceId,
     pub name: String,

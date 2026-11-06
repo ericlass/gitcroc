@@ -415,7 +415,7 @@ pub struct Fixture {
     dir: tempfile::TempDir,
 }
 
-/// The app goes as `gitcroc-next`'s does when it quits: git's prompts get
+/// The app goes as `gitcroc`'s does when it quits: git's prompts get
 /// no answer first (D10). Dropping the runtime then waits for the threads
 /// that read git's output, so a git process left running hangs the test.
 impl Drop for Fixture {
@@ -484,7 +484,7 @@ impl Fixture {
                 ),
                 update_test: options.updates.as_ref().map(|(_, test)| *test),
                 // Git starts the app's binary as its askpass helper (D10).
-                askpass_helper: PathBuf::from(env!("CARGO_BIN_EXE_gitcroc-next")),
+                askpass_helper: PathBuf::from(env!("CARGO_BIN_EXE_gitcroc")),
                 event_capacity: options.capacity,
                 commit_graph_threshold: options.commit_graph_threshold,
                 fsmonitor_threshold: options.fsmonitor_threshold,

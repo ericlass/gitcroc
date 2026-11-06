@@ -12,7 +12,7 @@ use tokio::sync::{Mutex, RwLock};
 /// which git was chosen in Settings, if one was (`chosen`), and whether that
 /// path had no executable, so the search went on without it
 /// (`chosen_missing`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GitStatus {
     /// Detection has not finished yet.

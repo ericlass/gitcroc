@@ -58,18 +58,16 @@ impl Filter {
 }
 
 /// A point in time as git records it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Time {
-    /// Seconds since the Unix epoch. A JavaScript number holds it exactly;
-    /// specta refuses `i64` because it would be a `bigint`.
-    #[specta(type = i32)]
+    /// Seconds since the Unix epoch.
     pub seconds: i64,
     /// The recorded time zone, in seconds east of UTC.
     pub offset: i32,
 }
 
 /// The kind of a ref label on a history row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RefKind {
     /// `HEAD`, shown only when it is detached.
@@ -82,7 +80,7 @@ pub enum RefKind {
 }
 
 /// A ref pointing at a commit, by its short name.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RefLabel {
     pub kind: RefKind,
     pub name: String,
@@ -90,7 +88,7 @@ pub struct RefLabel {
 
 /// One commit of a history page. Text from the repo is decoded lossily
 /// (SEC-3).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CommitRow {
     pub hash: String,
     pub short_hash: String,

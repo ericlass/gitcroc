@@ -21,7 +21,7 @@ pub const SCAN_DEPTH: usize = 4;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
 /// What an add job did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddReport {
     pub workspace_id: WorkspaceId,
     pub job_id: JobId,
@@ -35,7 +35,7 @@ pub struct AddReport {
 
 /// A folder that was not added, and why. Git's own refusals carry git's
 /// message (SEC-6). The path is text for display only (PLAT-2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Refusal {
     pub path: String,
     pub reason: String,

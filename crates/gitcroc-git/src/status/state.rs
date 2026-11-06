@@ -8,7 +8,7 @@ use super::StatusError;
 
 /// An operation that stopped part way and waits to be continued or
 /// aborted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Operation {
     /// `MERGE_HEAD`.
@@ -28,7 +28,7 @@ pub enum Operation {
 }
 
 /// Whether a repo is in conflict state (OPS-1).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoState {
     /// The operation in progress, if any.
     pub operation: Option<Operation>,
@@ -44,7 +44,7 @@ impl RepoState {
 }
 
 /// Where `HEAD` is.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Head {
     /// On a branch; `hash` is `None` while it has no commit yet.
@@ -58,7 +58,7 @@ pub enum Head {
 }
 
 /// The branch the current branch tracks.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Upstream {
     /// As git shortens it, for example `origin/main`.
     pub name: String,
@@ -72,7 +72,7 @@ pub struct Upstream {
 }
 
 /// What a repo row shows (UI-3) and the cache keeps (PERF-3).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoSummary {
     pub head: Head,
     /// `None` when the branch has no upstream or `HEAD` is detached.
