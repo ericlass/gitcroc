@@ -1,5 +1,5 @@
 //! The window's one polite live status (M5-10), a port of
-//! `ui/src/stores/announcer.ts`: what a screen reader says without the
+//! rc.1's `ui/src/stores/announcer.ts`: what a screen reader says without the
 //! focus moving. A job of any tab that ended failed or in conflict is
 //! announced here, and so is a newer version's notice (PLAT-4). Progress
 //! is never announced, so a running job does not talk on every step.

@@ -30,11 +30,11 @@ pub use group::{GroupRun, SubJobError, SubJobSpec};
 pub use pool::{POOL_SIZE, Pool, Priority, Worker};
 
 /// Identifies a workspace. All session state is keyed by it (ARCH-9).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WorkspaceId(pub String);
 
 /// Identifies a job, unique while the app runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct JobId(pub u32);
 
 /// Hands out job ids for the whole app, starting at 1.
@@ -49,7 +49,7 @@ impl JobIds {
 
 /// A step of adding repos: `done` of `total` steps. A `total` of 0 means
 /// the number of steps is not known yet.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobProgress {
     pub job_id: JobId,
     pub workspace_id: WorkspaceId,
@@ -60,7 +60,7 @@ pub struct JobProgress {
 
 /// How a job ended (GRP-7). *Conflict* is not a failure: git left the repo
 /// in conflict state (OPS-1).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Outcome {
     Succeeded,
@@ -71,7 +71,7 @@ pub enum Outcome {
 }
 
 /// Why a job, or a repo of a group operation, was skipped.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SkipReason {
     /// Cancelled before it started, or killed while it ran (GRP-10).
@@ -84,7 +84,7 @@ pub enum SkipReason {
 }
 
 /// Where a job is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JobState {
     /// Waiting for its repos or for a worker.
@@ -94,7 +94,7 @@ pub enum JobState {
 }
 
 /// A job as the status bar and the job list show it (UI-21).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobView {
     pub job_id: JobId,
     pub workspace_id: WorkspaceId,
@@ -113,7 +113,6 @@ pub struct JobView {
     /// `Receiving objects`; `None` when the job reports no phases.
     pub step: Option<String>,
     /// When it began to run, in milliseconds since the Unix epoch.
-    #[specta(type = Option<f64>)]
     pub started_at: Option<u64>,
     /// How long it ran, in milliseconds; set when it ended.
     pub duration_ms: Option<u32>,
@@ -136,7 +135,7 @@ pub struct JobView {
 }
 
 /// A sub-job of a group operation: its repo and where it is.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubJob {
     pub repo_id: RepoId,
     pub repo_name: String,
@@ -146,7 +145,7 @@ pub struct SubJob {
 }
 
 /// One repo's line of a result report (section 3 "Result report").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoResult {
     pub repo_id: RepoId,
     pub repo_name: String,
@@ -338,7 +337,7 @@ pub struct JobHandle {
 }
 
 /// What [`Jobs::cancel`] did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CancelResult {
     /// It had not started and never will.

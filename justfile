@@ -15,6 +15,7 @@ check-rust:
     just coverage M3
     just coverage M4
     just coverage M5
+    just coverage M6
     just coverage spec
 
 # The accessibility tree of the real window, view by view (M6-25a): Linux
@@ -31,19 +32,11 @@ a11y:
 a11y-where-possible:
     {{ if os() == "linux" { "if command -v xvfb-run >/dev/null; then just a11y; else echo 'a11y: skipped; it needs xvfb-run'; fi" } else { "echo 'a11y: skipped; it runs on Linux only'" } }}
 
-# The GPUI app, `gitcroc-next` (M6-06), which M6-30 makes `gitcroc`. It
-# reads and writes the same settings, workspaces and cache as an installed
-# 1.0.0-rc.1, so it can be tried on real workspaces. Do not run both apps at
+# The app, `gitcroc`, in a debug build. It reads and writes the same
+# settings, workspaces and cache as an installed gitcroc. Do not run both at
 # once: each keeps its own copy of that state and writes it back.
-dev-next:
-    cargo run -p gitcroc-ui --bin gitcroc-next
-
-# The old web front end (ui/), the reference the M6 tasks port from, in a
-# browser with its fake core. It is not part of `just check`; M6-30 deletes
-# it.
-ui-reference:
-    pnpm --dir ui install --frozen-lockfile
-    pnpm --dir ui exec vite --mode fake
+dev:
+    cargo run -p gitcroc-ui --bin gitcroc
 
 # Format the workspace.
 fmt:
@@ -79,18 +72,18 @@ bench *flags:
     cargo run --quiet --release -p gitcroc-cli -- bench {{flags}}
 
 # UI-side budgets of section 9 (PERF-8) on the GPUI app and target-project,
-# Linux only. Builds `gitcroc-next` with the `perf-trace` feature into its own
+# Linux only. Builds `gitcroc` with the `perf-trace` feature into its own
 # target dir, never where a release builds, and runs it through
 # `gitcroc-cli bench-ui`, which prints JSON like `just bench`. Run by hand
 # before a release, pinned to 8 cores, with nothing else busy and the window
 # left in front: `taskset -c 0-7 just bench-ui`.
 bench-ui *flags:
-    CARGO_TARGET_DIR="{{justfile_directory()}}/target/bench-ui" cargo build --quiet --release -p gitcroc-ui --bin gitcroc-next --features perf-trace
-    cargo run --quiet --release -p gitcroc-cli -- bench-ui --app "{{justfile_directory()}}/target/bench-ui/release/gitcroc-next" {{flags}}
+    CARGO_TARGET_DIR="{{justfile_directory()}}/target/bench-ui" cargo build --quiet --release -p gitcroc-ui --bin gitcroc --features perf-trace
+    cargo run --quiet --release -p gitcroc-cli -- bench-ui --app "{{justfile_directory()}}/target/bench-ui/release/gitcroc" {{flags}}
 
 # Section 12: real-window smoke, isolated fixtures, Linux and Windows.
 smoke:
     cargo build -p gitcroc-cli
-    CARGO_TARGET_DIR="{{justfile_directory()}}/target/e2e" cargo test -p gitcroc-ui --bin gitcroc-next --features e2e qa_3_smoke
+    CARGO_TARGET_DIR="{{justfile_directory()}}/target/e2e" cargo test -p gitcroc-ui --bin gitcroc --features e2e qa_3_smoke
     CARGO_TARGET_DIR="{{justfile_directory()}}/target/e2e" cargo build -p gitcroc-ui --features e2e
-    python .github/scripts/smoke.py --app "{{justfile_directory()}}/target/e2e/debug/gitcroc-next{{if os() == "windows" { ".exe" } else { "" }}}" --cli "{{justfile_directory()}}/target/debug/gitcroc-cli{{if os() == "windows" { ".exe" } else { "" }}}"
+    python .github/scripts/smoke.py --app "{{justfile_directory()}}/target/e2e/debug/gitcroc{{if os() == "windows" { ".exe" } else { "" }}}" --cli "{{justfile_directory()}}/target/debug/gitcroc-cli{{if os() == "windows" { ".exe" } else { "" }}}"

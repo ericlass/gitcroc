@@ -845,7 +845,7 @@ fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
     panic!("{what}");
 }
 
-/// D10: the app quits, as `gitcroc-next`'s `main` does, while a fetch
+/// D10: the app quits, as `gitcroc`'s `main` does, while a fetch
 /// waits on git's prompt. The shutdown gives the helper no answer and it
 /// exits with status 1; then git's remote helper, the process that talks
 /// to the host and that git waits on, ends: nothing is left waiting on the

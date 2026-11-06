@@ -19,7 +19,7 @@ const MARKERS: [u8; 4] = *b"<|=>";
 const ALGORITHM: Algorithm = Algorithm::Histogram;
 
 /// A part of a conflicted text file (OPS-3, OPS-8).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConflictChunk {
     /// Text both sides agree on, or that only one side changed.

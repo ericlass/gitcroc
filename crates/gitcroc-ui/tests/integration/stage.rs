@@ -388,6 +388,42 @@ fn ui_15_stage_and_unstage_files_from_the_lists(cx: &mut TestAppContext) {
     );
 }
 
+/// UI-15: a read of the lists that lands after a Shift or Ctrl click, as
+/// the watcher's or a finished job's does, keeps the marked files that are
+/// still in their list. Before, it marked only the selected file, so a
+/// later stage acted on one file instead of the run.
+#[gpui::test]
+fn ui_15_a_new_read_of_the_lists_keeps_the_marked_files(cx: &mut TestAppContext) {
+    let fixture = Fixture::start(EVENT_CAPACITY);
+    let made = repos(&["api"]);
+    let api = repo(&made, "api");
+    for file in ["a.txt", "b.txt", "c.txt"] {
+        api.write(file, "x\n").unwrap();
+    }
+    let added = add(&fixture, &made);
+    let (mut cx, window) = main_window(cx, &fixture);
+    show_uncommitted(&mut cx, &window, &added, "api");
+    wait_for_lists(&mut cx, &window, &[], &["a.txt", "b.txt", "c.txt"]);
+
+    let a = row_of(&mut cx, &window, List::Unstaged, "a.txt");
+    click(&mut cx, row(a));
+    let c = row_of(&mut cx, &window, List::Unstaged, "c.txt");
+    click_with(&mut cx, row(c), Modifiers::shift());
+    assert_eq!(marked(&mut cx, &window), ["a.txt", "b.txt", "c.txt"]);
+
+    // A new file makes the next read differ, so it is known to have landed.
+    api.write("d.txt", "x\n").unwrap();
+    fixture.refresh(&fixture.active());
+    wait_for_lists(&mut cx, &window, &[], &["a.txt", "b.txt", "c.txt", "d.txt"]);
+    assert_eq!(marked(&mut cx, &window), ["a.txt", "b.txt", "c.txt"]);
+
+    // A marked file that left its list leaves the marks.
+    api.remove("b.txt").unwrap();
+    fixture.refresh(&fixture.active());
+    wait_for_lists(&mut cx, &window, &[], &["a.txt", "c.txt", "d.txt"]);
+    assert_eq!(marked(&mut cx, &window), ["a.txt", "c.txt"]);
+}
+
 #[gpui::test]
 fn ui_15_several_files_go_in_one_job(cx: &mut TestAppContext) {
     let fixture = Fixture::start(EVENT_CAPACITY);
@@ -437,11 +473,13 @@ fn ui_15_several_files_go_in_one_job(cx: &mut TestAppContext) {
     click_with(&mut cx, row(a), secondary);
     assert_eq!(marked(&mut cx, &window), ["a.txt"]);
 
-    // Back to the run, which one job stages.
+    // Back to the run, which one job stages. A read of the lists that lands
+    // now keeps it.
     let b = row_of(&mut cx, &window, List::Unstaged, "b.txt");
     click(&mut cx, row(b));
     let e = row_of(&mut cx, &window, List::Unstaged, "e.txt");
     click_with(&mut cx, row(e), Modifiers::shift());
+    assert_eq!(marked(&mut cx, &window), ["b.txt", "d.txt", "e.txt"]);
     let before = jobs(&fixture, "Stage").len();
     let d = row_of(&mut cx, &window, List::Unstaged, "d.txt");
     act_until(
@@ -527,10 +565,19 @@ fn ui_15_stage_unstage_and_discard_a_hunk(cx: &mut TestAppContext) {
         label_of(&mut cx, "discard-text".into()).as_deref(),
         Some("This hunk is lost; it cannot be restored:")
     );
+    // A newer read that overtakes the discard has closed the dialog; the
+    // retry asks again, as the user would.
     act_until(
         &mut cx,
         &window,
-        |cx| click(cx, "dialog-submit".into()),
+        |cx| {
+            if !present(cx, "discard-dialog".into()) {
+                show_diff(cx, &window, List::Unstaged, "a.txt");
+                click(cx, hunk_control(0, "discard"));
+                wait_for_element(cx, "discard-dialog".into());
+            }
+            click(cx, "dialog-submit".into());
+        },
         &["a.txt"],
         &[],
     );

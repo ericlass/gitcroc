@@ -1,5 +1,5 @@
 //! This run's jobs as the app reports them (ARCH-7, UI-21), a port of
-//! `ui/src/stores/jobs.ts`: read with `jobs_get` at start and after events
+//! rc.1's `ui/src/stores/jobs.ts`: read with `jobs_get` at start and after events
 //! were dropped, then kept current by `JobProgress` and `JobEnded`. One
 //! model serves the whole window, as the job list covers every tab. It
 //! decides nothing about a job (ARCH-6); besides the mirror it keeps only

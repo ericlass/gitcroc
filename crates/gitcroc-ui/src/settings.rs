@@ -1,5 +1,5 @@
 //! The settings as the core last reported them (ARCH-6), a port of
-//! `ui/src/stores/settings.ts`: read with `settings_get` when the window
+//! rc.1's `ui/src/stores/settings.ts`: read with `settings_get` when the window
 //! opens, then replaced by the view each change returns. The window applies
 //! the theme, the fonts and the title bar from it (UI-23, UI-24, UI-26,
 //! UI-35) and shows its warning (DATA-1); the Settings dialog shows it and

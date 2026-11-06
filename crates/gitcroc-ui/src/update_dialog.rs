@@ -1,4 +1,4 @@
-//! The update dialog (PLAT-4), a port of `ui/src/update/UpdateDialog.tsx`:
+//! The update dialog (PLAT-4), a port of rc.1's `ui/src/update/UpdateDialog.tsx`:
 //! the running and the new version, the release notes as plain text
 //! (SEC-3), and what the package does with an update: Install and restart
 //! for the Windows installer, the macOS app and the AppImage, Open download

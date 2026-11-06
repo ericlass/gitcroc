@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// A stash entry as the tree showed it: `stash@{index}` with this commit.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StashRef {
     pub index: u32,
     /// The stash commit's full hash.
@@ -28,7 +28,7 @@ pub struct StashRef {
 }
 
 /// A stash operation (section 6 "Stash").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StashOp {
     /// Stashes the working copy's changes, with `message` unless it is
@@ -47,7 +47,7 @@ pub enum StashOp {
 }
 
 /// A stash operation on one repo.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StashRequest {
     pub repo_id: RepoId,
     pub op: StashOp,
@@ -56,7 +56,7 @@ pub struct StashRequest {
 }
 
 /// What a request did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StashStart {
     /// The job runs; its end re-reads the repo (OPS-7).

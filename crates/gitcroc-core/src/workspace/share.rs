@@ -27,7 +27,7 @@ use crate::WorkspaceId;
 use crate::config_file::{self, ConfigWarning};
 
 /// What an export wrote. Paths are text for display only (PLAT-2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExportReport {
     /// The file written.
     pub path: String,
@@ -37,7 +37,7 @@ pub struct ExportReport {
 }
 
 /// What an import created.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportReport {
     /// The new workspace, opened as the active tab.
     pub workspace_id: WorkspaceId,
@@ -47,7 +47,7 @@ pub struct ImportReport {
 
 /// A repo of the workspace whose folder is missing or is no repo, and
 /// where a clone of it goes by default (DATA-2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MissingRepo {
     pub repo_id: RepoId,
     pub name: String,

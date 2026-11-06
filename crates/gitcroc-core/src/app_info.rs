@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// What the running build is and where it runs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppInfo {
     pub name: String,
     pub version: String,

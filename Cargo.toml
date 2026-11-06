@@ -30,11 +30,6 @@ repo-gen = { path = "tools/repo-gen" }
 thiserror = "2.0.21"
 serde = { version = "1.0.229", features = ["derive"] }
 
-# The derives the IPC types had (section 4 "Stack"), kept on the core's
-# types until M6-30 removes them. The exact version is recorded in the M0-05
-# pull request.
-specta = { version = "=2.0.0-rc.25", features = ["derive"] }
-
 # Return freed Rust allocations independently of glibc's per-thread arenas (M5-17).
 tikv-jemallocator = "0.7.0"
 tikv-jemalloc-ctl = "0.7.0"

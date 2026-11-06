@@ -49,7 +49,7 @@ impl ConfigDir for PlatformConfigDir {
 }
 
 /// The app theme (UI-23).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Theme {
     /// Follow the OS light or dark mode, live.
@@ -60,7 +60,7 @@ pub enum Theme {
 }
 
 /// How the diff shows a text file (UI-17).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiffMode {
     #[default]
@@ -69,7 +69,7 @@ pub enum DiffMode {
 }
 
 /// How the changes pane lists files (UI-14).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileListMode {
     #[default]
@@ -79,7 +79,7 @@ pub enum FileListMode {
 
 /// The changes pane's view, remembered for every workspace (UI-14,
 /// UI-17). A key missing from the file takes its default (see [`decode`]).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangesSettings {
     pub diff_mode: DiffMode,
     pub file_list: FileListMode,
@@ -90,7 +90,7 @@ pub struct ChangesSettings {
 
 /// A code theme for diffs and the conflict editor (UI-24). The UI holds
 /// their colors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CodeTheme {
     GithubLight,
@@ -112,7 +112,7 @@ pub const DEFAULT_FONT_SIZE: u32 = 13;
 
 /// Code themes, fonts and the title bar (UI-24, UI-26, UI-35). Saved as
 /// top-level keys of the file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Appearance {
     /// Used while the app theme resolves to light.
     pub code_theme_light: CodeTheme,
@@ -170,7 +170,7 @@ pub const MAX_GROUP_PARALLELISM: u32 = 32;
 
 /// How group operations run (section 5 "Lifecycle of a group operation").
 /// Saved as top-level keys of the file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GroupSettings {
     /// How many sub-jobs run at once, [`MIN_GROUP_PARALLELISM`] to
     /// [`MAX_GROUP_PARALLELISM`]. The pool that jobs and the refresh share
@@ -207,7 +207,7 @@ impl GroupSettings {
 
 /// Every setting. A key missing from the file takes its default (see
 /// [`decode`]).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     pub theme: Theme,
     #[serde(flatten)]
@@ -254,7 +254,7 @@ struct SettingsFile {
 }
 
 /// The settings as the UI sees them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingsView {
     pub settings: Settings,
     /// The app checks for updates by itself (D12); on by default.

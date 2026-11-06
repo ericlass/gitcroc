@@ -1,5 +1,5 @@
-//! D15: the UI's text comes from `src/strings.rs`. As `ui/src/strings/
-//! strings.test.ts` does for the web front end, this test parses every
+//! D15: the UI's text comes from `src/strings.rs`. As rc.1's `ui/src/strings/
+//! strings.test.ts` did for the web front end, this test parses every
 //! source file and reports UI text written inline: string literals with a
 //! letter in them that reach the user through a text method or parameter
 //! (`child`, `aria_label`, `label`, a menu item's name, …) or a text field

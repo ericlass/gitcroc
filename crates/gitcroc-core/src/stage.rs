@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// What to do with the files or the hunk.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangeAction {
     /// Unstaged to staged.
@@ -32,7 +32,7 @@ pub enum ChangeAction {
 }
 
 /// Which changes of a view.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChangeTarget {
     /// Whole files, all of one list.
@@ -43,7 +43,7 @@ pub enum ChangeTarget {
 }
 
 /// What a request did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChangeStart {
     /// The job runs; its end re-reads the repo (OPS-7).
@@ -176,7 +176,7 @@ fn files_of(
 }
 
 /// A stage, unstage or discard request of the changes pane.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangeRequest {
     /// The view whose files or diff the request names.
     pub handle: u32,

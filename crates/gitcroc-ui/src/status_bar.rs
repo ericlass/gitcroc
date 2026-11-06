@@ -1,4 +1,4 @@
-//! The status bar of UI-21, a port of `ui/src/layout/StatusBar.tsx`: the
+//! The status bar of UI-21, a port of rc.1's `ui/src/layout/StatusBar.tsx`: the
 //! active tab's running jobs with their progress; with none running, the
 //! outcome of the job that ended last for a while, then a failed or
 //! conflicted job until the job list has shown it. It is a button: a click,

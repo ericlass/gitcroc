@@ -1,4 +1,4 @@
-//! The command palette (UI-22), a port of `ui/src/palette/Palette.tsx`: a
+//! The command palette (UI-22), a port of rc.1's `ui/src/palette/Palette.tsx`: a
 //! text box above the core's answer to it, virtualized (PERF-1). Each
 //! change of the text asks the core again, off the UI thread (ARCH-7); the
 //! list keeps the last answer until a newer one arrives, so typing never

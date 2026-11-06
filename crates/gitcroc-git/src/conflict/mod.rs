@@ -29,7 +29,7 @@ pub const MAX_CONFLICT_TEXT: u64 = 1024 * 1024;
 const BINARY_PROBE: usize = 8_000;
 
 /// A conflicted file (OPS-3, OPS-8).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Conflict {
     /// The path for display, decoded lossily (PLAT-2).
     pub path: String,
@@ -93,7 +93,7 @@ impl Conflict {
 }
 
 /// What the editor shows of a conflicted file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConflictContent {
     /// The file merged in diff3 style, in order (OPS-8).
@@ -107,7 +107,7 @@ pub enum ConflictContent {
 }
 
 /// Why a conflict is a choice and not text hunks (OPS-6).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChoiceKind {
     /// Binary content: a NUL in the first 8,000 bytes of a side, or the
@@ -137,18 +137,16 @@ pub enum ChoiceKind {
 }
 
 /// What a side of a choice conflict holds (OPS-6).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SideHolds {
     Deleted,
-    /// Sizes in bytes, typed for specta like [`crate::Image::size`].
+    /// Sizes in bytes.
     File {
-        #[specta(type = u32)]
         size: u64,
         executable: bool,
     },
     Symlink {
-        #[specta(type = u32)]
         size: u64,
     },
     /// The submodule's commit, a full hash.

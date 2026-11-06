@@ -15,7 +15,7 @@ use crate::changes::ViewState;
 use crate::{Changes, ChangesError, GitRunner, JobId, Jobs, WorkspaceId, WriteJob};
 
 /// What `conflict_get` found.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConflictRead {
     Conflict {
@@ -27,7 +27,7 @@ pub enum ConflictRead {
 }
 
 /// What a resolution request did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ConflictStart {
     /// The job runs; its end re-reads the repo (OPS-7).
@@ -42,7 +42,7 @@ pub enum ConflictStart {
 }
 
 /// Mark resolved with the editor's text (OPS-5).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolveRequest {
     /// The changes view whose unmerged list `file` is from.
     pub handle: u32,
@@ -53,7 +53,7 @@ pub struct ResolveRequest {
 }
 
 /// A side of a conflict.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConflictChoice {
     Ours,
@@ -61,7 +61,7 @@ pub enum ConflictChoice {
 }
 
 /// Resolve with one side (OPS-6).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChooseRequest {
     pub handle: u32,
     pub file: u32,

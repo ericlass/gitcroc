@@ -2,7 +2,7 @@
 
 What `just a11y` cannot check: what a screen reader actually says. These
 scripts are M6-04's NVDA and VoiceOver scripts, rewritten for
-`gitcroc-next`, plus an Orca variant for Linux. They are run before
+`gitcroc`, plus an Orca variant for Linux. They are run before
 release, at M6-31's sign-off, on Windows, macOS and Linux, and each table is
 filled in (README decisions table, "Accessibility bar in M6", must 9).
 
@@ -12,7 +12,7 @@ From the repository root, once:
 
 ```sh
 just bench-data target-project
-cargo build --release -p gitcroc-ui --bin gitcroc-next
+cargo build --release -p gitcroc-ui --bin gitcroc
 ```
 
 Then make two small repos from the fixture in a folder of their own, so the
@@ -30,7 +30,7 @@ echo "for the walkthrough" > ../a11y-walk/api/notes.txt
 (In PowerShell the same commands work, with `New-Item -ItemType Directory
 ..\a11y-walk` for `mkdir -p` and `Set-Content` for `echo … >`.)
 
-Start `target/release/gitcroc-next`. It shares its settings and workspaces
+Start `target/release/gitcroc`. It shares its settings and workspaces
 with an installed gitcroc, so make a workspace for the walkthrough: Open
 workspace, New workspace…, named `a11y-walk`. Add repository, Add folder…,
 and pick `a11y-walk`. Delete the workspace and the folder afterwards.

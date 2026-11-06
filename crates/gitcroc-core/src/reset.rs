@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// What a reset puts at the commit besides the branch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResetMode {
     /// The branch only; the index and the working tree stay.
@@ -31,7 +31,7 @@ pub enum ResetMode {
 }
 
 /// A reset of the current branch of one repo to `commit`, a hash.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResetRequest {
     pub repo_id: RepoId,
     pub commit: String,
@@ -41,7 +41,7 @@ pub struct ResetRequest {
 }
 
 /// What a request did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ResetStart {
     /// The job runs; its end re-reads the repo (OPS-7).

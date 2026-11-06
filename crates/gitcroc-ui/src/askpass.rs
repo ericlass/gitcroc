@@ -1,5 +1,5 @@
 //! Git's prompt that it cannot answer silently (D10), a port of
-//! `ui/src/AskpassDialog.tsx`: a credential, or an SSH host key question.
+//! rc.1's `ui/src/AskpassDialog.tsx`: a credential, or an SSH host key question.
 //! It names the job, its repos and the workspace; the prompt is shown as
 //! text (SEC-3), and a password or passphrase is masked. Escape and Cancel
 //! give git no answer. The answer is sent and not kept: the field and its

@@ -1,5 +1,5 @@
 //! The Git tab of Settings, a port of the second panel of
-//! `ui/src/SettingsDialog.tsx`: the git in use, its version and path, and
+//! rc.1's `ui/src/SettingsDialog.tsx`: the git in use, its version and path, and
 //! when the chosen git is missing, what is used instead (PLAT-3); Choose
 //! git… and Use automatic detection, as on the setup screen; and how group
 //! operations run (section 5): how many repos at once, and whether the

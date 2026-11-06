@@ -57,7 +57,7 @@ pub struct WatchedPath {
 
 /// Watching a workspace failed, at least in part. Changes made outside the
 /// app then show when the window regains focus (OPS-7).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WatchWarning {
     pub workspace_id: WorkspaceId,
     pub message: String,

@@ -3,10 +3,9 @@
 # calls this workflow, and so does release.yml (M6-28b), so the build steps
 # live only here.
 #
-# Each package's binary is its own release build of `gitcroc-next` with
+# Each package's binary is its own release build of `gitcroc` with
 # GITCROC_BUNDLE set, which marks the package it came from (PLAT-4). The
-# packaging step copies it beside itself as `gitcroc`, the name the packages
-# install. The portable zip packs the installer's binary, and the .dmg holds
+# portable zip packs the installer's binary, and the .dmg holds
 # the .app. Nothing is code-signed or notarized; the macOS app and .dmg are
 # signed ad hoc (SEC-7). No update package is signed here; release.yml signs
 # them with the updater key (M6-28b).
@@ -114,10 +113,9 @@ jobs:
       - name: Build the installer's binary
         env:
           GITCROC_BUNDLE: nsis
-        run: cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
+        run: cargo build --release --locked -p gitcroc-ui --bin gitcroc $FEATURES
       - name: Package the NSIS installer
         run: |
-          cp target/release/gitcroc-next.exe target/release/gitcroc.exe
           mkdir -p dist
           cargo packager --release -p gitcroc-ui --formats nsis --out-dir dist
       # The installer's binary, as M0-08 packed it.
@@ -148,8 +146,7 @@ jobs:
         run: |
           newer=$(python .github/scripts/update_version.py --bump)
           echo "NEWER=$newer" >> "$GITHUB_ENV"
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
-          cp target/release/gitcroc-next.exe target/release/gitcroc.exe
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc $FEATURES
           # As for A: cargo-packager takes an out-dir that does not exist yet
           # as relative to the crate.
           mkdir -p dist/b
@@ -217,15 +214,15 @@ jobs:
         env:
           GITCROC_BUNDLE: app
         run: |
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target aarch64-apple-darwin $FEATURES
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target x86_64-apple-darwin $FEATURES
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc --target aarch64-apple-darwin $FEATURES
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc --target x86_64-apple-darwin $FEATURES
       # D6: one universal binary, joined with lipo.
       - name: Join them into a universal binary
         run: |
           out=target/universal-apple-darwin/release
           mkdir -p "$out"
           lipo -create -output "$out/gitcroc" \
-            target/aarch64-apple-darwin/release/gitcroc-next target/x86_64-apple-darwin/release/gitcroc-next
+            target/aarch64-apple-darwin/release/gitcroc target/x86_64-apple-darwin/release/gitcroc
           lipo -info "$out/gitcroc"
       # cargo-packager signs the .app with the identity `-` of the config.
       - name: Package the .app and .dmg, ad hoc signed
@@ -266,10 +263,10 @@ jobs:
         run: |
           newer=$(python3 .github/scripts/update_version.py --bump)
           echo "NEWER=$newer" >> "$GITHUB_ENV"
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target aarch64-apple-darwin $FEATURES
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next --target x86_64-apple-darwin $FEATURES
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc --target aarch64-apple-darwin $FEATURES
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc --target x86_64-apple-darwin $FEATURES
           lipo -create -output target/universal-apple-darwin/release/gitcroc \
-            target/aarch64-apple-darwin/release/gitcroc-next target/x86_64-apple-darwin/release/gitcroc-next
+            target/aarch64-apple-darwin/release/gitcroc target/x86_64-apple-darwin/release/gitcroc
           mkdir -p dist/b
           cargo packager --release -p gitcroc-ui --target universal-apple-darwin --formats app --out-dir dist/b
           codesign --verify --deep --strict dist/b/gitcroc.app
@@ -344,8 +341,7 @@ jobs:
         env:
           GITCROC_BUNDLE: appimage
         run: |
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
-          cp target/release/gitcroc-next target/release/gitcroc
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc $FEATURES
           mkdir -p dist
           cargo packager --release -p gitcroc-ui --formats appimage --out-dir dist
           # cargo-packager names it x86_64; rc.1's name is amd64.
@@ -354,16 +350,14 @@ jobs:
         env:
           GITCROC_BUNDLE: deb
         run: |
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
-          cp target/release/gitcroc-next target/release/gitcroc
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc $FEATURES
           cargo packager --release -p gitcroc-ui --formats deb --out-dir dist
           dpkg-deb --info "dist/gitcroc_${VERSION}_amd64.deb"
       - name: Build and package the .rpm
         env:
           GITCROC_BUNDLE: rpm
         run: |
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
-          cp target/release/gitcroc-next target/release/gitcroc
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc $FEATURES
           # An RPM version has no '-'; a pre-release takes '~', which sorts
           # it before the release (Eric, 2026-11-04). The file keeps rc.1's
           # name.
@@ -390,8 +384,7 @@ jobs:
         run: |
           newer=$(python3 .github/scripts/update_version.py --bump)
           echo "NEWER=$newer" >> "$GITHUB_ENV"
-          cargo build --release --locked -p gitcroc-ui --bin gitcroc-next $FEATURES
-          cp target/release/gitcroc-next target/release/gitcroc
+          cargo build --release --locked -p gitcroc-ui --bin gitcroc $FEATURES
           mkdir -p dist/b
           cargo packager --release -p gitcroc-ui --formats appimage --out-dir dist/b
           mv "dist/b/gitcroc_${newer}_x86_64.AppImage" "dist/b/gitcroc_${newer}_amd64.AppImage"

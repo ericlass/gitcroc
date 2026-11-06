@@ -1,7 +1,7 @@
-//! `gitcroc-next`: the GPUI app, until M6-30 makes it `gitcroc`.
+//! `gitcroc`: the app.
 //!
-//!   gitcroc-next [--exit-after-first-frame]
-//!   gitcroc-next --bench <script.json> <trace.json>     (`perf-trace` builds)
+//!   gitcroc [--exit-after-first-frame]
+//!   gitcroc --bench <script.json> <trace.json>     (`perf-trace` builds)
 //!
 //! It reads and writes the same settings, workspaces, cache and log as an
 //! installed 1.0.0-rc.1. With `--exit-after-first-frame` it exits 0 once the
@@ -40,9 +40,9 @@ static NO_FONTS: AtomicBool = AtomicBool::new(false);
 static BENCH_FAILED: AtomicBool = AtomicBool::new(false);
 
 const USAGE: &str = if cfg!(feature = "perf-trace") {
-    "usage: gitcroc-next [--exit-after-first-frame | --bench <script.json> <trace.json>]"
+    "usage: gitcroc [--exit-after-first-frame | --bench <script.json> <trace.json>]"
 } else {
-    "usage: gitcroc-next [--exit-after-first-frame]"
+    "usage: gitcroc [--exit-after-first-frame]"
 };
 
 #[cfg(feature = "e2e")]

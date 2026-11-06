@@ -27,7 +27,7 @@ use crate::{
 
 /// What a group checkout does in a repo without branch X (section 5
 /// "Checkout branch X").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MissingBranch {
     /// The repo is skipped.
@@ -41,7 +41,7 @@ pub enum MissingBranch {
 /// A group-capable operation with its options (section 5 "Group-capable
 /// operations"). Names are typed or picked once and resolved in each repo
 /// (GRP-14).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GroupOp {
     /// Fetches all remotes.
@@ -299,7 +299,7 @@ fn branches(
 }
 
 /// A repo's class in a preflight (section 5, step 1).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Class {
     WillRun,

@@ -24,7 +24,7 @@ use crate::{
 /// A tag operation (section 6 "Tags"). `remote` picks where a push or a
 /// delete on the remote goes; `None` lets the core pick `origin` or the
 /// only remote.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TagOp {
     /// Creates tag `name` at `commit`, a hash, or at `HEAD` when `None`:
@@ -53,7 +53,7 @@ pub enum TagOp {
 }
 
 /// A tag operation on one repo.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TagRequest {
     pub repo_id: RepoId,
     pub op: TagOp,
@@ -62,7 +62,7 @@ pub struct TagRequest {
 }
 
 /// What a request did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TagStart {
     /// The job runs; its end re-reads the repo (OPS-7).

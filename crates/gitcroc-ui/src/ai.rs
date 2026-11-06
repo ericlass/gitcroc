@@ -1,5 +1,5 @@
 //! The AI settings as the core reports them, a port of
-//! `ui/src/stores/ai.ts`: read with `ai_providers_get` at start, then kept
+//! rc.1's `ui/src/stores/ai.ts`: read with `ai_providers_get` at start, then kept
 //! current by `AiChanged`, with each model list and self-test the user
 //! asked for from `AiModels` and `AiSelfTest`. It keeps no copy of its own
 //! (ARCH-6) and never a key (SEC-1): a typed key is handed straight to the

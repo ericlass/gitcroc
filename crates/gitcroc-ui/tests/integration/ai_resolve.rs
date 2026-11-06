@@ -1,6 +1,6 @@
 //! M6-23b: Resolve with AI in the conflict editor, the consent dialog and
 //! the workspace switch (AI-3, AI-4, AI-5, AI-6, AI-9, AI-11, AI-12, AI-14,
-//! AI-16, SEC-3, UI-22), the port of `ui/src/conflict/ai.test.tsx` and
+//! AI-16, SEC-3, UI-22), the port of rc.1's `ui/src/conflict/ai.test.tsx` and
 //! `ui/e2e/conflict.spec.ts`'s AI flow. Real git conflicts (QA-2); the
 //! providers are the fixture's scripted fake with its mock provider, so no
 //! test reaches a network or a CLI, and a held reply is released by the

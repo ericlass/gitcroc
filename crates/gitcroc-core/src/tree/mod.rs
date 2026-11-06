@@ -34,7 +34,7 @@ pub const UNGROUPED_ID: &str = "ungrouped";
 
 /// One node of the tree. Ids are unique within a workspace and stable
 /// across reads, so the UI can keep expanded and selected nodes by id.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TreeNode {
     pub id: String,
     /// What the row shows: a repo name, a ref name or one folder of one.
@@ -46,7 +46,7 @@ pub struct TreeNode {
 }
 
 /// What a node stands for.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TreeItem {
     /// A group (UI-4), with what its row shows (GRP-4).
@@ -139,9 +139,7 @@ pub enum TreeItem {
         /// The stash commit's full hash: what a stash operation names it by.
         hash: String,
         message: String,
-        /// Seconds since the Unix epoch. A plain `number` in TypeScript,
-        /// which `i64` is not by default.
-        #[specta(type = i32)]
+        /// Seconds since the Unix epoch.
         seconds: i64,
     },
 }

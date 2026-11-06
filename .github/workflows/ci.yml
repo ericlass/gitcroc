@@ -83,15 +83,15 @@ jobs:
       # A real window opens and presents a frame (M6-03): under Xvfb with
       # lavapipe on Linux, on WARP on Windows, on Metal on macOS. The test
       # build has already built the binary.
-      - name: gitcroc-next presents its first frame
+      - name: gitcroc presents its first frame
         shell: bash
         timeout-minutes: 5
         run: |
-          cargo build -p gitcroc-ui --bin gitcroc-next
+          cargo build -p gitcroc-ui --bin gitcroc
           if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run -a target/debug/gitcroc-next --exit-after-first-frame
+            xvfb-run -a target/debug/gitcroc --exit-after-first-frame
           else
-            target/debug/gitcroc-next --exit-after-first-frame
+            target/debug/gitcroc --exit-after-first-frame
           fi
 
       - uses: actions/setup-python@v7

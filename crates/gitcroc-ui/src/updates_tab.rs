@@ -1,4 +1,4 @@
-//! The Updates tab of Settings, a port of `ui/src/update/UpdateSection.tsx`
+//! The Updates tab of Settings, a port of rc.1's `ui/src/update/UpdateSection.tsx`
 //! (D12, SEC-7): the automatic check, on by default and saved with the
 //! settings; the last result with its time; and Check now, which also runs
 //! while automatic checks are off. A failed check shows here and nowhere

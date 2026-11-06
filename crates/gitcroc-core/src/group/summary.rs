@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{GroupId, RepoId, Summaries, SummaryView, WorkspaceError, WorkspaceId, Workspaces};
 
 /// A group's branch as the tree shows it (GRP-4).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GroupBranch {
     /// No member counts yet: none has a summary, or all are missing.
@@ -25,7 +25,7 @@ pub enum GroupBranch {
 
 /// What a group's row shows (UI-4), sent with its tree node and as event
 /// `group_summary` when a member's summary changes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GroupSummary {
     pub workspace_id: WorkspaceId,
     pub group_id: GroupId,

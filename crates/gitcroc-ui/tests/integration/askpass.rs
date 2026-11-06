@@ -1,5 +1,5 @@
 //! Git's prompts in the window (D10): a fetch from a host that wants a
-//! password asks in the askpass dialog, with `gitcroc-next` as git's
+//! password asks in the askpass dialog, with `gitcroc` as git's
 //! helper, and the answer goes to git. The dialog empties its field and is
 //! dropped once it has answered, so nothing keeps what was typed (SEC-1).
 
@@ -229,7 +229,7 @@ fn d10_askpass_prompts_queue(cx: &mut TestAppContext) {
     assert!(titles[1].contains(": web in "), "{titles:?}");
 }
 
-/// D10: the app shuts down, as `gitcroc-next` does when it quits, while
+/// D10: the app shuts down, as `gitcroc` does when it quits, while
 /// the dialog is open: git gets no answer, the dialog goes, and what was
 /// typed is emptied (SEC-1).
 #[gpui::test]

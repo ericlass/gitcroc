@@ -1,6 +1,6 @@
 //! gitcroc's native UI (section 8) on GPUI: views over the app's API in
 //! `gitcroc-app`, with no source of truth and no business logic of their
-//! own (ARCH-6). `gitcroc-next` runs it until M6-30.
+//! own (ARCH-6). The `gitcroc` binary runs it.
 
 // GPUI's test macro names the crate `gpui`.
 #[cfg(test)]
